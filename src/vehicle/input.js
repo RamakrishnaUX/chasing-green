@@ -3,7 +3,7 @@
 export class Input {
   constructor(canvas) {
     this.keys = new Set();
-    this.touch = { left: false, right: false, gas: false, brake: false, nitro: false };
+    this.touch = { left: false, right: false, gas: false, brake: false, nitro: false, nitroSlide: false, nitroArmed: false };
     this.look = { dx: 0, dy: 0 };
     this.pressed = new Set(); // one-shot keys for this frame
     this.enabled = true;
@@ -16,7 +16,7 @@ export class Input {
       this.keys.add(k);
     });
     addEventListener('keyup', (e) => this.keys.delete(e.key.toLowerCase()));
-    addEventListener('blur', () => { this.keys.clear(); Object.keys(this.touch).forEach((k) => (this.touch[k] = false)); });
+    addEventListener('blur', () => { this.keys.clear(); Object.keys(this.touch).forEach((k) => { if (k !== 'nitroArmed') this.touch[k] = false; }); });
 
     // Drag on the canvas to look around (mouse or a finger that is not on a button).
     let dragId = null, lx = 0, ly = 0;
@@ -41,6 +41,35 @@ export class Input {
     el.addEventListener('contextmenu', (e) => e.preventDefault());
   }
 
+  // Go pedal: hold to drive. Slide the same finger up off the button to fire nitro, slide back
+  // down to ease off. Pointer capture keeps the press alive while the finger moves.
+  bindGasButton(el, onSlide) {
+    let id = null, y0 = 0;
+    const SLIDE = 36;
+    el.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      id = e.pointerId; y0 = e.clientY;
+      try { el.setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
+      this.touch.gas = true; el.classList.add('is-down');
+    });
+    el.addEventListener('pointermove', (e) => {
+      if (e.pointerId !== id) return;
+      const up = y0 - e.clientY > SLIDE;
+      if (up !== this.touch.nitroSlide) { this.touch.nitroSlide = up; el.classList.toggle('is-boost', up); onSlide?.(up); }
+    });
+    const off = (e) => {
+      if (e.pointerId !== id) return;
+      id = null;
+      this.touch.gas = false; this.touch.nitroSlide = false;
+      el.classList.remove('is-down', 'is-boost');
+      onSlide?.(false);
+    };
+    el.addEventListener('pointerup', off);
+    el.addEventListener('pointercancel', off);
+    el.addEventListener('lostpointercapture', off);
+    el.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+
   get throttle() {
     if (!this.enabled) return 0;
     const k = this.keys;
@@ -58,7 +87,7 @@ export class Input {
     return s;
   }
   get handbrake() { return this.enabled && this.keys.has('shift'); }
-  get nitro() { return this.enabled && this.nitroAllowed && (this.keys.has(' ') || this.touch.nitro); }
+  get nitro() { return this.enabled && this.nitroAllowed && (this.keys.has(' ') || this.touch.nitro || this.touch.nitroSlide || this.touch.nitroArmed); }
 
   consumeLook() { const l = { ...this.look }; this.look.dx = 0; this.look.dy = 0; return l; }
   wasPressed(k) { return this.enabled && this.pressed.has(k); }

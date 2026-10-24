@@ -64,7 +64,7 @@
       <button class="icon-btn hide-touch" id="btn-camera" aria-label="Change camera" title="Change camera (C)"><svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></button>
       <button class="icon-btn hide-touch" id="btn-record" aria-label="Record a 15 second clip" title="Record a 15 second clip (R)"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="3" class="fill"/></svg></button>
       <button class="icon-btn hide-touch" id="btn-mute" aria-label="Mute sound" aria-pressed="false" title="Mute (M)"><svg viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z"/><path id="mute-waves" d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/></svg></button>
-      <button class="icon-btn" id="btn-settings" aria-label="Settings" title="Settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg></button>
+      <button class="icon-btn" id="btn-settings" aria-label="Settings" title="Settings"><svg viewBox="0 0 24 24"><path d="M10.3 3h3.4l.5 2.4 1.6.9 2.3-.8 1.7 2.9-1.8 1.6v1.9l1.8 1.6-1.7 2.9-2.3-.8-1.6.9-.5 2.4h-3.4l-.5-2.4-1.6-.9-2.3.8-1.7-2.9L6 12.9V11L4.2 9.4l1.7-2.9 2.3.8 1.6-.9z"/><circle cx="12" cy="12" r="2.8"/></svg></button>
     </div>
 
     <div id="lookup-meter" class="lookup-meter" hidden aria-live="polite">
@@ -112,9 +112,9 @@
       <div class="touch-right">
         <button class="pad pad-small" id="t-sit" aria-label="Sit down" hidden><span>Sit</span></button>
         <button class="pad pad-small" id="t-look" aria-label="Look up" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M5 15l7-7 7 7"/></svg><span>Look up</span></button>
-        <button class="pad pad-small pad-nitro" id="t-nitro" aria-label="Nitro boost"><span>Boost</span></button>
-        <button class="pad" id="t-brake" aria-label="Brake or reverse"><span>Brake</span></button>
-        <button class="pad pad-gas" id="t-gas" aria-label="Gas"><span>Gas</span></button>
+        <button class="pad pad-small pad-nitro" id="t-nitro" aria-label="Nitro boost" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M13 2L4.5 13.5H11L10 22l8.5-11.5H12z" class="fill"/></svg><span>Nitro</span></button>
+        <button class="pad pad-brake" id="t-brake" aria-label="Brake or reverse"><svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2.5" class="fill"/></svg><span>Brake</span></button>
+        <button class="pad pad-gas" id="t-gas" aria-label="Go. Hold to drive, slide up for nitro"><i class="go-hint" aria-hidden="true"></i><svg viewBox="0 0 24 24"><path d="M8 4.8v14.4a1 1 0 0 0 1.5.86l11.2-7.2a1 1 0 0 0 0-1.72L9.5 3.94A1 1 0 0 0 8 4.8z" class="fill"/></svg><span>Go</span></button>
       </div>
     </div>
   </div>

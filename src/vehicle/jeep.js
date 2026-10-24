@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
-import { groundAt as heightAt, surfaceAt, nearestRoad, exposureAt, waterLevelAt } from '../world/terrain.js';
+import { groundAt as heightAt, surfaceAt, nearestRoad, exposureAt, waterLevelAt, bridgeGuard } from '../world/terrain.js';
 import { clamp, lerp } from '../world/noise.js';
 import { buildVehicleModel } from './models.js';
 import { VEHICLES, SURFACE_DRAG } from './specs.js';
@@ -176,14 +176,14 @@ export class Jeep {
       warn = 'The ground gets too rough past here. Head back toward the road.';
     }
 
-    // Solid obstacles: two circles (front and back) give a car-shaped footprint.
+    // Solid obstacles and bridge parapets: two circles (front and back) give a car-shaped footprint.
     this.impact = 0;
-    if (this.obstacles) {
-      for (const k of [1, -1]) {
-        const c = { x: this.pos.x + fx * S.halfLength * 0.62 * k, z: this.pos.z + fz * S.halfLength * 0.62 * k };
-        const ox = c.x, oz = c.z;
-        const hit = this.obstacles.resolve(c, S.radius);
-        if (!hit) continue;
+    for (const k of [1, -1]) {
+      const ax = fx * S.halfLength * 0.62 * k, az = fz * S.halfLength * 0.62 * k;
+      const c = { x: this.pos.x + ax, z: this.pos.z + az };
+      const ox = c.x, oz = c.z;
+      const hit = bridgeGuard(prevX + ax, prevZ + az, c, S.radius) || (this.obstacles && this.obstacles.resolve(c, S.radius));
+      if (hit) {
         this.pos.x += c.x - ox; this.pos.z += c.z - oz;
         let vx = fx * this.vF + rx * this.vL, vz = fz * this.vF + rz * this.vL;
         const vn = vx * hit.nx + vz * hit.nz;

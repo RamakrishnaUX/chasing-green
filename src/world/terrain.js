@@ -242,6 +242,22 @@ export function deckAt(x, z) {
   }
   return null;
 }
+// Keeps a car that is on a bridge between the parapets. The parapet boxes alone can be skipped
+// at full speed (a fast car moves further in one frame than a wall is thick), so this works on
+// the lateral offset directly and cannot be tunnelled through. Returns the inward wall normal.
+export function bridgeGuard(prevX, prevZ, pos, r) {
+  const hw = roadHalfWidth('paved') + 1.4, lim = hw - 0.3 - r;
+  for (const B of bridges) {
+    const fp = bridgeFrame(B, prevX, prevZ);
+    if (Math.abs(fp.along) > B.len / 2 + 6 || Math.abs(fp.lat) > hw + 0.5) continue;
+    const f = bridgeFrame(B, pos.x, pos.z);
+    if (Math.abs(f.along) > B.len / 2 + 6 || Math.abs(f.lat) <= lim) continue;
+    const s = Math.sign(f.lat), push = f.lat - s * lim;
+    pos.x += B.dz * push; pos.z -= B.dx * push;
+    return { nx: B.dz * s, nz: -B.dx * s, kind: 'wall' };
+  }
+  return null;
+}
 function nearBridge(x, z, pad = 0) {
   for (const B of bridges) { const f = bridgeFrame(B, x, z); if (Math.abs(f.along) < B.len / 2 + pad && Math.abs(f.lat) < 30) return true; }
   return false;
@@ -835,10 +851,12 @@ function buildBridges(scene) {
     // Deck slab and edge beams.
     add(new THREE.BoxGeometry(hw * 2, 0.9, B.len + 2), concrete, 0, deckY - 0.35, 0);
     for (const sx of [-1, 1]) add(new THREE.BoxGeometry(0.5, 0.6, B.len + 2), concrete, sx * hw, deckY + 0.05, 0);
-    // Railings: posts and two steel rails each side.
+    // Parapets: a closed concrete wall each side with a steel rail on top, so the edge reads as
+    // solid and nothing can slip through. They run just past the ends of the deck.
     for (const sx of [-1, 1]) {
-      for (let zz = -B.len / 2; zz <= B.len / 2; zz += 3) add(new THREE.BoxGeometry(0.12, 1.1, 0.12), steel, sx * hw, deckY + 0.9, zz);
-      for (const yy of [0.75, 1.4]) add(new THREE.BoxGeometry(0.1, 0.1, B.len + 1), steel, sx * hw, deckY + yy, 0);
+      add(new THREE.BoxGeometry(0.5, 1.05, B.len + 4), concrete, sx * (hw - 0.05), deckY + 0.5, 0);
+      for (let zz = -B.len / 2 - 1.5; zz <= B.len / 2 + 1.5; zz += 3) add(new THREE.BoxGeometry(0.1, 0.4, 0.1), steel, sx * (hw - 0.05), deckY + 1.2, zz);
+      add(new THREE.BoxGeometry(0.16, 0.1, B.len + 3.6), steel, sx * (hw - 0.05), deckY + 1.42, 0);
     }
     // Piers down to the river bed, and abutments at both ends.
     for (const zz of [-B.len / 4, 0, B.len / 4]) {

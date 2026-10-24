@@ -4,6 +4,7 @@
 export const VEHICLES = {
   jeep: {
     name: 'Trail 4x4',
+    tagline: 'Goes anywhere and wades the deepest rivers.',
     blurb: 'Four-door off-roader. Balanced on gravel, mud and fords, and wades the deepest.',
     susp: { k: 7, roll: 1 },
     maxSpeed: 42, accel: 14, brake: 26, reverseMax: 9, steerRate: 1.75, grip: 8, handbrakeGrip: 1.6,
@@ -15,6 +16,7 @@ export const VEHICLES = {
   },
   vintage: {
     name: 'Vintage roadster',
+    tagline: 'Slow, soft and full of charm.',
     blurb: '1930s two-seater in maroon and cream. Slow, soft and floaty. Take your time.',
     susp: { k: 3.2, roll: 2.4 },
     maxSpeed: 30, accel: 8, brake: 18, reverseMax: 7, steerRate: 1.6, grip: 7, handbrakeGrip: 1.4,
@@ -26,6 +28,7 @@ export const VEHICLES = {
   },
   race: {
     name: 'Supercar',
+    tagline: 'Fastest on tarmac. Hates gravel.',
     blurb: 'Low, fast and stiff. Brilliant on tarmac, hates gravel and water.',
     susp: { k: 13, roll: 0.4 },
     maxSpeed: 66, accel: 24, brake: 38, reverseMax: 9, steerRate: 1.9, grip: 11, handbrakeGrip: 2.0,

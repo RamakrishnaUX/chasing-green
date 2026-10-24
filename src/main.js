@@ -8,6 +8,7 @@ import { buildTerrain, paintTerrain, flattenPads, bridges, roadPaths, nearestRoa
 import { Scatter } from './world/scatter.js';
 import { Grass } from './world/grass.js';
 import { Post } from './world/post.js';
+import { carThumbs } from './ui/carthumbs.js';
 import { Props } from './world/props.js';
 import { Towns } from './world/towns.js';
 import { Obstacles } from './world/obstacles.js';
@@ -113,7 +114,7 @@ function buildWorld() {
   obstacles = new Obstacles();
   landmarks.registerObstacles(obstacles);
   // Bridge railings are solid on both sides.
-  for (const B of bridges) for (const sx of [-1, 1]) obstacles.addBox(B.x - B.dz * sx * 5.1, B.z + B.dx * sx * 5.1, Math.atan2(B.dx, B.dz), 0.4, B.len / 2, 'wall');
+  for (const B of bridges) for (const sx of [-1, 1]) obstacles.addBox(B.x - B.dz * sx * 4.65, B.z + B.dx * sx * 4.65, Math.atan2(B.dx, B.dz), 0.25, B.len / 2 + 2, 'wall');
   scatter = new Scatter(scene, { grass: 0, rocks: Math.round(Q.rocks * (CONFIG.rockDensity[settings.rocks || 'normal'] || 1)), obstacles });
   // No grass field on streets, churchyards and city squares.
   const clear = landmarks.list.filter((l) => ['town', 'building', 'sculpture'].includes(l.kind)).map((l) => ({ x: l.x, z: l.z, r: l.id === 'seydisfjordur' ? 58 : l.id === 'laugavegur' ? 30 : l.id === 'hallgrimskirkja' ? 34 : 22 }));
@@ -378,7 +379,13 @@ $('info-more').addEventListener('click', () => {
   $('info-more').setAttribute('aria-expanded', String(open));
   $('info-more').textContent = open ? 'Less' : 'More';
 });
-$('info-close').addEventListener('click', () => { infoDismissed = card.current?.id; card.el.hidden = true; });
+$('info-close').addEventListener('click', () => {
+  infoDismissed = card.current?.id;
+  card.el.hidden = true;
+  card.el.classList.remove('is-expanded');
+  $('info-more').setAttribute('aria-expanded', 'false');
+  $('info-more').textContent = 'More';
+});
 $('info-share').addEventListener('click', async () => {
   const lm = card.current; if (!lm) return;
   const text = `${lm.name}: ${lm.fact} (from Chasing Green, a road trip around Iceland)`;
@@ -406,8 +413,14 @@ function updateLandmarks(p) {
       card.legend.hidden = !lm.legend;
       card.fact.textContent = lm.fact;
       card.stamp.innerHTML = stampSvg(lm.name, lm.glyph, !!store.data.stamps[lm.id], 'card');
+      card.shownAt = null;
     }
     card.el.hidden = infoDismissed === lm.id;
+    // The card tucks itself away after a while of driving so it never sits over the view for good.
+    if (!card.el.hidden && started && !card.el.classList.contains('is-expanded')) {
+      card.shownAt ??= performance.now();
+      if (performance.now() - card.shownAt > 12000) { infoDismissed = lm.id; card.el.hidden = true; }
+    }
   } else {
     card.el.hidden = true;
     card.current = null;
@@ -541,9 +554,22 @@ function syncTouch() {
 }
 input.bindTouchButton($('t-left'), 'left');
 input.bindTouchButton($('t-right'), 'right');
-input.bindTouchButton($('t-gas'), 'gas');
+input.bindGasButton($('t-gas'), (up) => { if (up) nitroHint(); });
 input.bindTouchButton($('t-brake'), 'brake');
-input.bindTouchButton($('t-nitro'), 'nitro');
+// Nitro is a switch, not a second button to hold: tap it once and every press of Go boosts
+// until you tap it again or the tank runs dry. Sliding up on Go boosts for just that press.
+$('t-nitro').addEventListener('click', () => setNitroArmed(!input.touch.nitroArmed));
+function setNitroArmed(on) {
+  input.touch.nitroArmed = on;
+  $('t-nitro').setAttribute('aria-pressed', String(on));
+  if (on) hud.toast('Nitro on. Hold Go to boost. Tap Nitro again to switch it off.', { seconds: 2.5, priority: 2 });
+}
+let nitroHinted = false;
+function nitroHint() {
+  if (nitroHinted) return;
+  nitroHinted = true;
+  hud.toast('Nitro! Slide back down to ease off.', { seconds: 2, priority: 2 });
+}
 $('t-look').addEventListener('click', toggleLookUp);
 
 // Intro
@@ -555,7 +581,7 @@ document.querySelectorAll('.month-select').forEach((sel) => {
 forecast.monthFactor = clock.m.aurora;
 renderMonthCards();
 $('intro-challenge').innerHTML = `Today’s challenge: <strong>${challenge.title}</strong>`;
-if (isTouch) document.querySelector('.keys-hint').textContent = 'Steer with the arrows, Gas and Brake to drive. Tap Look up when the radio says so. Drag to look around.';
+if (isTouch) document.querySelector('.keys-hint').textContent = 'Steer with the arrows, press Go to drive and Brake to slow down or reverse. Tap Nitro, or slide up on Go, for a boost. Tap Look up when the radio says so. Drag to look around.';
 const startBtn = $('start');
 startBtn.disabled = true;
 startBtn.addEventListener('click', () => {
@@ -607,6 +633,8 @@ function applyNitroSetting() {
   input.nitroAllowed = on;
   $('nitro-bar').parentElement.hidden = !on;
   $('t-nitro').hidden = !on;
+  document.body.classList.toggle('nitro-off', !on);
+  if (!on) setNitroArmed(false);
 }
 $('set-nitro').addEventListener('change', (e) => { settings.nitro = e.target.value; store.save(); applyNitroSetting(); });
 applyNitroSetting();
@@ -630,17 +658,19 @@ function cycleVehicle() {
 function renderGarage() {
   const list = $('garage-list');
   if (!list) return;
+  const thumbs = $('garage').open || list.dataset.wantThumbs ? carThumbs(VEHICLE_ORDER) : {};
   const bar = (v, max) => `<i><b style="width:${Math.round(Math.min(1, v / max) * 100)}%"></b></i>`;
   list.innerHTML = VEHICLE_ORDER.map((k) => {
     const v = VEHICLES[k];
     const off = (v.offroad.gravel + v.offroad.moss + v.offroad.sand) / 3;
     const on = (settings.vehicle || 'jeep') === k;
-    return `<button class="car-card ${on ? 'is-on' : ''}" data-pick="${k}" aria-pressed="${on}"><h3>${v.name}</h3><p>${v.blurb}</p>
+    const img = thumbs[k] ? `<img class="car-pic" src="${thumbs[k]}" alt="" />` : '';
+    return `<button class="car-card ${on ? 'is-on' : ''}" data-pick="${k}" aria-pressed="${on}">${img}<h3>${v.name}</h3><p class="car-tag">${v.tagline}</p><p class="car-blurb">${v.blurb}</p>
       <span class="car-stats"><span>Top speed</span>${bar(v.maxSpeed, 66)}<span>Off-road</span>${bar(off, 1)}<span>Water</span>${bar(v.wade, 1.9)}</span></button>`;
   }).join('');
   list.querySelectorAll('[data-pick]').forEach((b) => b.addEventListener('click', () => { setVehicle(b.dataset.pick); $('garage').close(); }));
 }
-$('btn-garage').addEventListener('click', () => { renderGarage(); $('garage').showModal(); });
+$('btn-garage').addEventListener('click', () => { $('garage-list').dataset.wantThumbs = '1'; renderGarage(); $('garage').showModal(); });
 $('garage').querySelector('[data-close]').addEventListener('click', () => $('garage').close());
 $('garage').addEventListener('click', (e) => { if (e.target === $('garage')) $('garage').close(); });
 document.querySelectorAll('[data-vehicle]').forEach((b) => b.addEventListener('click', () => setVehicle(b.dataset.vehicle, false)));
@@ -800,6 +830,9 @@ function frame(now) {
     if (Math.floor(clock.realSeconds * 2) !== lastWhere) { lastWhere = Math.floor(clock.realSeconds * 2); hud.whereText = describePlace(p.x, p.z).label; hud.nextWindowText = nextWindowLabel(); }
     $('nitro-bar').style.transform = `scaleX(${jeep.nitro.toFixed(3)})`;
     $('nitro-bar').parentElement.classList.toggle('is-on', jeep.boosting);
+    $('t-nitro').style.setProperty('--tank', jeep.nitro.toFixed(3));
+    $('t-nitro').classList.toggle('is-boosting', jeep.boosting);
+    if (input.touch.nitroArmed && jeep.nitro < 0.03) { setNitroArmed(false); hud.toast('Nitro is empty. It refills while you drive.', { seconds: 2.5, priority: 2 }); }
     mapUI.update(dt, activePos(), mode === 'walk' ? walker.heading : jeep.heading);
     hud.update(dt, {
       kmh: jeep.kmh, walking: mode === 'walk', where: hud.whereText || '', clockLabel: clock.label(), season: clock.season, monthName: clock.m.name, aurora: a,
@@ -894,3 +927,25 @@ window.chasingGreen = {
     return [r.x, r.z];
   },
 };
+
+// ---------- Settings on phones: tap a choice instead of opening a drop-down ----------
+// Each short select in Settings gets a row of buttons that drive it, so the same change
+// handlers run. The long month list keeps its drop-down.
+for (const sel of document.querySelectorAll('.settings-grid select:not(.month-select)')) {
+  const seg = document.createElement('div');
+  seg.className = 'seg';
+  seg.setAttribute('role', 'radiogroup');
+  seg.setAttribute('aria-label', document.querySelector(`label[for="${sel.id}"]`)?.textContent || '');
+  const sync = () => seg.querySelectorAll('button').forEach((b) => { const on = b.dataset.value === sel.value; b.classList.toggle('is-on', on); b.setAttribute('aria-checked', String(on)); });
+  for (const o of sel.options) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.dataset.value = o.value; b.setAttribute('role', 'radio');
+    b.textContent = o.textContent.replace(/\s*\(.*\)$/, '').replace('Twice as fast', '2x').replace('Four times as fast', '4x').replace('Always show', 'Show').replace('Automatic', 'Auto');
+    b.addEventListener('click', () => { sel.value = o.value; sel.dispatchEvent(new Event('change')); sync(); });
+    seg.append(b);
+  }
+  sel.addEventListener('change', sync);
+  sel.after(seg);
+  $('btn-settings').addEventListener('click', sync);
+  sync();
+}

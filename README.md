@@ -25,7 +25,7 @@ Push the repo to GitHub and import it in Vercel. Vercel detects Vite on its own,
 
 | Action | Keyboard | Touch |
 | --- | --- | --- |
-| Drive | WASD or arrow keys | Left and right buttons, Gas and Brake |
+| Drive | WASD or arrow keys | Left and right buttons, Go (play button) and Brake |
 | Handbrake | Shift | |
 | Change camera (chase, look up, step out) | C | Camera button, top right |
 | Look up (quick toggle) | L | Look up button |
@@ -37,9 +37,9 @@ Push the repo to GitHub and import it in Vercel. Vercel detects Vite on its own,
 | Field notebook | N | Notebook button |
 | Record a 15 second clip | R | Record button |
 | Mute | U | Speaker button |
-| Nitro boost (optional, off by default) | Space | Boost button |
+| Nitro boost (on by default, can be turned off in Settings) | Space | Nitro button (lightning), next to Go |
 
-There is no race and no timer. Nitro is a cosmetic speed boost you can switch on in Settings; it is off unless you turn it on.
+There is no race and no timer. Nitro is a speed boost that is on by default; you can switch it off in Settings.
 
 **Step out and sit.** Park, press C until you are on foot, walk anywhere near the car (black sand at Reynisfjara and Diamond Beach included), then press X to sit. Sitting lowers the view, lets you look freely, and makes time pass six times faster so you can wait for the sky. Press X again or start walking to stand up.
 
