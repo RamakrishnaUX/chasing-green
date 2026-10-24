@@ -28,15 +28,8 @@
           <div class="select-wrap"><select id="intro-month" class="month-select"></select></div>
         </div>
         <div class="month-card" aria-live="polite"></div>
-        <div class="field">
-          <span class="field-label" id="vehicle-label">Car</span>
-          <div class="seg seg-vehicle" role="radiogroup" aria-labelledby="vehicle-label">
-            <button type="button" data-vehicle="jeep" role="radio">Trail 4x4</button>
-            <button type="button" data-vehicle="vintage" role="radio">Roadster</button>
-            <button type="button" data-vehicle="race" role="radio">Supercar</button>
-          </div>
-        </div>
         <button id="start" class="btn btn-primary btn-start">Start driving</button>
+        <p class="car-line" id="intro-car"></p>
         <p class="challenge-line" id="intro-challenge"></p>
         <p class="loading" id="loading" role="status">Shaping the island</p>
       </div>
@@ -70,7 +63,6 @@
       <button class="icon-btn glass hide-touch" id="btn-camera" aria-label="Change camera" title="Change camera (C)"><svg viewBox="0 0 24 24"><path d="M4 8.5h3l1.8-2.5h6.4L17 8.5h3V19H4z"/><circle cx="12" cy="13.3" r="3.3"/></svg></button>
       <button class="icon-btn glass hide-touch" id="btn-record" aria-label="Record a 15 second clip" title="Record a 15 second clip (R)"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7.5"/><circle cx="12" cy="12" r="3.2" class="fill"/></svg></button>
       <button class="icon-btn glass hide-touch" id="btn-mute" aria-label="Mute sound" aria-pressed="false" title="Mute (U)"><svg viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path id="mute-waves" d="M15.5 9.5a3.5 3.5 0 0 1 0 5M18 7a7 7 0 0 1 0 10"/></svg></button>
-      <button class="icon-btn glass" id="btn-garage" aria-label="Choose a car" title="Choose a car (V)"><svg viewBox="0 0 24 24"><path d="M5 15.5l1.6-5.2A2 2 0 0 1 8.5 9h7a2 2 0 0 1 1.9 1.3l1.6 5.2M3.5 15.5h17v2.5a1 1 0 0 1-1 1h-15a1 1 0 0 1-1-1z"/><circle cx="7.5" cy="16.8" r="0.9" class="fill"/><circle cx="16.5" cy="16.8" r="0.9" class="fill"/></svg></button>
       <button class="icon-btn glass" id="btn-notebook" aria-label="Open field notebook" title="Field notebook (N)"><svg viewBox="0 0 24 24"><path d="M6.5 3.5h10a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2h-10zM6.5 3.5v17M9.5 8h6M9.5 11.5h6"/></svg></button>
       <button class="icon-btn glass" id="btn-settings" aria-label="Menu and settings" title="Menu"><svg viewBox="0 0 24 24"><path d="M5 7h14M5 12h14M5 17h14"/></svg></button>
     </div>
@@ -82,13 +74,16 @@
 
     <div id="toast" class="toast glass" role="status" aria-live="polite"></div>
 
+    <button id="sky-hint" class="sky-hint glass" hidden aria-live="polite"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg><span>Aurora overhead. Look up!</span></button>
+
     <aside id="radio" class="radio glass" aria-label="Aurora radio">
       <div class="radio-head" id="radio-toggle" role="button" tabindex="0" aria-expanded="true">
         <span class="radio-title">Aurora radio <button class="info-i" data-learn="forecast" aria-label="What is the forecast?">i</button></span>
-        <span class="radio-kp"><span id="kp">0.0</span><small>Kp</small></span><button class="info-i" data-learn="kp" aria-label="What is Kp?">i</button>
+        <span class="radio-kp"><span id="kp">0.0</span><small>Kp</small><em class="kp-level" id="kp-level">Quiet</em></span><button class="info-i" data-learn="kp" aria-label="What is Kp?">i</button>
       </div>
       <div class="radio-body" id="radio-body">
         <p class="radio-status" id="radio-status">Tuning in</p>
+        <p class="kp-explain"><strong>Kp</strong> is the aurora strength scale, from 0 to 9. At 3 or more the lights can reach Iceland; 5 or more is a storm. You still need a dark, clear sky.</p>
         <canvas id="radio-graph" width="560" height="200" aria-label="Forecast for tonight"></canvas>
         <dl class="radio-stats">
           <div><dt>Activity <button class="info-i" data-learn="activity" aria-label="What is activity?">i</button></dt><dd id="stat-activity">None</dd></div>
@@ -119,10 +114,9 @@
       </div>
       <div class="touch-right">
         <button class="pad pad-small" id="t-sit" aria-label="Sit down" aria-pressed="false" hidden><svg viewBox="0 0 24 24"><path d="M7 4v8h8l2 7M7 12v7"/></svg><span>Sit</span></button>
-        <button class="pad pad-small" id="t-look" aria-label="Look up" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M6 14.5l6-6 6 6"/></svg><span>Look up</span></button>
-        <button class="pad pad-small pad-nitro" id="t-nitro" aria-label="Nitro boost" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M13.2 2.5L5 13.4h6.2L10.4 21.5l8.6-11h-6.3z" class="fill"/></svg><span>Nitro</span></button>
+        <button class="pad pad-look" id="t-look" aria-label="Look up at the sky" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></svg><span>Look</span></button>
         <button class="pad pad-brake" id="t-brake" aria-label="Brake or reverse"><svg viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="2.6" class="fill"/></svg><span>Brake</span></button>
-        <button class="pad pad-gas" id="t-gas" aria-label="Go. Hold to drive, slide up for nitro"><i class="go-hint" aria-hidden="true"></i><svg viewBox="0 0 24 24"><path d="M8.5 5.2v13.6a1 1 0 0 0 1.53.85l10.6-6.8a1 1 0 0 0 0-1.7l-10.6-6.8a1 1 0 0 0-1.53.85z" class="fill"/></svg><span>Go</span></button>
+        <button class="pad pad-gas" id="t-gas" aria-label="Go. Hold to drive, slide up for nitro"><i class="go-ring" aria-hidden="true"></i><i class="go-hint" aria-hidden="true"></i><svg viewBox="0 0 24 24"><path d="M8.6 4.9v14.2a1 1 0 0 0 1.53.85l10.3-7.1a1 1 0 0 0 0-1.7L10.13 4.05A1 1 0 0 0 8.6 4.9z" class="fill"/></svg></button>
       </div>
     </div>
   </div>

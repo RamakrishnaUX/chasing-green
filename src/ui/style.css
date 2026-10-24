@@ -462,3 +462,88 @@ dialog.sheet-postcard .panel-actions { padding: 14px 18px 18px; }
 }
 .radio-head { flex-wrap: nowrap; align-items: center; }
 .radio-title, .radio-kp { white-space: nowrap; }
+
+/* ---------- Go: a centred play icon, wrapped in the nitro tank ring ---------- */
+.pad-gas svg { margin: 0; width: 34px; height: 34px; }
+.go-ring { position: absolute; inset: -7px; border-radius: 50%; pointer-events: none; --tank: 1;
+  background: conic-gradient(from -90deg, var(--blue) calc(var(--tank) * 360deg), rgba(143, 208, 255, 0.16) 0);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3.5px), #000 calc(100% - 3px)); mask: radial-gradient(farthest-side, transparent calc(100% - 3.5px), #000 calc(100% - 3px));
+  transition: filter 0.2s; }
+.pad-gas { --tank: 1; }
+.pad-gas .go-ring { --tank: inherit; }
+.pad-gas.is-boosting .go-ring, .pad-gas.is-boost .go-ring { filter: drop-shadow(0 0 6px var(--blue)) drop-shadow(0 0 14px #7b6bff); }
+.pad-gas.is-boosting { box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.8), 0 0 30px rgba(123, 140, 255, 0.85); }
+body.nitro-off .go-ring { display: none; }
+.go-hint { top: -22px; }
+
+/* ---------- Look: a wide pill that is easy to hit and says what it does ---------- */
+.pad-look { width: auto; height: 46px; min-width: 104px; padding: 0 18px; border-radius: 999px; flex-direction: row; gap: 6px; }
+.pad-look svg { width: 20px; height: 20px; }
+.pad-look span { font-size: 0.8rem; color: var(--ink); }
+.pad-look[aria-pressed='true'] { color: var(--green); border-color: rgba(92, 242, 160, 0.6); }
+.pad-look[aria-pressed='true'] span { color: var(--green); }
+.pad-look.is-call { color: var(--green-ink); border-color: rgba(200, 255, 225, 0.8);
+  background: radial-gradient(120% 120% at 30% 15%, #d2ffe6 0%, #74f5b0 40%, var(--green-2) 100%); animation: call 1.6s ease-in-out infinite; }
+.pad-look.is-call span { color: var(--green-ink); }
+@keyframes call { 50% { box-shadow: 0 0 0 8px rgba(92, 242, 160, 0.18), 0 0 26px rgba(92, 242, 160, 0.6); } }
+@media (prefers-reduced-motion: reduce) { .pad-look.is-call { animation: none; } }
+@media (orientation: portrait) and (max-width: 600px) {
+  body.has-touch .touch-right { grid-template-columns: 64px 80px; grid-template-areas: 'sit sit' 'look look' 'brake gas'; gap: 14px 12px; }
+  body.has-touch #t-look { width: 100%; }
+}
+@media (max-height: 520px) {
+  body.has-touch .pad-look { height: 44px; min-width: 92px; }
+}
+
+/* ---------- Aurora call: a clear banner at the top when the lights are out ---------- */
+.sky-hint { position: absolute; left: 50%; top: calc(14px + var(--safe-t)); transform: translateX(-50%); z-index: 3; display: inline-flex; align-items: center; gap: 10px;
+  padding: 10px 18px 10px 12px; border-radius: 999px; color: var(--ink); font-weight: 700; font-size: 0.98rem; white-space: nowrap;
+  border-color: rgba(92, 242, 160, 0.55); box-shadow: inset 0 1px 0 var(--glass-hi), 0 0 0 1px rgba(92, 242, 160, 0.2), 0 0 30px rgba(92, 242, 160, 0.35); }
+.sky-hint svg { width: 26px; height: 26px; padding: 4px; border-radius: 50%; background: var(--green); color: var(--green-ink); fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round;
+  animation: rise 1.4s ease-in-out infinite; }
+@keyframes rise { 50% { transform: translateY(-3px); } }
+@media (prefers-reduced-motion: reduce) { .sky-hint svg { animation: none; } }
+body.sky-on .toast { top: calc(72px + var(--safe-t)); }
+body.has-touch .sky-hint { top: calc(10px + var(--safe-t)); font-size: 0.9rem; padding: 8px 14px 8px 10px; }
+@media (orientation: portrait) and (max-width: 600px) { body.has-touch .sky-hint { top: calc(258px + var(--safe-t)); } }
+@media (max-height: 520px) { body.has-touch.sky-on .toast { top: calc(56px + var(--safe-t)); } }
+
+/* ---------- Kp, in words ---------- */
+.kp-level { font-style: normal; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; margin-left: 6px; padding: 2px 7px; border-radius: 999px; vertical-align: 3px;
+  color: var(--ink-2); background: rgba(255, 255, 255, 0.1); }
+.kp-level[data-level='active'] { color: var(--green-ink); background: var(--green); }
+.kp-level[data-level='storm'] { color: #3a0b08; background: var(--red); }
+.kp-explain { margin: 0 0 0.6rem; font-size: 0.8rem; line-height: 1.45; color: var(--ink-2); padding: 8px 10px; border-radius: var(--r-sm); background: rgba(0, 0, 0, 0.2); }
+.kp-explain strong { color: var(--ink); }
+
+/* ---------- Intro: the car line ---------- */
+.car-line { margin: 0; font-size: 0.86rem; color: var(--ink-2); }
+.car-line strong { color: var(--ink); }
+
+/* ---------- Sheet: as tall as its page needs, and sized to the page ---------- */
+dialog.sheet { height: auto; max-height: min(760px, calc(100dvh - 32px)); width: min(720px, calc(100vw - 32px)); transition: width 0.3s var(--ease); }
+dialog.sheet[data-page='garage'] { width: min(860px, calc(100vw - 32px)); }
+dialog.sheet[data-page='map'] { width: min(1040px, calc(100vw - 32px)); height: min(760px, calc(100dvh - 32px)); }
+.sheet-page { flex: 0 1 auto; }
+.sheet-page.page-map { flex: 1 1 auto; }
+dialog.sheet-postcard { width: min(860px, calc(100vw - 24px)); }
+@media (max-height: 520px) {
+  dialog.sheet { height: auto; max-height: calc(100dvh - 16px); width: min(720px, calc(100vw - 20px - var(--safe-l) - var(--safe-r))); }
+  dialog.sheet[data-page='garage'], dialog.sheet[data-page='map'] { width: calc(100vw - 20px - var(--safe-l) - var(--safe-r)); }
+  dialog.sheet[data-page='map'] { height: calc(100dvh - 16px); }
+}
+@media (orientation: portrait) and (max-width: 600px) {
+  dialog.sheet, dialog.sheet[data-page='garage'] { width: calc(100vw - 20px); }
+  dialog.sheet[data-page='map'] { width: calc(100vw - 20px); height: calc(100dvh - 40px); }
+}
+@media (orientation: portrait) and (max-width: 600px) {
+  body.has-touch .radio { max-width: calc(100vw - 20px - var(--safe-l) - var(--safe-r)); }
+  body.has-touch .touch-right { row-gap: 26px; }
+}
+body.has-touch .radio-head { gap: 6px; }
+/* A pinned dialog with height: auto stretches to the window; fit-content keeps it to the page. */
+dialog.sheet:not([data-page='map']) { height: fit-content; }
+@media (max-height: 520px) {
+  body.has-touch .radio-title { display: none; }
+  body.has-touch .toast { max-width: min(300px, calc(100vw - 460px)); min-width: 220px; }
+}

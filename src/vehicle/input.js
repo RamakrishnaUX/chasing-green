@@ -3,7 +3,7 @@
 export class Input {
   constructor(canvas) {
     this.keys = new Set();
-    this.touch = { left: false, right: false, gas: false, brake: false, nitro: false, nitroSlide: false, nitroArmed: false };
+    this.touch = { left: false, right: false, gas: false, brake: false, nitroSlide: false };
     this.look = { dx: 0, dy: 0 };
     this.pressed = new Set(); // one-shot keys for this frame
     this.enabled = true;
@@ -16,7 +16,7 @@ export class Input {
       this.keys.add(k);
     });
     addEventListener('keyup', (e) => this.keys.delete(e.key.toLowerCase()));
-    addEventListener('blur', () => { this.keys.clear(); Object.keys(this.touch).forEach((k) => { if (k !== 'nitroArmed') this.touch[k] = false; }); });
+    addEventListener('blur', () => { this.keys.clear(); Object.keys(this.touch).forEach((k) => (this.touch[k] = false)); });
 
     // Drag on the canvas to look around (mouse or a finger that is not on a button).
     let dragId = null, lx = 0, ly = 0;
@@ -87,7 +87,7 @@ export class Input {
     return s;
   }
   get handbrake() { return this.enabled && this.keys.has('shift'); }
-  get nitro() { return this.enabled && this.nitroAllowed && (this.keys.has(' ') || this.touch.nitro || this.touch.nitroSlide || this.touch.nitroArmed); }
+  get nitro() { return this.enabled && this.nitroAllowed && (this.keys.has(' ') || this.touch.nitroSlide); }
 
   consumeLook() { const l = { ...this.look }; this.look.dx = 0; this.look.dy = 0; return l; }
   wasPressed(k) { return this.enabled && this.pressed.has(k); }

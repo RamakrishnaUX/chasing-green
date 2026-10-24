@@ -1,4 +1,5 @@
 import { CONFIG } from '../config.js';
+import { haptics } from './haptics.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -8,7 +9,7 @@ export class Hud {
       hud: $('hud'), speed: $('speed'), where: $('where'), clock: $('clock'), kp: $('kp'), kpWrap: $('kp').parentElement,
       status: $('radio-status'), graph: $('radio-graph'), cloud: $('stat-cloud'), activity: $('stat-activity'), dark: $('stat-dark'), glow: $('stat-glow'),
       rose: $('compass-rose'), wind: $('wind-arrow'), toast: $('toast'), meter: $('lookup-meter'), ring: $('lookup-ring'), meterText: $('lookup-text'),
-      radio: $('radio'), radioToggle: $('radio-toggle'),
+      radio: $('radio'), radioToggle: $('radio-toggle'), kpLevel: $('kp-level'), skyHint: $('sky-hint'), look: $('t-look'),
     };
     this.g = this.el.graph.getContext('2d');
     this.graphTimer = 0;
@@ -55,6 +56,17 @@ export class Hud {
     e.clock.textContent = `${s.clockLabel}, ${s.monthName || s.season.toLowerCase()}`;
     e.kp.textContent = s.aurora.kp.toFixed(1);
     e.kpWrap.classList.toggle('is-low', s.aurora.kp < CONFIG.aurora.minKp);
+    // Kp in words, so the number means something at a glance.
+    const kp = s.aurora.kp;
+    e.kpLevel.textContent = kp < 3 ? 'Quiet' : kp < 5 ? 'Active' : 'Storm';
+    e.kpLevel.dataset.level = kp < 3 ? 'quiet' : kp < 5 ? 'active' : 'storm';
+    // When the lights are out, say so plainly at the top and make the Look button call for attention.
+    const callUp = !!s.aurora.active && !s.lookingUp;
+    e.skyHint.hidden = !callUp;
+    e.look?.classList.toggle('is-call', callUp);
+    document.body.classList.toggle('sky-on', callUp);
+    if (callUp && !this.wasCall) haptics.play('aurora', 0);
+    this.wasCall = callUp;
     e.cloud.textContent = `${Math.round(s.aurora.cloud * 100)}%`;
     e.dark.textContent = `${Math.round(s.aurora.dark * 100)}%`;
     const glow = s.aurora.city.overhead;

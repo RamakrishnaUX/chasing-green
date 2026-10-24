@@ -572,22 +572,17 @@ input.bindTouchButton($('t-left'), 'left');
 input.bindTouchButton($('t-right'), 'right');
 input.bindGasButton($('t-gas'), (up) => { if (up) nitroHint(); });
 input.bindTouchButton($('t-brake'), 'brake');
-// Nitro is a switch, not a second button to hold: tap it once and every press of Go boosts
-// until you tap it again or the tank runs dry. Sliding up on Go boosts for just that press.
-$('t-nitro').addEventListener('click', () => setNitroArmed(!input.touch.nitroArmed));
-function setNitroArmed(on) {
-  input.touch.nitroArmed = on;
-  haptics.play(on ? 'medium' : 'select');
-  $('t-nitro').setAttribute('aria-pressed', String(on));
-  if (on) hud.toast('Nitro on. Hold Go to boost. Tap Nitro again to switch it off.', { seconds: 2.5, priority: 2 });
-}
+// Nitro lives on Go: slide the finger up from Go to boost, back down to ease off. The ring
+// around Go shows how much is left.
 let nitroHinted = false;
 function nitroHint() {
+  haptics.play('heavy', 0);
   if (nitroHinted) return;
   nitroHinted = true;
   hud.toast('Nitro! Slide back down to ease off.', { seconds: 2, priority: 2 });
 }
 $('t-look').addEventListener('click', toggleLookUp);
+$('sky-hint').addEventListener('click', () => { haptics.play('medium', 0); toggleLookUp(); });
 // Every control answers the finger: a tick for small buttons, firmer for the pedals.
 const PAD_FEEL = { 't-gas': 'light', 't-brake': 'medium', 't-left': 'select', 't-right': 'select' };
 document.querySelectorAll('.pad').forEach((el) => el.addEventListener('pointerdown', () => haptics.play(PAD_FEEL[el.id] || 'select', 0)));
@@ -602,7 +597,7 @@ document.querySelectorAll('.month-select').forEach((sel) => {
 forecast.monthFactor = clock.m.aurora;
 renderMonthCards();
 $('intro-challenge').innerHTML = `Today’s challenge: <strong>${challenge.title}</strong>`;
-if (isTouch) document.querySelector('.keys-hint').textContent = 'Steer with the arrows, press Go to drive and Brake to slow down or reverse. Tap Nitro, or slide up on Go, for a boost. Tap Look up when the radio says so. Drag to look around.';
+if (isTouch) document.querySelector('.keys-hint').textContent = 'Steer with the arrows, press Go to drive and Brake to slow down or reverse. Slide up from Go for a nitro boost. Tap Look when the radio says the aurora is out. Drag to look around.';
 const startBtn = $('start');
 startBtn.disabled = true;
 startBtn.addEventListener('click', () => {
@@ -616,7 +611,7 @@ startBtn.addEventListener('click', () => {
   syncTouch();
   if (isTouch) { touchLayout(); goLandscape(); }
   canvas.focus();
-  hud.toast('Head away from the city glow. The aurora radio tells you when to look up.', { seconds: 7 });
+  hud.toast('Watch the Kp on the aurora radio: it is the aurora strength, 0 to 9. At 3 or more, find a dark, clear sky and look up.', { seconds: 8 });
 });
 
 addEventListener('keydown', (e) => {
@@ -653,9 +648,7 @@ function applyNitroSetting() {
   const on = settings.nitro !== 'off'; // on unless switched off in Settings
   input.nitroAllowed = on;
   $('nitro-bar').parentElement.hidden = !on;
-  $('t-nitro').hidden = !on;
   document.body.classList.toggle('nitro-off', !on);
-  if (!on) setNitroArmed(false);
 }
 $('set-nitro').addEventListener('change', (e) => { settings.nitro = e.target.value; store.save(); applyNitroSetting(); });
 applyNitroSetting();
@@ -669,7 +662,7 @@ function setVehicle(kind, announce = true) {
     audio.setEngine(VEHICLES[kind].engine);
     if (announce) hud.toast(`Now driving the ${VEHICLES[kind].name.toLowerCase()}.`, { seconds: 2.5, priority: 2 });
   }
-  document.querySelectorAll('[data-vehicle]').forEach((x) => { const on = x.dataset.vehicle === kind; x.classList.toggle('is-on', on); x.setAttribute('aria-checked', String(on)); });
+  $('intro-car').innerHTML = `Driving the <strong>${VEHICLES[kind].name}</strong>. Tap or click your car any time to switch.`;
   renderGarage();
 }
 function cycleVehicle() {
@@ -692,10 +685,21 @@ function renderGarage() {
   list.querySelectorAll('[data-pick]').forEach((b) => b.addEventListener('click', () => { haptics.play('medium'); setVehicle(b.dataset.pick); $('garage').close(); }));
 }
 function openGarage() { $('garage-list').dataset.wantThumbs = '1'; renderGarage(); $('garage').showModal(); }
-$('btn-garage').addEventListener('click', openGarage);
 sheet.register('garage', openGarage);
 sheet.register('map', () => mapUI?.open());
-document.querySelectorAll('[data-vehicle]').forEach((b) => b.addEventListener('click', () => { haptics.play('select'); setVehicle(b.dataset.vehicle, false); }));
+// Tap the car itself to switch to the next one.
+const carRay = new THREE.Raycaster(), carTap = new THREE.Vector2();
+let tapStart = null;
+canvas.addEventListener('pointerdown', (e) => { tapStart = { x: e.clientX, y: e.clientY, t: performance.now() }; });
+canvas.addEventListener('pointerup', (e) => {
+  const s = tapStart; tapStart = null;
+  if (!s || !jeep || !started || mode === 'walk') return;
+  if (Math.hypot(e.clientX - s.x, e.clientY - s.y) > 8 || performance.now() - s.t > 400) return;
+  const r = canvas.getBoundingClientRect();
+  carTap.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+  carRay.setFromCamera(carTap, camera);
+  if (carRay.intersectObject(jeep.body, true).length) { haptics.play('medium', 0); cycleVehicle(); }
+});
 setVehicle(settings.vehicle || 'jeep', false);
 
 // Spray, dust, splashes and knocks.
@@ -873,9 +877,8 @@ function frame(now) {
     if (Math.floor(clock.realSeconds * 2) !== lastWhere) { lastWhere = Math.floor(clock.realSeconds * 2); hud.whereText = describePlace(p.x, p.z).label; hud.nextWindowText = nextWindowLabel(); }
     $('nitro-bar').style.transform = `scaleX(${jeep.nitro.toFixed(3)})`;
     $('nitro-bar').parentElement.classList.toggle('is-on', jeep.boosting);
-    $('t-nitro').style.setProperty('--tank', jeep.nitro.toFixed(3));
-    $('t-nitro').classList.toggle('is-boosting', jeep.boosting);
-    if (input.touch.nitroArmed && jeep.nitro < 0.03) { setNitroArmed(false); hud.toast('Nitro is empty. It refills while you drive.', { seconds: 2.5, priority: 2 }); }
+    $('t-gas').style.setProperty('--tank', jeep.nitro.toFixed(3));
+    $('t-gas').classList.toggle('is-boosting', jeep.boosting);
     mapUI.update(dt, activePos(), mode === 'walk' ? walker.heading : jeep.heading);
     hud.update(dt, {
       kmh: jeep.kmh, walking: mode === 'walk', where: hud.whereText || '', clockLabel: clock.label(), season: clock.season, monthName: clock.m.name, aurora: a,

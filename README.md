@@ -27,17 +27,17 @@ Push the repo to GitHub and import it in Vercel. Vercel detects Vite on its own,
 | --- | --- | --- |
 | Drive | WASD or arrow keys | Left and right buttons, Go (play button) and Brake |
 | Handbrake | Shift | |
-| Change camera (chase, look up, step out) | C | Camera button, top right |
-| Look up (quick toggle) | L | Look up button |
+| Change camera (chase, look up, step out) | C | Menu, Settings, Camera |
+| Look up (quick toggle) | L | Look button (glows green when the aurora is out) |
 | Sit down (on foot) | X | Sit button |
 | Look around | Drag with the mouse | Drag with a finger |
-| Switch car | V | Car button, top right |
+| Switch car | V, or click the car | Tap the car, or Menu, Cars |
 | Map and fast travel | M | Tap the minimap |
-| Learn about the aurora | H, or any (i) on the radio | Learn button, top right |
+| Learn about the aurora | H, or any (i) on the radio | Menu, Learn, or any (i) on the radio |
 | Field notebook | N | Notebook button |
-| Record a 15 second clip | R | Record button |
-| Mute | U | Speaker button |
-| Nitro boost (on by default, can be turned off in Settings) | Space | Nitro button (lightning), next to Go |
+| Record a 15 second clip | R | Menu, Settings, Record |
+| Mute | U | Menu, Settings, Sound |
+| Nitro boost (on by default, can be turned off in Settings) | Space | Slide up from Go; the ring around Go shows the tank |
 
 There is no race and no timer. Nitro is a speed boost that is on by default; you can switch it off in Settings.
 

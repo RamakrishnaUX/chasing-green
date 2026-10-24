@@ -4,6 +4,7 @@ import { groundAt as heightAt, surfaceAt, nearestRoad, exposureAt, waterLevelAt,
 import { clamp, lerp } from '../world/noise.js';
 import { buildVehicleModel } from './models.js';
 import { VEHICLES, SURFACE_DRAG } from './specs.js';
+import { NitroFX } from './nitrofx.js';
 
 // The player's car. Kept under the old name so the rest of the game needs no changes;
 // setType() swaps between the Jeep, the vintage roadster and the race car.
@@ -15,13 +16,8 @@ export class Jeep {
     this.headlight = new THREE.SpotLight(0xfff0d0, 0, 110, 0.5, 0.6, 1.2);
     this.headlight.target.position.set(0, 0, 18);
     this.root.add(this.headlight, this.headlight.target);
-    // Nitro flame: two emissive cones that flicker at the exhaust.
-    this.flameMat = new THREE.MeshBasicMaterial({ color: 0x7fb8ff, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending });
-    const fg = new THREE.ConeGeometry(0.09, 0.7, 12, 1, true);
-    fg.rotateX(-Math.PI / 2);
-    fg.translate(0, 0, -0.35);
-    this.flame = new THREE.Mesh(fg, this.flameMat);
-    this.root.add(this.flame);
+    // Nitro: glowing twin exhausts with streaks and sparks.
+    this.nitroFx = new NitroFX(scene, this.root);
 
     // Soft contact shadow under the car, so it sits on the ground even outside the shadow map.
     const c = document.createElement('canvas'); c.width = c.height = 64;
@@ -64,7 +60,7 @@ export class Jeep {
     this.root.add(this.body);
     this.headlight.position.set(...this.model.headlight);
     this.headlight.target.position.set(0, 0, 22);
-    this.flame.position.set(...this.model.exhaust);
+    this.nitroFx.place(this.model.exhaust);
     this.vF = 0; this.vL = 0;
     if (this.pos) this.sync(0);
   }
@@ -245,11 +241,7 @@ export class Jeep {
       w.spin.rotation.x += (this.vF * (dt || 0)) / R;
       if (w.front) w.pivot.rotation.y = this.steerVis;
     });
-    // Nitro flame flicker.
-    const on = this.boosting ? 1 : 0;
-    this.flameMat.opacity = lerp(this.flameMat.opacity, on * (0.75 + Math.random() * 0.25), dt ? Math.min(1, dt * 12) : 1);
-    this.flame.scale.set(1, 1, 0.7 + Math.random() * 0.6);
-    this.flame.visible = this.flameMat.opacity > 0.02;
+    this.nitroFx.update(dt, this.boosting, Math.abs(this.vF));
   }
 
   // Vertical motion: follow the ground, take off where it drops away faster than the car can
