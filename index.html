@@ -28,10 +28,10 @@
           <div class="select-wrap"><select id="intro-month" class="month-select"></select></div>
         </div>
         <div class="month-card" aria-live="polite"></div>
-        <button id="start" class="btn btn-primary btn-start">Start driving</button>
+        <button id="start" class="btn btn-primary btn-start is-loading" role="progressbar" aria-label="Loading the island" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span class="start-fill" aria-hidden="true"></span><span class="start-label">Shaping the island</span><span class="start-pct">0%</span></button>
         <p class="car-line" id="intro-car"></p>
         <p class="challenge-line" id="intro-challenge"></p>
-        <p class="loading" id="loading" role="status">Shaping the island</p>
+        <p class="loading" id="loading" role="status"></p>
       </div>
       <p class="keys-hint"><span><kbd>WASD</kbd>drive</span><span><kbd>Space</kbd>nitro</span><span><kbd>C</kbd>camera</span><span><kbd>X</kbd>sit</span><span><kbd>V</kbd>car</span><span><kbd>M</kbd>map</span><span><kbd>H</kbd>learn</span></p>
     </div>

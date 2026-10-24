@@ -691,3 +691,32 @@ body.is-looking #hud .touch-left:active, body.is-looking #hud #t-brake:active, b
   #postcard .panel-actions { padding: 14px 12px 16px; gap: 8px; }
   #postcard .panel-actions .btn { flex: 1; padding: 0 0.6rem; }
 }
+
+/* ---------- Start button doubles as the loading bar ----------
+   While the island builds: a dark glass track with a green fill that grows from the left (a
+   compositor animation, so it keeps moving through heavy work), a soft shimmer across the
+   fill, and the current stage with a live percentage. When ready it becomes the full button. */
+.btn-start { position: relative; overflow: hidden; isolation: isolate; gap: 10px; }
+.btn-start .start-label, .btn-start .start-pct { position: relative; z-index: 1; }
+.btn-start .start-fill { position: absolute; inset: 0; z-index: 0; transform-origin: left center; transform: scaleX(var(--p, 0));
+  transition: transform var(--dur, 400ms) cubic-bezier(0.25, 0.6, 0.35, 1);
+  background: linear-gradient(180deg, #8ff8c0, var(--green) 45%, var(--green-2)); }
+.btn-start .start-fill::after { content: ''; position: absolute; inset: 0; background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.45) 50%, transparent 70%);
+  transform: translateX(-100%); animation: shimmer 1.6s ease-in-out infinite; }
+@keyframes shimmer { to { transform: translateX(100%); } }
+.btn-start.is-loading, .btn-start.is-loading:disabled { opacity: 1; cursor: progress; color: var(--ink);
+  background: rgba(0, 0, 0, 0.28); border-color: var(--hair); box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.35); }
+.btn-start.is-loading .start-label, .btn-start.is-loading .start-pct { text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45); }
+.btn-start .start-pct { font-variant-numeric: tabular-nums; min-width: 3ch; text-align: left; opacity: 0.85; }
+.btn-start:not(.is-loading) .start-fill, .btn-start:not(.is-loading) .start-pct { display: none; }
+.btn-start.is-ready { animation: start-ready 0.5s var(--spring); }
+@keyframes start-ready { 0% { transform: scale(0.97); } 60% { transform: scale(1.02); } 100% { transform: scale(1); } }
+.btn-start.is-failed { background: rgba(255, 125, 116, 0.18); color: var(--red); border-color: rgba(255, 125, 116, 0.5); }
+@media (prefers-reduced-motion: reduce) { .btn-start .start-fill::after, .btn-start.is-ready { animation: none; } }
+/* Readable at every point of the fill: a pale mint track that the green colours in, with dark
+   text on top. The shimmer stays inside the fill. */
+.btn-start.is-loading, .btn-start.is-loading:disabled { color: var(--green-ink); border-color: rgba(200, 255, 225, 0.45);
+  background: linear-gradient(180deg, rgba(232, 246, 238, 0.92), rgba(205, 228, 216, 0.88)); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 6px 18px rgba(0, 0, 0, 0.25); }
+.btn-start.is-loading .start-label, .btn-start.is-loading .start-pct { text-shadow: none; }
+.btn-start .start-fill { overflow: hidden; }
+.btn-start .start-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }

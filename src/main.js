@@ -106,12 +106,33 @@ const startGameHours = clock.gameHours;
 const startNight = clock.nightIndex;
 let fpsAcc = 0, fpsFrames = 0, autoDowngraded = false;
 
-// ---------- Build world (deferred so the loading line paints first) ----------
-function buildWorld() {
+// ---------- Build world ----------
+// Built in stages so the Start button can fill as it goes. Before each stage the bar is sent
+// toward that stage's end over its usual duration; the fill animates on the compositor, so it
+// keeps moving even while a heavy stage holds the main thread.
+const nextPaint = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+const stageTimes = {};
+async function buildWorld(progress) {
   const t0 = performance.now();
+  let tStage = t0, current = null, currentMs = 0;
+  // Expected times come from a desktop build; phones start at 2.5x, then the first stage tells
+  // us how fast this device really is and the rest of the bar is paced to match.
+  let pace = isTouch ? 2.5 : 1;
+  const stage = async (name, end, ms) => {
+    if (current) {
+      stageTimes[current] = Math.round(performance.now() - tStage);
+      if (current === 'Shaping the island') pace = Math.min(6, Math.max(0.5, stageTimes[current] / currentMs));
+    }
+    current = name; tStage = performance.now(); currentMs = ms;
+    progress(end, ms * pace, name);
+    await nextPaint();
+  };
+  await stage('Shaping the island', 0.58, 1500);
   world = buildTerrain(scene, Q.terrainRes, clock.season);
+  await stage('Lighting the sky', 0.59, 40);
   sky = new Sky(scene, { shadowSize: Q.shadowSize, renderer });
   aurora = new Aurora(scene, Q.auroraSteps);
+  await stage('Placing landmarks', 0.67, 220);
   // Pads under built landmarks, by kind (radius in world units). Natural sites keep their shape.
   const PAD = { building: 32, town: 30, sculpture: 12, pool: 26, geothermal: 24, cave: 16, bridge: 18, waterfall: 34, geyser: 18 };
   landmarks = new Landmarks(scene, { quality: qualityName, beforeBuild: (list) => {
@@ -126,6 +147,7 @@ function buildWorld() {
   };
   obstacles = new Obstacles();
   landmarks.registerObstacles(obstacles);
+  await stage('Scattering rocks', 0.88, 560);
   // Bridge railings are solid on both sides.
   for (const B of bridges) for (const sx of [-1, 1]) obstacles.addBox(B.x - B.dz * sx * 4.65, B.z + B.dx * sx * 4.65, Math.atan2(B.dx, B.dz), 0.25, B.len / 2 + 2, 'wall');
   scatter = new Scatter(scene, { grass: 0, rocks: Math.round(Q.rocks * (CONFIG.rockDensity[settings.rocks || 'normal'] || 1)), obstacles });
@@ -133,6 +155,7 @@ function buildWorld() {
   const clear = landmarks.list.filter((l) => ['town', 'building', 'sculpture'].includes(l.kind)).map((l) => ({ x: l.x, z: l.z, r: l.id === 'seydisfjordur' ? 58 : l.id === 'laugavegur' ? 30 : l.id === 'hallgrimskirkja' ? 34 : 22 }));
   if (Q.grass > 0) grass = new Grass(scene, { count: Q.grass, radius: Q.grassRadius, clear });
   if (Q.post) post = new Post(renderer, scene, camera, { ao: !!Q.ao });
+  await stage('Building towns', 0.91, 80);
   props = new Props(scene, { farms: qualityName === 'low' ? 14 : 26, landmarks: landmarks.list, keepClear: [START], obstacles });
   towns = new Towns(scene, { landmarks: landmarks.list, obstacles, scale: qualityName === 'low' ? 0.6 : 1 });
   snow = new SnowFall(scene, qualityName === 'low' ? 900 : 2200);
@@ -140,15 +163,18 @@ function buildWorld() {
   spray = new Particles(scene, { count: qualityName === 'low' ? 260 : 600, color: 0xe6f0f4, size: 0.5, opacity: 0.75, gravity: 9.5, drag: 1.2 });
   dust = new Particles(scene, { count: qualityName === 'low' ? 120 : 300, color: 0xb39a74, size: 1.3, opacity: 0.28, gravity: -0.4, drag: 1.4 });
   scatter.setSeason(clock.season);
+  await stage('Parking your car', 0.93, 60);
   jeep = new Jeep(scene, settings.vehicle || 'jeep');
   jeep.obstacles = obstacles;
   walker = new Walker(scene);
   const sp = nearestRoadAnywhere(START.x, START.z);
   jeep.place(sp.x, sp.z, sp.heading);
+  await stage('Drawing the map', 0.99, 180);
   mapUI = new MapUI({ landmarks, onTravel: fastTravel });
   { const L = landmarks.list.find((l) => l.id === 'landmannalaugar'); if (L) surfaceUniforms.uRhyolite.value.set(L.x, L.z, 170); }
   surfaceUniforms.uSnowLine.value = [16, 18, 24, 32, 55, 95, 95, 85, 55, 32, 24, 18][clock.month];
-  console.info(`World built in ${Math.round(performance.now() - t0)} ms`);
+  stageTimes[current] = Math.round(performance.now() - tStage);
+  console.info(`World built in ${Math.round(performance.now() - t0)} ms`, stageTimes);
 }
 
 // ---------- Helpers ----------
@@ -937,18 +963,43 @@ function frame(now) {
 }
 
 // ---------- Boot ----------
-requestAnimationFrame(() => setTimeout(() => {
+// The Start button is the loading bar: it fills with green as the island is built, shows what
+// is happening and how far along it is, then turns into the full Start driving button.
+const startFill = startBtn.querySelector('.start-fill'), startLabel = startBtn.querySelector('.start-label'), startPct = startBtn.querySelector('.start-pct');
+function startProgress(p, ms, label) {
+  startBtn.style.setProperty('--dur', `${ms}ms`);
+  startBtn.style.setProperty('--p', p.toFixed(3));
+  startLabel.textContent = label;
+}
+// The percentage reads the bar's live position, so the number and the fill always agree.
+(function countUp() {
+  if (!startBtn.classList.contains('is-loading')) return;
+  const m = getComputedStyle(startFill).transform;
+  const pct = Math.round((m.startsWith('matrix(') ? parseFloat(m.slice(7)) : 0) * 100);
+  startPct.textContent = `${pct}%`;
+  startBtn.setAttribute('aria-valuenow', String(pct));
+  requestAnimationFrame(countUp);
+})();
+requestAnimationFrame(() => setTimeout(async () => {
   try {
-    buildWorld();
+    await buildWorld(startProgress);
     // Park the camera behind the jeep for the intro view.
     camera.position.set(jeep.pos.x - Math.sin(jeep.heading) * 12, jeep.pos.y + 5, jeep.pos.z - Math.cos(jeep.heading) * 12);
     camera.lookAt(jeep.pos.x, jeep.pos.y + 2, jeep.pos.z);
-    $('loading').textContent = '';
+    startProgress(1, 300, 'Ready');
+    await new Promise((r) => setTimeout(r, 320));
+    startBtn.classList.remove('is-loading');
+    startBtn.classList.add('is-ready');
+    startBtn.removeAttribute('role'); startBtn.removeAttribute('aria-valuenow'); startBtn.removeAttribute('aria-label');
+    startLabel.textContent = 'Start driving';
     startBtn.disabled = false;
+    haptics.play('success');
     const shared = readSharedSighting();
     if (shared) renderSharedSighting(shared);
   } catch (err) {
     console.error(err);
+    startBtn.classList.add('is-failed');
+    startLabel.textContent = 'Could not build the island';
     $('loading').textContent = 'Something went wrong while building the island. Try reloading, or lower the quality in Settings.';
   }
   requestAnimationFrame(frame);
