@@ -1,4 +1,4 @@
-// Nitro you can see: from each of the two exhausts a white-hot core, a blue-violet flame and
+// Nitro you can see: from each of the two exhausts a white-hot core, a green-teal flame and
 // a soft glow, a light that tints the road behind the car, and streaks that hang in the air
 // for a moment as the car pulls away from them.
 import * as THREE from 'three';
@@ -11,9 +11,9 @@ function glowTexture() {
   const g = c.getContext('2d');
   const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
   grad.addColorStop(0, 'rgba(255,255,255,1)');
-  grad.addColorStop(0.25, 'rgba(200,215,255,0.8)');
-  grad.addColorStop(0.6, 'rgba(120,130,255,0.25)');
-  grad.addColorStop(1, 'rgba(90,90,255,0)');
+  grad.addColorStop(0.25, 'rgba(200,255,235,0.8)');
+  grad.addColorStop(0.6, 'rgba(60,220,190,0.25)');
+  grad.addColorStop(1, 'rgba(40,180,200,0)');
   g.fillStyle = grad; g.fillRect(0, 0, 64, 64);
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
@@ -28,9 +28,9 @@ export class NitroFX {
     this.root = root;
     this.level = 0; // eases toward 1 while boosting
     const tex = glowTexture();
-    this.coreMat = new THREE.MeshBasicMaterial({ color: 0xeaf6ff, opacity: 0, ...add });
-    this.flameMat = new THREE.MeshBasicMaterial({ color: 0x6f7dff, opacity: 0, ...add });
-    this.glowMat = new THREE.SpriteMaterial({ map: tex, color: 0x8e9bff, opacity: 0, ...add });
+    this.coreMat = new THREE.MeshBasicMaterial({ color: 0xeafff7, opacity: 0, ...add });
+    this.flameMat = new THREE.MeshBasicMaterial({ color: 0x22d6b0, opacity: 0, ...add });
+    this.glowMat = new THREE.SpriteMaterial({ map: tex, color: 0x4cefc6, opacity: 0, ...add });
     const core = new THREE.ConeGeometry(0.075, 0.7, 14, 1, true);
     core.rotateX(-Math.PI / 2); core.translate(0, 0, -0.35);
     const flame = new THREE.ConeGeometry(0.17, 1.6, 16, 1, true);
@@ -45,7 +45,7 @@ export class NitroFX {
       root.add(g);
       return { g, core: c, flame: f, glow: s, trail: [] };
     });
-    this.light = new THREE.PointLight(0x7f8cff, 0, 9, 1.6);
+    this.light = new THREE.PointLight(0x3fe6c0, 0, 9, 1.6);
     root.add(this.light);
 
     // Streak ribbons live in the world, so the car leaves them behind.
@@ -69,7 +69,7 @@ export class NitroFX {
     for (let i = 0; i < n; i++) this.spark.pos[i * 3 + 1] = -9999;
     const sg = new THREE.BufferGeometry();
     sg.setAttribute('position', new THREE.BufferAttribute(this.spark.pos, 3));
-    this.sparkPts = new THREE.Points(sg, new THREE.PointsMaterial({ color: 0x9aa6ff, size: 0.24, map: tex, sizeAttenuation: true, ...add }));
+    this.sparkPts = new THREE.Points(sg, new THREE.PointsMaterial({ color: 0x8ff5d8, size: 0.24, map: tex, sizeAttenuation: true, ...add }));
     this.sparkPts.frustumCulled = false;
     scene.add(this.sparkPts);
     this.tmp = new THREE.Vector3();
@@ -129,7 +129,7 @@ export class NitroFX {
     this.sparkPts.geometry.attributes.position.needsUpdate = true;
   }
 
-  // A flat ribbon that tapers and fades along the trail: white-blue at the pipe, violet at the tail.
+  // A flat ribbon that tapers and fades along the trail: mint at the pipe, cyan-blue at the tail.
   writeRibbon(mesh, trail) {
     const pos = mesh.geometry.attributes.position.array, col = mesh.geometry.attributes.color.array;
     const n = trail.length;
@@ -142,7 +142,7 @@ export class NitroFX {
       const w = 0.2 * (1 - t * 0.7);
       pos[o] = q.x - dz * w; pos[o + 1] = q.y; pos[o + 2] = q.z + dx * w;
       pos[o + 3] = q.x + dz * w; pos[o + 4] = q.y; pos[o + 5] = q.z - dx * w;
-      const r = (0.42 + t * 0.18) * fade, g = (0.55 - t * 0.4) * fade, bl = 1 * fade;
+      const r = (0.25 - t * 0.15) * fade, g = (0.95 - t * 0.3) * fade, bl = (0.75 + t * 0.25) * fade;
       col[o] = col[o + 3] = r; col[o + 1] = col[o + 4] = g; col[o + 2] = col[o + 5] = bl;
     }
     mesh.geometry.attributes.position.needsUpdate = true;

@@ -513,8 +513,6 @@ body.has-touch .sky-hint { top: calc(10px + var(--safe-t)); font-size: 0.9rem; p
   color: var(--ink-2); background: rgba(255, 255, 255, 0.1); }
 .kp-level[data-level='active'] { color: var(--green-ink); background: var(--green); }
 .kp-level[data-level='storm'] { color: #3a0b08; background: var(--red); }
-.kp-explain { margin: 0 0 0.6rem; font-size: 0.8rem; line-height: 1.45; color: var(--ink-2); padding: 8px 10px; border-radius: var(--r-sm); background: rgba(0, 0, 0, 0.2); }
-.kp-explain strong { color: var(--ink); }
 
 /* ---------- Intro: the car line ---------- */
 .car-line { margin: 0; font-size: 0.86rem; color: var(--ink-2); }
@@ -546,4 +544,24 @@ dialog.sheet:not([data-page='map']) { height: fit-content; }
 @media (max-height: 520px) {
   body.has-touch .radio-title { display: none; }
   body.has-touch .toast { max-width: min(300px, calc(100vw - 460px)); min-width: 220px; }
+}
+
+/* ---------- Nitro is green: the ring around Go and the boost glow ---------- */
+.go-ring { background: conic-gradient(from -90deg, #b6ffd8 0deg, var(--green) calc(var(--tank) * 360deg), rgba(92, 242, 160, 0.16) 0); }
+.pad-gas.is-boosting .go-ring, .pad-gas.is-boost .go-ring { filter: drop-shadow(0 0 6px var(--green)) drop-shadow(0 0 14px #2fe0b8); }
+.pad-gas.is-boost { border-color: #e6fff2;
+  background: radial-gradient(120% 120% at 30% 15%, #ffffff 0%, #c9ffe4 30%, #6ff7c0 58%, #19b98a 100%);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.85), 0 0 30px rgba(92, 242, 160, 0.9); }
+.pad-gas.is-boosting { box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.8), 0 0 30px rgba(92, 242, 160, 0.85); }
+.go-hint { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 22 12'%3E%3Cpath d='M3 10l8-7 8 7' fill='none' stroke='%235cf2a0' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); }
+.nitro span { background: linear-gradient(90deg, var(--green-2), #b6ffd8); }
+.nitro.is-on span { box-shadow: 0 0 8px var(--green); }
+
+/* ---------- Phones upright: Look sits above Brake, the space above Go stays free for the
+   nitro slide, and the landmark card rises clear of every control ---------- */
+@media (orientation: portrait) and (max-width: 600px) {
+  body.has-touch .touch-right { grid-template-columns: 64px 80px; grid-template-areas: 'sit .' 'look .' 'brake gas'; row-gap: 14px; column-gap: 14px; align-items: end; }
+  body.has-touch #t-look { width: 64px; height: 64px; min-width: 0; padding: 0; border-radius: 50%; flex-direction: column; gap: 2px; }
+  body.has-touch #t-look span { font-size: 0.62rem; letter-spacing: 0.07em; text-transform: uppercase; }
+  body.has-touch .infocard { bottom: calc(196px + var(--safe-b)); }
 }

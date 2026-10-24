@@ -568,8 +568,7 @@ function syncTouch() {
   $('touch').hidden = !show;
   document.body.classList.toggle('has-touch', show);
 }
-input.bindTouchButton($('t-left'), 'left');
-input.bindTouchButton($('t-right'), 'right');
+input.bindSteerPair($('t-left'), $('t-right'), () => haptics.play('select', 0));
 input.bindGasButton($('t-gas'), (up) => { if (up) nitroHint(); });
 input.bindTouchButton($('t-brake'), 'brake');
 // Nitro lives on Go: slide the finger up from Go to boost, back down to ease off. The ring
@@ -584,8 +583,8 @@ function nitroHint() {
 $('t-look').addEventListener('click', toggleLookUp);
 $('sky-hint').addEventListener('click', () => { haptics.play('medium', 0); toggleLookUp(); });
 // Every control answers the finger: a tick for small buttons, firmer for the pedals.
-const PAD_FEEL = { 't-gas': 'light', 't-brake': 'medium', 't-left': 'select', 't-right': 'select' };
-document.querySelectorAll('.pad').forEach((el) => el.addEventListener('pointerdown', () => haptics.play(PAD_FEEL[el.id] || 'select', 0)));
+const PAD_FEEL = { 't-gas': 'light', 't-brake': 'medium' };
+document.querySelectorAll('.pad:not(.pad-steer)').forEach((el) => el.addEventListener('pointerdown', () => haptics.play(PAD_FEEL[el.id] || 'select', 0)));
 document.querySelectorAll('.icon-btn, .tile, .btn, .minimap').forEach((el) => el.addEventListener('pointerdown', () => haptics.play('select', 0)));
 
 // Intro
@@ -611,7 +610,7 @@ startBtn.addEventListener('click', () => {
   syncTouch();
   if (isTouch) { touchLayout(); goLandscape(); }
   canvas.focus();
-  hud.toast('Watch the Kp on the aurora radio: it is the aurora strength, 0 to 9. At 3 or more, find a dark, clear sky and look up.', { seconds: 8 });
+  hud.toast('Watch the Kp on the aurora radio. Tap the (i) next to it to learn what it means.', { seconds: 7 });
 });
 
 addEventListener('keydown', (e) => {

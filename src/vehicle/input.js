@@ -41,6 +41,38 @@ export class Input {
     el.addEventListener('contextmenu', (e) => e.preventDefault());
   }
 
+  // Steering pair: press either arrow and slide across to the other without lifting. The finger
+  // is tracked over the whole pair, so whichever side of the gap it is on is the way you steer.
+  bindSteerPair(leftEl, rightEl, onChange) {
+    let id = null, side = null;
+    const set = (s) => {
+      if (s === side) return;
+      side = s;
+      this.touch.left = s === 'left'; this.touch.right = s === 'right';
+      leftEl.classList.toggle('is-down', s === 'left'); rightEl.classList.toggle('is-down', s === 'right');
+      if (s) onChange?.(s);
+    };
+    const sideAt = (x) => {
+      const a = leftEl.getBoundingClientRect(), b = rightEl.getBoundingClientRect();
+      return x < (a.right + b.left) / 2 ? 'left' : 'right';
+    };
+    for (const el of [leftEl, rightEl]) {
+      el.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        if (id !== null) return;
+        id = e.pointerId;
+        try { el.setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
+        set(sideAt(e.clientX));
+      });
+      el.addEventListener('pointermove', (e) => { if (e.pointerId === id) set(sideAt(e.clientX)); });
+      const off = (e) => { if (e.pointerId !== id) return; id = null; set(null); };
+      el.addEventListener('pointerup', off);
+      el.addEventListener('pointercancel', off);
+      el.addEventListener('lostpointercapture', off);
+      el.addEventListener('contextmenu', (e) => e.preventDefault());
+    }
+  }
+
   // Go pedal: hold to drive. Slide the same finger up off the button to fire nitro, slide back
   // down to ease off. Pointer capture keeps the press alive while the finger moves.
   bindGasButton(el, onSlide) {
