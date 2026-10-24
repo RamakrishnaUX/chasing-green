@@ -46,7 +46,7 @@ export const store = {
     const drop = ns.slice(0, Math.max(0, ns.length - keep));
     drop.forEach((n) => safeDel(THUMB(n)));
   },
-  nextSightingNumber() { return (this.data.sightings.at(-1)?.n || 0) + 1; },
+  nextSightingNumber() { const s = this.data.sightings; return (s[s.length - 1]?.n || 0) + 1; },
 
   stamp(id) {
     if (this.data.stamps[id]) return false;

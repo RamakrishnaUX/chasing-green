@@ -612,3 +612,8 @@ body.is-looking #hud .touch-left:active, body.is-looking #hud #t-brake:active, b
 .flash.is-on { animation: flash 0.55s ease-out; }
 @keyframes flash { 0% { opacity: 0.55; } 100% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .flash.is-on { animation: none; } .shutter { animation: none; } }
+/* Overlays inside the HUD must never catch taps: the HUD's own rule turns taps on for its
+   children, so these opt back out explicitly. */
+#hud > .flash, #hud > .toast { pointer-events: none; }
+#hud > .touch > div { pointer-events: none; }
+#hud > .touch .pad { pointer-events: auto; }

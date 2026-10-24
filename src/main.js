@@ -600,8 +600,8 @@ $('sky-hint').addEventListener('click', () => { haptics.play('medium', 0); toggl
 $('t-shot').addEventListener('click', () => { if (lastAurora && performance.now() - lastShot > 1200) logSighting(lastAurora, { manual: true }); });
 // Every control answers the finger: a tick for small buttons, firmer for the pedals.
 const PAD_FEEL = { 't-gas': 'light', 't-brake': 'medium' };
-document.querySelectorAll('.pad:not(.pad-steer)').forEach((el) => el.addEventListener('pointerdown', () => haptics.play(PAD_FEEL[el.id] || 'select', 0)));
-document.querySelectorAll('.icon-btn, .tile, .btn, .minimap').forEach((el) => el.addEventListener('pointerdown', () => haptics.play('select', 0)));
+document.querySelectorAll('.pad:not(.pad-steer)').forEach((el) => haptics.press(el, PAD_FEEL[el.id] || 'select'));
+document.querySelectorAll('.icon-btn, .tile, .btn, .minimap').forEach((el) => haptics.press(el));
 
 // Intro
 document.querySelectorAll('.month-select').forEach((sel) => {
