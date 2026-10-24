@@ -76,17 +76,17 @@
 
     <aside id="radio" class="radio glass" aria-label="Aurora radio">
       <div class="radio-head" id="radio-toggle" role="button" tabindex="0" aria-expanded="true">
-        <span class="radio-title">Aurora radio <button class="info-i" data-learn="forecast" aria-label="What is the forecast?">i</button></span>
-        <span class="radio-kp"><span id="kp">0.0</span><small>Kp</small><em class="kp-level" id="kp-level">Quiet</em></span><button class="info-i" data-learn="kp" aria-label="What is Kp?">i</button>
+        <span class="radio-title">Aurora radio</span>
+        <span class="radio-kp"><span id="kp">0.0</span><small>Kp</small><em class="kp-level" id="kp-level">Quiet</em></span><button class="info-i" data-learn="" aria-label="Learn about the aurora radio">i</button>
       </div>
       <div class="radio-body" id="radio-body">
         <p class="radio-status" id="radio-status">Tuning in</p>
         <canvas id="radio-graph" width="560" height="200" aria-label="Forecast for tonight"></canvas>
         <dl class="radio-stats">
-          <div><dt>Activity <button class="info-i" data-learn="activity" aria-label="What is activity?">i</button></dt><dd id="stat-activity">None</dd></div>
-          <div><dt>Clouds <button class="info-i" data-learn="clouds" aria-label="What is cloud cover?">i</button></dt><dd id="stat-cloud">0%</dd></div>
-          <div><dt>Darkness <button class="info-i" data-learn="darkness" aria-label="What is darkness?">i</button></dt><dd id="stat-dark">0%</dd></div>
-          <div><dt>City glow <button class="info-i" data-learn="glow" aria-label="What is light pollution?">i</button></dt><dd id="stat-glow">None</dd></div>
+          <div><dt>Activity</dt><dd id="stat-activity">None</dd></div>
+          <div><dt>Clouds</dt><dd id="stat-cloud">0%</dd></div>
+          <div><dt>Darkness</dt><dd id="stat-dark">0%</dd></div>
+          <div><dt>City glow</dt><dd id="stat-glow">None</dd></div>
         </dl>
       </div>
     </aside>
@@ -209,7 +209,7 @@
       <h2 id="pc-title" class="sheet-title">Postcard</h2>
       <button class="icon-btn glass sheet-close" data-close aria-label="Close postcard"><svg viewBox="0 0 24 24"><path d="M7 7l10 10M17 7L7 17"/></svg></button>
     </header>
-    <div class="postcard-frame"><canvas id="postcard-canvas" width="1200" height="800" aria-label="Sighting postcard"></canvas></div>
+    <div class="postcard-frame"><canvas id="postcard-canvas" width="1080" height="1350" aria-label="Sighting postcard"></canvas></div>
     <div class="panel-actions">
       <button class="btn btn-primary" id="pc-share">Share</button>
       <button class="btn" id="pc-save">Save image</button>
