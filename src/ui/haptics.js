@@ -27,15 +27,16 @@ function iosTick() {
 }
 
 // Strength names map to vibration lengths in milliseconds (or on/off patterns).
+// Phone vibration motors barely spin up under about 20 ms, so even the lightest tick is 20 ms.
 const PATTERNS = {
-  select: 6,
-  light: 10,
-  medium: 18,
-  heavy: 32,
-  success: [12, 60, 18],
-  warning: [24, 50, 24],
-  thud: [40, 30, 16],
-  aurora: [10, 80, 14, 80, 22],
+  select: 20,
+  light: 30,
+  medium: 45,
+  heavy: 70,
+  success: [35, 70, 50],
+  warning: [50, 60, 50],
+  thud: [80, 40, 35],
+  aurora: [30, 90, 40, 90, 70],
 };
 
 let last = 0;

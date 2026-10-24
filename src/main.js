@@ -40,13 +40,22 @@ const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in win
 
 store.load();
 const settings = store.data.settings;
+// Phones that run hot get a lighter Low: small or low-memory Android phones and any phone with
+// few cores render fewer pixels, less grass and simpler aurora. Phones also cap at 30 fps,
+// which this slow-paced game does not need more than and which keeps them cool.
+const isAndroid = /Android/i.test(navigator.userAgent);
+const weakDevice = isTouch && ((navigator.deviceMemory || 8) <= 4 || (navigator.hardwareConcurrency || 8) <= 4 ||
+  (isAndroid && Math.min(screen.width, screen.height) <= 400));
+const LITE = { pixelRatio: 0.75, auroraSteps: 6, terrainRes: 480, grass: 3500, grassRadius: 18, rocks: 140 };
+const qualityFor = (name) => (weakDevice && name === 'low' ? { ...CONFIG.quality.low, ...LITE } : CONFIG.quality[name]);
+const FRAME_GAP = isTouch ? 1000 / 30 : 0;
 let qualityName = settings.quality || (isTouch ? 'low' : CONFIG.defaultQuality);
-let Q = CONFIG.quality[qualityName];
+let Q = qualityFor(qualityName);
 const challenge = dailyChallenge();
 
 // ---------- Renderer ----------
 const canvas = $('game');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: qualityName !== 'low', powerPreference: 'high-performance' });
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: qualityName !== 'low', powerPreference: isTouch ? 'default' : 'high-performance' });
 renderer.setPixelRatio(Math.min(devicePixelRatio, Q.pixelRatio));
 renderer.setSize(innerWidth, innerHeight, false);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -85,7 +94,7 @@ let mode = 'chase'; // chase | lookup | walk
 let walkTilt = false;
 const look = { yaw: 0, pitch: 0.95, orbit: 0, walkYaw: 0 };
 let lookTimer = 0;
-let loggedThisWindow = false, lastLoggedType = null, inactiveFor = 99, lastLogReal = -999;
+let loggedThisWindow = false, lastLoggedType = null, inactiveFor = 99, lastLogReal = -999, lastLogPos = null, lastShot = -1e9, lastAurora = null, wasLooking = false;
 let captureRequest = null;
 const sessionImages = new Map();
 let guaranteeToastShown = false;
@@ -275,17 +284,23 @@ function syncLookButton() { $('t-look').setAttribute('aria-pressed', String(look
 // ---------- Sightings ----------
 const TYPE_RANK = { [AURORA_TYPES.arc]: 0, [AURORA_TYPES.curtains]: 1, [AURORA_TYPES.pink]: 2, [AURORA_TYPES.red]: 3, [AURORA_TYPES.corona]: 4 };
 
-function logSighting(a) {
+// manual: the player pressed the shutter. That works any time they look up, aurora or not.
+function logSighting(a, { manual = false } = {}) {
   const p = activePos();
   const where = describePlace(p.x, p.z);
+  const type = a.active ? a.type : a.dark < CONFIG.aurora.minDarkness ? 'Sky' : 'Night sky';
   const s = {
     n: store.nextSightingNumber(), place: where.label, nearId: where.nearId, nearDist: Math.round(where.nearDist),
-    hour: clock.hourOfDay, clock: clock.label(), kp: Math.round(a.kp * 10) / 10, type: a.type, season: clock.season,
+    hour: clock.hourOfDay, clock: clock.label(), kp: Math.round(a.kp * 10) / 10, type, season: clock.season,
     x: Math.round(p.x), z: Math.round(p.z), date: new Date().toISOString(),
   };
-  loggedThisWindow = true;
-  lastLoggedType = a.type;
+  if (a.active) { loggedThisWindow = true; lastLoggedType = a.type; }
   lastLogReal = clock.realSeconds;
+  lastLogPos = { x: p.x, z: p.z };
+  lastShot = performance.now();
+  // A soft flash and a click, like a camera.
+  $('flash').classList.remove('is-on'); void $('flash').offsetWidth; $('flash').classList.add('is-on');
+  haptics.play('success', 0);
   captureRequest = (dataUrl) => {
     const img = new Image();
     img.onload = () => {
@@ -298,12 +313,12 @@ function logSighting(a) {
       if (r > cr) { sw = img.height * cr; sx = (img.width - sw) / 2; } else { sh = img.width / cr; sy = (img.height - sh) / 2; }
       ctx.drawImage(img, sx, sy, sw, sh, 0, 0, 320, 200);
       store.addSighting(s, tc.toDataURL('image/jpeg', 0.72));
-      haptics.play('aurora', 0);
     };
     img.src = dataUrl;
   };
-  hud.toast(`Sighting #${s.n} logged: ${s.type.toLowerCase()} at ${s.place}.`, { seconds: 7, priority: 3, action: { label: 'View postcard', run: () => openPostcard(s.n) } });
-  checkChallenge(s);
+  const what = a.active ? `Sighting #${s.n}: ${s.type.toLowerCase()} at ${s.place}.` : `Postcard #${s.n} saved at ${s.place}.`;
+  hud.toast(what, { seconds: 6, priority: 3, action: { label: 'View postcard', run: () => openPostcard(s.n) } });
+  if (a.active) checkChallenge(s);
 }
 
 function checkChallenge(s) {
@@ -489,7 +504,7 @@ $('set-haptics').addEventListener('change', (e) => {
 });
 $('set-quality').addEventListener('change', (e) => setQuality(e.target.value, true));
 function setQuality(name, save) {
-  qualityName = name; Q = CONFIG.quality[name];
+  qualityName = name; Q = qualityFor(name);
   renderer.setPixelRatio(Math.min(devicePixelRatio, Q.pixelRatio));
   renderer.setSize(innerWidth, innerHeight, false);
   aurora?.setSteps(Q.auroraSteps);
@@ -582,6 +597,7 @@ function nitroHint() {
 }
 $('t-look').addEventListener('click', toggleLookUp);
 $('sky-hint').addEventListener('click', () => { haptics.play('medium', 0); toggleLookUp(); });
+$('t-shot').addEventListener('click', () => { if (lastAurora && performance.now() - lastShot > 1200) logSighting(lastAurora, { manual: true }); });
 // Every control answers the finger: a tick for small buttons, firmer for the pedals.
 const PAD_FEEL = { 't-gas': 'light', 't-brake': 'medium' };
 document.querySelectorAll('.pad:not(.pad-steer)').forEach((el) => el.addEventListener('pointerdown', () => haptics.play(PAD_FEEL[el.id] || 'select', 0)));
@@ -759,8 +775,8 @@ function drivingHaptics(dt) {
   lastSpeedStep = step;
   if (hapticClock > 0) return;
   if (jeep.boosting) { haptics.play('light'); hapticClock = 0.22; }
-  else if (jeep.braking && kmh > 25) { haptics.play('light'); hapticClock = 0.12; }
-  else if (kmh > 20 && !jeep.air && (jeep.surface === 'gravel' || jeep.surface === 'sand' || jeep.surface === 'moss')) { haptics.play('select'); hapticClock = Math.max(0.12, 0.5 - kmh / 300); }
+  else if (jeep.braking && kmh > 25) { haptics.play('light'); hapticClock = 0.16; }
+  else if (kmh > 20 && !jeep.air && (jeep.surface === 'gravel' || jeep.surface === 'sand' || jeep.surface === 'moss')) { haptics.play('select'); hapticClock = Math.max(0.3, 0.7 - kmh / 300); }
 }
 
 // Jump to any spot: the nearest road there, facing the place if it is a landmark.
@@ -783,6 +799,9 @@ function fastTravel(x, z, label, face) {
 let last = performance.now();
 function frame(now) {
   requestAnimationFrame(frame);
+  // Skip frames to hold the cap: 30 fps on phones, 20 fps behind the intro and menus.
+  const idle = !started || !!document.querySelector('dialog[open]');
+  if (now - last < (idle ? 1000 / 20 : FRAME_GAP) - 2) return;
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
   if (!world) return;
@@ -848,12 +867,22 @@ function frame(now) {
   if (a.active) inactiveFor = 0; else inactiveFor += dt;
   if (inactiveFor > 20) { loggedThisWindow = false; lastLoggedType = null; }
   const upgraded = loggedThisWindow && TYPE_RANK[a.type] > TYPE_RANK[lastLoggedType];
-  const longAgo = clock.realSeconds - lastLogReal > 240;
-  if (loggedThisWindow && (upgraded || longAgo)) loggedThisWindow = false;
+  // A fresh postcard comes from a new place (a few hundred metres away), a stronger display,
+  // or simply a couple of minutes later at the same spot.
+  const here = activePos();
+  const movedOn = lastLogPos && Math.hypot(here.x - lastLogPos.x, here.z - lastLogPos.z) > CONFIG.aurora.newPlaceDistance;
+  const longAgo = clock.realSeconds - lastLogReal > 120;
+  if (loggedThisWindow && (upgraded || longAgo || movedOn)) loggedThisWindow = false;
   if (started && !paused && up && a.active) {
     lookTimer += dt;
-    if (lookTimer >= CONFIG.aurora.lookUpSecondsToLog && !loggedThisWindow) logSighting(a);
+    if (lookTimer >= CONFIG.aurora.lookUpSecondsToLog && !loggedThisWindow) { logSighting(a); lookTimer = 0; }
   } else lookTimer = Math.max(0, lookTimer - dt * 2);
+  lastAurora = a;
+  // Looking up is for the sky: the HUD steps aside and a shutter appears. Its ring fills while
+  // an automatic postcard is on its way.
+  const looking = started && !paused && upAnyDir;
+  if (looking !== wasLooking) { document.body.classList.toggle('is-looking', looking); $('t-shot').hidden = !looking; wasLooking = looking; }
+  if (looking) $('t-shot').style.setProperty('--p', (a.active && !loggedThisWindow ? Math.min(1, lookTimer / CONFIG.aurora.lookUpSecondsToLog) : 0).toFixed(3));
 
   // Landmarks and audio.
   let waterProx = 0, iceProx = 0;
@@ -898,7 +927,7 @@ function frame(now) {
   if (fpsAcc > 4) {
     const fps = fpsFrames / fpsAcc;
     window.__fps = fps;
-    if (started && fps < 40 && !autoDowngraded && !settings.quality && qualityName !== 'low') {
+    if (started && fps < (isTouch ? 24 : 40) && !autoDowngraded && !settings.quality && qualityName !== 'low') {
       autoDowngraded = true;
       setQuality(qualityName === 'high' ? 'medium' : 'low', false);
       hud.toast('Lowered graphics quality to keep things smooth. You can change it in Settings.', { seconds: 4 });

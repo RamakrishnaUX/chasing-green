@@ -63,6 +63,7 @@ export const CONFIG = {
     coronaChancePerMinute: 0.25,
     coronaDurationSec: 45,
     lookUpSecondsToLog: 3,
+    newPlaceDistance: 350, // world units you must move before looking up again gives a new postcard
     // First night guarantee. A modest window opens this many real minutes into the first trip
     // and stays open until the player logs a sighting (or the cap is reached).
     guarantee: { startMinutes: 8, kpFloor: 4.3, clearRadius: 400, maxMinutes: 9 },

@@ -8,7 +8,7 @@ export class Hud {
     this.el = {
       hud: $('hud'), speed: $('speed'), where: $('where'), clock: $('clock'), kp: $('kp'), kpWrap: $('kp').parentElement,
       status: $('radio-status'), graph: $('radio-graph'), cloud: $('stat-cloud'), activity: $('stat-activity'), dark: $('stat-dark'), glow: $('stat-glow'),
-      rose: $('compass-rose'), wind: $('wind-arrow'), toast: $('toast'), meter: $('lookup-meter'), ring: $('lookup-ring'), meterText: $('lookup-text'),
+      rose: $('compass-rose'), wind: $('wind-arrow'), toast: $('toast'),
       radio: $('radio'), radioToggle: $('radio-toggle'), kpLevel: $('kp-level'), skyHint: $('sky-hint'), look: $('t-look'),
     };
     this.g = this.el.graph.getContext('2d');
@@ -80,15 +80,6 @@ export class Hud {
 
     const status = this.statusLine(s);
     if (status !== this.lastStatus) { e.status.textContent = status; this.lastStatus = status; }
-
-    // Look-up meter.
-    const showMeter = s.lookingUp && s.aurora.active;
-    e.meter.hidden = !showMeter;
-    if (showMeter) {
-      const k = Math.min(1, s.lookTimer / CONFIG.aurora.lookUpSecondsToLog);
-      e.ring.style.strokeDashoffset = String(125.7 * (1 - k));
-      e.meterText.textContent = s.loggedThisWindow ? 'Already in your notebook' : k >= 1 ? 'Logged' : 'Keep looking up';
-    }
 
     this.graphTimer -= dt;
     if (this.graphTimer <= 0) { this.drawGraph(s); this.graphTimer = 0.5; }

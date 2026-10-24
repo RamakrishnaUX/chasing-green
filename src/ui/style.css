@@ -565,3 +565,50 @@ dialog.sheet:not([data-page='map']) { height: fit-content; }
   body.has-touch #t-look span { font-size: 0.62rem; letter-spacing: 0.07em; text-transform: uppercase; }
   body.has-touch .infocard { bottom: calc(196px + var(--safe-b)); }
 }
+
+/* ---------- Phones: every control on one bottom row, evenly spaced ----------
+   Steering on the left; Look, Brake and Go on the right with equal gaps, all sitting on the
+   same baseline so the thumb never has to reach up. Sizes scale down on narrow phones. */
+body.has-touch .touch { align-items: flex-end; }
+body.has-touch .touch-right { display: flex; align-items: flex-end; gap: var(--pedal-gap, 14px); }
+body.has-touch .touch-left { align-items: flex-end; }
+@media (orientation: portrait) and (max-width: 600px) {
+  body.has-touch .touch { --steer: min(62px, 16vw); --btn: min(56px, 14.5vw); --go: min(74px, 19vw); --pedal-gap: min(14px, 3.4vw);
+    padding: 0 calc(10px + var(--safe-r)) calc(16px + var(--safe-b)) calc(10px + var(--safe-l)); }
+  body.has-touch .touch-right { display: flex; grid-template-areas: none; }
+  body.has-touch .touch-left { gap: min(8px, 2vw); }
+  body.has-touch .pad-steer { --size: var(--steer); }
+  body.has-touch #t-look, body.has-touch #t-brake, body.has-touch #t-sit { width: var(--btn); height: var(--btn); min-width: 0; padding: 0; border-radius: 50%; flex-direction: column; gap: 2px; }
+  body.has-touch #t-look span, body.has-touch #t-brake span, body.has-touch #t-sit span { font-size: 0.56rem; letter-spacing: 0.06em; text-transform: uppercase; }
+  body.has-touch #t-look svg, body.has-touch #t-brake svg { width: 18px; height: 18px; }
+  body.has-touch #t-gas { --size: var(--go); }
+  body.has-touch .pad-gas svg { width: 30px; height: 30px; }
+  body.has-touch .infocard { bottom: calc(110px + var(--safe-b)); }
+  body.has-touch .sky-hint { top: calc(258px + var(--safe-t)); }
+}
+@media (max-height: 520px) {
+  body.has-touch .touch-right { --pedal-gap: 16px; }
+  body.has-touch #t-brake { --size: 58px; }
+}
+
+/* ---------- Looking up: the sky gets the screen ---------- */
+#hud .radio, #hud .minimap, #hud .hud-tl, #hud .infocard, #hud .sky-hint, #hud .touch-left, #hud #t-brake, #hud #t-gas, #hud .hud-tr {
+  transition: opacity 0.5s var(--ease); }
+body.is-looking #hud .radio, body.is-looking #hud .minimap, body.is-looking #hud .hud-tl, body.is-looking #hud .infocard, body.is-looking #hud .sky-hint { opacity: 0; pointer-events: none; }
+body.is-looking #hud .touch-left, body.is-looking #hud #t-brake, body.is-looking #hud #t-gas, body.is-looking #hud .hud-tr { opacity: 0.28; }
+body.is-looking #hud .touch-left:active, body.is-looking #hud #t-brake:active, body.is-looking #hud #t-gas:active { opacity: 1; }
+
+/* Shutter: bottom centre while looking up. Its ring fills as an automatic postcard gets close. */
+.shutter { position: absolute; left: 50%; bottom: calc(26px + var(--safe-b)); transform: translateX(-50%); width: 68px; height: 68px; border-radius: 50%; padding: 0; color: var(--ink);
+  display: grid; place-items: center; z-index: 4; --p: 0; transition: transform 0.2s var(--spring); animation: shutter-in 0.4s var(--ease); }
+.shutter:active { transform: translateX(-50%) scale(0.9); }
+.shutter svg { width: 28px; height: 28px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.shutter-ring { position: absolute; inset: -6px; border-radius: 50%; pointer-events: none;
+  background: conic-gradient(from -90deg, var(--green) calc(var(--p) * 360deg), rgba(255, 255, 255, 0.22) 0);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2.5px)); mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2.5px)); }
+@keyframes shutter-in { from { opacity: 0; transform: translate(-50%, 12px); } }
+@media (orientation: portrait) and (max-width: 600px) { body.has-touch .shutter { bottom: calc(112px + var(--safe-b)); } }
+.flash { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; z-index: 6; }
+.flash.is-on { animation: flash 0.55s ease-out; }
+@keyframes flash { 0% { opacity: 0.55; } 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .flash.is-on { animation: none; } .shutter { animation: none; } }

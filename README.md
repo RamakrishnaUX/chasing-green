@@ -29,6 +29,7 @@ Push the repo to GitHub and import it in Vercel. Vercel detects Vite on its own,
 | Handbrake | Shift | |
 | Change camera (chase, look up, step out) | C | Menu, Settings, Camera |
 | Look up (quick toggle) | L | Look button (glows green when the aurora is out) |
+| Capture a postcard | Click the shutter while looking up | Tap the shutter while looking up (postcards also save on their own when the aurora is out, again at each new place) |
 | Sit down (on foot) | X | Sit button |
 | Look around | Drag with the mouse | Drag with a finger |
 | Switch car | V, or click the car | Tap the car, or Menu, Cars |
