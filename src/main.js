@@ -110,6 +110,9 @@ let fpsAcc = 0, fpsFrames = 0, autoDowngraded = false;
 // Built in stages so the Start button can fill as it goes. Before each stage the bar is sent
 // toward that stage's end over its usual duration; the fill animates on the compositor, so it
 // keeps moving even while a heavy stage holds the main thread.
+// The real build fills the bar to BUILD_SHARE; a short paced finish carries it to 100%, so the
+// load always feels like a load (at least MIN_LOAD_MS) even on a fast machine.
+const BUILD_SHARE = 0.82, MIN_LOAD_MS = 3200;
 const nextPaint = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
 const stageTimes = {};
 async function buildWorld(progress) {
@@ -124,7 +127,7 @@ async function buildWorld(progress) {
       if (current === 'Shaping the island') pace = Math.min(6, Math.max(0.5, stageTimes[current] / currentMs));
     }
     current = name; tStage = performance.now(); currentMs = ms;
-    progress(end, ms * pace, name);
+    progress(end * BUILD_SHARE, ms * pace, name);
     await nextPaint();
   };
   await stage('Shaping the island', 0.58, 1500);
@@ -169,10 +172,15 @@ async function buildWorld(progress) {
   walker = new Walker(scene);
   const sp = nearestRoadAnywhere(START.x, START.z);
   jeep.place(sp.x, sp.z, sp.heading);
-  await stage('Drawing the map', 0.99, 180);
+  await stage('Drawing the map', 0.95, 180);
   mapUI = new MapUI({ landmarks, onTravel: fastTravel });
   { const L = landmarks.list.find((l) => l.id === 'landmannalaugar'); if (L) surfaceUniforms.uRhyolite.value.set(L.x, L.z, 170); }
   surfaceUniforms.uSnowLine.value = [16, 18, 24, 32, 55, 95, 95, 85, 55, 32, 24, 18][clock.month];
+  // Compile every shader now, in parallel where the browser allows, instead of freezing the
+  // first frame doing it.
+  await stage('Mixing the colours', 1, 1200);
+  // Never wait more than 2.5 s here; anything left compiles on the first frame as before.
+  try { await Promise.race([renderer.compileAsync(scene, camera), new Promise((r) => setTimeout(r, 2500))]); } catch { renderer.compile(scene, camera); }
   stageTimes[current] = Math.round(performance.now() - tStage);
   console.info(`World built in ${Math.round(performance.now() - t0)} ms`, stageTimes);
 }
@@ -965,29 +973,40 @@ function frame(now) {
 // ---------- Boot ----------
 // The Start button is the loading bar: it fills with green as the island is built, shows what
 // is happening and how far along it is, then turns into the full Start driving button.
-const startFill = startBtn.querySelector('.start-fill'), startLabel = startBtn.querySelector('.start-label'), startPct = startBtn.querySelector('.start-pct');
+const startLabel = startBtn.querySelector('.start-label'), startPct = startBtn.querySelector('.start-pct');
+// The percentage follows the same timing as the fill (eased toward each target over its stage)
+// and only ever counts up, so it never jumps backwards after a busy moment.
+let pctShown = 0, pctSeg = { from: 0, to: 0, t0: 0, dur: 1 };
 function startProgress(p, ms, label) {
   startBtn.style.setProperty('--dur', `${ms}ms`);
   startBtn.style.setProperty('--p', p.toFixed(3));
   startLabel.textContent = label;
+  pctSeg = { from: pctShown, to: p, t0: performance.now(), dur: Math.max(1, ms) };
 }
-// The percentage reads the bar's live position, so the number and the fill always agree.
 (function countUp() {
   if (!startBtn.classList.contains('is-loading')) return;
-  const m = getComputedStyle(startFill).transform;
-  const pct = Math.round((m.startsWith('matrix(') ? parseFloat(m.slice(7)) : 0) * 100);
+  const t = Math.min(1, (performance.now() - pctSeg.t0) / pctSeg.dur);
+  pctShown = Math.max(pctShown, pctSeg.from + (pctSeg.to - pctSeg.from) * (1 - (1 - t) * (1 - t)));
+  const pct = Math.round(pctShown * 100);
   startPct.textContent = `${pct}%`;
   startBtn.setAttribute('aria-valuenow', String(pct));
   requestAnimationFrame(countUp);
 })();
+const bootStart = performance.now();
 requestAnimationFrame(() => setTimeout(async () => {
   try {
     await buildWorld(startProgress);
     // Park the camera behind the jeep for the intro view.
     camera.position.set(jeep.pos.x - Math.sin(jeep.heading) * 12, jeep.pos.y + 5, jeep.pos.z - Math.cos(jeep.heading) * 12);
     camera.lookAt(jeep.pos.x, jeep.pos.y + 2, jeep.pos.z);
-    startProgress(1, 300, 'Ready');
-    await new Promise((r) => setTimeout(r, 320));
+    // Start drawing the scene now, so it is alive behind the start screen during the finish.
+    requestAnimationFrame(frame);
+    const left = Math.max(900, MIN_LOAD_MS - (performance.now() - bootStart));
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    startProgress(0.93, left * 0.55, 'Waking the aurora');
+    await wait(left * 0.55);
+    startProgress(1, left * 0.45, 'Warming up the engine');
+    await wait(left * 0.45 + 60);
     startBtn.classList.remove('is-loading');
     startBtn.classList.add('is-ready');
     startBtn.removeAttribute('role'); startBtn.removeAttribute('aria-valuenow'); startBtn.removeAttribute('aria-label');
@@ -1002,7 +1021,6 @@ requestAnimationFrame(() => setTimeout(async () => {
     startLabel.textContent = 'Could not build the island';
     $('loading').textContent = 'Something went wrong while building the island. Try reloading, or lower the quality in Settings.';
   }
-  requestAnimationFrame(frame);
 }, 30));
 
 // Handy for tuning from the browser console.
