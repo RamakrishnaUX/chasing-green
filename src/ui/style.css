@@ -440,10 +440,6 @@ body.has-touch .car-card h3 { font-size: 1rem; }
 @media (max-width: 420px) { .quick-actions { gap: 8px; } .tile { font-size: 0.72rem; min-height: 68px; } }
 
 /* Postcard */
-dialog.sheet-postcard { height: auto; max-height: calc(100dvh - 24px); width: min(860px, calc(100vw - 24px)); }
-.postcard-frame { padding: 0 18px; flex: 1; min-height: 0; }
-#postcard-canvas { width: 100%; height: auto; max-height: calc(100dvh - 190px); object-fit: contain; display: block; border-radius: var(--r-md); }
-dialog.sheet-postcard .panel-actions { padding: 14px 18px 18px; }
 
 /* Rotate prompt */
 .rotate { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; padding: 24px; background: rgba(8, 13, 20, 0.6); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
@@ -524,7 +520,6 @@ dialog.sheet[data-page='garage'] { width: min(860px, calc(100vw - 32px)); }
 dialog.sheet[data-page='map'] { width: min(1040px, calc(100vw - 32px)); height: min(760px, calc(100dvh - 32px)); }
 .sheet-page { flex: 0 1 auto; }
 .sheet-page.page-map { flex: 1 1 auto; }
-dialog.sheet-postcard { width: min(860px, calc(100vw - 24px)); }
 @media (max-height: 520px) {
   dialog.sheet { height: auto; max-height: calc(100dvh - 16px); width: min(720px, calc(100vw - 20px - var(--safe-l) - var(--safe-r))); }
   dialog.sheet[data-page='garage'], dialog.sheet[data-page='map'] { width: calc(100vw - 20px - var(--safe-l) - var(--safe-r)); }
@@ -621,33 +616,29 @@ body.is-looking #hud .touch-left:active, body.is-looking #hud #t-brake:active, b
 /* ---------- Menu sheet: one steady size, so switching tabs never moves it ----------
    Wide screens and phones held sideways get a tab rail on the left; phones held upright keep
    the tabs across the top. Pages scroll inside; the sheet itself never resizes. */
-dialog.sheet[data-page] { transition: none; width: min(960px, calc(100vw - 32px)); height: min(640px, calc(100dvh - 32px)); max-height: none; }
+#sheet[data-page] { transition: none; width: min(960px, calc(100vw - 32px)); height: min(640px, calc(100dvh - 32px)); max-height: none; }
 @media (min-width: 701px), (max-height: 520px) {
-  dialog.sheet[open] { display: grid; grid-template-columns: 188px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
-  .sheet-head { grid-column: 1; grid-row: 1; flex-direction: column; align-items: stretch; padding: 16px 12px; border-right: 1px solid var(--hair-2); }
+  #sheet[open] { display: grid; grid-template-columns: 188px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+  #sheet .sheet-head { grid-column: 1; grid-row: 1; flex-direction: column; align-items: stretch; padding: 16px 12px; border-right: 1px solid var(--hair-2); }
   .sheet-tabs { flex: none; flex-direction: column; gap: 4px; padding: 0; margin: 0; max-width: none; background: none; border: 0; border-radius: 0; }
   .sheet-tabs button { flex: none; flex-direction: row; justify-content: flex-start; gap: 12px; min-height: 44px; padding: 0 14px; border-radius: 14px; font-size: 0.95rem; }
   .sheet-tabs svg { width: 20px; height: 20px; }
-  .sheet-close { position: absolute; top: 12px; right: 12px; z-index: 3; }
+  #sheet .sheet-close { position: absolute; top: 12px; right: 12px; z-index: 3; }
   .sheet-page { grid-column: 2; grid-row: 1; min-height: 0; padding: 20px 64px 22px 22px; }
   .sheet-page.page-map { padding: 12px; display: flex; }
   .sheet-page > .seg-tabs { margin: 0 0 16px; }
 }
 @media (max-height: 520px) {
-  dialog.sheet[data-page] { width: calc(100vw - 20px - var(--safe-l) - var(--safe-r)); height: calc(100dvh - 16px); }
-  dialog.sheet[open] { grid-template-columns: 150px minmax(0, 1fr); }
-  .sheet-head { padding: 10px 8px; }
+  #sheet[data-page] { width: calc(100vw - 20px - var(--safe-l) - var(--safe-r)); height: calc(100dvh - 16px); }
+  #sheet[open] { grid-template-columns: 150px minmax(0, 1fr); }
+  #sheet .sheet-head { padding: 10px 8px; }
   .sheet-tabs button { min-height: 38px; padding: 0 10px; font-size: 0.85rem; gap: 9px; }
   .sheet-page { padding: 14px 58px 14px 16px; }
 }
 @media (orientation: portrait) and (max-width: 700px) {
-  dialog.sheet[data-page] { width: calc(100vw - 20px); height: calc(100dvh - 28px); }
+  #sheet[data-page] { width: calc(100vw - 20px); height: calc(100dvh - 28px); }
 }
 
-/* ---------- Postcard viewer: a portrait card, centred ---------- */
-dialog.sheet-postcard { width: min(560px, calc(100vw - 24px)); }
-dialog.sheet-postcard .postcard-frame { display: flex; justify-content: center; }
-#postcard-canvas { width: auto; height: auto; max-width: 100%; max-height: calc(100dvh - 200px); border-radius: var(--r-md); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35); }
 .radio-head .info-i { width: 24px; height: 24px; font-size: 12px; line-height: 22px; margin-left: 4px; flex: none; }
 
 /* ---------- Phones upright: fewer things, each with its own place ----------
@@ -673,4 +664,30 @@ dialog.sheet-postcard .postcard-frame { display: flex; justify-content: center; 
   body.has-touch .where, body.has-touch .clock { max-width: 116px; }
   body.has-touch .minimap, body.has-touch .toast, body.has-touch.sky-on .toast { top: calc(100px + var(--safe-t)); }
   body.has-touch .sky-hint { top: calc(200px + var(--safe-t)); }
+}
+
+/* ---------- Postcard viewer: a landscape card that always fits the screen ----------
+   The card keeps its 3:2 shape: as wide as the sheet allows, but never taller than the space
+   left after the header and buttons. Phones held sideways put the buttons beside the card. */
+#postcard { width: min(900px, calc(100vw - 24px)); height: fit-content; max-height: calc(100dvh - 24px); display: none; flex-direction: column; }
+#postcard[open] { display: flex; }
+#postcard .postcard-frame { display: flex; justify-content: center; padding: 0 18px; min-height: 0; }
+#postcard-canvas { display: block; width: min(100%, calc((100dvh - 200px) * 1.5)); height: auto; max-height: none; aspect-ratio: 3 / 2; border-radius: var(--r-md); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35); }
+#postcard .panel-actions { justify-content: center; padding: 16px 18px 20px; }
+@media (max-height: 520px) {
+  #postcard { width: calc(100vw - 20px - var(--safe-l) - var(--safe-r)); height: calc(100dvh - 16px); max-height: none;
+    display: none; grid-template-columns: minmax(0, 1fr) 168px; grid-template-rows: minmax(0, 1fr); }
+  #postcard[open] { display: grid; }
+  #postcard .sheet-head { position: absolute; top: 0; right: 0; padding: 8px; }
+  #postcard .sheet-title { display: none; }
+  #postcard .postcard-frame { grid-column: 1; grid-row: 1; align-items: center; padding: 10px; }
+  #postcard-canvas { width: min(100%, calc((100dvh - 36px) * 1.5)); }
+  #postcard .panel-actions { grid-column: 2; grid-row: 1; flex-direction: column; justify-content: center; flex-wrap: nowrap; padding: 56px 12px 12px 0; }
+  #postcard .panel-actions .btn { width: 100%; }
+}
+@media (orientation: portrait) and (max-width: 600px) {
+  #postcard { width: calc(100vw - 20px); }
+  #postcard .postcard-frame { padding: 0 12px; }
+  #postcard .panel-actions { padding: 14px 12px 16px; gap: 8px; }
+  #postcard .panel-actions .btn { flex: 1; padding: 0 0.6rem; }
 }

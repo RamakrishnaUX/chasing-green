@@ -19,7 +19,7 @@ export function captionFor(s) {
 
 // The postcard is a perforated paper stamp laid over a blurred copy of the sky: a serif
 // "Postcard from <place>" title, the photo set in the middle, two inked postmarks and wavy
-// cancellation lines. Portrait 4:5, ready for sharing.
+// cancellation lines. Landscape 3:2, like a real postcard.
 const INK = 'rgba(28, 30, 34, 0.78)';
 const PAPER = '#ece7dc';
 
@@ -74,9 +74,11 @@ function postmark(ctx, x, y, r, rot, top, mid, bottom) {
   ctx.beginPath(); ctx.arc(0, 0, r * 0.66, 0, Math.PI * 2); ctx.stroke();
   // dir 1 runs along the top edge, dir -1 along the bottom edge; both read left to right.
   const arcText = (text, radius, dir) => {
-    ctx.font = `700 ${Math.round(r * 0.2)}px "Atkinson Hyperlegible", system-ui, sans-serif`;
     const chars = [...text.toUpperCase()];
     const spread = Math.min(Math.PI * 0.9, chars.length * 0.16);
+    // Long words get smaller letters so they still fit the arc without touching.
+    const size = Math.min(r * 0.2, (spread * radius) / chars.length / 0.75);
+    ctx.font = `700 ${Math.round(size)}px "Atkinson Hyperlegible", system-ui, sans-serif`;
     chars.forEach((ch, i) => {
       const a = dir * (-spread / 2 + (spread * (i + 0.5)) / chars.length);
       ctx.save();
@@ -117,7 +119,7 @@ function fitFont(ctx, text, maxW, size, family) {
 }
 
 export async function drawPostcard(canvas, s, image) {
-  canvas.width = 1080; canvas.height = 1350;
+  canvas.width = 1500; canvas.height = 1000;
   const ctx = canvas.getContext('2d');
   const W = canvas.width, H = canvas.height;
   await document.fonts?.ready;
@@ -131,7 +133,7 @@ export async function drawPostcard(canvas, s, image) {
   ctx.fillRect(0, 0, W, H);
 
   // The stamp, with a soft shadow so it sits on the photo.
-  const SX = 110, SY = 135, SW = W - 220, SH = H - 270;
+  const SX = 110, SY = 80, SW = W - 220, SH = H - 160;
   ctx.save();
   ctx.shadowColor = 'rgba(0,0,0,0.35)'; ctx.shadowBlur = 30; ctx.shadowOffsetY = 10;
   ctx.drawImage(stamp(SW, SH, 26, 66), SX, SY);
@@ -143,13 +145,13 @@ export async function drawPostcard(canvas, s, image) {
   ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
   if ('letterSpacing' in ctx) ctx.letterSpacing = '2px';
   ctx.font = `400 46px ${serif}`;
-  ctx.fillText('POSTCARD FROM', W / 2, SY + 150);
-  fitFont(ctx, s.place.toUpperCase(), SW - 140, 46, serif);
-  ctx.fillText(s.place.toUpperCase(), W / 2, SY + 206);
+  ctx.fillText('POSTCARD FROM', W / 2, SY + 125);
+  fitFont(ctx, s.place.toUpperCase(), SW - 240, 46, serif);
+  ctx.fillText(s.place.toUpperCase(), W / 2, SY + 181);
   if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
 
   // The photo, set into the middle of the stamp.
-  const PW = 470, PH = 560, PX = (W - PW) / 2, PY = SY + 270;
+  const PW = 780, PH = 440, PX = (W - PW) / 2, PY = SY + 225;
   ctx.fillStyle = '#0d1520';
   ctx.fillRect(PX, PY, PW, PH);
   if (image) cover(ctx, image, PX, PY, PW, PH);
@@ -157,16 +159,10 @@ export async function drawPostcard(canvas, s, image) {
   // Postmarks and cancellation lines, inked over the edges like the real thing.
   const d = new Date(s.date || Date.now());
   const date = `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getFullYear()).slice(2)}`;
-  postmark(ctx, PX - 40, PY + 120, 72, -0.18, 'Iceland', date, 'Chasing Green');
-  postmark(ctx, PX + PW + 6, PY + PH + 36, 66, 0.22, `Kp ${s.kp.toFixed(1)}`, s.clock, s.type);
-  waves(ctx, PX + 30, PY + PH + 30, 230, 3, 26, 9);
+  postmark(ctx, PX - 40, PY + 110, 74, -0.18, 'Iceland', date, 'Chasing Green');
+  postmark(ctx, PX + PW + 14, PY + PH + 22, 68, 0.22, `Kp ${s.kp.toFixed(1)}`, s.clock, s.type);
+  waves(ctx, PX + 20, PY + PH + 48, 280, 3, 24, 10);
 
-  // A small line at the foot of the stamp.
-  ctx.fillStyle = 'rgba(22,24,27,0.72)';
-  ctx.font = '700 22px "Atkinson Hyperlegible", system-ui, sans-serif';
-  if ('letterSpacing' in ctx) ctx.letterSpacing = '3px';
-  ctx.fillText(`NO. ${s.n}  ·  ${s.type.toUpperCase()}  ·  ${s.season.toUpperCase()}`, W / 2, SY + SH - 56);
-  if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
   ctx.textAlign = 'left';
 }
 
