@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <meta name="theme-color" content="#0d1520" />
+  <title>Chasing Green</title>
+  <meta name="description" content="A quiet road trip around Iceland. Drive, wait, look up." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Young+Serif&display=swap" rel="stylesheet" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='14' fill='%230d1520'/><path d='M8 44 C20 16, 30 40, 40 18 S56 30, 58 20' stroke='%235cf2a0' stroke-width='6' fill='none' stroke-linecap='round'/></svg>" />
+</head>
+<body>
+  <canvas id="game" aria-label="Chasing Green game view"></canvas>
+
+  <!-- Intro -->
+  <section id="intro" class="screen" aria-labelledby="intro-title">
+    <div class="intro-inner">
+      <h1 id="intro-title" class="wordmark">Chasing Green</h1>
+      <p class="prompt">Drive. Wait. Look up.</p>
+      <p class="intro-copy">A quiet road trip around Iceland. Find a dark spot under a clear sky, check the radio, and watch for the lights.</p>
+      <div class="intro-row month-row">
+        <label for="intro-month">Month</label>
+        <select id="intro-month" class="month-select"></select>
+      </div>
+      <div class="month-card" aria-live="polite"></div>
+      <div class="intro-row vehicle-row" role="radiogroup" aria-label="Vehicle">
+        <button class="chip" data-vehicle="jeep" role="radio">Trail 4x4</button>
+        <button class="chip" data-vehicle="vintage" role="radio">Vintage roadster</button>
+        <button class="chip" data-vehicle="race" role="radio">Supercar</button>
+      </div>
+      <button id="start" class="btn btn-primary">Start driving</button>
+      <p class="challenge-line" id="intro-challenge"></p>
+      <p class="keys-hint">WASD or arrows to drive. Space for nitro. C to change camera or step out. X to sit. V to switch car. M for the map. H to learn about the aurora.</p>
+      <p class="loading" id="loading" role="status">Shaping the island</p>
+    </div>
+  </section>
+
+  <!-- Phones: landscape prompt -->
+  <div id="rotate" class="rotate" hidden role="status">
+    <svg viewBox="0 0 64 64" aria-hidden="true"><rect x="22" y="8" width="20" height="36" rx="3" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="M50 44a18 18 0 0 1-18 12M14 20a18 18 0 0 1 18-12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
+    <p>Turn your phone sideways. Chasing Green plays best in landscape.</p>
+    <button class="btn btn-quiet" id="rotate-dismiss">Keep portrait</button>
+  </div>
+
+  <!-- HUD -->
+  <div id="hud" hidden>
+    <div class="hud-tl">
+      <div class="compass" aria-label="Compass"><svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="29" class="c-ring"/><g id="compass-rose"><path d="M32 8 L37 32 L32 28 L27 32 Z" class="c-n"/><path d="M32 56 L27 32 L32 36 L37 32 Z" class="c-s"/><text x="32" y="7" class="c-label">N</text></g><g id="wind-arrow"><path d="M32 46 L32 20 M26 26 L32 20 L38 26" class="c-wind"/></g></svg></div>
+      <div class="readout">
+        <div class="speed"><span id="speed">0</span><small>km/h</small></div>
+        <div class="nitro" aria-label="Nitro"><span id="nitro-bar"></span></div>
+        <div class="where" id="where">Hveragerði</div>
+        <div class="clock" id="clock">16:15</div>
+      </div>
+    </div>
+
+    <button id="minimap" class="minimap" aria-label="Open the map to travel anywhere" title="Map (M)"><canvas id="minimap-canvas" aria-hidden="true"></canvas></button>
+    <div class="hud-tr" role="toolbar" aria-label="Game controls">
+      <button class="icon-btn hide-touch" id="btn-learn" aria-label="Learn about the aurora" title="Learn (H)"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .8-1 1.5V14M12 17.2v.3"/></svg></button>
+      <button class="icon-btn" id="btn-notebook" aria-label="Open field notebook" title="Field notebook (N)"><svg viewBox="0 0 24 24"><path d="M6 3h11a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6zM6 3v18M9 8h7M9 12h7"/></svg></button>
+      <button class="icon-btn" id="btn-garage" aria-label="Choose a car" title="Choose a car (V)"><svg viewBox="0 0 24 24"><path d="M4 15l1.5-5h13L20 15M3 15h18v3H3zM7 18v1.5M17 18v1.5"/><circle cx="7.5" cy="15.5" r="0.6" class="fill"/><circle cx="16.5" cy="15.5" r="0.6" class="fill"/></svg></button>
+      <button class="icon-btn hide-touch" id="btn-camera" aria-label="Change camera" title="Change camera (C)"><svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></button>
+      <button class="icon-btn hide-touch" id="btn-record" aria-label="Record a 15 second clip" title="Record a 15 second clip (R)"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="3" class="fill"/></svg></button>
+      <button class="icon-btn hide-touch" id="btn-mute" aria-label="Mute sound" aria-pressed="false" title="Mute (M)"><svg viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z"/><path id="mute-waves" d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/></svg></button>
+      <button class="icon-btn" id="btn-settings" aria-label="Settings" title="Settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg></button>
+    </div>
+
+    <div id="lookup-meter" class="lookup-meter" hidden aria-live="polite">
+      <svg viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="20" class="track"/><circle cx="24" cy="24" r="20" class="fill" id="lookup-ring"/></svg>
+      <span id="lookup-text">Keep looking up</span>
+    </div>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+    <aside id="radio" class="radio" aria-label="Aurora radio">
+      <div class="radio-head" id="radio-toggle" role="button" tabindex="0" aria-expanded="true">
+        <span class="radio-title">Aurora radio <button class="info-i" data-learn="forecast" aria-label="What is the forecast?">i</button></span>
+        <span class="radio-kp"><span id="kp">0.0</span><small>Kp</small></span><button class="info-i" data-learn="kp" aria-label="What is Kp?">i</button>
+      </div>
+      <div class="radio-body" id="radio-body">
+        <p class="radio-status" id="radio-status">Tuning in</p>
+        <canvas id="radio-graph" width="560" height="200" aria-label="Forecast for tonight"></canvas>
+        <dl class="radio-stats">
+          <div><dt>Activity <button class="info-i" data-learn="activity" aria-label="What is activity?">i</button></dt><dd id="stat-activity">None</dd></div>
+          <div><dt>Clouds <button class="info-i" data-learn="clouds" aria-label="What is cloud cover?">i</button></dt><dd id="stat-cloud">0%</dd></div>
+          <div><dt>Darkness <button class="info-i" data-learn="darkness" aria-label="What is darkness?">i</button></dt><dd id="stat-dark">0%</dd></div>
+          <div><dt>City glow <button class="info-i" data-learn="glow" aria-label="What is light pollution?">i</button></dt><dd id="stat-glow">None</dd></div>
+        </dl>
+      </div>
+    </aside>
+
+    <article id="infocard" class="infocard" hidden aria-live="polite">
+      <div class="stamp-badge" id="info-stamp" aria-hidden="true"></div>
+      <h2 id="info-name"></h2>
+      <p class="info-desc" id="info-desc"></p>
+      <p class="info-legend" id="info-legend"></p>
+      <p class="info-fact" id="info-fact"></p>
+      <div class="info-actions">
+        <button class="btn btn-quiet" id="info-more" aria-expanded="false">More</button>
+        <button class="btn btn-quiet" id="info-share">Share this fact</button>
+        <button class="btn btn-quiet" id="info-close" aria-label="Close card">Close</button>
+      </div>
+    </article>
+
+    <div id="touch" class="touch" hidden>
+      <div class="touch-left">
+        <button class="pad" id="t-left" aria-label="Steer left"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button>
+        <button class="pad" id="t-right" aria-label="Steer right"><svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg></button>
+      </div>
+      <div class="touch-right">
+        <button class="pad pad-small" id="t-sit" aria-label="Sit down" hidden><span>Sit</span></button>
+        <button class="pad pad-small" id="t-look" aria-label="Look up" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M5 15l7-7 7 7"/></svg><span>Look up</span></button>
+        <button class="pad pad-small pad-nitro" id="t-nitro" aria-label="Nitro boost"><span>Boost</span></button>
+        <button class="pad" id="t-brake" aria-label="Brake or reverse"><span>Brake</span></button>
+        <button class="pad pad-gas" id="t-gas" aria-label="Gas"><span>Gas</span></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Field notebook -->
+  <dialog id="notebook" class="panel" aria-labelledby="nb-title">
+    <header class="panel-head">
+      <h2 id="nb-title">Field notebook</h2>
+      <button class="icon-btn" data-close aria-label="Close notebook"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </header>
+    <div class="tabs" role="tablist">
+      <button role="tab" class="tab is-on" aria-selected="true" data-tab="sightings">Sightings</button>
+      <button role="tab" class="tab" aria-selected="false" data-tab="stamps">Stamps</button>
+      <button role="tab" class="tab" aria-selected="false" data-tab="today">Today</button>
+    </div>
+    <div class="tab-body" data-body="sightings"><ol class="sightings" id="sightings-list"></ol></div>
+    <div class="tab-body" data-body="stamps" hidden><ul class="stamps" id="stamps-list"></ul></div>
+    <div class="tab-body" data-body="today" hidden><div id="challenge-card" class="challenge-card"></div></div>
+  </dialog>
+
+  <!-- Postcard -->
+  <dialog id="postcard" class="panel panel-wide" aria-labelledby="pc-title">
+    <header class="panel-head">
+      <h2 id="pc-title">Postcard</h2>
+      <button class="icon-btn" data-close aria-label="Close postcard"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </header>
+    <div class="postcard-frame"><canvas id="postcard-canvas" width="1200" height="800" aria-label="Sighting postcard"></canvas></div>
+    <div class="panel-actions">
+      <button class="btn btn-primary" id="pc-share">Share</button>
+      <button class="btn btn-quiet" id="pc-save">Save image</button>
+      <button class="btn btn-quiet" id="pc-link">Copy link</button>
+      <button class="btn btn-quiet" id="pc-play" hidden>Start your own trip</button>
+    </div>
+  </dialog>
+
+  <!-- Map -->
+  <dialog id="map" class="panel panel-map" aria-labelledby="map-title">
+    <header class="panel-head">
+      <h2 id="map-title">Map</h2>
+      <button class="icon-btn" data-close aria-label="Close map"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </header>
+    <p class="map-hint">Tap a place or anywhere on the island to go there.</p>
+    <div class="map-wrap"><canvas id="map-canvas" aria-label="Map of Iceland"></canvas><div id="map-markers"></div></div>
+  </dialog>
+
+  <!-- Garage -->
+  <dialog id="garage" class="panel" aria-labelledby="gr-title">
+    <header class="panel-head">
+      <h2 id="gr-title">Choose a car</h2>
+      <button class="icon-btn" data-close aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </header>
+    <div class="garage" id="garage-list"></div>
+  </dialog>
+
+  <!-- Learn -->
+  <dialog id="learn" class="panel" aria-labelledby="ln-title">
+    <header class="panel-head">
+      <h2 id="ln-title">Learn</h2>
+      <button class="icon-btn" data-close aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </header>
+    <div class="tabs" role="tablist">
+      <button role="tab" class="tab is-on" aria-selected="true" data-ltab="terms">Aurora terms</button>
+      <button role="tab" class="tab" aria-selected="false" data-ltab="lesson">How auroras work</button>
+    </div>
+    <div class="tab-body" id="learn-body"></div>
+  </dialog>
+
+  <!-- Settings -->
+  <dialog id="settings" class="panel" aria-labelledby="st-title">
+    <header class="panel-head">
+      <h2 id="st-title">Settings</h2>
+      <button class="icon-btn" data-close aria-label="Close settings"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </header>
+    <div class="quick-actions" aria-label="Quick actions">
+      <button class="btn btn-quiet" data-quick="camera">Camera</button>
+      <button class="btn btn-quiet" data-quick="learn">Learn</button>
+      <button class="btn btn-quiet" data-quick="record">Record clip</button>
+      <button class="btn btn-quiet" data-quick="mute">Mute / unmute</button>
+      <button class="btn btn-quiet" data-quick="fullscreen">Fullscreen</button>
+    </div>
+    <div class="month-card settings-month"></div>
+    <div class="settings-grid">
+      <label for="set-quality">Graphics quality</label>
+      <select id="set-quality"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select>
+      <label for="set-month">Month</label>
+      <select id="set-month" class="month-select"></select>
+      <label for="set-speed">Time speed</label>
+      <select id="set-speed"><option value="1">Normal</option><option value="2">Twice as fast</option><option value="4">Four times as fast</option></select>
+      <label for="set-rocks">Rock density</label>
+      <select id="set-rocks"><option value="few">Few</option><option value="normal">Normal</option><option value="many">Many</option></select>
+      <label for="set-nitro">Nitro boost</label>
+      <select id="set-nitro"><option value="on">On (hold Space)</option><option value="off">Off</option></select>
+      <label for="set-touch">Touch controls</label>
+      <select id="set-touch"><option value="auto">Automatic</option><option value="on">Always show</option><option value="off">Hide</option></select>
+    </div>
+    <p class="settings-note">Graphics quality changes take effect right away, except terrain detail and rock density, which apply on the next visit.</p>
+    <div class="panel-actions">
+      <button class="btn btn-quiet" id="set-reset">Clear notebook</button>
+    </div>
+  </dialog>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

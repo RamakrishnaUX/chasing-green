@@ -1,0 +1,879 @@
+import * as THREE from 'three';
+import { createNoise2D, fbm, clamp, lerp, smoothstep } from './noise.js';
+import { COAST, ROADS, FORDS, LAKES, GLACIERS, LAVA, PITS, CANYONS, PASSES, FLATS, JUMPS, BRIDGES, KERID, keridU, keridProfile, WS } from './geo.js';
+import { createTerrainMaterial, createRoadMaterial, createWaterMaterial, createRiverMaterial, riverGeometry, surfaceUniforms } from './materials.js';
+
+export const BOUNDS = { minX: -900 * WS, maxX: 930 * WS, minZ: -690 * WS, maxZ: 580 * WS };
+
+const nA = createNoise2D(11);
+const nB = createNoise2D(23);
+const nC = createNoise2D(37);
+const nD = createNoise2D(51);
+
+// ---------- Coastline ----------
+function pointInPoly(x, z, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[i], b = poly[j];
+    if ((a.z > z) !== (b.z > z) && x < ((b.x - a.x) * (z - a.z)) / (b.z - a.z) + a.x) inside = !inside;
+  }
+  return inside;
+}
+function segDist(px, pz, ax, az, bx, bz) {
+  const dx = bx - ax, dz = bz - az;
+  const l2 = dx * dx + dz * dz || 1e-6;
+  const t = clamp(((px - ax) * dx + (pz - az) * dz) / l2, 0, 1);
+  const qx = ax + dx * t, qz = az + dz * t;
+  return { d: Math.hypot(px - qx, pz - qz), t, qx, qz };
+}
+export function coastSignedDist(x, z) {
+  let m = Infinity;
+  for (let i = 0, j = COAST.length - 1; i < COAST.length; j = i++) {
+    const r = segDist(x, z, COAST[j].x, COAST[j].z, COAST[i].x, COAST[i].z);
+    if (r.d < m) m = r.d;
+  }
+  // Wobble the coastline so it never looks like straight polygon edges.
+  const wob = nD(x * 0.02, z * 0.02) * 6 * WS + nD(x * 0.07, z * 0.07) * 2;
+  return (pointInPoly(x, z, COAST) ? m : -m) + wob;
+}
+
+// ---------- Roads ----------
+function catmullRom(points, loop, step = 4) {
+  const out = [];
+  const n = points.length;
+  const get = (i) => (loop ? points[(i + n) % n] : points[clamp(i, 0, n - 1)]);
+  const segCount = loop ? n : n - 1;
+  for (let i = 0; i < segCount; i++) {
+    const p0 = get(i - 1), p1 = get(i), p2 = get(i + 1), p3 = get(i + 2);
+    const len = Math.hypot(p2.x - p1.x, p2.z - p1.z);
+    const steps = Math.max(2, Math.ceil(len / step));
+    for (let s = 0; s < steps; s++) {
+      const t = s / steps, t2 = t * t, t3 = t2 * t;
+      const f = (a, b, c, d) => 0.5 * (2 * b + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (-a + 3 * b - 3 * c + d) * t3);
+      out.push({ x: f(p0.x, p1.x, p2.x, p3.x), z: f(p0.z, p1.z, p2.z, p3.z) });
+    }
+  }
+  if (!loop) out.push({ ...points[n - 1] });
+  else out.push({ ...out[0] });
+  return out;
+}
+
+const CELL = 48;
+const roadHash = new Map();
+export const roadPaths = []; // dense polylines with heights, used for ribbons and spawn
+const segments = [];
+
+function cellKey(cx, cz) { return cx * 100003 + cz; }
+
+function buildRoads() {
+  for (const road of ROADS) {
+    const pts = catmullRom(road.points, !!road.loop);
+    roadPaths.push({ name: road.name, type: road.type, loop: !!road.loop, pts, profile: road.profile, summit: road.summit || 0 });
+  }
+}
+
+function insertSegments() {
+  roadPaths.forEach((path, pi) => {
+    const p = path.pts;
+    for (let i = 0; i < p.length - 1; i++) {
+      const seg = { ax: p[i].x, az: p[i].z, bx: p[i + 1].x, bz: p[i + 1].z, ha: p[i].h, hb: p[i + 1].h, fa: p[i].ford, fb: p[i + 1].ford, type: path.type, path: pi, i };
+      segments.push(seg);
+      const minCx = Math.floor(Math.min(seg.ax, seg.bx) / CELL), maxCx = Math.floor(Math.max(seg.ax, seg.bx) / CELL);
+      const minCz = Math.floor(Math.min(seg.az, seg.bz) / CELL), maxCz = Math.floor(Math.max(seg.az, seg.bz) / CELL);
+      for (let cx = minCx; cx <= maxCx; cx++)
+        for (let cz = minCz; cz <= maxCz; cz++) {
+          const k = cellKey(cx, cz);
+          if (!roadHash.has(k)) roadHash.set(k, []);
+          roadHash.get(k).push(seg);
+        }
+    }
+  });
+}
+
+export function nearestRoad(x, z, maxR = 96) {
+  const r = Math.ceil(maxR / CELL);
+  const cx0 = Math.floor(x / CELL), cz0 = Math.floor(z / CELL);
+  let best = null, bestD = maxR;
+  const seen = new Set();
+  for (let cx = cx0 - r; cx <= cx0 + r; cx++)
+    for (let cz = cz0 - r; cz <= cz0 + r; cz++) {
+      const list = roadHash.get(cellKey(cx, cz));
+      if (!list) continue;
+      for (const s of list) {
+        if (seen.has(s)) continue;
+        seen.add(s);
+        const q = segDist(x, z, s.ax, s.az, s.bx, s.bz);
+        if (q.d < bestD) {
+          bestD = q.d;
+          best = { dist: q.d, seg: s, t: q.t, px: q.qx, pz: q.qz, type: s.type, h: lerp(s.ha, s.hb, q.t), ford: lerp(s.fa, s.fb, q.t) };
+        }
+      }
+    }
+  return best;
+}
+
+export function roadHalfWidth(type) { return type === 'paved' ? 3.3 : 2.7; }
+
+// ---------- Road distance field ----------
+// Distance from every point to the nearest road, on a 2 unit grid. Built with a two-pass
+// nearest-seed sweep, so it is close to true Euclidean distance and takes a few milliseconds.
+export const roadField = { cell: 3, nx: 0, nz: 0, d: null };
+
+function buildRoadField() {
+  const C = roadField.cell;
+  const nx = Math.ceil((BOUNDS.maxX - BOUNDS.minX) / C) + 1;
+  const nz = Math.ceil((BOUNDS.maxZ - BOUNDS.minZ) / C) + 1;
+  const sx = new Float32Array(nx * nz).fill(1e9), sz = new Float32Array(nx * nz).fill(1e9);
+  const d = new Float32Array(nx * nz).fill(1e9);
+  const seed = (x, z) => {
+    const ix = Math.round((x - BOUNDS.minX) / C), iz = Math.round((z - BOUNDS.minZ) / C);
+    if (ix < 0 || iz < 0 || ix >= nx || iz >= nz) return;
+    const i = iz * nx + ix;
+    const cx = BOUNDS.minX + ix * C, cz = BOUNDS.minZ + iz * C;
+    const dd = Math.hypot(cx - x, cz - z);
+    if (dd < d[i]) { d[i] = dd; sx[i] = x; sz[i] = z; }
+  };
+  for (const path of roadPaths) {
+    const p = path.pts;
+    for (let i = 0; i < p.length - 1; i++) {
+      const L = Math.hypot(p[i + 1].x - p[i].x, p[i + 1].z - p[i].z);
+      const n = Math.max(1, Math.ceil(L / (C * 0.5)));
+      for (let k = 0; k <= n; k++) seed(p[i].x + (p[i + 1].x - p[i].x) * (k / n), p[i].z + (p[i + 1].z - p[i].z) * (k / n));
+    }
+  }
+  const relax = (i, j, cx, cz) => {
+    if (sx[j] > 1e8) return;
+    const dd = Math.hypot(cx - sx[j], cz - sz[j]);
+    if (dd < d[i]) { d[i] = dd; sx[i] = sx[j]; sz[i] = sz[j]; }
+  };
+  for (let iz = 0; iz < nz; iz++) for (let ix = 0; ix < nx; ix++) {
+    const i = iz * nx + ix, cx = BOUNDS.minX + ix * C, cz = BOUNDS.minZ + iz * C;
+    if (ix > 0) relax(i, i - 1, cx, cz);
+    if (iz > 0) { relax(i, i - nx, cx, cz); if (ix > 0) relax(i, i - nx - 1, cx, cz); if (ix < nx - 1) relax(i, i - nx + 1, cx, cz); }
+  }
+  for (let iz = nz - 1; iz >= 0; iz--) for (let ix = nx - 1; ix >= 0; ix--) {
+    const i = iz * nx + ix, cx = BOUNDS.minX + ix * C, cz = BOUNDS.minZ + iz * C;
+    if (ix < nx - 1) relax(i, i + 1, cx, cz);
+    if (iz < nz - 1) { relax(i, i + nx, cx, cz); if (ix < nx - 1) relax(i, i + nx + 1, cx, cz); if (ix > 0) relax(i, i + nx - 1, cx, cz); }
+  }
+  Object.assign(roadField, { nx, nz, d });
+}
+
+export function roadDistAt(x, z) {
+  if (!roadField.d) return 0;
+  const C = roadField.cell;
+  const fx = clamp((x - BOUNDS.minX) / C, 0, roadField.nx - 1.001), fz = clamp((z - BOUNDS.minZ) / C, 0, roadField.nz - 1.001);
+  const ix = Math.floor(fx), iz = Math.floor(fz), tx = fx - ix, tz = fz - iz, w = roadField.nx, D = roadField.d;
+  const a = D[iz * w + ix], b = D[iz * w + ix + 1], c = D[(iz + 1) * w + ix], e = D[(iz + 1) * w + ix + 1];
+  return (a * (1 - tx) + b * tx) * (1 - tz) + (c * (1 - tx) + e * tx) * tz;
+}
+
+// Ridged noise: sharp crests and soft valleys, each octave weighted by the one before.
+function ridged(x, z) {
+  let sum = 0, amp = 1, f = 1, w = 1, norm = 0;
+  for (let o = 0; o < 4; o++) {
+    let n = 1 - Math.abs(nC(x * f, z * f));
+    n *= n;
+    n *= w;
+    w = clamp(n * 1.6, 0, 1);
+    sum += n * amp; norm += amp;
+    amp *= 0.5; f *= 2.13;
+  }
+  return sum / norm;
+}
+
+// ---------- Height ----------
+// Inland lakes get their own water level: the lowest ground around the rim, so the
+// surface sits in a shallow basin instead of a pit dug down to sea level.
+function lakeLevel(k) {
+  if (k.level != null) return k.level;
+  let m = Infinity;
+  const s = k.stretch || 1;
+  for (let a = 0; a < Math.PI * 2; a += Math.PI / 16) {
+    const x = k.x + Math.cos(a) * k.r * 1.15 * s, z = k.z + Math.sin(a) * k.r * 1.15;
+    m = Math.min(m, rawHeight(x, z, undefined, true));
+  }
+  k.level = Math.max(0, m - 0.5);
+  return k.level;
+}
+
+export function waterLevelAt(x, z) {
+  for (const k of LAKES) {
+    const s = k.stretch || 1;
+    if (Math.hypot((x - k.x) / s, z - k.z) < k.r * 1.1) return lakeLevel(k);
+  }
+  return 0;
+}
+
+// ---------- Bridges ----------
+export const bridges = [];
+function prepareBridges() {
+  const ring = roadPaths.find((p) => p.loop);
+  for (const B of BRIDGES) {
+    let bi = 0, bd = 1e9;
+    ring.pts.forEach((q, i) => { const d = Math.hypot(q.x - B.x, q.z - B.z); if (d < bd) { bd = d; bi = i; } });
+    const a = ring.pts[Math.max(0, bi - 3)], b = ring.pts[Math.min(ring.pts.length - 1, bi + 3)];
+    const L = Math.hypot(b.x - a.x, b.z - a.z) || 1;
+    bridges.push({ x: ring.pts[bi].x, z: ring.pts[bi].z, dx: (b.x - a.x) / L, dz: (b.z - a.z) / L, len: 84, depth: 15, valley: 320 });
+  }
+}
+// Position relative to a bridge: along the road (across the river) and along the river.
+function bridgeFrame(B, x, z) {
+  const ox = x - B.x, oz = z - B.z;
+  return { along: ox * B.dx + oz * B.dz, lat: -ox * B.dz + oz * B.dx };
+}
+function bridgeCarve(x, z) {
+  let c = 0;
+  for (const B of bridges) {
+    const f = bridgeFrame(B, x, z);
+    const wander = Math.sin(f.lat * 0.018) * 10;
+    const across = Math.abs(f.along - wander);
+    if (across > B.len * 0.5 || Math.abs(f.lat) > B.valley) continue;
+    c = Math.max(c, B.depth * (1 - smoothstep(B.len * 0.24, B.len * 0.5, across)) * (1 - smoothstep(B.valley * 0.65, B.valley, Math.abs(f.lat))));
+  }
+  return c;
+}
+// Deck height if (x, z) is on a bridge deck, else null.
+export function deckAt(x, z) {
+  for (const B of bridges) {
+    if (B.h0 == null) continue;
+    const f = bridgeFrame(B, x, z);
+    if (Math.abs(f.along) <= B.len / 2 && Math.abs(f.lat) <= roadHalfWidth('paved') + 1.4) return lerp(B.h0, B.h1, (f.along + B.len / 2) / B.len);
+  }
+  return null;
+}
+function nearBridge(x, z, pad = 0) {
+  for (const B of bridges) { const f = bridgeFrame(B, x, z); if (Math.abs(f.along) < B.len / 2 + pad && Math.abs(f.lat) < 30) return true; }
+  return false;
+}
+// What a wheel or a foot actually stands on: the bridge deck where there is one, else the land.
+export function groundAt(x, z) { const d = deckAt(x, z); return d != null ? Math.max(d, heightAt(x, z)) : heightAt(x, z); }
+
+let keridBusy = false;
+function rawHeight(x, z, cd, noLakes = false, noBridge = false) {
+  const d = cd ?? coastSignedDist(x, z);
+  if (d < 0) return Math.max(-16, -1.4 + d * 0.06);
+  const rd = roadDistAt(x, z);
+  const bc = noBridge ? 0 : bridgeCarve(x, z);
+  const ramp = smoothstep(0, 40, d);
+  // Lowland: broad golden plains that roll gently and rise toward the interior plateau.
+  const nP = fbm(nA, x * 0.0024, z * 0.0024, 3) * 0.5 + 0.5;
+  let h = 0.8 + ramp * (1.6 + 6 * nP) + smoothstep(60, 320, d) * 14 * nP;
+  // Mountain massifs: broad, steep-sided and often flat-topped, like Icelandic table mountains
+  // and basalt ridges. They rise from the plains, leave a corridor open along every road, and
+  // can stand right on the coast like the east fjords and Snæfellsnes.
+  const mm = fbm(nB, x * 0.0021 + 5.2, z * 0.0021 - 3.1, 3) * 0.5 + 0.5;
+  const foot = smoothstep(0.4, 0.58, mm);
+  let pass = 0;
+  for (const k of PASSES) pass = Math.max(pass, 1 - smoothstep(0.45, 1.0, Math.hypot(x - k.x, z - k.z) / k.r));
+  let flat = 0;
+  for (const k of FLATS) flat = Math.max(flat, 1 - smoothstep(0.55, 1.0, Math.hypot(x - k.x, z - k.z) / k.r));
+  const corridor = lerp(smoothstep(24, 80, rd), 1, pass) * (1 - flat);
+  // A pass always has a mountain under it, whatever the noise says.
+  const mask = Math.pow(Math.max(foot, pass * 0.9), 0.7) * smoothstep(4, 34, d) * corridor;
+  let mountainH = 0;
+  if (mask > 0) {
+    const r = ridged(x * 0.0046, z * 0.0046);
+    const peak = lerp(70 + 150 * smoothstep(0.52, 0.85, mm), 62, pass);
+    let m = mask * peak * (0.5 + 0.55 * r);
+    // Plateau: some massifs are cut flat on top with a cliff rim.
+    const capN = nA(x * 0.0013 - 4.0, z * 0.0013 + 9.0) * 0.5 + 0.5;
+    const cap = 55 + 120 * capN;
+    if (m > cap) m = cap + (m - cap) * 0.12;
+    // Layered basalt: soft terraces give the striped, stepped faces.
+    const step = 8 + 3 * nP;
+    const tq = m / step, fr = tq - Math.floor(tq);
+    const terr = (Math.floor(tq) + smoothstep(0.5, 1.0, fr)) * step;
+    m = lerp(m, terr, smoothstep(16, 45, m) * 0.6);
+    h += m;
+    mountainH = m;
+  }
+  // Basalt step cliffs along parts of the coast.
+  const cliffMask = smoothstep(0.15, 0.45, nC(x * 0.004, z * 0.004));
+  h += cliffMask * smoothstep(3, 6, d) * 5 * smoothstep(10, 30, rd);
+  // Fine undulation so plains never look flat-shaded.
+  // (Kept off the mountains: finer than the mesh, it only speckles steep faces.)
+  h += (nD(x * 0.035, z * 0.035) * 0.35) * ramp * (1 - smoothstep(3, 20, mountainH));
+  // Ice caps: smooth domes that ride over the mountains, kept off the road corridor.
+  for (const g of GLACIERS) {
+    const gd = Math.hypot(x - g.x, z - g.z) / g.r;
+    if (gd < 1) h += g.h * Math.pow(1 - gd * gd, 0.5) * smoothstep(18, 75, rd);
+  }
+  for (const l of LAVA) {
+    const m = 1 - smoothstep(0.55, 1, Math.hypot(x - l.x, z - l.z) / l.r);
+    if (m > 0) h += m * Math.abs(nB(x * 0.09, z * 0.09)) * 1.4;
+  }
+  // Canyons: the deepest carve wins where segments of a winding gorge overlap at their joints.
+  let carve = 0;
+  for (const c of CANYONS) {
+    const q = segDist(x, z, c.a.x, c.a.z, c.b.x, c.b.z);
+    if (q.d >= c.w) continue;
+    const ends = (c.taperA === false ? 1 : smoothstep(0.0, 0.08, q.t)) * (c.taperB === false ? 1 : smoothstep(1.0, 0.92, q.t));
+    carve = Math.max(carve, c.depth * (1 - smoothstep(c.w * 0.5, c.w, q.d)) * ends);
+  }
+  h -= carve;
+  // Kerið: the land follows the crater shape, a little below the detailed surface laid over it.
+  if (!keridBusy && !noBridge) {
+    const ku = keridU(x, z);
+    if (ku < 1.9) {
+      if (KERID.base == null) {
+        // Base height: the average of the land in a ring just outside the crater.
+        keridBusy = true;
+        const c0 = Math.cos(KERID.rot), s0 = Math.sin(KERID.rot);
+        let sum = 0;
+        for (let k = 0; k < 16; k++) { const a = (k / 16) * Math.PI * 2, cx = 1.35 * KERID.rx * Math.cos(a), cz = 1.35 * KERID.rz * Math.sin(a); sum += rawHeight(KERID.x + cx * c0 + cz * s0, KERID.z - cx * s0 + cz * c0); }
+        // Kerið sits in a low scoria hill, so its floor stays well above sea level.
+        KERID.base = Math.max(sum / 16, 26);
+        keridBusy = false;
+      }
+      const target = KERID.base + keridProfile(ku) - (ku < 0.84 ? 1.8 : 0.3);
+      h = lerp(target, h, smoothstep(1.05, 1.9, ku));
+    }
+  }
+  h -= bc;
+  if (noLakes) return h;
+  for (const k of LAKES) {
+    const s = k.stretch || 1;
+    const ld = Math.hypot((x - k.x) / s, z - k.z) / k.r;
+    const carve = 1 - smoothstep(0.65, 1.08, ld);
+    if (carve > 0) h = lerp(h, lakeLevel(k) - k.depth, carve);
+  }
+  return h;
+}
+
+export function lavaMask(x, z) {
+  let m = 0;
+  for (const l of LAVA) m = Math.max(m, 1 - smoothstep(0.55, 1, Math.hypot(x - l.x, z - l.z) / l.r));
+  return m;
+}
+export function glacierMask(x, z) {
+  let m = 0;
+  for (const g of GLACIERS) m = Math.max(m, 1 - smoothstep(0.75, 0.95, Math.hypot(x - g.x, z - g.z) / g.r));
+  return m;
+}
+
+// Jumps: on a few long straights the road climbs a short kicker and drops away, so a car at
+// speed takes off. The profile is measured along the road from the jump point.
+function applyJumps(path, h) {
+  const p = path.pts;
+  for (const J of JUMPS) {
+    if (J.path !== path.name) continue;
+    let best = -1, bd = 1e9;
+    p.forEach((q, i) => { const d = Math.hypot(q.x - J.x, q.z - J.z); if (d < bd) { bd = d; best = i; } });
+    J.found = true;
+    const cum = [0];
+    for (let i = 1; i < p.length; i++) cum.push(cum[i - 1] + Math.hypot(p[i].x - p[i - 1].x, p[i].z - p[i - 1].z));
+    for (let i = 0; i < p.length; i++) {
+      const s = cum[i] - cum[best];
+      // A sharp crest, the same from both directions: ride up, fly off the top, land on the far slope.
+      const a = Math.abs(s);
+      h[i] += a < 48 ? 6 * Math.pow(1 - a / 48, 1.6) : 0;
+    }
+  }
+}
+
+// Snap every jump onto the nearest point of the nearest road.
+function snapJumps() {
+  for (const J of JUMPS) {
+    let bd = 1e9;
+    for (const path of roadPaths) for (const q of path.pts) { const d = Math.hypot(q.x - J.x, q.z - J.z); if (d < bd) { bd = d; J.sx = q.x; J.sz = q.z; J.path = path.name; } }
+    J.x = J.sx; J.z = J.sz;
+  }
+}
+
+function computeRoadHeights() {
+  snapJumps();
+  for (const path of roadPaths) {
+    const p = path.pts;
+    const base = p.map((q) => Math.max(0.9, rawHeight(q.x, q.z, undefined, false, true)));
+    let h = base;
+    // Smooth hard: roads in Iceland follow the land in long, gentle grades, not bumps.
+    for (let pass = 0; pass < 6; pass++) {
+      h = h.map((_, i) => {
+        let s = 0, c = 0;
+        for (let k = -10; k <= 10; k++) {
+          const j = path.loop ? (i + k + p.length) % p.length : clamp(i + k, 0, p.length - 1);
+          s += h[j]; c++;
+        }
+        return s / c;
+      });
+    }
+    // A pass road gets its own smooth profile: valley floor, a long climb to the summit,
+    // and back down to the far valley. The mountains either side stay as they are.
+    if (path.profile === 'pass') {
+      const cum = [0];
+      for (let i = 1; i < p.length; i++) cum.push(cum[i - 1] + Math.hypot(p[i].x - p[i - 1].x, p[i].z - p[i - 1].z));
+      const L = cum[p.length - 1] || 1;
+      const h0 = Math.max(0.9, rawHeight(p[0].x, p[0].z, undefined, true)), h1 = Math.max(0.9, rawHeight(p[p.length - 1].x, p[p.length - 1].z, undefined, true));
+      h = p.map((_, i) => { const t = cum[i] / L; return lerp(h0, h1, t) + path.summit * Math.pow(Math.sin(Math.PI * t), 1.4); });
+    }
+    // Gradient limit (forward then backward), gentler on tarmac than on gravel tracks.
+    const g = path.type === 'paved' ? 0.07 : 0.12;
+    for (let i = 1; i < p.length; i++) { const d = Math.hypot(p[i].x - p[i - 1].x, p[i].z - p[i - 1].z); h[i] = clamp(h[i], h[i - 1] - g * d, h[i - 1] + g * d); }
+    for (let i = p.length - 2; i >= 0; i--) { const d = Math.hypot(p[i + 1].x - p[i].x, p[i + 1].z - p[i].z); h[i] = clamp(h[i], h[i + 1] - g * d, h[i + 1] + g * d); }
+    applyJumps(path, h);
+    p.forEach((q, i) => {
+      let ford = 0;
+      for (const f of FORDS) ford = Math.max(ford, 1 - smoothstep(6, 20, Math.hypot(q.x - f.x, q.z - f.z)));
+      q.ford = ford;
+      q.h = lerp(Math.max(0.9, h[i]), -0.4, ford);
+    });
+  }
+}
+
+// ---------- Grid ----------
+export const grid = { res: 0, nx: 0, nz: 0, dx: 0, dz: 0, heights: null, coast: null };
+
+export function heightAt(x, z) {
+  const fx = clamp((x - BOUNDS.minX) / grid.dx, 0, grid.nx - 1.001);
+  const fz = clamp((z - BOUNDS.minZ) / grid.dz, 0, grid.nz - 1.001);
+  const ix = Math.floor(fx), iz = Math.floor(fz);
+  const tx = fx - ix, tz = fz - iz;
+  const H = grid.heights, w = grid.nx;
+  const a = H[iz * w + ix], b = H[iz * w + ix + 1], c = H[(iz + 1) * w + ix], d = H[(iz + 1) * w + ix + 1];
+  // Match the triangle split used by the mesh so the jeep sits on the visible surface.
+  if (tx + tz < 1) return a + (b - a) * tx + (c - a) * tz;
+  return d + (c - d) * (1 - tx) + (b - d) * (1 - tz);
+}
+export function coastAt(x, z) {
+  const fx = clamp((x - BOUNDS.minX) / grid.dx, 0, grid.nx - 1.001);
+  const fz = clamp((z - BOUNDS.minZ) / grid.dz, 0, grid.nz - 1.001);
+  return grid.coast[Math.round(fz) * grid.nx + Math.round(fx)];
+}
+
+export function surfaceAt(x, z) {
+  const r = nearestRoad(x, z, 12);
+  const h = heightAt(x, z);
+  if (r && r.dist < roadHalfWidth(r.type) + 0.6) {
+    if (r.ford > 0.35 && h < 0.15) return 'ford';
+    return r.type;
+  }
+  if (h < waterLevelAt(x, z) + 0.12) return 'ford';
+  const cd = coastAt(x, z);
+  if (cd < 14 * WS && h < 4) return 'sand';
+  return 'moss';
+}
+
+// How exposed a spot is to wind: highlands and open coast catch the most.
+export function exposureAt(x, z) {
+  const h = heightAt(x, z);
+  const cd = coastAt(x, z);
+  let e = 0.35 + 0.45 * smoothstep(8, 28, h) + 0.35 * (1 - smoothstep(10, 60, cd));
+  if (z > 250) e += 0.15; // the south coast is famous for it
+  return clamp(e, 0, 1);
+}
+
+let colorCtx = null;
+
+export function buildTerrain(scene, res, season) {
+  buildRoads();
+  buildRoadField();
+  prepareBridges();
+  computeRoadHeights();
+  insertSegments();
+
+  const nx = res + 1;
+  const aspect = (BOUNDS.maxZ - BOUNDS.minZ) / (BOUNDS.maxX - BOUNDS.minX);
+  const nz = Math.round(res * aspect) + 1;
+  grid.nx = nx; grid.nz = nz;
+  grid.dx = (BOUNDS.maxX - BOUNDS.minX) / (nx - 1);
+  grid.dz = (BOUNDS.maxZ - BOUNDS.minZ) / (nz - 1);
+  grid.heights = new Float32Array(nx * nz);
+  grid.coast = new Float32Array(nx * nz);
+
+  const pos = new Float32Array(nx * nz * 3);
+  for (let iz = 0; iz < nz; iz++) {
+    for (let ix = 0; ix < nx; ix++) {
+      const x = BOUNDS.minX + ix * grid.dx;
+      const z = BOUNDS.minZ + iz * grid.dz;
+      const cd = coastSignedDist(x, z);
+      let h = rawHeight(x, z, cd);
+      if (cd > -4) {
+        const r = nearestRoad(x, z, 26);
+        if (r) {
+          const hw = roadHalfWidth(r.type);
+          // Under a bridge the land keeps its valley; elsewhere it rises to meet the road.
+          const blend = nearBridge(x, z) ? 1 : smoothstep(hw + 0.5, hw + 17, r.dist);
+          h = lerp(r.h, h, blend);
+        }
+      }
+      const i = iz * nx + ix;
+      grid.heights[i] = h;
+      grid.coast[i] = cd;
+      pos[i * 3] = x; pos[i * 3 + 1] = h; pos[i * 3 + 2] = z;
+    }
+  }
+  // Smoothing pass: soften small bumps so the land rolls instead of jitters. Roads stay exact.
+  {
+    const Hh = grid.heights, src = new Float32Array(Hh);
+    for (let pass = 0; pass < 2; pass++) {
+      src.set(Hh);
+      for (let iz = 1; iz < nz - 1; iz++) for (let ix = 1; ix < nx - 1; ix++) {
+        const i = iz * nx + ix;
+        const gx = BOUNDS.minX + ix * grid.dx, gz = BOUNDS.minZ + iz * grid.dz;
+        const rd = roadDistAt(gx, gz);
+        if (rd < 7) continue;
+        // Keep canyons sharp: smoothing would fill them in.
+        if (CANYONS.some((c) => segDist(gx, gz, c.a.x, c.a.z, c.b.x, c.b.z).d < c.w + 6)) continue;
+        if (keridU(gx, gz) < 1.95) continue;
+        const avg = (src[i] * 4 + src[i - 1] + src[i + 1] + src[i - nx] + src[i + nx] + (src[i - nx - 1] + src[i - nx + 1] + src[i + nx - 1] + src[i + nx + 1]) * 0.5) / 10;
+        Hh[i] = lerp(src[i], avg, smoothstep(7, 15, rd) * 0.8);
+      }
+    }
+    for (let i = 0; i < nx * nz; i++) pos[i * 3 + 1] = Hh[i];
+  }
+  const idx = new Uint32Array((nx - 1) * (nz - 1) * 6);
+  let k = 0;
+  for (let iz = 0; iz < nz - 1; iz++)
+    for (let ix = 0; ix < nx - 1; ix++) {
+      const a = iz * nx + ix, b = a + 1, c = a + nx, d = c + 1;
+      idx[k++] = a; idx[k++] = c; idx[k++] = b;
+      idx[k++] = b; idx[k++] = c; idx[k++] = d;
+    }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(nx * nz * 3), 3));
+  geo.setIndex(new THREE.BufferAttribute(idx, 1));
+  geo.computeVertexNormals();
+  const mesh = new THREE.Mesh(geo, createTerrainMaterial());
+  mesh.receiveShadow = true;
+  mesh.castShadow = true;
+  scene.add(mesh);
+  colorCtx = { geo, pos };
+  writeMasks();
+  paintTerrain(season);
+
+  // Sea and lakes share one water plane at y = 0.
+  const waterGeo = new THREE.PlaneGeometry(6000, 6000, 1, 1);
+  waterGeo.rotateX(-Math.PI / 2);
+  // Share the height grid with water shaders so they can work out their depth.
+  const hTex = new THREE.DataTexture(grid.heights, grid.nx, grid.nz, THREE.RedFormat, THREE.FloatType);
+  hTex.magFilter = THREE.NearestFilter; hTex.minFilter = THREE.NearestFilter; hTex.needsUpdate = true;
+  surfaceUniforms.uHeightTex.value = hTex;
+  surfaceUniforms.uGridMin.value.set(BOUNDS.minX, BOUNDS.minZ);
+  surfaceUniforms.uGridStep.value.set(grid.dx, grid.dz);
+  surfaceUniforms.uGridN.value.set(grid.nx, grid.nz);
+  // North Atlantic: green-teal shallows over black sand, dark blue offshore.
+  const waterMat = createWaterMaterial(0x0a161c, { roughness: 0.08, ripple: 0.55, shallow: [0.17, 0.4, 0.4], deep: [0.01, 0.045, 0.07], clarity: 0.5 });
+  const water = new THREE.Mesh(waterGeo, waterMat);
+  water.receiveShadow = true;
+  water.position.y = 0;
+  scene.add(water);
+
+  buildBridges(scene);
+  buildRoadRibbons(scene);
+  // A water surface for each inland lake at its own level.
+  // Glacial lakes are turquoise.
+  // Each lake has its own water: clear blue-green Þingvallavatn, dark Mývatn, milky glacial Jökulsárlón.
+  const LAKE_LOOK = [
+    { shallow: [0.2, 0.48, 0.5], deep: [0.02, 0.09, 0.14], clarity: 0.3 },
+    { shallow: [0.18, 0.32, 0.28], deep: [0.02, 0.06, 0.07], clarity: 0.6 },
+    { shallow: [0.42, 0.62, 0.68], deep: [0.1, 0.27, 0.36], clarity: 0.9, ripple: 0.25 },
+  ];
+  lakeMat = createWaterMaterial(0x1c5a63, { roughness: 0.08, ripple: 0.5, ...LAKE_LOOK[0] });
+  LAKES.forEach((k, li) => {
+    const lv = Math.max(0.03, lakeLevel(k));
+    const mat = li === 0 ? lakeMat : createWaterMaterial(0x1c5a63, { roughness: 0.08, ripple: 0.5, ...LAKE_LOOK[li] });
+    const disc = new THREE.Mesh(new THREE.CircleGeometry(k.r * 1.08, 40), mat);
+    disc.receiveShadow = true;
+    disc.rotation.x = -Math.PI / 2;
+    disc.scale.x = k.stretch || 1;
+    disc.position.set(k.x, lv, k.z);
+    scene.add(disc);
+  });
+
+  buildCanyonWater(scene);
+  return { mesh, water, waterMat, lakeMat };
+}
+
+export let lakeMat = null;
+
+function buildCanyonWater(scene) {
+  // Glacial river through each canyon: blue-green, flowing downhill, with rapids where it drops.
+  // Consecutive segments (a winding gorge) are joined into one continuous river.
+  const mat = createRiverMaterial({ shallow: [0.22, 0.55, 0.55], deep: [0.03, 0.2, 0.24], speed: 1.6 });
+  const chains = [];
+  for (const c of CANYONS) {
+    const last = chains[chains.length - 1];
+    if (last && Math.hypot(last[last.length - 1].b.x - c.a.x, last[last.length - 1].b.z - c.a.z) < 1) last.push(c);
+    else chains.push([c]);
+  }
+  for (const chain of chains) {
+    const pts = [];
+    chain.forEach((c, ci) => {
+      const n = 24;
+      const dx = c.b.x - c.a.x, dz = c.b.z - c.a.z;
+      const t0 = ci === 0 ? 0.05 : 0, t1 = ci === chain.length - 1 ? 0.95 : 1;
+      for (let i = 0; i <= n; i++) {
+        const t = t0 + (i / n) * (t1 - t0);
+        if (ci > 0 && i === 0) continue;
+        const x = c.a.x + dx * t, z = c.a.z + dz * t;
+        pts.push({ x, y: heightAt(x, z) + 0.5, z });
+      }
+    });
+    // Smooth the floor profile so the water does not step, then flow downhill.
+    for (let k = 0; k < 2; k++) for (let i = 1; i < pts.length - 1; i++) pts[i].y = (pts[i - 1].y + pts[i].y * 2 + pts[i + 1].y) / 4;
+    for (let i = 1; i < pts.length; i++) pts[i].y = Math.min(pts[i].y, pts[i - 1].y + 0.02); // never uphill
+    if (pts[0].y < pts[pts.length - 1].y) pts.reverse();
+    for (let i = 1; i < pts.length; i++) pts[i].y = Math.min(pts[i].y, pts[i - 1].y);
+    const m = new THREE.Mesh(riverGeometry(pts, chain[0].w * 0.8), mat);
+    m.receiveShadow = true;
+    scene.add(m);
+  }
+}
+
+// Per-vertex masks for the terrain shader: r = black sand, g = lava field, b = glacier.
+function writeMasks() {
+  const { geo, pos } = colorCtx;
+  const col = geo.attributes.color.array;
+  for (let i = 0; i < pos.length / 3; i++) {
+    const x = pos[i * 3], h = pos[i * 3 + 1], z = pos[i * 3 + 2];
+    const cd = grid.coast[i];
+    col[i * 3] = (1 - smoothstep(6 * WS, 11 * WS, cd)) * (1 - smoothstep(2.5, 4, h));
+    col[i * 3 + 1] = lavaMask(x, z);
+    col[i * 3 + 2] = glacierMask(x, z) * smoothstep(22, 60, roadDistAt(x, z)) * smoothstep(8, 20, h);
+  }
+  geo.attributes.color.needsUpdate = true;
+}
+
+// Season only changes shader uniforms, so switching is instant.
+export function paintTerrain(season) {
+  const summer = season === 'Summer';
+  surfaceUniforms.uSummer.value = summer ? 1 : 0;
+  if (!surfaceUniforms.uSnowLine.userSet) surfaceUniforms.uSnowLine.value = summer ? 95 : 34;
+}
+
+const SHOULDER = 1.1;
+
+// Junctions: wherever a road ends on another road. Each gets a plain asphalt patch over the
+// overlap, and both roads' painted lines fade out as they approach it.
+const junctions = [];
+function findJunctions() {
+  junctions.length = 0;
+  roadPaths.forEach((path, pi) => {
+    if (path.loop) return;
+    for (const end of [path.pts[0], path.pts[path.pts.length - 1]]) {
+      let best = null;
+      roadPaths.forEach((other, oi) => {
+        if (oi === pi) return;
+        const q = other.pts;
+        for (let i = 0; i < q.length - 1; i++) {
+          const r = segDist(end.x, end.z, q[i].x, q[i].z, q[i + 1].x, q[i + 1].z);
+          if (r.d < 9 && (!best || r.d < best.d)) best = { d: r.d, x: r.qx, z: r.qz, type: other.type };
+        }
+      });
+      if (best) {
+        const r = Math.max(roadHalfWidth(path.type), roadHalfWidth(best.type)) + SHOULDER + 0.3;
+        junctions.push({ x: best.x, z: best.z, r, type: path.type === 'paved' && best.type === 'paved' ? 'paved' : best.type });
+      }
+    }
+  });
+}
+function junctionDist(x, z) {
+  let m = 1e9;
+  for (const j of junctions) m = Math.min(m, Math.hypot(j.x - x, j.z - z) - j.r);
+  return m;
+}
+
+function buildRoadRibbons(scene) {
+  const posts = [];
+  findJunctions();
+  for (const path of roadPaths) {
+    const p = path.pts;
+    const hw = roadHalfWidth(path.type);
+    const W = hw + SHOULDER;
+    const pos = [], road = [], jd = [], idx = [];
+    const side = [];
+    let along = 0;
+    const alongArr = [];
+    for (let i = 0; i < p.length; i++) {
+      const a = p[Math.max(0, i - 1)], b = p[Math.min(p.length - 1, i + 1)];
+      const dx = b.x - a.x, dz = b.z - a.z;
+      const l = Math.hypot(dx, dz) || 1;
+      side.push([-dz / l, dx / l]);
+      if (i) along += Math.hypot(p[i].x - p[i - 1].x, p[i].z - p[i - 1].z);
+      alongArr.push(along);
+    }
+    // Strips across: shoulder, lane, centre, lane, shoulder. Each vertex follows the ground.
+    const offs = [-W, -hw, -hw / 2, 0, hw / 2, hw, W];
+    const K = offs.length;
+    for (let i = 0; i < p.length; i++) {
+      const [nx, nz] = side[i];
+      for (const o of offs) {
+        const x = p[i].x + nx * o, z = p[i].z + nz * o;
+        const lift = Math.abs(o) > hw ? 0.08 : 0.13;
+        const dk = deckAt(x, z);
+        pos.push(x, (dk ?? heightAt(x, z)) + lift, z);
+        road.push(o, alongArr[i]);
+        jd.push(junctionDist(x, z));
+      }
+    }
+    for (let i = 0; i < p.length - 1; i++)
+      for (let j = 0; j < K - 1; j++) {
+        const a = i * K + j, b = a + 1, c = a + K, d = c + 1;
+        idx.push(a, b, c, b, d, c);
+      }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('aRoad', new THREE.Float32BufferAttribute(road, 2));
+    geo.setAttribute('aJunction', new THREE.Float32BufferAttribute(jd, 1));
+    geo.setIndex(idx);
+    geo.computeVertexNormals();
+    const mesh = new THREE.Mesh(geo, createRoadMaterial({ paved: path.type === 'paved', halfWidth: hw }));
+    mesh.receiveShadow = true;
+    scene.add(mesh);
+
+    // Yellow marker posts every 30 units on both sides, like every rural road in Iceland.
+    let next = 10;
+    for (let i = 1; i < p.length; i++) {
+      if (alongArr[i] < next) continue;
+      next += 30;
+      const [nx, nz] = side[i];
+      for (const sgn of [-1, 1]) {
+        const x = p[i].x + nx * (W + 0.5) * sgn, z = p[i].z + nz * (W + 0.5) * sgn;
+        const y = heightAt(x, z);
+        if (y < waterLevelAt(x, z) + 0.1) continue;
+        if (junctionDist(x, z) < 6) continue;
+        if (nearBridge(x, z, 6)) continue;
+        if (roadDistAt(x, z) < W - 0.2) continue; // too close to another road
+        if (JUMPS.some((J) => Math.hypot(J.x - x, J.z - z) < 40)) continue;
+        posts.push([x, y, z, Math.atan2(nx, nz)]);
+      }
+    }
+  }
+  // Asphalt patches over each junction, with no painted lines, sitting just above both ribbons.
+  for (const j of junctions) {
+    const seg = 28, pos = [], road = [], jd = [], idx = [];
+    const hw = roadHalfWidth(j.type);
+    // Grain coordinates come from world position so the patch blends into the road texture.
+    const rc = (x, z) => [hw * 0.5 + Math.sin(x * 0.7) * 0.5, z * 1.0];
+    pos.push(j.x, heightAt(j.x, j.z) + 0.17, j.z); road.push(...rc(j.x, j.z)); jd.push(-10);
+    for (let k = 0; k < seg; k++) {
+      const a = (k / seg) * Math.PI * 2, x = j.x + Math.cos(a) * j.r, z = j.z + Math.sin(a) * j.r;
+      pos.push(x, heightAt(x, z) + 0.17, z); road.push(...rc(x, z)); jd.push(-10);
+      idx.push(0, 1 + ((k + 1) % seg), 1 + k);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('aRoad', new THREE.Float32BufferAttribute(road, 2));
+    geo.setAttribute('aJunction', new THREE.Float32BufferAttribute(jd, 1));
+    geo.setIndex(idx);
+    geo.computeVertexNormals();
+    const mat = createRoadMaterial({ paved: j.type === 'paved', halfWidth: hw });
+    mat.polygonOffsetFactor = -3.5; mat.polygonOffsetUnits = -3.5;
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.receiveShadow = true;
+    scene.add(mesh);
+  }
+  buildPosts(scene, posts);
+}
+
+export let postReflectorMat = null;
+
+function buildPosts(scene, posts) {
+  const postGeo = new THREE.BoxGeometry(0.16, 1.15, 0.16);
+  postGeo.translate(0, 0.575, 0);
+  const tipGeo = new THREE.BoxGeometry(0.17, 0.22, 0.17);
+  tipGeo.translate(0, 1.04, 0);
+  const postMat = new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0,  color: 0xe0b324 });
+  postReflectorMat = new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0,  color: 0x1a1a1a, emissive: 0xfff2d0, emissiveIntensity: 0 });
+  const a = new THREE.InstancedMesh(postGeo, postMat, posts.length);
+  const b = new THREE.InstancedMesh(tipGeo, postReflectorMat, posts.length);
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), sc = new THREE.Vector3(1, 1, 1), v = new THREE.Vector3();
+  posts.forEach(([x, y, z, r], i) => {
+    q.setFromAxisAngle(up, r);
+    m.compose(v.set(x, y - 0.05, z), q, sc);
+    a.setMatrixAt(i, m);
+    b.setMatrixAt(i, m);
+  });
+  a.castShadow = true;
+  scene.add(a, b);
+}
+
+// Level the ground under built landmarks so nothing perches on a slope. Each pad pulls the land
+// toward a single height inside its radius, fading out at the edge and staying clear of roads.
+export function flattenPads(pads, mesh) {
+  const H = grid.heights, nx = grid.nx, nz = grid.nz;
+  const pos = mesh.geometry.attributes.position;
+  for (const pd of pads) {
+    let sum = 0, n = 0;
+    for (let k = 0; k < 12; k++) { const a = (k / 12) * Math.PI * 2; sum += heightAt(pd.x + Math.cos(a) * pd.r * 0.35, pd.z + Math.sin(a) * pd.r * 0.35); n++; }
+    const target = Math.max(sum / n, waterLevelAt(pd.x, pd.z) + 0.8);
+    pd.h = target;
+    const i0 = Math.max(0, Math.floor((pd.x - pd.r - BOUNDS.minX) / grid.dx)), i1 = Math.min(nx - 1, Math.ceil((pd.x + pd.r - BOUNDS.minX) / grid.dx));
+    const j0 = Math.max(0, Math.floor((pd.z - pd.r - BOUNDS.minZ) / grid.dz)), j1 = Math.min(nz - 1, Math.ceil((pd.z + pd.r - BOUNDS.minZ) / grid.dz));
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+      const x = BOUNDS.minX + i * grid.dx, z = BOUNDS.minZ + j * grid.dz;
+      const d = Math.hypot(x - pd.x, z - pd.z);
+      if (d > pd.r) continue;
+      const w = (1 - smoothstep(pd.r * 0.55, pd.r, d)) * smoothstep(7, 18, roadDistAt(x, z));
+      if (w <= 0) continue;
+      const k = j * nx + i;
+      H[k] = lerp(H[k], target, w);
+      pos.setY(k, H[k]);
+    }
+  }
+  pos.needsUpdate = true;
+  mesh.geometry.computeVertexNormals();
+  if (surfaceUniforms.uHeightTex.value) surfaceUniforms.uHeightTex.value.needsUpdate = true;
+}
+
+function buildBridges(scene) {
+  const concrete = new THREE.MeshStandardMaterial({ color: 0x9a9c9e, roughness: 0.85 });
+  const steel = new THREE.MeshStandardMaterial({ color: 0xb8bcc0, roughness: 0.4, metalness: 0.7 });
+  const riverMat = createRiverMaterial({ shallow: [0.36, 0.52, 0.5], deep: [0.1, 0.2, 0.22], speed: 1.8 });
+  const hw = roadHalfWidth('paved') + 1.4;
+  for (const B of bridges) {
+    const end = (s) => nearestRoad(B.x + B.dx * s * (B.len / 2 + 2), B.z + B.dz * s * (B.len / 2 + 2), 20);
+    const e0 = end(-1), e1 = end(1);
+    B.h0 = (e0 ? e0.h : 2); B.h1 = (e1 ? e1.h : 2);
+    const deckY = (B.h0 + B.h1) / 2;
+    const g = new THREE.Group();
+    g.position.set(B.x, 0, B.z);
+    g.rotation.y = Math.atan2(B.dx, B.dz);
+    const add = (geo, mat, x, y, z) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = m.receiveShadow = true; g.add(m); return m; };
+    // Deck slab and edge beams.
+    add(new THREE.BoxGeometry(hw * 2, 0.9, B.len + 2), concrete, 0, deckY - 0.35, 0);
+    for (const sx of [-1, 1]) add(new THREE.BoxGeometry(0.5, 0.6, B.len + 2), concrete, sx * hw, deckY + 0.05, 0);
+    // Railings: posts and two steel rails each side.
+    for (const sx of [-1, 1]) {
+      for (let zz = -B.len / 2; zz <= B.len / 2; zz += 3) add(new THREE.BoxGeometry(0.12, 1.1, 0.12), steel, sx * hw, deckY + 0.9, zz);
+      for (const yy of [0.75, 1.4]) add(new THREE.BoxGeometry(0.1, 0.1, B.len + 1), steel, sx * hw, deckY + yy, 0);
+    }
+    // Piers down to the river bed, and abutments at both ends.
+    for (const zz of [-B.len / 4, 0, B.len / 4]) {
+      const wx = B.x + B.dx * zz, wz = B.z + B.dz * zz, floor = heightAt(wx, wz) - 1;
+      const h = deckY - 0.8 - floor;
+      if (h > 0.5) for (const sx of [-0.5, 0.5]) add(new THREE.CylinderGeometry(0.75, 0.95, h, 14), concrete, sx * hw, floor + h / 2, zz);
+    }
+    for (const s2 of [-1, 1]) add(new THREE.BoxGeometry(hw * 2 + 1, 4, 3), concrete, 0, deckY - 2.4, s2 * (B.len / 2 + 0.5));
+    scene.add(g);
+    // The river along the valley floor, flowing downhill.
+    const pts = [];
+    for (let t = -B.valley * 0.85; t <= B.valley * 0.85; t += 8) {
+      const wander = Math.sin(t * 0.018) * 10;
+      const x = B.x - B.dz * t + B.dx * wander, z = B.z + B.dx * t + B.dz * wander;
+      pts.push({ x, y: heightAt(x, z) + 0.6, z });
+    }
+    // Only where the valley is still deep; the river does not climb the valley's far ends.
+    const floorMid = heightAt(B.x, B.z);
+    const keep = pts.filter((q) => q.y < floorMid + 4);
+    pts.length = 0; pts.push(...keep);
+    if (pts.length < 3) continue;
+    if (pts[0].y < pts[pts.length - 1].y) pts.reverse();
+    for (let i = 1; i < pts.length; i++) pts[i].y = Math.min(pts[i].y, pts[i - 1].y);
+    const river = new THREE.Mesh(riverGeometry(pts, 20), riverMat);
+    river.receiveShadow = true;
+    scene.add(river);
+  }
+}
+
+// Nearest point on any road, searching the whole network (used for spawning and recovery).
+export function nearestRoadAnywhere(x, z) {
+  let best = null, bestD = Infinity;
+  for (const s of segments) {
+    const q = segDist(x, z, s.ax, s.az, s.bx, s.bz);
+    if (q.d < bestD) { bestD = q.d; best = { x: q.qx, z: q.qz, heading: Math.atan2(s.bx - s.ax, s.bz - s.az), seg: s }; }
+  }
+  return best;
+}
