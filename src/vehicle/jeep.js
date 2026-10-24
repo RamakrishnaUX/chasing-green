@@ -13,9 +13,13 @@ export class Jeep {
     this.scene = scene;
     this.root = new THREE.Group();
     scene.add(this.root);
-    this.headlight = new THREE.SpotLight(0xfff0d0, 0, 110, 0.5, 0.6, 1.2);
-    this.headlight.target.position.set(0, 0, 18);
-    this.root.add(this.headlight, this.headlight.target);
+    // Headlights like a real car: a long, tight beam that throws far down the road, and a wide,
+    // soft beam that spreads across the lane, the verges and the near ground.
+    this.headlight = new THREE.SpotLight(0xfff3dc, 0, 260, 0.36, 0.55, 1.0);
+    this.headlight.target.position.set(0, -2.6, 60);
+    this.spread = new THREE.SpotLight(0xffeed2, 0, 75, 0.95, 0.9, 1.1);
+    this.spread.target.position.set(0, -1.6, 16);
+    this.root.add(this.headlight, this.headlight.target, this.spread, this.spread.target);
     // Nitro: glowing twin exhausts with streaks and sparks.
     this.nitroFx = new NitroFX(scene, this.root);
 
@@ -59,7 +63,7 @@ export class Jeep {
     this.tailMat = this.model.tailMat;
     this.root.add(this.body);
     this.headlight.position.set(...this.model.headlight);
-    this.headlight.target.position.set(0, 0, 22);
+    this.spread.position.set(...this.model.headlight);
     this.nitroFx.place(this.model.exhaust);
     this.vF = 0; this.vL = 0;
     if (this.pos) this.sync(0);
@@ -289,7 +293,8 @@ export class Jeep {
   }
 
   setLights(dark) {
-    this.headlight.intensity = dark * 70;
+    this.headlight.intensity = dark * 950;
+    this.spread.intensity = dark * 320;
     this.lightMat.emissiveIntensity = 0.4 + dark * 1.4;
     this.tailMat.emissiveIntensity = 0.4 + dark * 0.6 + this.braking * 1.2;
   }
