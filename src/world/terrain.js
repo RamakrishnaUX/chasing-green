@@ -481,7 +481,17 @@ export function exposureAt(x, z) {
 
 let colorCtx = null;
 
-export function buildTerrain(scene, res, season) {
+// onProgress(0..1) is called as the land is built; the build pauses briefly every ~40 ms so the
+// page can draw the loading bar between rows.
+export async function buildTerrain(scene, res, season, onProgress) {
+  let lastYield = performance.now();
+  const breathe = async (f) => {
+    // A background tab would throttle the pause to a second or more, so it just keeps building.
+    if (document.hidden || performance.now() - lastYield < 40) return;
+    onProgress?.(f);
+    await new Promise((r) => setTimeout(r, 0));
+    lastYield = performance.now();
+  };
   buildRoads();
   buildRoadField();
   prepareBridges();
@@ -499,6 +509,7 @@ export function buildTerrain(scene, res, season) {
 
   const pos = new Float32Array(nx * nz * 3);
   for (let iz = 0; iz < nz; iz++) {
+    await breathe(0.1 + 0.65 * (iz / nz));
     for (let ix = 0; ix < nx; ix++) {
       const x = BOUNDS.minX + ix * grid.dx;
       const z = BOUNDS.minZ + iz * grid.dz;
@@ -524,16 +535,19 @@ export function buildTerrain(scene, res, season) {
     const Hh = grid.heights, src = new Float32Array(Hh);
     for (let pass = 0; pass < 2; pass++) {
       src.set(Hh);
-      for (let iz = 1; iz < nz - 1; iz++) for (let ix = 1; ix < nx - 1; ix++) {
-        const i = iz * nx + ix;
-        const gx = BOUNDS.minX + ix * grid.dx, gz = BOUNDS.minZ + iz * grid.dz;
-        const rd = roadDistAt(gx, gz);
-        if (rd < 7) continue;
-        // Keep canyons sharp: smoothing would fill them in.
-        if (CANYONS.some((c) => segDist(gx, gz, c.a.x, c.a.z, c.b.x, c.b.z).d < c.w + 6)) continue;
-        if (keridU(gx, gz) < 1.95) continue;
-        const avg = (src[i] * 4 + src[i - 1] + src[i + 1] + src[i - nx] + src[i + nx] + (src[i - nx - 1] + src[i - nx + 1] + src[i + nx - 1] + src[i + nx + 1]) * 0.5) / 10;
-        Hh[i] = lerp(src[i], avg, smoothstep(7, 15, rd) * 0.8);
+      for (let iz = 1; iz < nz - 1; iz++) {
+        await breathe(0.75 + 0.1 * pass + 0.1 * (iz / nz));
+        for (let ix = 1; ix < nx - 1; ix++) {
+          const i = iz * nx + ix;
+          const gx = BOUNDS.minX + ix * grid.dx, gz = BOUNDS.minZ + iz * grid.dz;
+          const rd = roadDistAt(gx, gz);
+          if (rd < 7) continue;
+          // Keep canyons sharp: smoothing would fill them in.
+          if (CANYONS.some((c) => segDist(gx, gz, c.a.x, c.a.z, c.b.x, c.b.z).d < c.w + 6)) continue;
+          if (keridU(gx, gz) < 1.95) continue;
+          const avg = (src[i] * 4 + src[i - 1] + src[i + 1] + src[i - nx] + src[i + nx] + (src[i - nx - 1] + src[i - nx + 1] + src[i + nx - 1] + src[i + nx + 1]) * 0.5) / 10;
+          Hh[i] = lerp(src[i], avg, smoothstep(7, 15, rd) * 0.8);
+        }
       }
     }
     for (let i = 0; i < nx * nz; i++) pos[i * 3 + 1] = Hh[i];

@@ -720,3 +720,8 @@ body.is-looking #hud .touch-left:active, body.is-looking #hud #t-brake:active, b
 .btn-start.is-loading .start-label, .btn-start.is-loading .start-pct { text-shadow: none; }
 .btn-start .start-fill { overflow: hidden; }
 .btn-start .start-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+/* Desktop windows of any width: the tip stays between the speed panel and the top-right buttons. */
+body:not(.has-touch) .toast { max-width: min(30rem, calc(100vw - 460px)); min-width: min(260px, calc(100vw - 40px)); }
+@media (max-width: 760px) {
+  body:not(.has-touch) .toast, body:not(.has-touch) .toast.is-on { top: calc(280px + var(--safe-t)); left: calc(14px + var(--safe-l)); transform: none; max-width: calc(100vw - 28px); min-width: 0; text-align: left; }
+}

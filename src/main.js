@@ -113,7 +113,8 @@ let fpsAcc = 0, fpsFrames = 0, autoDowngraded = false;
 // The real build fills the bar to BUILD_SHARE; a short paced finish carries it to 100%, so the
 // load always feels like a load (at least MIN_LOAD_MS) even on a fast machine.
 const BUILD_SHARE = 0.82, MIN_LOAD_MS = 3200;
-const nextPaint = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+// Wait for a painted frame between stages, except in a background tab, where there are no frames.
+const nextPaint = () => (document.hidden ? Promise.resolve() : new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0))));
 const stageTimes = {};
 async function buildWorld(progress) {
   const t0 = performance.now();
@@ -130,8 +131,9 @@ async function buildWorld(progress) {
     progress(end * BUILD_SHARE, ms * pace, name);
     await nextPaint();
   };
-  await stage('Shaping the island', 0.58, 1500);
-  world = buildTerrain(scene, Q.terrainRes, clock.season);
+  // Only a small creep here: the terrain build reports its own progress through the stage.
+  await stage('Shaping the island', 0.06, 1500);
+  world = await buildTerrain(scene, Q.terrainRes, clock.season, (f) => progress(0.58 * f * BUILD_SHARE, 300, 'Shaping the island'));
   await stage('Lighting the sky', 0.59, 40);
   sky = new Sky(scene, { shadowSize: Q.shadowSize, renderer });
   aurora = new Aurora(scene, Q.auroraSteps);
@@ -976,22 +978,24 @@ function frame(now) {
 const startLabel = startBtn.querySelector('.start-label'), startPct = startBtn.querySelector('.start-pct');
 // The percentage follows the same timing as the fill (eased toward each target over its stage)
 // and only ever counts up, so it never jumps backwards after a busy moment.
-let pctShown = 0, pctSeg = { from: 0, to: 0, t0: 0, dur: 1 };
+let pctShown = 0, pctSeg = { from: 0, to: 0, t0: 0, dur: 1 }, pTarget = 0;
 function startProgress(p, ms, label) {
+  p = pTarget = Math.max(p, pTarget); // the bar never heads backwards
   startBtn.style.setProperty('--dur', `${ms}ms`);
   startBtn.style.setProperty('--p', p.toFixed(3));
   startLabel.textContent = label;
+  countUp(); // catch the number up on the old step before starting the new one
   pctSeg = { from: pctShown, to: p, t0: performance.now(), dur: Math.max(1, ms) };
 }
-(function countUp() {
-  if (!startBtn.classList.contains('is-loading')) return;
+function countUp() {
   const t = Math.min(1, (performance.now() - pctSeg.t0) / pctSeg.dur);
   pctShown = Math.max(pctShown, pctSeg.from + (pctSeg.to - pctSeg.from) * (1 - (1 - t) * (1 - t)));
   const pct = Math.round(pctShown * 100);
   startPct.textContent = `${pct}%`;
   startBtn.setAttribute('aria-valuenow', String(pct));
-  requestAnimationFrame(countUp);
-})();
+}
+// A plain timer, not animation frames, so the number keeps up even when frames are scarce.
+const countTimer = setInterval(countUp, 50);
 const bootStart = performance.now();
 requestAnimationFrame(() => setTimeout(async () => {
   try {
@@ -999,14 +1003,17 @@ requestAnimationFrame(() => setTimeout(async () => {
     // Park the camera behind the jeep for the intro view.
     camera.position.set(jeep.pos.x - Math.sin(jeep.heading) * 12, jeep.pos.y + 5, jeep.pos.z - Math.cos(jeep.heading) * 12);
     camera.lookAt(jeep.pos.x, jeep.pos.y + 2, jeep.pos.z);
-    // Start drawing the scene now, so it is alive behind the start screen during the finish.
-    requestAnimationFrame(frame);
     const left = Math.max(900, MIN_LOAD_MS - (performance.now() - bootStart));
     const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     startProgress(0.93, left * 0.55, 'Waking the aurora');
+    // Start drawing the scene once the finish is moving, so the bar glides through the first
+    // frame (which can take a moment) and the scene is alive behind the start screen.
+    await nextPaint();
+    requestAnimationFrame(frame);
     await wait(left * 0.55);
     startProgress(1, left * 0.45, 'Warming up the engine');
     await wait(left * 0.45 + 60);
+    clearInterval(countTimer);
     startBtn.classList.remove('is-loading');
     startBtn.classList.add('is-ready');
     startBtn.removeAttribute('role'); startBtn.removeAttribute('aria-valuenow'); startBtn.removeAttribute('aria-label');
@@ -1016,6 +1023,7 @@ requestAnimationFrame(() => setTimeout(async () => {
     const shared = readSharedSighting();
     if (shared) renderSharedSighting(shared);
   } catch (err) {
+    clearInterval(countTimer);
     console.error(err);
     startBtn.classList.add('is-failed');
     startLabel.textContent = 'Could not build the island';
