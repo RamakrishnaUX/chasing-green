@@ -31,9 +31,8 @@ export class Hud {
     t.textContent = text;
     if (action) {
       const b = document.createElement('button');
-      b.className = 'btn btn-quiet';
+      b.className = 'btn btn-small';
       b.style.marginLeft = '10px';
-      b.style.padding = '0.3rem 0.7rem';
       b.textContent = action.label;
       b.onclick = action.run;
       t.appendChild(b);

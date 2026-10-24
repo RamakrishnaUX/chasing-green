@@ -44,8 +44,6 @@ export class Notebook {
     this.onPostcard = onPostcard;
     this.getChallenge = getChallenge;
     this.dialog.querySelectorAll('.tab').forEach((tab) => tab.addEventListener('click', () => this.tab(tab.dataset.tab)));
-    this.dialog.querySelector('[data-close]').addEventListener('click', () => this.dialog.close());
-    this.dialog.addEventListener('click', (e) => { if (e.target === this.dialog) this.dialog.close(); });
   }
 
   tab(name) {

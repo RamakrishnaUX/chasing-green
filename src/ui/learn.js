@@ -36,8 +36,6 @@ export class Learn {
     this.dialog = document.getElementById('learn');
     this.body = document.getElementById('learn-body');
     this.step = 0;
-    this.dialog.querySelector('[data-close]').addEventListener('click', () => this.dialog.close());
-    this.dialog.addEventListener('click', (e) => { if (e.target === this.dialog) this.dialog.close(); });
     this.dialog.querySelectorAll('[data-ltab]').forEach((t) => t.addEventListener('click', () => this.show(t.dataset.ltab)));
     // Every (i) button in the HUD opens its entry.
     document.querySelectorAll('[data-learn]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); this.open(b.dataset.learn); }));

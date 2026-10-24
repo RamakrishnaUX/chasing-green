@@ -14,6 +14,8 @@ import { Towns } from './world/towns.js';
 import { Obstacles } from './world/obstacles.js';
 import { Puddles, Particles, SnowFall } from './world/effects.js';
 import { MapUI } from './ui/minimap.js';
+import { Sheet } from './ui/sheet.js';
+import { haptics } from './ui/haptics.js';
 import { Learn } from './ui/learn.js';
 import { VEHICLES, VEHICLE_ORDER } from './vehicle/specs.js';
 import { surfaceUniforms } from './world/materials.js';
@@ -69,6 +71,8 @@ const forecast = new Forecast(tripSeed, { redChallenge: challenge.id === 'red' }
 const windNoise = createNoise2D(tripSeed ^ 77);
 const input = new Input(canvas);
 const hud = new Hud();
+const sheet = new Sheet();
+haptics.enabled = settings.haptics !== 'off';
 const audio = new AudioEngine();
 audio.muted = !!settings.muted;
 
@@ -294,6 +298,7 @@ function logSighting(a) {
       if (r > cr) { sw = img.height * cr; sx = (img.width - sw) / 2; } else { sh = img.width / cr; sy = (img.height - sh) / 2; }
       ctx.drawImage(img, sx, sy, sw, sh, 0, 0, 320, 200);
       store.addSighting(s, tc.toDataURL('image/jpeg', 0.72));
+      haptics.play('aurora', 0);
     };
     img.src = dataUrl;
   };
@@ -306,6 +311,7 @@ function checkChallenge(s) {
   if (rec?.done) return;
   if (challenge.check(s)) {
     store.data.challenges[challenge.key] = { id: challenge.id, done: new Date().toISOString() };
+    haptics.play('success', 0);
     store.save();
     setTimeout(() => hud.toast(`Daily challenge done: ${challenge.title}. Stamp added to your notebook.`, { seconds: 6, priority: 3 }), 7200);
   }
@@ -401,6 +407,7 @@ function updateLandmarks(p) {
   if (dist < reach) {
     if (store.stamp(lm.id)) {
       hud.toast(`New stamp: ${lm.name}.`, { seconds: 4, priority: 2 });
+      haptics.play('success', 0);
       if (card.current === lm) card.stamp.innerHTML = stampSvg(lm.name, lm.glyph, true, 'card');
     }
   }
@@ -460,17 +467,26 @@ function toggleRecording() {
 }
 
 const settingsDialog = $('settings');
-$('btn-settings').addEventListener('click', () => {
+function openSettings() {
   $('set-quality').value = qualityName;
   $('set-month').value = String(clock.month);
   $('set-speed').value = String(clock.speed);
   $('set-touch').value = settings.touch;
   $('set-rocks').value = settings.rocks || 'normal';
   $('set-nitro').value = settings.nitro || 'on';
+  $('set-haptics').value = settings.haptics || 'on';
   settingsDialog.showModal();
+  settingsDialog.dispatchEvent(new Event('sync'));
+}
+$('btn-settings').addEventListener('click', openSettings);
+sheet.register('settings', openSettings);
+sheet.register('notebook', () => notebook.open());
+pcDialog.addEventListener('click', (e) => { if (e.target === pcDialog) pcDialog.close(); });
+$('set-haptics').addEventListener('change', (e) => {
+  settings.haptics = e.target.value; store.save();
+  haptics.enabled = settings.haptics !== 'off';
+  haptics.play('medium');
 });
-settingsDialog.querySelector('[data-close]').addEventListener('click', () => settingsDialog.close());
-[notebook.dialog, settingsDialog, pcDialog].forEach((d) => d.addEventListener('click', (e) => { if (e.target === d) d.close(); }));
 $('set-quality').addEventListener('change', (e) => setQuality(e.target.value, true));
 function setQuality(name, save) {
   qualityName = name; Q = CONFIG.quality[name];
@@ -499,7 +515,7 @@ function monthCardHTML() {
   const m = clock.m;
   const day = Math.max(0, Math.min(24, m.sunset - m.sunrise));
   const dark = clock.darkHours();
-  return `<h3>${m.name}</h3><dl><div><dt>Daylight</dt><dd>${day.toFixed(1)} h</dd></div><div><dt>Dark enough for aurora</dt><dd>${dark.toFixed(1)} h</dd></div><div><dt>Aurora chance</dt><dd>${m.chance}</dd></div></dl><p>${m.tip}</p>`;
+  return `<h3>${m.name}</h3><dl><div><dt>Daylight</dt><dd>${day.toFixed(1)} h</dd></div><div><dt>Dark hours</dt><dd>${dark.toFixed(1)} h</dd></div><div><dt>Aurora chance</dt><dd>${m.chance}</dd></div></dl><p>${m.tip}</p>`;
 }
 function renderMonthCards() { document.querySelectorAll('.month-card').forEach((el) => (el.innerHTML = monthCardHTML())); }
 function setMonth(m, announce = false) {
@@ -540,15 +556,15 @@ async function goLandscape() {
 }
 document.querySelectorAll('[data-quick]').forEach((b) => b.addEventListener('click', () => {
   const k = b.dataset.quick;
-  settingsDialog.close();
+  haptics.play('select');
+  if (k !== 'mute') settingsDialog.close();
   if (k === 'camera') cycleCamera();
-  else if (k === 'learn') learn.open();
   else if (k === 'record') toggleRecording();
   else if (k === 'mute') setMuted(!audio.muted);
   else if (k === 'fullscreen') goLandscape();
 }));
 function syncTouch() {
-  const show = settings.touch === 'on' || (settings.touch === 'auto' && isTouch);
+  const show = settings.touch === 'on' || (settings.touch === 'auto' && (isTouch || matchMedia('(pointer: coarse)').matches));
   $('touch').hidden = !show;
   document.body.classList.toggle('has-touch', show);
 }
@@ -561,6 +577,7 @@ input.bindTouchButton($('t-brake'), 'brake');
 $('t-nitro').addEventListener('click', () => setNitroArmed(!input.touch.nitroArmed));
 function setNitroArmed(on) {
   input.touch.nitroArmed = on;
+  haptics.play(on ? 'medium' : 'select');
   $('t-nitro').setAttribute('aria-pressed', String(on));
   if (on) hud.toast('Nitro on. Hold Go to boost. Tap Nitro again to switch it off.', { seconds: 2.5, priority: 2 });
 }
@@ -571,6 +588,10 @@ function nitroHint() {
   hud.toast('Nitro! Slide back down to ease off.', { seconds: 2, priority: 2 });
 }
 $('t-look').addEventListener('click', toggleLookUp);
+// Every control answers the finger: a tick for small buttons, firmer for the pedals.
+const PAD_FEEL = { 't-gas': 'light', 't-brake': 'medium', 't-left': 'select', 't-right': 'select' };
+document.querySelectorAll('.pad').forEach((el) => el.addEventListener('pointerdown', () => haptics.play(PAD_FEEL[el.id] || 'select', 0)));
+document.querySelectorAll('.icon-btn, .tile, .btn, .minimap').forEach((el) => el.addEventListener('pointerdown', () => haptics.play('select', 0)));
 
 // Intro
 document.querySelectorAll('.month-select').forEach((sel) => {
@@ -614,7 +635,7 @@ addEventListener('keydown', (e) => {
 
 // ---------- Learn, sitting, nitro option ----------
 const learn = new Learn();
-$('btn-learn').addEventListener('click', () => learn.open());
+sheet.register('learn', () => learn.open());
 // Sit down on foot: lower view, free look, and time passes faster while you rest and watch.
 function toggleSit(force) {
   if (mode !== 'walk') { hud.toast('Step out of the car first (C), then sit down.', { seconds: 2.5 }); return; }
@@ -668,12 +689,13 @@ function renderGarage() {
     return `<button class="car-card ${on ? 'is-on' : ''}" data-pick="${k}" aria-pressed="${on}">${img}<h3>${v.name}</h3><p class="car-tag">${v.tagline}</p><p class="car-blurb">${v.blurb}</p>
       <span class="car-stats"><span>Top speed</span>${bar(v.maxSpeed, 66)}<span>Off-road</span>${bar(off, 1)}<span>Water</span>${bar(v.wade, 1.9)}</span></button>`;
   }).join('');
-  list.querySelectorAll('[data-pick]').forEach((b) => b.addEventListener('click', () => { setVehicle(b.dataset.pick); $('garage').close(); }));
+  list.querySelectorAll('[data-pick]').forEach((b) => b.addEventListener('click', () => { haptics.play('medium'); setVehicle(b.dataset.pick); $('garage').close(); }));
 }
-$('btn-garage').addEventListener('click', () => { $('garage-list').dataset.wantThumbs = '1'; renderGarage(); $('garage').showModal(); });
-$('garage').querySelector('[data-close]').addEventListener('click', () => $('garage').close());
-$('garage').addEventListener('click', (e) => { if (e.target === $('garage')) $('garage').close(); });
-document.querySelectorAll('[data-vehicle]').forEach((b) => b.addEventListener('click', () => setVehicle(b.dataset.vehicle, false)));
+function openGarage() { $('garage-list').dataset.wantThumbs = '1'; renderGarage(); $('garage').showModal(); }
+$('btn-garage').addEventListener('click', openGarage);
+sheet.register('garage', openGarage);
+sheet.register('map', () => mapUI?.open());
+document.querySelectorAll('[data-vehicle]').forEach((b) => b.addEventListener('click', () => { haptics.play('select'); setVehicle(b.dataset.vehicle, false); }));
 setVehicle(settings.vehicle || 'jeep', false);
 
 // Spray, dust, splashes and knocks.
@@ -684,8 +706,8 @@ function vehicleEffects(dt) {
   const inPuddle = wheelsWorld.some(([x, z]) => puddles.at(x, z));
   const inWater = jeep.depth > 0.05;
   // Splash on the way in.
-  if (inPuddle && !wasInPuddle && sp > 3) audio.splash(Math.min(1, sp / 30));
-  if (inWater && !wasInWater && sp > 2) audio.splash(Math.min(1, sp / 18 + jeep.depth * 0.4));
+  if (inPuddle && !wasInPuddle && sp > 3) { audio.splash(Math.min(1, sp / 30)); haptics.play('light'); }
+  if (inWater && !wasInWater && sp > 2) { audio.splash(Math.min(1, sp / 18 + jeep.depth * 0.4)); haptics.play(sp > 10 ? 'heavy' : 'medium'); }
   wasInPuddle = inPuddle; wasInWater = inWater;
   // Spray from the wheels, thrown out sideways and up.
   if ((inWater || inPuddle) && sp > 1.5) {
@@ -705,16 +727,37 @@ function vehicleEffects(dt) {
   // Landings after a jump: thud, camera knock, a burst of dust or spray.
   if (jeep.landImpact > 2.5) {
     audio.thud(jeep.landImpact * 1.6);
+    haptics.impact(jeep.landImpact * 1.6);
     shake = Math.min(0.9, jeep.landImpact * 0.06);
     for (const [x, z] of wheelsWorld) dust.emit(x, heightAt(x, z) + 0.3, z, 0, 1.5, 0, 4, 3, 1.4);
   }
   // Knocks.
   if (jeep.impact > 2.5) {
     audio.thud(jeep.impact);
+    haptics.impact(jeep.impact);
     shake = Math.min(0.6, jeep.impact * 0.035);
     if (jeep.impact > 12) hud.toast(jeep.impactKind === 'rock' ? 'Ouch. That rock did not move.' : 'Bump! Mind the scenery.', { seconds: 2, priority: 1 });
   }
   shake *= Math.max(0, 1 - dt * 6);
+  drivingHaptics(dt);
+}
+
+// Feel the drive: a kick when nitro fires and a soft pulse while it burns, an ABS-style
+// flutter under hard braking, a tick each time the speed climbs past another 20 km/h,
+// and a light grumble on rough ground.
+let wasBoosting = false, hapticClock = 0, lastSpeedStep = 0;
+function drivingHaptics(dt) {
+  hapticClock -= dt;
+  const kmh = jeep.kmh;
+  if (jeep.boosting && !wasBoosting) haptics.play('heavy');
+  wasBoosting = jeep.boosting;
+  const step = Math.floor(kmh / 20);
+  if (step > lastSpeedStep && kmh > 15) haptics.play('select');
+  lastSpeedStep = step;
+  if (hapticClock > 0) return;
+  if (jeep.boosting) { haptics.play('light'); hapticClock = 0.22; }
+  else if (jeep.braking && kmh > 25) { haptics.play('light'); hapticClock = 0.12; }
+  else if (kmh > 20 && !jeep.air && (jeep.surface === 'gravel' || jeep.surface === 'sand' || jeep.surface === 'moss')) { haptics.play('select'); hapticClock = Math.max(0.12, 0.5 - kmh / 300); }
 }
 
 // Jump to any spot: the nearest road there, facing the place if it is a landmark.
@@ -928,24 +971,24 @@ window.chasingGreen = {
   },
 };
 
-// ---------- Settings on phones: tap a choice instead of opening a drop-down ----------
+// ---------- Settings: tap a choice instead of opening a drop-down ----------
 // Each short select in Settings gets a row of buttons that drive it, so the same change
 // handlers run. The long month list keeps its drop-down.
 for (const sel of document.querySelectorAll('.settings-grid select:not(.month-select)')) {
   const seg = document.createElement('div');
-  seg.className = 'seg';
+  seg.className = sel.classList.contains('desk-only') ? 'seg desk-only' : 'seg';
   seg.setAttribute('role', 'radiogroup');
   seg.setAttribute('aria-label', document.querySelector(`label[for="${sel.id}"]`)?.textContent || '');
   const sync = () => seg.querySelectorAll('button').forEach((b) => { const on = b.dataset.value === sel.value; b.classList.toggle('is-on', on); b.setAttribute('aria-checked', String(on)); });
   for (const o of sel.options) {
     const b = document.createElement('button');
     b.type = 'button'; b.dataset.value = o.value; b.setAttribute('role', 'radio');
-    b.textContent = o.textContent.replace(/\s*\(.*\)$/, '').replace('Twice as fast', '2x').replace('Four times as fast', '4x').replace('Always show', 'Show').replace('Automatic', 'Auto');
-    b.addEventListener('click', () => { sel.value = o.value; sel.dispatchEvent(new Event('change')); sync(); });
+    b.textContent = o.textContent;
+    b.addEventListener('click', () => { haptics.play('select'); sel.value = o.value; sel.dispatchEvent(new Event('change')); sync(); });
     seg.append(b);
   }
   sel.addEventListener('change', sync);
   sel.after(seg);
-  $('btn-settings').addEventListener('click', sync);
+  settingsDialog.addEventListener('sync', sync);
   sync();
 }
