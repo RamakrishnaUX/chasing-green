@@ -464,17 +464,19 @@ function renderSharedSighting(s) {
 
 // ---------- Landmarks ----------
 const card = { el: $('infocard'), name: $('info-name'), desc: $('info-desc'), legend: $('info-legend'), fact: $('info-fact'), stamp: $('info-stamp'), current: null };
-$('info-more').addEventListener('click', () => {
-  const open = card.el.classList.toggle('is-expanded');
+// How often the place card pops up: for every place, only for places not yet stamped, or never
+// (the stamp toast still says where you are). Phones default to new places only.
+const placeCards = () => settings.placeCards || (isTouch ? 'new' : 'all');
+function setCardExpanded(open) {
+  card.el.classList.toggle('is-expanded', open);
   $('info-more').setAttribute('aria-expanded', String(open));
   $('info-more').textContent = open ? 'Less' : 'More';
-});
+}
+$('info-more').addEventListener('click', () => setCardExpanded(!card.el.classList.contains('is-expanded')));
 $('info-close').addEventListener('click', () => {
   infoDismissed = card.current?.id;
   card.el.hidden = true;
-  card.el.classList.remove('is-expanded');
-  $('info-more').setAttribute('aria-expanded', 'false');
-  $('info-more').textContent = 'More';
+  setCardExpanded(false);
 });
 $('info-share').addEventListener('click', async () => {
   const lm = card.current; if (!lm) return;
@@ -489,6 +491,8 @@ $('info-share').addEventListener('click', async () => {
 function updateLandmarks(p) {
   const { lm, dist } = landmarks.nearest(p.x, p.z);
   const reach = lm.reach || CONFIG.landmarkRadius;
+  // Whether this place was new to you, judged before a stamp can land in this same step.
+  const unstamped = !store.data.stamps[lm.id];
   if (dist < reach) {
     if (store.stamp(lm.id)) {
       countStamp();
@@ -508,8 +512,11 @@ function updateLandmarks(p) {
       card.fact.textContent = lm.fact;
       card.stamp.innerHTML = stampSvg(lm.name, lm.glyph, !!store.data.stamps[lm.id], 'card');
       card.shownAt = null;
+      // Decided once per visit, so a card shown for a new place stays up after its stamp lands.
+      card.wanted = placeCards() === 'all' || (placeCards() === 'new' && unstamped);
+      setCardExpanded(false);
     }
-    card.el.hidden = infoDismissed === lm.id;
+    card.el.hidden = infoDismissed === lm.id || !card.wanted;
     // The card tucks itself away after a while of driving so it never sits over the view for good.
     if (!card.el.hidden && started && !card.el.classList.contains('is-expanded')) {
       card.shownAt ??= performance.now();
@@ -562,6 +569,7 @@ function openSettings() {
   $('set-rocks').value = settings.rocks || 'normal';
   $('set-nitro').value = settings.nitro || 'on';
   $('set-haptics').value = settings.haptics || 'on';
+  $('set-places').value = placeCards();
   settingsDialog.showModal();
   settingsDialog.dispatchEvent(new Event('sync'));
 }
@@ -569,6 +577,11 @@ $('btn-settings').addEventListener('click', openSettings);
 sheet.register('settings', openSettings);
 sheet.register('notebook', () => notebook.open());
 pcDialog.addEventListener('click', (e) => { if (e.target === pcDialog) pcDialog.close(); });
+$('set-places').addEventListener('change', (e) => {
+  settings.placeCards = e.target.value; store.save();
+  if (card.current) card.wanted = placeCards() === 'all' || (placeCards() === 'new' && !store.data.stamps[card.current.id]);
+  track('setting_change', { setting: 'place_cards', setting_value: e.target.value });
+});
 $('set-haptics').addEventListener('change', (e) => {
   settings.haptics = e.target.value; store.save();
   haptics.enabled = settings.haptics !== 'off';

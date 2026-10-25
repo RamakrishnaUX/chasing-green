@@ -71,7 +71,7 @@ Every term on the radio has an (i) button: Kp, the forecast, Activity, Clouds, D
 
 ## Landmarks
 
-55 landmarks are on the map and built in the world, each with a one-line description, a short legend where there is one, and a shareable fact on its info card:
+55 landmarks are on the map and built in the world, each with a one-line description, a short legend where there is one, and a shareable fact on its info card. The card opens small (the name, plus the one-liner on desktop) and More shows the legend and the fact. Settings, Place cards chooses when it pops up: for every place, only for places not yet stamped (the default on phones), or never:
 
 Reykjavík district (Hallgrímskirkja, Harpa, Sun Voyager, Perlan, the Laugavegur rainbow street), Seyðisfjörður (the blue church and its rainbow street), Dynjandi and Ísafjörður in the Westfjords, Siglufjörður, Háifoss, Landmannalaugar, Kvernufoss, Öxarárfoss, Silfra, Barnafoss with Hraunfossar, Sólheimajökull, the Sólheimasandur plane wreck (a stripped DC-3 on a plain of black sand), Víkurfjara, Secret Lagoon, Friðheimar, Hvammsvík, Reykjadalur, the Bridge Between Continents, Búðakirkja, Arnarstapi, Hvítserkur, Dimmuborgir, Grjótagjá, Mývatn Nature Baths, GeoSea, Blue Lagoon, Þingvellir, Strokkur Geyser (erupts every minute or two, with a bulging-water warning first), Gullfoss, Kerið Crater, Seljalandsfoss, Gljúfrabúi, Skógafoss (with its stairway), Dyrhólaey, Reynisfjara, Vík í Mýrdal, Eldhraun, Fjaðrárgljúfur, Skaftafell, Svartifoss, Jökulsárlón, Diamond Beach, Hengifoss, Stuðlagil, Dettifoss, Ásbyrgi, Húsavík, Goðafoss, Hverir, Mývatn, Hveravellir and Kirkjufell.
 

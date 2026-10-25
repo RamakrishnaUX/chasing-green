@@ -193,8 +193,10 @@ svg { overflow: visible; }
 .info-desc { margin: 0 0 0.5rem; font-weight: 700; font-size: 0.9rem; line-height: 1.4; }
 .info-legend { font-family: var(--serif); line-height: 1.5; margin: 0 0 0.6rem; font-size: 0.95rem; }
 .info-fact { color: var(--ink-2); line-height: 1.5; margin: 0 0 0.8rem; font-size: 0.9rem; }
+/* Closed, the card is the name and one short line; More opens the legend and the fact. */
+.infocard:not(.is-expanded) .info-legend, .infocard:not(.is-expanded) .info-fact { display: none; }
+.infocard:not(.is-expanded) .info-desc { font-weight: 400; color: var(--ink-2); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .info-actions { display: flex; gap: 6px; }
-#info-more { display: none; }
 .stamp-badge { position: absolute; top: 12px; right: 12px; width: 44px; height: 44px; }
 
 /* ---------- Touch controls: glass pucks you can feel ---------- */
@@ -263,7 +265,7 @@ body.has-touch .infocard h2 { font-size: 1.02rem; margin: 0; padding-right: 40px
 body.has-touch .infocard .info-desc, body.has-touch .infocard .info-legend, body.has-touch .infocard .info-fact { display: none; }
 body.has-touch .infocard.is-expanded .info-desc, body.has-touch .infocard.is-expanded .info-legend, body.has-touch .infocard.is-expanded .info-fact { display: block; margin-top: 0.4rem; font-size: 0.86rem; }
 body.has-touch .info-actions { margin-top: 0.45rem; }
-body.has-touch #info-more { display: inline-flex; }
+
 body.has-touch .stamp-badge { width: 32px; height: 32px; top: 8px; right: 8px; }
 
 /* Phones upright: readout top left, buttons and radio top right, minimap and tips below,
