@@ -56,7 +56,7 @@
         <p class="challenge-line" id="intro-challenge"></p>
         <p class="loading" id="loading" role="status"></p>
       </div>
-      <p class="keys-hint"><span><kbd>WASD</kbd>drive</span><span><kbd>Space</kbd>nitro</span><span><kbd>C</kbd>camera</span><span><kbd>X</kbd>sit</span><span><kbd>V</kbd>car</span><span><kbd>M</kbd>map</span><span><kbd>H</kbd>learn</span></p>
+      <p class="keys-hint"><span><kbd>WASD</kbd>drive</span><span><kbd>S</kbd>hold to reverse</span><span><kbd>Space</kbd>nitro</span><span><kbd>C</kbd>camera</span><span><kbd>X</kbd>sit</span><span><kbd>V</kbd>car</span><span><kbd>M</kbd>map</span><span><kbd>H</kbd>learn</span></p>
     </div>
   </section>
 
@@ -135,11 +135,12 @@
       <div class="touch-right">
         <button class="pad pad-small" id="t-sit" aria-label="Sit down" aria-pressed="false" hidden><svg viewBox="0 0 24 24"><path d="M7 4v8h8l2 7M7 12v7"/></svg><span>Sit</span></button>
         <button class="pad pad-look" id="t-look" aria-label="Look up at the sky" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></svg><span>Look</span></button>
-        <button class="pad pad-brake" id="t-brake" aria-label="Brake or reverse"><svg viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="2.6" class="fill"/></svg><span>Brake</span></button>
+        <button class="pad pad-brake" id="t-brake" aria-label="Brake. Keep holding to reverse"><svg class="ico-brake" viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="2.6" class="fill"/></svg><svg class="ico-rev" viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></svg><span class="lbl-brake">Brake</span><span class="lbl-rev">Reverse</span><small class="pad-sub">&amp; reverse</small></button>
         <button class="pad pad-gas" id="t-gas" aria-label="Go. Hold to drive, slide up for nitro"><i class="go-ring" aria-hidden="true"></i><i class="go-hint" aria-hidden="true"></i><svg viewBox="0 0 24 24"><path d="M6.6 4.9v14.2a1 1 0 0 0 1.53.85l10.3-7.1a1 1 0 0 0 0-1.7L8.13 4.05A1 1 0 0 0 6.6 4.9z" class="fill"/></svg></button>
       </div>
     </div>
   </div>
+  <div class="coach" id="coach-reverse" role="status" hidden>Brake. Keep holding it to reverse.</div>
 
   <!-- One sheet for everything: map, cars, notebook, learn and settings -->
   <dialog id="sheet" class="sheet glass" aria-label="Menu">

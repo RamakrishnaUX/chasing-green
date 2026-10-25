@@ -26,6 +26,7 @@ Push the repo to GitHub and import it in Vercel. Vercel detects Vite on its own,
 | Action | Keyboard | Touch |
 | --- | --- | --- |
 | Drive | WASD or arrow keys | Left and right buttons, Go (play button) and Brake |
+| Brake and reverse | S or down arrow; keep holding once stopped to reverse | Brake pill, labelled "Brake & reverse"; keep holding once stopped and it switches to a down arrow and "Reverse". A one-time bubble points it out on the first drive |
 | Handbrake | Shift | |
 | Change camera (chase, look up, step out) | C | Menu, Settings, Camera |
 | Look up (quick toggle) | L | Look button (glows green when the aurora is out) |

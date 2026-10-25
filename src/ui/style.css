@@ -221,6 +221,20 @@ svg { overflow: visible; }
 .pad-small[aria-pressed='true'] { color: var(--green); border-color: rgba(92, 242, 160, 0.55); }
 .pad-small[aria-pressed='true'] span { color: var(--green); }
 .pad-brake svg { width: 20px; height: 20px; color: var(--red); }
+/* Brake doubles as reverse: it says so, and while backing up shows a back arrow and "Reverse". */
+.pad-brake .ico-rev, .pad-brake .lbl-rev { display: none; }
+.pad-brake.is-reverse .ico-rev, .pad-brake.is-reverse .lbl-rev { display: block; }
+.pad-brake.is-reverse .ico-brake, .pad-brake.is-reverse .lbl-brake, .pad-brake.is-reverse .pad-sub { display: none; }
+.pad-brake .ico-rev { color: var(--ink); stroke-width: 2.6; }
+.pad-brake .pad-sub { font-size: 0.5rem; font-weight: 700; line-height: 1; color: var(--ink-3); letter-spacing: 0.02em; margin-top: -1px; }
+/* A one-time pointer bubble above a control. */
+.coach { position: fixed; z-index: 6; max-width: 180px; padding: 8px 12px; border-radius: 12px; font-size: 0.82rem; font-weight: 700; line-height: 1.3; color: var(--ink); text-align: center;
+  background: rgba(18, 26, 34, 0.92); border: 1px solid var(--hair); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4); animation: coach-in 0.35s var(--spring); }
+.coach::after { content: ''; position: absolute; left: var(--arrow, 50%); bottom: -7px; width: 12px; height: 12px; transform: translateX(-50%) rotate(45deg);
+  background: rgba(18, 26, 34, 0.92); border-right: 1px solid var(--hair); border-bottom: 1px solid var(--hair); }
+.coach[hidden] { display: none; }
+@keyframes coach-in { from { opacity: 0; transform: translateY(6px); } }
+@media (prefers-reduced-motion: reduce) { .coach { animation: none; } }
 .pad-brake.is-down { background: radial-gradient(120% 120% at 30% 18%, rgba(255, 160, 150, 0.3), rgba(255, 125, 116, 0.1) 55%), rgba(40, 18, 18, 0.55); border-color: rgba(255, 125, 116, 0.5); }
 .pad-gas { --size: 80px; overflow: visible; color: var(--green-ink); border-color: rgba(200, 255, 225, 0.75);
   background: radial-gradient(120% 120% at 30% 15%, #d2ffe6 0%, #74f5b0 34%, var(--green) 52%, var(--green-2) 100%);
@@ -578,6 +592,7 @@ body.has-touch .touch-left { align-items: flex-end; }
   body.has-touch #t-look, body.has-touch #t-brake, body.has-touch #t-sit { width: var(--btn); height: var(--btn); min-width: 0; padding: 0; border-radius: 50%; flex-direction: column; gap: 2px; }
   body.has-touch #t-look span, body.has-touch #t-brake span, body.has-touch #t-sit span { font-size: 0.56rem; letter-spacing: 0.06em; text-transform: uppercase; }
   body.has-touch #t-look svg, body.has-touch #t-brake svg { width: 18px; height: 18px; }
+  body.has-touch #t-brake svg { width: 15px; height: 15px; }
   body.has-touch #t-gas { --size: var(--go); }
   body.has-touch .pad-gas svg { width: 30px; height: 30px; }
   body.has-touch .infocard { bottom: calc(110px + var(--safe-b)); }
@@ -586,6 +601,13 @@ body.has-touch .touch-left { align-items: flex-end; }
 @media (max-height: 520px) {
   body.has-touch .touch-right { --pedal-gap: 16px; }
   body.has-touch #t-brake { --size: 58px; }
+}
+/* Brake is a wide pill, so "Brake & reverse" and "Reverse" have room to read. Upright phones
+   are tight, so the steering buttons give up a few pixels for it. */
+body.has-touch #t-brake { width: calc(var(--size, 64px) * 1.3); border-radius: 999px; }
+@media (orientation: portrait) and (max-width: 600px) {
+  body.has-touch .touch { --steer: min(58px, 15.5vw); }
+  body.has-touch #t-brake { width: calc(var(--btn) * 1.22); border-radius: 999px; }
 }
 
 /* ---------- Looking up: the sky gets the screen ---------- */

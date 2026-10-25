@@ -687,6 +687,37 @@ function syncTouch() {
 input.bindSteerPair($('t-left'), $('t-right'), () => haptics.play('select', 0));
 input.bindGasButton($('t-gas'), (up) => { if (up) nitroHint(); });
 input.bindTouchButton($('t-brake'), 'brake');
+
+// ---------- Brake doubles as reverse ----------
+// The pedal says so ("Brake & reverse"), switches to "Reverse" with a back arrow while the car
+// backs up, and on a touch screen the first drive points it out once.
+const brakeBtn = $('t-brake');
+const tips = settings.tips || (settings.tips = {});
+let reverseShown = false;
+function syncBrakePedal() {
+  const rev = mode !== 'walk' && (jeep.vF < -0.3 || (input.throttle < 0 && Math.abs(jeep.vF) < 0.6));
+  if (rev === reverseShown) return;
+  reverseShown = rev;
+  brakeBtn.classList.toggle('is-reverse', rev);
+  brakeBtn.setAttribute('aria-label', rev ? 'Reverse. Let go to stop' : 'Brake. Keep holding to reverse');
+}
+function showReverseTip() {
+  if (tips.reverse || !isTouch || !started) return;
+  // Wait for a clear moment: driving, no menu open, and no place card where the bubble would go.
+  if (mode === 'walk' || !brakeBtn.offsetParent || document.querySelector('dialog[open]') || !$('infocard').hidden) { setTimeout(showReverseTip, 3000); return; }
+  tips.reverse = true; store.save();
+  const tip = $('coach-reverse'), b = brakeBtn.getBoundingClientRect();
+  tip.hidden = false;
+  // The bubble reaches left from the pedal, so it stays clear of Go and its nitro hint.
+  const left = Math.min(innerWidth - tip.offsetWidth - 8, Math.max(8, b.left + b.width / 2 - tip.offsetWidth + 28));
+  tip.style.left = `${left}px`;
+  tip.style.top = `${b.top - tip.offsetHeight - 12}px`;
+  tip.style.setProperty('--arrow', `${b.left + b.width / 2 - left}px`);
+  const hide = () => { tip.hidden = true; };
+  setTimeout(hide, 7000);
+  tip.addEventListener('pointerdown', hide, { once: true });
+  brakeBtn.addEventListener('pointerdown', hide, { once: true });
+}
 // Nitro lives on Go: slide the finger up from Go to boost, back down to ease off. The ring
 // around Go shows how much is left.
 let nitroHinted = false;
@@ -713,7 +744,7 @@ document.querySelectorAll('.month-select').forEach((sel) => {
 forecast.monthFactor = clock.m.aurora;
 renderMonthCards();
 $('intro-challenge').innerHTML = `Today’s challenge: <strong>${challenge.title}</strong>`;
-if (isTouch) document.querySelector('.keys-hint').textContent = 'Steer with the arrows, press Go to drive and Brake to slow down or reverse. Slide up from Go for a nitro boost. Tap Look when the radio says the aurora is out. Drag to look around.';
+if (isTouch) document.querySelector('.keys-hint').textContent = 'Steer with the arrows and press Go to drive. Brake slows you down; keep holding it to reverse. Slide up from Go for a nitro boost. Tap Look when the radio says the aurora is out. Drag to look around.';
 const startBtn = $('start');
 startBtn.disabled = true;
 startBtn.addEventListener('click', () => {
@@ -729,6 +760,7 @@ startBtn.addEventListener('click', () => {
   if (isTouch) { touchLayout(); goLandscape(); }
   canvas.focus();
   hud.toast('Watch the Kp on the aurora radio. Tap the (i) next to it to learn what it means.', { seconds: 7 });
+  setTimeout(showReverseTip, 8000);
 });
 
 addEventListener('keydown', (e) => {
@@ -1040,6 +1072,7 @@ function frame(now) {
   else renderer.render(scene, camera);
   if (captureRequest) { const cb = captureRequest; captureRequest = null; cb(renderer.domElement.toDataURL('image/jpeg', 0.88)); }
   tickPlay(dt, { playing: !paused, driving: mode !== 'walk', metresPerSecond: jeep.vF, kmh: jeep.kmh, boosting: jeep.boosting });
+  if (started) syncBrakePedal();
   input.endFrame();
 
   // If the device is struggling, first draw fewer pixels; only when that is not enough, step
