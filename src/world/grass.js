@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BOUNDS, grid, roadField, coastAt, waterLevelAt, glacierMask, lavaMask, heightAt } from './terrain.js';
+import { BOUNDS, grid, roadField, coastAt, waterLevelAt, glacierMask, lavaMask, sandMask, heightAt } from './terrain.js';
 import { NOISE, surfaceUniforms } from './materials.js';
 import { mulberry32 } from './noise.js';
 
@@ -50,7 +50,7 @@ function buildDensityTexture(clear = []) {
       const rd = roadField.d[i];
       d *= Math.min(1, Math.max(0, (rd - 4.6) / 1.6)); // keep off the road and its gravel shoulder
       if (h < waterLevelAt(x, z) + 0.3) d = 0;
-      else if (coastAt(x, z) < 22 && h < 4) d = 0; // black sand
+      else if ((coastAt(x, z) < 22 && h < 4) || sandMask(x, z, h) > 0.2) d = 0; // black sand
       const slope = Math.abs(heightAt(x + 1.5, z) - h) + Math.abs(heightAt(x, z + 1.5) - h);
       d *= Math.min(1, Math.max(0, (1.6 - slope) / 0.8));
       d *= 1 - glacierMask(x, z);

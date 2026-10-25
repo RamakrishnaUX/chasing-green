@@ -1,11 +1,14 @@
-// Pictures of each car for the Cars tab, rendered once with a throwaway renderer. The camera
-// sits close at a low front three-quarter angle, so the car fills the frame and the back is
-// cropped away: a portrait of the car rather than a small car in empty space.
+// Pictures of each car for the Cars tab, rendered once with a throwaway renderer. Every car is
+// seen whole from the same front three-quarter angle and the same distance, so the pictures
+// show the cars' true sizes side by side, with a calm margin around even the biggest.
 import * as THREE from 'three';
 import { buildVehicleModel } from '../vehicle/models.js';
 
+// Share of the frame the biggest car spans, across and up.
+const FILL_X = 0.86, FILL_Y = 0.78;
+
 let cache = null;
-export function carThumbs(kinds, w = 960, h = 540) {
+export function carThumbs(kinds, w = 960, h = 600) {
   if (cache) return cache;
   cache = {};
   let renderer;
@@ -22,21 +25,38 @@ export function carThumbs(kinds, w = 960, h = 540) {
   sun.position.set(4, 6, 5);
   scene.add(sun);
   const camera = new THREE.PerspectiveCamera(30, w / h, 0.1, 100);
-  for (const kind of kinds) {
+  const dir = new THREE.Vector3(0.92, 0.24, 0.72).normalize();
+  const q = new THREE.Vector3(), right = new THREE.Vector3(), up = new THREE.Vector3();
+  const tanY = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+  const shots = kinds.map((kind) => {
     const m = buildVehicleModel(kind);
-    scene.add(m.group);
     const box = new THREE.Box3().setFromObject(m.group);
-    const c = box.getCenter(new THREE.Vector3()), s = box.getSize(new THREE.Vector3());
-    const d = Math.max(s.x, s.y, s.z) * (kind === 'camper' ? 1 : 0.8);
-    if (kind === 'camper') {
-      // The camper is shown whole, from the front quarter: its face, the two-tone body and
-      // the full graffiti piece down the side.
-      camera.position.set(c.x + d * 0.95, c.y + d * 0.08, c.z + d * 0.62);
-      camera.lookAt(c.x, c.y - s.y * 0.06, c.z + s.z * 0.05);
-    } else {
-      camera.position.set(c.x + d * 0.78, c.y + d * 0.06, c.z + d * 0.86);
-      camera.lookAt(c.x + s.x * 0.08, c.y - s.y * 0.05, c.z + s.z * 0.2);
+    const corners = [];
+    for (let i = 0; i < 8; i++) corners.push(new THREE.Vector3(i & 1 ? box.max.x : box.min.x, i & 2 ? box.max.y : box.min.y, i & 4 ? box.max.z : box.min.z));
+    const look = box.getCenter(new THREE.Vector3());
+    let d = box.getSize(q).length() * 2;
+    // Frame by measuring: project the box, recentre on it, and move in or out to the set fill.
+    for (let k = 0; k < 5; k++) {
+      camera.position.copy(look).addScaledVector(dir, d);
+      camera.lookAt(look);
+      camera.updateMatrixWorld();
+      let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+      for (const p of corners) {
+        q.copy(p).project(camera);
+        x0 = Math.min(x0, q.x); x1 = Math.max(x1, q.x); y0 = Math.min(y0, q.y); y1 = Math.max(y1, q.y);
+      }
+      right.setFromMatrixColumn(camera.matrixWorld, 0);
+      up.setFromMatrixColumn(camera.matrixWorld, 1);
+      look.addScaledVector(right, ((x0 + x1) / 2) * d * tanY * camera.aspect).addScaledVector(up, ((y0 + y1) / 2) * d * tanY);
+      d *= Math.max((x1 - x0) / 2 / FILL_X, (y1 - y0) / 2 / FILL_Y);
     }
+    return { kind, m, look, d };
+  });
+  const far = Math.max(...shots.map((s) => s.d));
+  for (const { kind, m, look } of shots) {
+    scene.add(m.group);
+    camera.position.copy(look).addScaledVector(dir, far);
+    camera.lookAt(look);
     renderer.render(scene, camera);
     cache[kind] = renderer.domElement.toDataURL('image/png');
     scene.remove(m.group);

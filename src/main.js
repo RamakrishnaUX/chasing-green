@@ -141,7 +141,7 @@ async function buildWorld(progress) {
   aurora = new Aurora(scene, Q.auroraSteps);
   await stage('Placing landmarks', 0.67, 220);
   // Pads under built landmarks, by kind (radius in world units). Natural sites keep their shape.
-  const PAD = { building: 32, town: 30, sculpture: 12, pool: 26, geothermal: 24, cave: 16, bridge: 18, waterfall: 34, geyser: 18 };
+  const PAD = { building: 32, town: 30, sculpture: 12, pool: 26, geothermal: 24, cave: 16, bridge: 18, waterfall: 34, geyser: 18, wreck: 18 };
   landmarks = new Landmarks(scene, { quality: qualityName, beforeBuild: (list) => {
     const pads = list.filter((l) => PAD[l.kind] && l.id !== 'seydisfjordur').map((l) => ({ x: l.x, z: l.z, r: l.id === 'hallgrimskirkja' ? 38 : PAD[l.kind] }));
     flattenPads(pads, world.mesh);

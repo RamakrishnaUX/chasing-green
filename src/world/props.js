@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { roadPaths, heightAt, coastAt, waterLevelAt, lavaMask, glacierMask, roadHalfWidth, roadDistAt } from './terrain.js';
+import { roadPaths, heightAt, coastAt, waterLevelAt, lavaMask, glacierMask, sandMask, roadHalfWidth, roadDistAt } from './terrain.js';
 import { mulberry32 } from './noise.js';
 
 // Farms, fences and birch groves: the lived-in detail along Icelandic country roads.
@@ -112,7 +112,7 @@ export class Props {
       const x = a.x + nx * off * side, z = a.z + nz * off * side;
       const h = heightAt(x, z);
       if (h < waterLevelAt(x, z) + 1 || h > 18) continue;
-      if (coastAt(x, z) < 25 || lavaMask(x, z) > 0.2 || glacierMask(x, z) > 0) continue;
+      if (coastAt(x, z) < 25 || sandMask(x, z, h) > 0.1 || lavaMask(x, z) > 0.2 || glacierMask(x, z) > 0) continue;
       const slope = Math.abs(heightAt(x + 6, z) - heightAt(x - 6, z)) + Math.abs(heightAt(x, z + 6) - heightAt(x, z - 6));
       if (slope > 2.2) continue;
       if (sites.some((s) => Math.hypot(s.x - x, s.z - z) < 90)) continue;

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { roadPaths, heightAt, coastAt, waterLevelAt, lavaMask, glacierMask, roadHalfWidth, roadDistAt } from './terrain.js';
+import { roadPaths, heightAt, coastAt, waterLevelAt, lavaMask, glacierMask, sandMask, roadHalfWidth, roadDistAt } from './terrain.js';
 import { mulberry32, clamp } from './noise.js';
 import { createGrassMaterial, surfaceUniforms } from './materials.js';
 
@@ -57,7 +57,7 @@ export class Scatter {
   usable(x, z, maxSlope) {
     const h = heightAt(x, z);
     if (h < waterLevelAt(x, z) + 0.25) return null;
-    if (coastAt(x, z) < 14 && h < 4) return null; // black sand
+    if ((coastAt(x, z) < 14 && h < 4) || sandMask(x, z, h) > 0.3) return null; // black sand
     if (glacierMask(x, z) > 0.2) return null;
     const s = Math.abs(heightAt(x + 1.5, z) - h) + Math.abs(heightAt(x, z + 1.5) - h);
     if (s > maxSlope) return null;

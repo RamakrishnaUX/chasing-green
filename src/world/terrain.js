@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { createNoise2D, fbm, clamp, lerp, smoothstep } from './noise.js';
-import { COAST, ROADS, FORDS, LAKES, GLACIERS, LAVA, PITS, CANYONS, PASSES, FLATS, JUMPS, BRIDGES, KERID, keridU, keridProfile, WS } from './geo.js';
+import { COAST, ROADS, FORDS, LAKES, GLACIERS, LAVA, SANDS, PITS, CANYONS, PASSES, FLATS, JUMPS, BRIDGES, KERID, keridU, keridProfile, WS } from './geo.js';
 import { createTerrainMaterial, createRoadMaterial, createWaterMaterial, createRiverMaterial, riverGeometry, surfaceUniforms } from './materials.js';
 
 export const BOUNDS = { minX: -900 * WS, maxX: 930 * WS, minZ: -690 * WS, maxZ: 580 * WS };
@@ -362,6 +362,12 @@ export function lavaMask(x, z) {
   for (const l of LAVA) m = Math.max(m, 1 - smoothstep(0.55, 1, Math.hypot(x - l.x, z - l.z) / l.r));
   return m;
 }
+// Black sand plains: full strength in the middle, fading at the rim and up any hillside.
+export function sandMask(x, z, h = heightAt(x, z)) {
+  let m = 0;
+  for (const s of SANDS) m = Math.max(m, (1 - smoothstep(0.6, 1, Math.hypot(x - s.x, z - s.z) / s.r)) * (1 - smoothstep(s.top * 0.7, s.top, h)));
+  return m;
+}
 export function glacierMask(x, z) {
   let m = 0;
   for (const g of GLACIERS) m = Math.max(m, 1 - smoothstep(0.75, 0.95, Math.hypot(x - g.x, z - g.z) / g.r));
@@ -466,7 +472,7 @@ export function surfaceAt(x, z) {
   }
   if (h < waterLevelAt(x, z) + 0.12) return 'ford';
   const cd = coastAt(x, z);
-  if (cd < 14 * WS && h < 4) return 'sand';
+  if ((cd < 14 * WS && h < 4) || sandMask(x, z, h) > 0.5) return 'sand';
   if (snowAt(x, z) > 0.28) return 'snow';
   return 'moss';
 }
@@ -693,7 +699,7 @@ function writeMasks() {
   for (let i = 0; i < pos.length / 3; i++) {
     const x = pos[i * 3], h = pos[i * 3 + 1], z = pos[i * 3 + 2];
     const cd = grid.coast[i];
-    col[i * 3] = (1 - smoothstep(6 * WS, 11 * WS, cd)) * (1 - smoothstep(2.5, 4, h));
+    col[i * 3] = Math.max((1 - smoothstep(6 * WS, 11 * WS, cd)) * (1 - smoothstep(2.5, 4, h)), sandMask(x, z, h));
     col[i * 3 + 1] = lavaMask(x, z);
     col[i * 3 + 2] = glacierMask(x, z) * smoothstep(22, 60, roadDistAt(x, z)) * smoothstep(8, 20, h);
   }

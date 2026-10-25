@@ -18,6 +18,81 @@ function lump(size, rand, flat = 0.7) {
 }
 const RAINBOW = [0xe40303, 0xff8c00, 0xffed00, 0x008026, 0x24408e, 0x732982];
 
+// Weathered aluminium for the plane wreck. u runs round the fuselage (0 = the side facing the
+// road, 0.25 = the top), v runs from the tail cut (0) to the nose (1).
+function wreckSkin(rand) {
+  const W = 1024, H = 1024, c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  const X = (u) => u * W, Y = (v) => (1 - v) * H;
+  g.fillStyle = '#b3b4af'; g.fillRect(0, 0, W, H);
+  // Mottled oxidation.
+  for (let i = 0; i < 900; i++) {
+    const l = rand() < 0.5 ? 255 : 40;
+    g.fillStyle = `rgba(${l},${l},${l - 6},${0.03 + rand() * 0.05})`;
+    g.beginPath(); g.ellipse(rand() * W, rand() * H, 6 + rand() * 50, 4 + rand() * 30, rand() * 3, 0, Math.PI * 2); g.fill();
+  }
+  // Grime running down from the top towards the belly on both sides.
+  for (let i = 0; i < 260; i++) {
+    const v = rand(), from = 0.25 + (rand() - 0.5) * 0.08, dir = rand() < 0.5 ? -1 : 1, len = 0.05 + rand() * 0.2;
+    const x0 = X(from), x1 = X(from + dir * len);
+    const gr = g.createLinearGradient(x0, 0, x1, 0);
+    gr.addColorStop(0, 'rgba(60,58,52,0)'); gr.addColorStop(0.3, `rgba(60,58,52,${0.12 + rand() * 0.12})`); gr.addColorStop(1, 'rgba(60,58,52,0)');
+    g.fillStyle = gr; g.fillRect(Math.min(x0, x1), Y(v), Math.abs(x1 - x0), 1 + rand() * 2.5);
+  }
+  // Panel seams: rings along the body and lines along it, some with a coppery tint.
+  for (let v = 0.02; v < 1; v += 0.062) {
+    g.fillStyle = rand() < 0.4 ? 'rgba(150,96,62,0.55)' : 'rgba(70,70,66,0.5)';
+    g.fillRect(0, Y(v), W, 2);
+    for (let u = 0; u < 1; u += 0.011) { g.fillStyle = 'rgba(60,60,56,0.55)'; g.fillRect(X(u), Y(v) + 5, 2, 2); }
+  }
+  for (let u = 0; u < 1; u += 1 / 14) {
+    g.fillStyle = rand() < 0.4 ? 'rgba(150,96,62,0.45)' : 'rgba(70,70,66,0.45)';
+    g.fillRect(X(u), 0, 2, H);
+  }
+  // Cabin windows on both sides and a round port up top.
+  for (const u0 of [0.03, 0.47]) {
+    for (const v of [0.2, 0.29, 0.38, 0.47, 0.56]) {
+      g.fillStyle = '#d4d5d0'; g.fillRect(X(u0) - 4, Y(v) + 4, X(0.052) + 8, -(0.03 * H) - 8);
+      g.fillStyle = '#121312'; g.fillRect(X(u0), Y(v), X(0.052), -(0.03 * H));
+    }
+  }
+  g.fillStyle = '#9a9b96'; g.beginPath(); g.arc(X(0.2), Y(0.36), 15, 0, Math.PI * 2); g.fill();
+  g.fillStyle = '#2a2b29'; g.beginPath(); g.arc(X(0.2), Y(0.36), 10, 0, Math.PI * 2); g.fill();
+  // Cockpit: ragged dark openings where the glass was.
+  for (const [u, w] of [[0.12, 0.09], [0.29, 0.09]]) {
+    g.fillStyle = '#111';
+    g.beginPath();
+    g.moveTo(X(u), Y(0.86));
+    for (let k = 0; k <= 8; k++) g.lineTo(X(u + (w * k) / 8), Y(0.9 + rand() * 0.012));
+    for (let k = 8; k >= 0; k--) g.lineTo(X(u + (w * k) / 8), Y(0.84 - rand() * 0.012));
+    g.fill();
+  }
+  // Holes punched through the skin, mostly towards the nose, each in a small dent.
+  for (let i = 0; i < 170; i++) {
+    const v = 0.4 + Math.pow(rand(), 0.45) * 0.56, u = rand(), r = 1.2 + Math.pow(rand(), 4) * 7;
+    g.fillStyle = 'rgba(70,68,62,0.45)'; g.beginPath(); g.ellipse(X(u), Y(v), r * 2.4, r * 1.8, rand() * 3, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#141414'; g.beginPath(); g.arc(X(u), Y(v), r, 0, Math.PI * 2); g.fill();
+  }
+  // Scratched names and doodles left by visitors.
+  g.strokeStyle = 'rgba(235,235,230,0.35)'; g.lineWidth = 1.2;
+  for (let i = 0; i < 60; i++) {
+    let x = rand() * W, y = Y(0.15 + rand() * 0.7);
+    g.beginPath(); g.moveTo(x, y);
+    for (let k = 0; k < 6; k++) { x += (rand() - 0.3) * 14; y += (rand() - 0.5) * 10; g.lineTo(x, y); }
+    g.stroke();
+  }
+  // Rust weeping from a few seams.
+  for (let i = 0; i < 40; i++) {
+    g.fillStyle = `rgba(${120 + rand() * 40},${70 + rand() * 20},40,${0.08 + rand() * 0.12})`;
+    g.fillRect(rand() * W, rand() * H, 2 + rand() * 4, 10 + rand() * 40);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  return t;
+}
+
 // A rainbow painted on the ground from (x0,z0) to (x1,z1), width w, following the terrain.
 function rainbowStrip(kit, x0, z0, x1, z1, w = 5) {
   const g = new THREE.Group();
@@ -349,6 +424,133 @@ export const EXTRA = {
     g.add(M(new THREE.BoxGeometry(18, 0.3, 2.2), wood, 0, 3.2, -8));
     for (const x of [-7, 7]) for (const z of [-9, -7]) g.add(M(new THREE.CylinderGeometry(0.12, 0.12, 4.4, 8), steel, x, 1.6, z));
     for (const z of [-9.1, -6.9]) g.add(M(new THREE.BoxGeometry(18, 0.08, 0.08), steel, 0, 4.3, z));
+    return g;
+  },
+
+  // The DC-3 on Sólheimasandur: a stripped silver fuselage, wings and tail gone, the nose torn
+  // open, lying tail-down in black sand with the round wing-root stubs beside it.
+  planeWreck(kit) {
+    const g = new THREE.Group();
+    const rand = kit.rand;
+    const L0 = -7.2, L1 = 7.4, R = 1.32;
+    const tex = wreckSkin(rand);
+    const skin = std(0x9d9e99, 0.66, 0.2, { map: tex });
+    const inside = std(0x3b3c3a, 0.95, 0, { side: THREE.BackSide });
+    const plate = std(0x86877f, 0.7, 0.2), dark = std(0x2c2d2c, 0.9);
+
+    // Fuselage: a tube that rounds into the nose, built along x (nose at +x, a = 0 facing +z).
+    const NS = 56, NA = 40;
+    const dents = Array.from({ length: 46 }, () => ({ t: L0 + rand() * (L1 - L0) * (0.35 + 0.65 * Math.sqrt(rand())), a: rand() * Math.PI * 2, s: 0.15 + rand() * 0.35, d: 0.03 + rand() * 0.06 }));
+    const tear = (a) => 0.5 + 0.45 * Math.sin(a * 3 + 1) * Math.sin(a * 7 + 2) + rand() * 0.25;
+    const tears = Array.from({ length: NA + 1 }, (_, i) => tear((i / NA) * Math.PI * 2));
+    const pos = [], uv = [], idx = [];
+    for (let j = 0; j <= NS; j++) {
+      for (let i = 0; i <= NA; i++) {
+        const a = (i / NA) * Math.PI * 2;
+        let t = L0 + ((L1 - L0) * j) / NS;
+        if (j > NS - 4) t -= tears[i % NA] * (j - (NS - 4)) / 4;
+        const k = Math.max(0, (t - 2.6) / (L1 - 2.6));
+        let r = R * Math.sqrt(Math.max(0.05, 1 - k * k * 0.82));
+        const yc = -k * k * 0.32;
+        // Crushed nose: the lower front on the near side is caved in.
+        const low = Math.max(0, -Math.sin(a + 0.5));
+        r *= 1 - Math.max(0, (t - 4.9) / 2.5) * low * 0.42;
+        for (const d of dents) {
+          const da = Math.atan2(Math.sin(a - d.a), Math.cos(a - d.a)) * R, dt = t - d.t;
+          r -= d.d * Math.exp(-(da * da + dt * dt) / (d.s * d.s));
+        }
+        pos.push(t, yc + Math.sin(a) * r * 1.04, Math.cos(a) * r * 0.95);
+        uv.push(i / NA, (t - L0) / (L1 - L0));
+      }
+    }
+    for (let j = 0; j < NS; j++) for (let i = 0; i < NA; i++) {
+      const p = j * (NA + 1) + i, q = p + NA + 1;
+      idx.push(p, q, p + 1, p + 1, q, q + 1);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    geo.setIndex(idx);
+    geo.computeVertexNormals();
+
+    const body = new THREE.Group();
+    body.add(M(geo, skin), M(geo, inside));
+    // Rear bulkhead just inside the cut end, with a doorway.
+    const bulk = new THREE.Shape(); bulk.absarc(0, 0, R * 0.98, 0, Math.PI * 2, false);
+    const door = new THREE.Path(); door.moveTo(-0.38, -0.9); door.lineTo(0.38, -0.9); door.lineTo(0.38, 0.55); door.lineTo(-0.38, 0.55); door.closePath();
+    bulk.holes.push(door);
+    const bh = M(new THREE.ShapeGeometry(bulk, 24), std(0x8e8f8a, 0.75, 0.2, { side: THREE.DoubleSide }), L0 + 0.5, 0, 0);
+    bh.rotation.y = Math.PI / 2; bh.scale.set(0.95, 1.04, 1);
+    body.add(bh);
+    // Cockpit frame: bent bars where the windscreen was, and torn sheet curling off the nose.
+    const bar = std(0x55564f, 0.6, 0.4);
+    for (const [y, z, rz, len] of [[0.62, 0.42, 0.7, 1.1], [0.66, -0.42, 0.62, 1.05], [0.8, 0, 0.9, 0.9], [0.25, 0.7, 1.3, 0.8]]) {
+      const b = M(new THREE.CylinderGeometry(0.035, 0.035, len, 5), bar, 6.45, y, z); b.rotation.z = rz; b.rotation.x = (rand() - 0.5) * 0.6; body.add(b);
+    }
+    for (let i = 0; i < 5; i++) {
+      const s = M(new THREE.PlaneGeometry(0.5 + rand() * 0.6, 0.3 + rand() * 0.5, 3, 2), std(0x9d9e99, 0.66, 0.2, { side: THREE.DoubleSide, map: tex }), 6.3 + rand() * 0.6, -0.6 + rand() * 0.9, (rand() < 0.5 ? -1 : 1) * (0.7 + rand() * 0.3));
+      const p = s.geometry.attributes.position; for (let v = 0; v < p.count; v++) p.setZ(v, (rand() - 0.5) * 0.18);
+      s.geometry.computeVertexNormals(); s.rotation.set(rand() * 1.2, rand() * 3, rand() * 1.2); body.add(s);
+    }
+    // Broken nose gear legs under the front.
+    for (const z of [-0.55, 0.55]) {
+      const leg = M(new THREE.CylinderGeometry(0.07, 0.09, 1.5, 7), bar, 3.6, -1.3, z); leg.rotation.z = -0.55; leg.rotation.x = z * 0.4; body.add(leg);
+    }
+
+    // Wing-root stubs: a flattened centre section each side ending in the round nacelle drum.
+    for (const side of [-1, 1]) {
+      const stub = M(new THREE.BoxGeometry(2.6, 0.32, 1.7), plate, -0.6, -0.95, side * 2.2); stub.rotation.x = side * 0.05; body.add(stub);
+      const drum = new THREE.Group();
+      const shell = M(new THREE.CylinderGeometry(1.12, 1.16, 0.9, 28, 1, true), std(0x9d9e99, 0.66, 0.2, { map: tex, side: THREE.DoubleSide }));
+      const face = M(new THREE.CircleGeometry(1.1, 28), std(0x8f908a, 0.72, 0.2, { map: tex }));
+      face.position.y = side * 0.4; face.rotation.x = side * -Math.PI / 2;
+      drum.add(shell, face);
+      // Plates, brackets and bolts on the open face.
+      for (let i = 0; i < 9; i++) {
+        const a = rand() * Math.PI * 2, rr = rand() * 0.8;
+        const b = M(new THREE.BoxGeometry(0.12 + rand() * 0.25, 0.06, 0.08 + rand() * 0.2), i % 3 ? dark : bar, Math.cos(a) * rr, side * 0.44, Math.sin(a) * rr);
+        b.rotation.y = rand() * 3; drum.add(b);
+      }
+      drum.add(M(new THREE.BoxGeometry(0.06, 0.04, 1.9), dark, 0, side * 0.43, 0), M(new THREE.BoxGeometry(1.9, 0.04, 0.06), dark, 0, side * 0.43, 0));
+      drum.rotation.x = Math.PI / 2;
+      drum.position.set(-0.8, -0.55, side * 3.3);
+      body.add(drum);
+    }
+
+    // Lie it tail-down with the nose lifted, skewed a little to the road.
+    const lay = new THREE.Group();
+    lay.add(body);
+    body.rotation.z = 0.085;
+    body.rotation.x = -0.04;
+    body.position.y = kit.ground(0, 0) + 1.2;
+    lay.rotation.y = 0.32;
+    g.add(lay);
+
+    // A loose belly section lying open beside the tail, its ribs showing.
+    const loose = new THREE.Group();
+    const half = M(new THREE.CylinderGeometry(1.15, 1.2, 2.6, 20, 1, true, 0, Math.PI), std(0x9d9e99, 0.66, 0.2, { map: tex, side: THREE.DoubleSide }));
+    half.rotation.z = Math.PI / 2;
+    loose.add(half);
+    for (let i = 0; i < 5; i++) {
+      const rib = M(new THREE.TorusGeometry(1.12, 0.05, 4, 16, Math.PI), plate, -1.1 + i * 0.55, 0, 0);
+      rib.rotation.y = Math.PI / 2; loose.add(rib);
+    }
+    loose.rotation.set(Math.PI + 0.12, 0.5, 0.06);
+    loose.position.set(-9.6, kit.ground(-9.6, 1.5) + 0.75, 1.5);
+    g.add(loose);
+
+    // Scraps of sheet metal half sunk in the sand around it.
+    for (let i = 0; i < 12; i++) {
+      const x = -10 + rand() * 20, z = -6 + rand() * 12;
+      if (Math.abs(z) < 3.5 && Math.abs(x) < 8) continue;
+      const s = M(new THREE.BoxGeometry(0.3 + rand() * 0.9, 0.03, 0.2 + rand() * 0.6), i % 4 ? plate : dark, x, kit.ground(x, z) + 0.05, z);
+      s.rotation.set((rand() - 0.5) * 0.5, rand() * 3, (rand() - 0.5) * 0.5); g.add(s);
+    }
+
+    // Solid to drive into: one box the size of the fuselage, along the yawed axis.
+    const hit = new THREE.Mesh(new THREE.BoxGeometry(15, 3, 3.2), new THREE.MeshBasicMaterial({ visible: false }));
+    hit.position.y = 1.5; hit.userData.collide = true;
+    lay.add(hit);
     return g;
   },
 

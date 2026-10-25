@@ -189,6 +189,11 @@ export const LAVA = [
   { ...toWorld(65.45, -16.6), r: 70 * WS }, // Mývatn lava
 ];
 
+// Black sand plains inland from the shore (outwash sandur), painted and driven as beach sand.
+export const SANDS = [
+  { ...toWorld(63.4605, -19.29), r: 40 * WS, top: 11 }, // Sólheimasandur, around the plane wreck
+];
+
 // Names used to describe where a sighting happened.
 export const PLACES = [
   { name: 'Reykjavík', ...toWorld(64.13, -21.85) },

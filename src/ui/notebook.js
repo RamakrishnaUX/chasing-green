@@ -20,16 +20,21 @@ const GLYPHS = {
   arch: '<path d="M20 50V32c0-6 6-10 12-10h12c6 0 12 4 12 10v18M30 50V38a8 8 0 0 1 16 0v12" />',
   steam: '<path d="M26 50h24M30 46c-2-6 4-8 2-14M38 46c-2-6 4-8 2-14M46 46c-2-6 4-8 2-14" />',
   lava: '<path d="M22 46c4-8 10-4 14-8s10-6 18 0M24 52c6-4 12-2 18-4s8-2 12 0" />',
+  plane: '<path d="M23 44v-9h23c4 0 8 2.5 8 4.5S50 44 46 44zM28 39h2M33 39h2M38 39h2M44 37.5h4M20 51h36" /><circle cx="32" cy="46" r="4" />',
 };
 
 export function stampSvg(label, glyph, got, id) {
   const col = got ? '#5cf2a0' : 'rgba(169,180,189,0.45)';
   const dash = got ? '' : 'stroke-dasharray="3 4"';
   const pid = `arc-${id}`;
+  // Long names run round a wider arc in smaller type, so they are never cut off.
+  const long = String(label).length > 15;
+  const size = long ? Math.max(5.2, Math.min(8, 92 / (String(label).length * 0.62))) : 8;
+  const arc = long ? 'M15.4 46.2A24 24 0 1 1 60.6 46.2' : 'M14 40a24 24 0 0 1 48 0';
   return `<svg viewBox="0 0 76 76" aria-hidden="true"><g fill="none" stroke="${col}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ${got ? 'transform="rotate(-8 38 38)"' : ''}>
     <circle cx="38" cy="38" r="35" ${dash}/><circle cx="38" cy="38" r="30" ${dash}/>
-    <defs><path id="${pid}" d="M14 40a24 24 0 0 1 48 0" /></defs>
-    <text font-size="8" font-weight="700" fill="${col}" stroke="none" font-family="Atkinson Hyperlegible, system-ui"><textPath href="#${pid}" startOffset="50%" text-anchor="middle">${label}</textPath></text>
+    <defs><path id="${pid}" d="${arc}" /></defs>
+    <text font-size="${size.toFixed(1)}" font-weight="700" fill="${col}" stroke="none" font-family="Atkinson Hyperlegible, system-ui"><textPath href="#${pid}" startOffset="50%" text-anchor="middle">${label}</textPath></text>
     <g transform="translate(0 6) scale(0.82) translate(8 2)">${GLYPHS[glyph] || ''}</g></g></svg>`;
 }
 
