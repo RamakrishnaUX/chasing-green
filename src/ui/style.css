@@ -434,7 +434,7 @@ body.has-touch .car-card h3 { font-size: 1rem; }
 .settings-grid .select-wrap { max-width: 360px; }
 .settings-month { margin-top: 18px; }
 @media (max-height: 520px) and (min-width: 600px) {
-  .settings-grid { grid-template-columns: auto 1fr auto 1fr; }
+  .settings-grid { grid-template-columns: auto minmax(0, 1fr) auto minmax(140px, 0.8fr); } /* room for the month name */
   .settings-month { display: none; }
   .quick-actions { margin-bottom: 14px; }
   .tile { min-height: 60px; }

@@ -126,4 +126,9 @@ export const CONFIG = {
   exposure: 0.95, // overall brightness after filmic tone mapping
 
   landmarkRadius: 34, // how close you must be to collect a landmark stamp
+
+  // ---------- Music ----------
+  // The car stereo: the tracks take turns, quiet enough that the engine stays clear.
+  // outside: share of the volume heard on foot, muffled through the car doors.
+  music: { tracks: ['/music/road-to-sunset.mp3', '/music/atmospheric.mp3'], volume: 0.3, outside: 0.35 },
 };

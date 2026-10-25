@@ -1,4 +1,6 @@
-// All sound is made on the fly with the Web Audio API. No audio files.
+// Sound is made on the fly with the Web Audio API. The one exception is the music on the car
+// stereo, streamed from files in public/music.
+import { CONFIG } from '../config.js';
 
 function noiseBuffer(ctx, seconds = 2, brown = false) {
   const len = Math.floor(ctx.sampleRate * seconds);
@@ -19,6 +21,8 @@ export class AudioEngine {
     this.ready = false;
     this.nextCrack = 0;
     this.nextClick = 0;
+    this.musicOn = true;
+    this.music = null;
   }
 
   start() {
@@ -88,6 +92,34 @@ export class AudioEngine {
     this.engine = { base: 38, perSpeed: 2.2, rumble: 1 };
 
     this.ready = true;
+    if (this.musicOn) this.playMusic();
+  }
+
+  // ---------- Music: the car stereo ----------
+  // Streamed, not decoded up front. It plays through a cabin EQ (a little fuller in the bass,
+  // softer in the treble, like car speakers) into the same mix as the engine, so both are heard.
+  setMusic(on) {
+    this.musicOn = on;
+    if (!this.ready) return;
+    if (on) this.playMusic(); else this.music?.el.pause();
+  }
+  playMusic() {
+    const ctx = this.ctx, M = CONFIG.music;
+    if (!this.music) {
+      const el = new Audio();
+      el.preload = 'auto';
+      const src = ctx.createMediaElementSource(el);
+      const bass = ctx.createBiquadFilter(); bass.type = 'lowshelf'; bass.frequency.value = 140; bass.gain.value = 3;
+      const treble = ctx.createBiquadFilter(); treble.type = 'highshelf'; treble.frequency.value = 5000; treble.gain.value = -5;
+      const doors = ctx.createBiquadFilter(); doors.type = 'lowpass'; doors.frequency.value = 12000; doors.Q.value = 0.5;
+      const gain = ctx.createGain(); gain.gain.value = 0;
+      src.connect(bass).connect(treble).connect(doors).connect(gain).connect(this.master);
+      // Start on either track, then take turns.
+      this.music = { el, doors, gain, i: Math.floor(Math.random() * M.tracks.length) };
+      el.addEventListener('ended', () => { this.music.i = (this.music.i + 1) % M.tracks.length; this.music.el.src = M.tracks[this.music.i]; this.music.el.play().catch(() => {}); });
+      el.src = M.tracks[this.music.i];
+    }
+    this.music.el.play().catch(() => {});
   }
 
   // Each vehicle sounds different: pitch, waveform and how rough it is.
@@ -159,6 +191,12 @@ export class AudioEngine {
     this.nitroGain.gain.setTargetAtTime(nitro ? 0.12 : 0, t, nitro ? 0.08 : 0.3);
     this.nitroBand.frequency.setTargetAtTime(nitro ? 2600 : 1200, t, 0.5);
     this.shimmerGain.gain.setTargetAtTime(0.0035 * aurora, t, 1.5);
+    if (this.music) {
+      // In the car: the stereo at its set level. On foot: quieter and muffled by the doors.
+      const M = CONFIG.music;
+      this.music.gain.gain.setTargetAtTime(this.musicOn ? M.volume * (inCar ? 1 : M.outside) : 0, t, 1.2);
+      this.music.doors.frequency.setTargetAtTime(inCar ? 12000 : 900, t, 0.4);
+    }
 
     // Ice cracks near the lagoon: a sharp snap and a deeper groan now and then.
     if (iceProx > 0.05 && t > this.nextCrack) {

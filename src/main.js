@@ -85,6 +85,7 @@ const sheet = new Sheet();
 haptics.enabled = settings.haptics !== 'off';
 const audio = new AudioEngine();
 audio.muted = !!settings.muted;
+audio.musicOn = settings.music !== 'off';
 
 let world = null, sky, aurora, landmarks, jeep, walker, scatter, grass, props, post = null;
 let obstacles, puddles, spray, dust, powder, powderCloud, mapUI, towns, snow;
@@ -570,6 +571,7 @@ function openSettings() {
   $('set-nitro').value = settings.nitro || 'on';
   $('set-haptics').value = settings.haptics || 'on';
   $('set-places').value = placeCards();
+  $('set-music').value = settings.music || 'on';
   settingsDialog.showModal();
   settingsDialog.dispatchEvent(new Event('sync'));
 }
@@ -577,6 +579,11 @@ $('btn-settings').addEventListener('click', openSettings);
 sheet.register('settings', openSettings);
 sheet.register('notebook', () => notebook.open());
 pcDialog.addEventListener('click', (e) => { if (e.target === pcDialog) pcDialog.close(); });
+$('set-music').addEventListener('change', (e) => {
+  settings.music = e.target.value; store.save();
+  audio.setMusic(settings.music !== 'off');
+  track('setting_change', { setting: 'music', setting_value: e.target.value });
+});
 $('set-places').addEventListener('change', (e) => {
   settings.placeCards = e.target.value; store.save();
   if (card.current) card.wanted = placeCards() === 'all' || (placeCards() === 'new' && !store.data.stamps[card.current.id]);
@@ -1129,7 +1136,7 @@ window.chasingGreen = {
     camera.lookAt(r.x + Math.sin(hd) * 50, camera.position.y + pitch * 50, r.z + Math.cos(hd) * 50);
     return [r.x, r.z];
   },
-  get jeep() { return jeep; }, get walker() { return walker; }, get sitting() { return sitting; }, get canyon() { return CANYONS[0]; }, get landmarks() { return landmarks; }, get aurora() { return aurora; }, get mode() { return mode; },
+  get jeep() { return jeep; }, get walker() { return walker; }, get audio() { return audio; }, get sitting() { return sitting; }, get canyon() { return CANYONS[0]; }, get landmarks() { return landmarks; }, get aurora() { return aurora; }, get mode() { return mode; },
   setMode: (m) => { mode = m; },
   // Render one still with a forced aurora, from a given camera, at any size. Used to make the
   // share image and, frame by frame with a rising t, the share video. Returns a PNG data URL,

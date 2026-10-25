@@ -258,6 +258,10 @@ Towns have about a quarter of the buildings they once had, and each house is mor
 
 All of this is stored in the browser's localStorage, with no account and no server: sightings, a small JPEG thumbnail for each (up to 40 kept), landmark stamps, completed daily challenges and settings. Clear notebook in Settings wipes everything except the settings.
 
+## Music
+
+Two tracks play in turn on the car stereo, streamed from `public/music`: "Road to Sunset" by Serge Pavkin and "Atmospheric" by alex1990z, both from Pixabay under the Pixabay Content License. They run through a cabin EQ (a little more bass, softer treble) into the same mix as the engine. At the set level (`CONFIG.music.volume`) the music sits clearly over the idling engine, about level with it at 60 km/h and a little under it at 100 km/h, so speed is still felt. On foot it drops to a third and is muffled, as if heard through the car doors. Settings, Music turns it off; Sound mutes everything.
+
 ## Analytics
 
 Play is measured with Google Analytics 4 (property "Chasing Green", ID set in `CONFIG.analytics.id`). `src/analytics.js` sends nothing on localhost; add `?ga_debug` to a URL to log events in the console and see them live under Admin, DebugView.
