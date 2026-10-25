@@ -250,6 +250,17 @@ Towns have about a quarter of the buildings they once had, and each house is mor
 
 All of this is stored in the browser's localStorage, with no account and no server: sightings, a small JPEG thumbnail for each (up to 40 kept), landmark stamps, completed daily challenges and settings. Clear notebook in Settings wipes everything except the settings.
 
+## Analytics
+
+Play is measured with Google Analytics 4 (property "Chasing Green", ID set in `CONFIG.analytics.id`). `src/analytics.js` sends nothing on localhost; add `?ga_debug` to a URL to log events in the console and see them live under Admin, DebugView.
+
+- `game_start`: month, vehicle, graphics, input (touch or keyboard), trip number.
+- `play_milestone` and `distance_milestone`: at 1 to 120 minutes of actual play and 1 to 500 km driven.
+- `session_summary`: sent when the tab is hidden or closed, with the play seconds, km driven, nitro boosts, aurora sightings and new stamps since the last summary, so they add up across visits. Top speed rides along.
+- Actions: `landmark_stamp`, `aurora_sighting`, `sky_photo`, `challenge_complete`, `postcard_share`, `postcard_save`, `postcard_link_copy`, `fact_share`, `vehicle_change`, `fast_travel`, `menu_open`, `look_up`, `step_out`, `sit_down`, `setting_change`, `graphics_auto_lowered`.
+
+Event parameters such as landmark, vehicle, place and aurora type are registered as custom dimensions, and play time, distance driven, nitro boosts, aurora sightings and new stamps as custom metrics. Visitors with an ad blocker are not counted.
+
 ## Known limitations
 
 - Graphics are generated in code with no model or texture files, so they are stylised realism, not photo-real. Matching a modern console game would need gigabytes of hand-made assets and a different engine.
