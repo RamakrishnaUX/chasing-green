@@ -131,4 +131,5 @@ export const CONFIG = {
   // The car stereo: the tracks take turns, quiet enough that the engine stays clear.
   // outside: share of the volume heard on foot, muffled through the car doors.
   music: { tracks: ['/music/road-to-sunset.mp3', '/music/atmospheric.mp3'], volume: 0.3, outside: 0.35 },
+  engineVolume: 0.7, // car engine loudness, 1 = the original mix
 };

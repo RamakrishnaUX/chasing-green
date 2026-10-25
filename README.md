@@ -260,7 +260,7 @@ All of this is stored in the browser's localStorage, with no account and no serv
 
 ## Music
 
-Two tracks play in turn on the car stereo, streamed from `public/music`: "Road to Sunset" by Serge Pavkin and "Atmospheric" by alex1990z, both from Pixabay under the Pixabay Content License. They run through a cabin EQ (a little more bass, softer treble) into the same mix as the engine. At the set level (`CONFIG.music.volume`) the music sits clearly over the idling engine, about level with it at 60 km/h and a little under it at 100 km/h, so speed is still felt. On foot it drops to a third and is muffled, as if heard through the car doors. Settings, Music turns it off; Sound mutes everything.
+Two tracks play in turn on the car stereo, streamed from `public/music`: "Road to Sunset" by Serge Pavkin and "Atmospheric" by alex1990z, both from Pixabay under the Pixabay Content License. They run through a cabin EQ (a little more bass, softer treble) into the same mix as the engine. At the set levels (`CONFIG.music.volume`, and `CONFIG.engineVolume` at 70% of the original engine) the music sits well over the idling engine, a little over it at 60 km/h and about level at 100 km/h. On foot it drops to a third and is muffled, as if heard through the car doors. Settings, Music turns it off; Sound mutes everything.
 
 ## Analytics
 

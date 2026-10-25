@@ -179,7 +179,7 @@ export class AudioEngine {
     this.windHissGain.gain.setTargetAtTime(0.02 * windLevel * windLevel, t, ease);
     this.waterGain.gain.setTargetAtTime(0.45 * waterProx, t, 0.3);
     const E = this.engine;
-    const eng = inCar ? 0.05 + Math.min(1, speed / 40) * 0.07 + (nitro ? 0.03 : 0) : 0;
+    const eng = inCar ? (0.05 + Math.min(1, speed / 40) * 0.07 + (nitro ? 0.03 : 0)) * (CONFIG.engineVolume ?? 1) : 0;
     this.engGain.gain.setTargetAtTime(eng, t, 0.2);
     // A few "gears": revs climb, drop back, climb again.
     const rev = speed < 1 ? 0 : ((speed * 0.9) % 14) / 14 + Math.min(3, Math.floor(speed * 0.9 / 14)) * 0.15;
