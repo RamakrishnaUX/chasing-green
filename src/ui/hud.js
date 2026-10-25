@@ -22,6 +22,13 @@ export class Hud {
       const collapsed = this.el.radio.classList.toggle('is-collapsed');
       this.el.radioToggle.setAttribute('aria-expanded', String(!collapsed));
     });
+    // The minimap sits a fixed gap below the speed panel, however tall that panel is (it grows
+    // with the nitro bar), so the two never touch. CSS reads --tl-bottom.
+    const tl = this.el.hud.querySelector('.hud-tl');
+    new ResizeObserver(() => {
+      const b = tl.getBoundingClientRect().bottom;
+      if (b > 0) this.el.hud.style.setProperty('--tl-bottom', `${Math.round(b)}px`);
+    }).observe(tl);
   }
 
   show() { this.el.hud.hidden = false; }
