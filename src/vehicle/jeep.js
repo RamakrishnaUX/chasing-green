@@ -238,11 +238,13 @@ export class Jeep {
     this.compress = (this.compress || 0) * Math.max(0, 1 - (dt || 0) * 5);
     this.body.position.y = -this.compress;
     if (this.landing > 0) this.landing -= dt || 0;
-    const R = this.model.R;
+    // A model may be built at one size and scaled up (model.scale): its wheel pivots live in the
+    // model's own units, so suspension travel is divided by the scale and spin uses the real radius.
+    const R = this.model.R, MS = this.model.scale || 1;
     this.wheels.forEach((w, i) => {
       const plane = y + (w.z / wbLen) * (front - back) + (w.x / trackW) * (right - left);
-      w.pivot.position.y = R + clamp(g[i] - plane, -0.12, 0.12);
-      w.spin.rotation.x += (this.vF * (dt || 0)) / R;
+      w.pivot.position.y = R + clamp(g[i] - plane, -0.12, 0.12) / MS;
+      w.spin.rotation.x += (this.vF * (dt || 0)) / (R * MS);
       if (w.front) w.pivot.rotation.y = this.steerVis;
     });
     this.nitroFx.update(dt, this.boosting, Math.abs(this.vF));

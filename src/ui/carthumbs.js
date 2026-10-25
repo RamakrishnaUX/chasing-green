@@ -27,11 +27,12 @@ export function carThumbs(kinds, w = 960, h = 540) {
     scene.add(m.group);
     const box = new THREE.Box3().setFromObject(m.group);
     const c = box.getCenter(new THREE.Vector3()), s = box.getSize(new THREE.Vector3());
-    const d = Math.max(s.x, s.y, s.z) * (kind === 'camper' ? 0.9 : 0.8);
+    const d = Math.max(s.x, s.y, s.z) * (kind === 'camper' ? 1 : 0.8);
     if (kind === 'camper') {
-      // The camper's character is the graffiti, so it is framed from the side, back half.
-      camera.position.set(c.x + d * 1.05, c.y + d * 0.04, c.z - d * 0.42);
-      camera.lookAt(c.x, c.y - s.y * 0.08, c.z - s.z * 0.16);
+      // The camper is shown whole, from the front quarter: its face, the two-tone body and
+      // the full graffiti piece down the side.
+      camera.position.set(c.x + d * 0.95, c.y + d * 0.08, c.z + d * 0.62);
+      camera.lookAt(c.x, c.y - s.y * 0.06, c.z + s.z * 0.05);
     } else {
       camera.position.set(c.x + d * 0.78, c.y + d * 0.06, c.z + d * 0.86);
       camera.lookAt(c.x + s.x * 0.08, c.y - s.y * 0.05, c.z + s.z * 0.2);

@@ -117,6 +117,8 @@ const BUILD_SHARE = 0.82, MIN_LOAD_MS = 3200;
 const nextPaint = () => (document.hidden ? Promise.resolve() : new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0))));
 const stageTimes = {};
 async function buildWorld(progress) {
+  // The camper's graffiti is painted from two web fonts; give them a moment to arrive.
+  await Promise.race([Promise.all(['400 100px "Bungee"', '400 60px "Sedgwick Ave Display"'].map((f) => document.fonts?.load(f))), new Promise((r) => setTimeout(r, 2500))]).catch(() => {});
   const t0 = performance.now();
   let tStage = t0, current = null, currentMs = 0;
   // Expected times come from a desktop build; phones start at 2.5x, then the first stage tells
