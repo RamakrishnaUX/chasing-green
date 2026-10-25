@@ -86,6 +86,9 @@ export class Post {
     // The aurora glows more at night; daytime bloom stays subtle.
     this.bloom.strength = 0.12 + aurora * 0.55 * dark;
     this.bloom.threshold = dark > 0.5 ? 0.55 : 0.97;
+    // By day the bloom is barely visible but costs a stack of full-screen passes: skip it
+    // until dusk, when the lights and the aurora need the glow.
+    this.bloom.enabled = dark > 0.2 || aurora > 0.05;
     this.composer.render();
   }
 }

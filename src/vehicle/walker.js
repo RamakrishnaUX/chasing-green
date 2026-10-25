@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
 import { groundAt as heightAt, waterLevelAt } from '../world/terrain.js';
+import { solidStep } from '../world/solids.js';
 import { lerp } from '../world/noise.js';
 
 // An articulated person: hips, torso, head with a hood, upper and lower arms, thighs and
@@ -85,8 +86,10 @@ export class Walker {
     const nx = this.pos.x + fx * speed * dt, nz = this.pos.z + fz * speed * dt;
     const tooFar = Math.hypot(nx - anchor.x, nz - anchor.z) > V.walkRadius;
     const tooDeep = heightAt(nx, nz) < waterLevelAt(nx, nz) - 0.6;
+    // A rock face too steep to step up is a wall; gentle slopes are walked up.
+    const tooSteep = solidStep(nx, nz, this.pos.y, 0.45 + Math.abs(speed) * dt * 1.2);
     this.blocked = tooFar ? 'far' : tooDeep ? 'deep' : '';
-    if (!tooFar && !tooDeep) { this.pos.x = nx; this.pos.z = nz; }
+    if (!tooFar && !tooDeep && !tooSteep) { this.pos.x = nx; this.pos.z = nz; }
     this.pos.y = lerp(this.pos.y || heightAt(this.pos.x, this.pos.z), heightAt(this.pos.x, this.pos.z), Math.min(1, dt * 12));
     this.speedSmooth = lerp(this.speedSmooth, Math.abs(speed), Math.min(1, dt * 8));
     this.animate(dt, Math.sign(speed) || 1);

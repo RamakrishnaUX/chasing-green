@@ -52,6 +52,7 @@ export function buildHallgrimskirkja(kit) {
   // Pale concrete, warmly uplit at night: the glow is strongest at the base and fades upward.
   const concrete = std(0xb9b0a3, 0.9, 0, { emissive: 0xffc27a, emissiveIntensity: 0 });
   kit.nightLit(concrete, 0.55);
+  concrete.userData.localShading = true; // shades by each part's own height: never merged
   concrete.onBeforeCompile = (sh) => {
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying float vObjY;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvObjY = position.y;');
     sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vObjY;')
@@ -379,20 +380,23 @@ const smoothstep01 = (x) => x * x * (3 - 2 * x);
 
 export function buildHverir(kit) {
   const g = new THREE.Group();
-  // Mineral-stained ground: orange, ochre, sulphur yellow and grey.
-  const geo = new THREE.CircleGeometry(32, 48, 0, Math.PI * 2);
+  // Mineral-stained ground: orange, ochre, sulphur yellow and grey. A fine ring mesh so it
+  // follows every dip in the land, tucked under the road where it reaches one.
+  const geo = new THREE.RingGeometry(0.01, 32, 48, 24);
   geo.rotateX(-Math.PI / 2);
   const p = geo.attributes.position, col = new Float32Array(p.count * 3), c = new THREE.Color();
   for (let i = 0; i < p.count; i++) {
     const x = p.getX(i), z = p.getZ(i);
-    p.setY(i, kit.ground(x, z) + 0.12);
+    p.setY(i, kit.ground(x, z) + (kit.roadDist(x, z) < 6.5 ? -0.4 : 0.12));
     const n = Math.sin(x * 0.31) * Math.sin(z * 0.27) * 0.5 + 0.5, m = Math.sin(x * 0.9 + z * 0.6) * 0.5 + 0.5;
     c.setRGB(0.72, 0.42, 0.2).lerp(new THREE.Color(0.8, 0.66, 0.32), n).lerp(new THREE.Color(0.55, 0.52, 0.5), m * 0.35);
     col.set([c.r, c.g, c.b], i * 3);
   }
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
   geo.computeVertexNormals();
-  g.add(M(geo, std(0xffffff, 0.95, 0, { vertexColors: true, polygonOffset: true, polygonOffsetFactor: -2 })));
+  const ground = M(geo, std(0xffffff, 0.95, 0, { vertexColors: true, polygonOffset: true, polygonOffsetFactor: -2 }));
+  ground.userData.notGround = true; // paint on the land, not a shape to climb
+  g.add(ground);
   // Steaming fumarole cairns.
   const stone = std(0x8b7c62, 0.9);
   for (const [x, z, h] of [[-10, -8, 3.5], [6, -14, 2.6], [14, 2, 3], [-4, 6, 2.2]]) {
@@ -412,6 +416,7 @@ export function buildHverir(kit) {
     for (let k = 0; k < 3; k++) {
       const b = M(new THREE.SphereGeometry(0.3, 10, 8), mud, x + (kit.rand() - 0.5) * 2, y, z + (kit.rand() - 0.5) * 2);
       b.userData.phase = kit.rand() * 6;
+      b.userData.dynamic = true;
       bubbles.push(b);
       g.add(b);
     }
@@ -464,6 +469,7 @@ export function buildStrokkur(kit) {
   const domeMat = new THREE.MeshPhysicalMaterial({ color: 0x5cc6e8, roughness: 0.05, transparent: true, opacity: 0.75, clearcoat: 1, emissive: 0x0d4f6b, emissiveIntensity: 0.6 });
   const dome = M(new THREE.SphereGeometry(1.75, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2), domeMat, 0, 0.3, 0);
   dome.scale.y = 0.01;
+  dome.userData.dynamic = true;
   g.add(dome);
   const plumeMat = new THREE.ShaderMaterial({
     vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
@@ -474,6 +480,7 @@ export function buildStrokkur(kit) {
   plume.geometry.translate(0, 0.5, 0);
   plume.position.y = 0.3;
   plume.scale.y = 0.01;
+  plume.userData.dynamic = true;
   g.add(plume);
   const steam = kit.makeMist(60, 3, 8);
   steam.material = steam.material.clone(); steam.material.opacity = 0.22; steam.material.size = 4;
@@ -790,8 +797,11 @@ export function buildEldhraun(kit) {
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), v = new THREE.Vector3(), c = new THREE.Color();
   for (let i = 0; i < count; i++) {
     const a = kit.rand() * Math.PI * 2, r = Math.sqrt(kit.rand()) * 34;
-    const x = Math.cos(a) * r, z = Math.sin(a) * r - 18;
+    let x = Math.cos(a) * r, z = Math.sin(a) * r - 18;
     const s = 0.9 + kit.rand() * 2.2;
+    // Keep the hummocks, edge and all, off the road and its shoulder: pull any that reach it
+    // back toward the middle of the field.
+    for (let k = 0; k < 8 && kit.roadDist(x, z) < 7 + s * 1.4; k++) { x *= 0.8; z = (z + 18) * 0.8 - 18; }
     v.set(x, kit.ground(x, z) + s * 0.15, z);
     q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), kit.rand() * 6);
     sc.set(s * (1 + kit.rand() * 0.4), s * 0.7, s);

@@ -118,7 +118,7 @@ export const CONFIG = {
   // ---------- Rendering ----------
   quality: {
     low: { pixelRatio: 1.0, auroraSteps: 8, terrainRes: 560, shadowSize: 0, grass: 9000, grassRadius: 26, rocks: 200, post: false, far: 2000 },
-    medium: { pixelRatio: 1.25, auroraSteps: 12, terrainRes: 800, shadowSize: 2048, grass: 30000, grassRadius: 44, rocks: 570, post: true, far: 3000 },
+    medium: { pixelRatio: 1.25, auroraSteps: 12, terrainRes: 800, shadowSize: 2048, grass: 30000, grassRadius: 44, rocks: 570, post: true, msaa: 2, far: 3000 },
     high: { pixelRatio: 2.0, auroraSteps: 20, terrainRes: 1080, shadowSize: 4096, grass: 64000, grassRadius: 62, rocks: 1050, post: true, far: 4200, ao: true },
   },
   defaultQuality: 'medium',

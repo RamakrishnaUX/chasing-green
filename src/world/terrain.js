@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { createNoise2D, fbm, clamp, lerp, smoothstep } from './noise.js';
 import { COAST, ROADS, FORDS, LAKES, GLACIERS, LAVA, SANDS, PITS, CANYONS, PASSES, FLATS, JUMPS, BRIDGES, KERID, keridU, keridProfile, WS } from './geo.js';
+import { solidTopAt } from './solids.js';
 import { createTerrainMaterial, createRoadMaterial, createWaterMaterial, createRiverMaterial, riverGeometry, surfaceUniforms } from './materials.js';
 
 export const BOUNDS = { minX: -900 * WS, maxX: 930 * WS, minZ: -690 * WS, maxZ: 580 * WS };
@@ -263,7 +264,8 @@ function nearBridge(x, z, pad = 0) {
   return false;
 }
 // What a wheel or a foot actually stands on: the bridge deck where there is one, else the land.
-export function groundAt(x, z) { const d = deckAt(x, z); return d != null ? Math.max(d, heightAt(x, z)) : heightAt(x, z); }
+// What wheels and boots stand on: the land, a bridge deck, or a landmark landform on top.
+export function groundAt(x, z) { const d = deckAt(x, z); return Math.max(d ?? -Infinity, heightAt(x, z), solidTopAt(x, z)); }
 
 let keridBusy = false;
 function rawHeight(x, z, cd, noLakes = false, noBridge = false) {

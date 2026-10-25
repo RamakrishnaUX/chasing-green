@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { roadPaths, heightAt, coastAt, waterLevelAt, lavaMask, glacierMask, sandMask, roadHalfWidth, roadDistAt } from './terrain.js';
 import { mulberry32 } from './noise.js';
+import { bakeStatic } from './bake.js';
 
 // Farms, fences and birch groves: the lived-in detail along Icelandic country roads.
 
@@ -146,6 +147,7 @@ export class Props {
       g.traverse((m) => { if (m.isMesh && m.parent !== g) { /* children follow ground approximately */ } });
       scene.add(g);
       obstacles?.addFromObject(g, 'wall');
+      bakeStatic(g);
       // Fence along the road frontage of the farm.
       const fdir = Math.atan2(s.b.x - s.a.x, s.b.z - s.a.z);
       const fx = Math.sin(fdir), fz = Math.cos(fdir);

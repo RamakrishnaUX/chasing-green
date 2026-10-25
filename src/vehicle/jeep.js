@@ -5,6 +5,8 @@ import { clamp, lerp } from '../world/noise.js';
 import { buildVehicleModel } from './models.js';
 import { VEHICLES, SURFACE_DRAG } from './specs.js';
 import { NitroFX } from './nitrofx.js';
+import { bakeStatic } from '../world/bake.js';
+import { solidStep, solidTopAt } from '../world/solids.js';
 
 // The player's car. Kept under the old name so the rest of the game needs no changes;
 // setType() swaps between the Jeep, the vintage roadster and the race car.
@@ -57,6 +59,9 @@ export class Jeep {
     this.kind = kind;
     this.spec = VEHICLES[kind];
     this.model = buildVehicleModel(kind);
+    // Wheels turn and steer; the rest of the body is merged into a few meshes.
+    for (const w of this.model.wheels) w.pivot.userData.dynamic = true;
+    bakeStatic(this.model.group);
     this.body = this.model.group;
     this.wheels = this.model.wheels;
     this.lightMat = this.model.lightMat;
@@ -165,6 +170,15 @@ export class Jeep {
       this.vF *= -0.2; this.vL = 0;
       warn = this.kind === 'jeep' ? 'Too deep, even for the Jeep. Back up.' : `Too deep for the ${S.name.toLowerCase()}. The Jeep can wade much deeper.`;
     }
+    // Landmark rock and ice: drive up a slope like any hill, but a face steeper than about 50
+    // degrees is a wall. Checked under the car and at the bumper in the direction of travel.
+    const moved = Math.hypot(this.pos.x - prevX, this.pos.z - prevZ);
+    const reach = (S.halfLength || 2.4) * (Math.sign(this.vF) || 1);
+    if (solidStep(this.pos.x, this.pos.z, this.pos.y, 0.6 + moved * 1.2) ||
+        solidStep(this.pos.x + fx * reach, this.pos.z + fz * reach, this.pos.y, 0.6 + (Math.abs(reach) + moved) * 1.2)) {
+      this.pos.x = prevX; this.pos.z = prevZ;
+      this.vF *= -0.15; this.vL = 0;
+    }
     const road = nearestRoad(this.pos.x, this.pos.z, V.offRoadLimit + 30);
     if (!road || road.dist > V.offRoadLimit) {
       if (road) {
@@ -213,13 +227,17 @@ export class Jeep {
     const front = (g[0] + g[1]) / 2, back = (g[2] + g[3]) / 2;
     const left = (g[1] + g[3]) / 2, right = (g[0] + g[2]) / 2;
     const wbLen = this.wheels[0].z - this.wheels[2].z, trackW = Math.abs(this.wheels[0].x - this.wheels[1].x);
-    let y = (front + back) / 2;
+    // A rock or hummock smaller than the wheelbase can sit between the wheels: the body rides
+    // over it rather than letting it poke through the floor.
+    let y = Math.max((front + back) / 2, solidTopAt(this.pos.x, this.pos.z) - 0.2);
     const sus = this.spec.susp || { k: 7, roll: 1 };
     const k = dt ? Math.min(1, dt * sus.k) : 1;
     // In water the body rides above the surface with only the wheels under: a ford, not a sink.
     const wl = waterLevelAt(this.pos.x, this.pos.z);
     if (wl - this.draft() > y) y = wl - this.draft();
-    if (!this.air) this.pos.y = this.landing > 0 ? y : lerp(this.pos.y, y, k);
+    // The suspension smooths bumps, but on a steep rise the body keeps up, so it never sinks
+    // into a slope it is climbing.
+    if (!this.air) this.pos.y = this.landing > 0 ? y : lerp(this.pos.y, y, y > this.pos.y + 0.25 && dt ? Math.min(1, dt * 30) : k);
     this.pitch = this.air ? lerp(this.pitch, this.airPitch ?? 0, dt ? Math.min(1, dt * 3) : 1) : lerp(this.pitch, Math.atan2(back - front, wbLen) - this.braking * 0.02 * sus.roll, dt ? Math.min(1, dt * sus.k * 0.85) : 1);
     const lean = -this.steerVis * clamp(this.vF / 30, 0, 1) * 0.07 * sus.roll;
     this.roll = lerp(this.roll, Math.atan2(right - left, trackW) + (this.windSide || 0) * 0.01 + lean, dt ? Math.min(1, dt * sus.k * 0.85) : 1);
@@ -258,7 +276,7 @@ export class Jeep {
     const fx = Math.sin(this.heading), fz = Math.cos(this.heading), rx = fz, rz = -fx;
     let s = 0;
     for (const w of this.wheels) s += heightAt(this.pos.x + rx * w.x + fx * w.z, this.pos.z + rz * w.x + fz * w.z);
-    const g = s / this.wheels.length, wl = waterLevelAt(this.pos.x, this.pos.z);
+    const g = Math.max(s / this.wheels.length, solidTopAt(this.pos.x, this.pos.z) - 0.2), wl = waterLevelAt(this.pos.x, this.pos.z);
     return Math.max(g, wl - this.draft());
   }
   vertical(dt, sp) {

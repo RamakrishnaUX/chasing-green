@@ -7,6 +7,11 @@ import * as More from './landmarks_more.js';
 import { EXTRA } from './landmarks_extra.js';
 import { waterLevelAt } from './terrain.js';
 import { rockMaterial } from './materials.js';
+import { bakeStatic } from './bake.js';
+import { addSolids } from './solids.js';
+
+// Built places keep their walls; everything else is a landform you can climb onto, not into.
+const NOT_GROUND = ['town', 'building', 'sculpture', 'bridge', 'wreck', 'pool', 'cave'];
 
 const DESC = {
   seljalandsfoss: 'A tall waterfall you can walk all the way behind.',
@@ -485,6 +490,7 @@ function makeWaterfall({ width, height, walkBehind = false, color, cliffWidth })
     back.position.set(0, (height + 6) / 2 - 3, -depth / 2 - 3);
     const lip = rockBox(width + 8, 4, 6, 0.3);
     lip.position.set(0, height + 1, -3);
+    lip.userData.notGround = true; // the path runs under it
     [l, r, back].forEach((m) => (m.userData.collide = true));
     g.add(l, r, back, lip);
   } else {
@@ -742,6 +748,8 @@ export class Landmarks {
     this.scene.add(root);
     lm.root = root;
     this.collectColliders(root);
+    if (!NOT_GROUND.includes(lm.kind)) addSolids(root);
+    bakeStatic(root);
   }
 
   collectColliders(obj) {
@@ -889,7 +897,9 @@ export class Landmarks {
       const x = 21 + (i % 3) * 7.5 + rand() * 2, z = -1 + Math.floor(i / 3) * 6.5 + rand() * 2;
       const [wx, wz] = worldOf(x, z);
       if (waterLevelAt(wx, wz) > heightAt(wx, wz)) continue; // not in the lake
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(2.2 + rand() * 1.6, 1.1, 10, 20), craterMat);
+      const rr = 2.2 + rand() * 1.6;
+      if (roadDistAt(wx, wz) < rr + 1.1 + 6) continue; // and not on the road
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(rr, 1.1, 10, 20), craterMat);
       ring.rotation.x = -Math.PI / 2;
       ring.scale.z = 0.6;
       ring.position.set(x, heightAt(wx, wz) - baseY - 0.25, z);

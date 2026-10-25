@@ -4,7 +4,7 @@ import { CONFIG } from './config.js';
 import { store } from './storage.js';
 import { createNoise2D, clamp, smoothstep, lerp } from './world/noise.js';
 import { START, PLACES, CANYONS, JUMPS, KERID } from './world/geo.js';
-import { buildTerrain, paintTerrain, flattenPads, bridges, roadPaths, nearestRoad, heightAt, coastAt, nearestRoadAnywhere, exposureAt, waterLevelAt, postReflectorMat, lakeMat, snowAt } from './world/terrain.js';
+import { buildTerrain, paintTerrain, flattenPads, bridges, roadPaths, nearestRoad, heightAt, coastAt, nearestRoadAnywhere, exposureAt, waterLevelAt, postReflectorMat, lakeMat, snowAt, groundAt } from './world/terrain.js';
 import { Scatter } from './world/scatter.js';
 import { Grass } from './world/grass.js';
 import { Post } from './world/post.js';
@@ -107,6 +107,29 @@ const startGameHours = clock.gameHours;
 const startNight = clock.nightIndex;
 let fpsAcc = 0, fpsFrames = 0, autoDowngraded = false;
 
+// Dynamic resolution: a share of the quality preset's pixel ratio. It drops a step while frames
+// run long and climbs back once there is room, but not within 20 s of a drop, so it settles
+// instead of flickering between sizes.
+const RES_MIN = 0.6;
+let resScale = 1, lastResDrop = -Infinity;
+function applyPixelRatio() {
+  // Never below 0.55 of a CSS pixel, so even the weakest phone stays sharp enough to read.
+  renderer.setPixelRatio(Math.max(Math.min(devicePixelRatio, 0.55), Math.min(devicePixelRatio, Q.pixelRatio) * resScale));
+  renderer.setSize(innerWidth, innerHeight, false);
+  post?.setSize();
+}
+function adaptResolution(fps) {
+  const now = performance.now();
+  if (fps < (isTouch ? 26 : 48) && resScale > RES_MIN) {
+    resScale = Math.max(RES_MIN, Math.round((resScale - 0.15) * 100) / 100);
+    lastResDrop = now;
+    applyPixelRatio();
+  } else if (fps > (isTouch ? 29 : 57) && resScale < 1 && now - lastResDrop > 20000) {
+    resScale = Math.min(1, Math.round((resScale + 0.1) * 100) / 100);
+    applyPixelRatio();
+  }
+}
+
 // ---------- Build world ----------
 // Built in stages so the Start button can fill as it goes. Before each stage the bar is sent
 // toward that stage's end over its usual duration; the fill animates on the compositor, so it
@@ -162,7 +185,7 @@ async function buildWorld(progress) {
   // No grass field on streets, churchyards and city squares.
   const clear = landmarks.list.filter((l) => ['town', 'building', 'sculpture'].includes(l.kind)).map((l) => ({ x: l.x, z: l.z, r: l.id === 'seydisfjordur' ? 58 : l.id === 'laugavegur' ? 30 : l.id === 'hallgrimskirkja' ? 34 : 22 }));
   if (Q.grass > 0) grass = new Grass(scene, { count: Q.grass, radius: Q.grassRadius, clear });
-  if (Q.post) post = new Post(renderer, scene, camera, { ao: !!Q.ao });
+  if (Q.post) post = new Post(renderer, scene, camera, { ao: !!Q.ao, samples: Q.msaa ?? 4 });
   await stage('Building towns', 0.91, 80);
   props = new Props(scene, { farms: qualityName === 'low' ? 14 : 26, landmarks: landmarks.list, keepClear: [START], obstacles });
   towns = new Towns(scene, { landmarks: landmarks.list, obstacles, scale: qualityName === 'low' ? 0.6 : 1 });
@@ -260,7 +283,7 @@ function updateCamera(dt) {
     const h = camHeading + look.orbit;
     const cd = jeep.model.camDist + (jeep.boosting ? 1.2 : 0), ch = jeep.model.camHeight;
     const desired = new THREE.Vector3(jeep.pos.x - Math.sin(h) * cd, jeep.pos.y + ch, jeep.pos.z - Math.cos(h) * cd);
-    desired.y = Math.max(desired.y, heightAt(desired.x, desired.z) + 1.5);
+    desired.y = Math.max(desired.y, groundAt(desired.x, desired.z) + 1.5);
     camera.position.lerp(desired, Math.min(1, dt * 4));
     if (jeep.speed < 0.3 && camera.position.distanceTo(desired) < 0.08) camera.position.copy(desired);
     camTarget.set(jeep.pos.x + Math.sin(h) * 14, jeep.pos.y + ch * 0.7, jeep.pos.z + Math.cos(h) * 14);
@@ -295,7 +318,7 @@ function updateCamera(dt) {
       if (!l.dx) look.walkYaw *= 1 - Math.min(1, dt * 0.6);
       const h = walker.heading + look.walkYaw;
       const desired = new THREE.Vector3(walker.pos.x - Math.sin(h) * 6, walker.pos.y + 2.8, walker.pos.z - Math.cos(h) * 6);
-      desired.y = Math.max(desired.y, heightAt(desired.x, desired.z) + 1);
+      desired.y = Math.max(desired.y, groundAt(desired.x, desired.z) + 1);
       camera.position.lerp(desired, Math.min(1, dt * 5));
       camTarget.set(walker.pos.x, walker.pos.y + 1.6, walker.pos.z);
       camera.lookAt(camTarget);
@@ -554,12 +577,12 @@ $('set-haptics').addEventListener('change', (e) => {
 $('set-quality').addEventListener('change', (e) => { setQuality(e.target.value, true); track('setting_change', { setting: 'graphics', setting_value: e.target.value }); });
 function setQuality(name, save) {
   qualityName = name; Q = qualityFor(name);
-  renderer.setPixelRatio(Math.min(devicePixelRatio, Q.pixelRatio));
+  renderer.setPixelRatio(Math.min(devicePixelRatio, Q.pixelRatio) * resScale);
   renderer.setSize(innerWidth, innerHeight, false);
   aurora?.setSteps(Q.auroraSteps);
   camera.far = Q.far || 3000; camera.updateProjectionMatrix();
   if (world) {
-    if (Q.post && !post) post = new Post(renderer, scene, camera, { ao: !!Q.ao });
+    if (Q.post && !post) post = new Post(renderer, scene, camera, { ao: !!Q.ao, samples: Q.msaa ?? 4 });
     else if (!Q.post) post = null;
     post?.setSize();
   }
@@ -991,12 +1014,14 @@ function frame(now) {
   tickPlay(dt, { playing: !paused, driving: mode !== 'walk', metresPerSecond: jeep.vF, kmh: jeep.kmh, boosting: jeep.boosting });
   input.endFrame();
 
-  // If the device is struggling, step quality down once.
+  // If the device is struggling, first draw fewer pixels; only when that is not enough, step
+  // quality down once.
   fpsAcc += dt; fpsFrames++;
   if (fpsAcc > 4) {
     const fps = fpsFrames / fpsAcc;
     window.__fps = fps;
-    if (started && fps < (isTouch ? 24 : 40) && !autoDowngraded && !settings.quality && qualityName !== 'low') {
+    if (started && !paused) adaptResolution(fps);
+    if (started && fps < (isTouch ? 24 : 40) && resScale <= RES_MIN && !autoDowngraded && !settings.quality && qualityName !== 'low') {
       autoDowngraded = true;
       setQuality(qualityName === 'high' ? 'medium' : 'low', false);
       track('graphics_auto_lowered', { to: qualityName, fps: Math.round(fps) });

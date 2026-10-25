@@ -238,6 +238,14 @@ Cars ford shallow water with their wheels under and the body above the surface, 
 
 Nothing should float. Before any built landmark (buildings, churches, pools, waterfalls, geysers, caves, bridges) is placed, the land under it is levelled into a pad that fades out at the edge and stays clear of roads. Houses sit on their highest corner with a foundation down to the lowest. A parked car holds still: below walking pace with no throttle, wind and slopes no longer creep it along.
 
+Nothing can be driven into, either. Landmark landforms (Kirkjufell, sea stacks, cliffs, lava pillars and hummocks, crater rims, ice) are traced into a height map when the world is built (`src/world/solids.js`), and the ground under wheels and boots is the land or the landform on top, whichever is higher. Slopes up to about 50 degrees are driven or walked up like any hill; anything steeper is a wall. A sample under the middle of the car keeps small lumps between the wheels from poking through the floor. Buildings, caves, pools, bridges and the plane wreck keep their walls instead, and no landform sits on a road.
+
+## Performance
+
+- Landmarks, farms and the car are built from many small parts. Once their collisions are read, static parts that share a material are merged into one mesh (`src/world/bake.js`), which took the scene from about 5,500 meshes to about 1,600 and cut draw calls roughly in half. Moving parts (wheels, mud bubbles, the geyser) and see-through or locally shaded materials are left as they are.
+- Dynamic resolution: when frames run long the game draws fewer pixels (down to 60% of the preset, never below 0.55 of a CSS pixel) and steps back up when there is room. Only if that is not enough does it drop the quality preset.
+- Bloom only runs from dusk on, when lights and the aurora need it, and Medium uses 2x instead of 4x multisampling.
+
 ## Weather and snow
 
 The snow line follows the month: down to about 16 m in January, rising through spring, and only the ice caps stay white in summer. Snow covers every slope above the line, thinner on steep rock, so it follows each mountain's shape. Snow showers fall from October to March in cold spots: high ground, the far north, and anywhere under thick cloud, in slow drifting bands. The haze thickens and whitens while it snows. Flakes drift with the wind.

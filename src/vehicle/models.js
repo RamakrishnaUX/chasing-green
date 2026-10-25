@@ -460,6 +460,7 @@ function graffitiPiece(W, H, arches) {
 // crisp edge (y is the model's own height, so the line stays put as the van moves).
 function twoTonePaint(lower, upper, beltY) {
   const m = new THREE.MeshPhysicalMaterial({ color: lower, metalness: 0.05, roughness: 0.38, clearcoat: 0.7, clearcoatRoughness: 0.2 });
+  m.userData.localShading = true; // reads each part's own height: never merged
   m.onBeforeCompile = (sh) => {
     sh.uniforms.uUpper = { value: new THREE.Color(upper) };
     sh.uniforms.uBelt = { value: beltY };
