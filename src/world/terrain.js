@@ -467,7 +467,41 @@ export function surfaceAt(x, z) {
   if (h < waterLevelAt(x, z) + 0.12) return 'ford';
   const cd = coastAt(x, z);
   if (cd < 14 * WS && h < 4) return 'sand';
+  if (snowAt(x, z) > 0.28) return 'snow';
   return 'moss';
+}
+
+// The terrain shader's noise, ported so the CPU can tell where it painted snow.
+const fract = (v) => v - Math.floor(v);
+function gH(x, y) {
+  let a = fract(x * 0.1031), b = fract(y * 0.1031), c = fract(x * 0.1031);
+  const d = a * (b + 33.33) + b * (c + 33.33) + c * (a + 33.33);
+  a += d; b += d; c += d;
+  return fract((a + b) * c);
+}
+function gN(x, y) {
+  const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy;
+  const ux = fx * fx * (3 - 2 * fx), uy = fy * fy * (3 - 2 * fy);
+  const top = lerp(gH(ix, iy), gH(ix + 1, iy), ux), bot = lerp(gH(ix, iy + 1), gH(ix + 1, iy + 1), ux);
+  return lerp(top, bot, uy);
+}
+function gF(x, y) {
+  let s = 0, a = 0.5;
+  for (let i = 0; i < 4; i++) { s += a * gN(x, y); x = x * 2.07 + 13.7; y = y * 2.07 + 13.7; a *= 0.5; }
+  return s;
+}
+// How snowy the ground is (0..1), following the terrain shader: deep snow above the season's
+// (wavy) snow line, scattered patches below it in the cold months, and glaciers.
+export function snowAt(x, z) {
+  const nL = gF(x * 0.006, z * 0.006), nM = gF(x * 0.035, z * 0.035);
+  const line = surfaceUniforms.uSnowLine.value + (nL - 0.5) * 16 + (nM - 0.5) * 6;
+  const h = heightAt(x, z);
+  const gx = (heightAt(x + 1, z) - heightAt(x - 1, z)) / 2, gz = (heightAt(x, z + 1) - heightAt(x, z - 1)) / 2;
+  const slope = 1 - 1 / Math.sqrt(1 + gx * gx + gz * gz);
+  const above = smoothstep(line - 7, line + 9, h);
+  const flat = above * lerp(1, 0.55, smoothstep(0.32, 0.75, slope));
+  const dust = (1 - surfaceUniforms.uSummer.value) * smoothstep(line - 18, line, h) * smoothstep(0.55, 0.85, nM) * 0.6;
+  return Math.max(flat, dust * 0.7, glacierMask(x, z));
 }
 
 // How exposed a spot is to wind: highlands and open coast catch the most.
@@ -861,16 +895,22 @@ function buildBridges(scene) {
     const g = new THREE.Group();
     g.position.set(B.x, 0, B.z);
     g.rotation.y = Math.atan2(B.dx, B.dz);
-    const add = (geo, mat, x, y, z) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = m.receiveShadow = true; g.add(m); return m; };
-    // Deck slab and edge beams.
-    add(new THREE.BoxGeometry(hw * 2, 0.9, B.len + 2), concrete, 0, deckY - 0.35, 0);
-    for (const sx of [-1, 1]) add(new THREE.BoxGeometry(0.5, 0.6, B.len + 2), concrete, sx * hw, deckY + 0.05, 0);
+    const add = (geo, mat, x, y, z, parent = g) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = m.receiveShadow = true; parent.add(m); return m; };
+    // The deck tilts with the road, which climbs from one bank's height to the other's, so the
+    // asphalt ribbon (lane lines and all) lies just on top of it from end to end. Heights in
+    // here are relative to the deck surface at the middle of the bridge.
+    const deck = new THREE.Group();
+    deck.position.y = deckY;
+    deck.rotation.x = -Math.atan2(B.h1 - B.h0, B.len);
+    g.add(deck);
+    add(new THREE.BoxGeometry(hw * 2, 0.9, B.len + 2), concrete, 0, -0.5, 0, deck);
+    for (const sx of [-1, 1]) add(new THREE.BoxGeometry(0.5, 0.6, B.len + 2), concrete, sx * hw, 0.05, 0, deck);
     // Parapets: a closed concrete wall each side with a steel rail on top, so the edge reads as
     // solid and nothing can slip through. They run just past the ends of the deck.
     for (const sx of [-1, 1]) {
-      add(new THREE.BoxGeometry(0.5, 1.05, B.len + 4), concrete, sx * (hw - 0.05), deckY + 0.5, 0);
-      for (let zz = -B.len / 2 - 1.5; zz <= B.len / 2 + 1.5; zz += 3) add(new THREE.BoxGeometry(0.1, 0.4, 0.1), steel, sx * (hw - 0.05), deckY + 1.2, zz);
-      add(new THREE.BoxGeometry(0.16, 0.1, B.len + 3.6), steel, sx * (hw - 0.05), deckY + 1.42, 0);
+      add(new THREE.BoxGeometry(0.5, 1.05, B.len + 4), concrete, sx * (hw - 0.05), 0.5, 0, deck);
+      for (let zz = -B.len / 2 - 1.5; zz <= B.len / 2 + 1.5; zz += 3) add(new THREE.BoxGeometry(0.1, 0.4, 0.1), steel, sx * (hw - 0.05), 1.2, zz, deck);
+      add(new THREE.BoxGeometry(0.16, 0.1, B.len + 3.6), steel, sx * (hw - 0.05), 1.42, 0, deck);
     }
     // Piers down to the river bed, and abutments at both ends.
     for (const zz of [-B.len / 4, 0, B.len / 4]) {

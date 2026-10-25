@@ -380,7 +380,7 @@ dialog.sheet::backdrop { background: rgba(4, 8, 12, 0.42); -webkit-backdrop-filt
 .car-stats i b { display: block; height: 100%; background: linear-gradient(90deg, var(--green-2), var(--green)); border-radius: 3px; }
 body.has-touch .car-blurb, body.has-touch .car-stats { display: none; }
 body.has-touch .car-tag { display: block; font-size: 0.8rem; }
-body.has-touch .garage { grid-template-columns: repeat(3, 1fr); gap: 10px; }
+body.has-touch .garage { grid-template-columns: repeat(4, 1fr); gap: 10px; }
 body.has-touch .car-card { text-align: center; padding: 10px; }
 body.has-touch .car-card h3 { font-size: 1rem; }
 @media (orientation: portrait) and (max-width: 600px) {
@@ -724,4 +724,11 @@ body.is-looking #hud .touch-left:active, body.is-looking #hud #t-brake:active, b
 body:not(.has-touch) .toast { max-width: min(30rem, calc(100vw - 460px)); min-width: min(260px, calc(100vw - 40px)); }
 @media (max-width: 760px) {
   body:not(.has-touch) .toast, body:not(.has-touch) .toast.is-on { top: calc(280px + var(--safe-t)); left: calc(14px + var(--safe-l)); transform: none; max-width: calc(100vw - 28px); min-width: 0; text-align: left; }
+}
+
+/* Tablets: the landmark card sits at the bottom, just right of the steering arrows, and only as
+   wide as the gap before Look, Brake and Go. */
+@media (min-width: 601px) and (min-height: 521px) {
+  body.has-touch .infocard { left: calc(172px + var(--safe-l)); right: auto; bottom: calc(14px + var(--safe-b)); transform: none;
+    width: min(360px, calc(100vw - 172px - 300px - var(--safe-l) - var(--safe-r))); min-width: 240px; }
 }

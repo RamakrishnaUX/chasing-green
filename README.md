@@ -51,6 +51,7 @@ There is no race and no timer. Nitro is a speed boost that is on by default; you
 | Trail 4x4 | Four-door off-roader in lime green: seven-slot grille, round LED lamps, roll bar, tube doors, snorkel, winch with red strap, beadlock wheels on mud-terrain tyres | Balanced, best on gravel, mud and fords | 1.9 m |
 | Vintage roadster | 1930s two-seater in maroon and cream: long fenders, finned chrome radiator, spotlamps, side exhausts, wire wheels with whitewalls, cream leather, wood wheel | Slow and soft, with lots of body roll | 0.6 m |
 | Supercar | Low orange hypercar: carbon splitter and intake, side intakes, wide haunches, wraparound light strips, black multi-spoke wheels, tinted cabin | Fast and stiff, poor off-road | 0.3 m |
+| Camper van | Split-window camper in teal and cream: pop-top roof, roof rack with a surfboard, round lamps, white steel wheels, and hand-sprayed aurora graffiti with "CHASING GREEN" bubble letters down both sides | Slow and steady, fine on gravel | 1.0 m |
 
 Handling lives in `src/vehicle/specs.js` (including suspension stiffness), and the models are built in code in `src/vehicle/models.js`. There are no brand logos; the 4x4 wears a plain "Trail" badge.
 

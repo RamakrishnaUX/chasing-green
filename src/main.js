@@ -4,7 +4,7 @@ import { CONFIG } from './config.js';
 import { store } from './storage.js';
 import { createNoise2D, clamp, smoothstep, lerp } from './world/noise.js';
 import { START, PLACES, CANYONS, JUMPS, KERID } from './world/geo.js';
-import { buildTerrain, paintTerrain, flattenPads, bridges, roadPaths, nearestRoad, heightAt, coastAt, nearestRoadAnywhere, exposureAt, waterLevelAt, postReflectorMat, lakeMat } from './world/terrain.js';
+import { buildTerrain, paintTerrain, flattenPads, bridges, roadPaths, nearestRoad, heightAt, coastAt, nearestRoadAnywhere, exposureAt, waterLevelAt, postReflectorMat, lakeMat, snowAt } from './world/terrain.js';
 import { Scatter } from './world/scatter.js';
 import { Grass } from './world/grass.js';
 import { Post } from './world/post.js';
@@ -86,7 +86,7 @@ const audio = new AudioEngine();
 audio.muted = !!settings.muted;
 
 let world = null, sky, aurora, landmarks, jeep, walker, scatter, grass, props, post = null;
-let obstacles, puddles, spray, dust, mapUI, towns, snow;
+let obstacles, puddles, spray, dust, powder, powderCloud, mapUI, towns, snow;
 const snowNoise = createNoise2D(4040);
 let wasInPuddle = false, wasInWater = false, shake = 0, sitting = false, sitSpeedBefore = 1, camHeading = null;
 let started = false;
@@ -167,6 +167,8 @@ async function buildWorld(progress) {
   puddles = new Puddles(scene, qualityName === 'low' ? 100 : 180);
   spray = new Particles(scene, { count: qualityName === 'low' ? 260 : 600, color: 0xe6f0f4, size: 0.5, opacity: 0.75, gravity: 9.5, drag: 1.2 });
   dust = new Particles(scene, { count: qualityName === 'low' ? 120 : 300, color: 0xb39a74, size: 1.3, opacity: 0.28, gravity: -0.4, drag: 1.4 });
+  powder = new Particles(scene, { count: qualityName === 'low' ? 500 : 1100, color: 0xf6f9ff, size: 0.85, opacity: 0.95, gravity: 7, drag: 1.1 });
+  powderCloud = new Particles(scene, { count: qualityName === 'low' ? 120 : 260, color: 0xdfe8f2, size: 2.6, opacity: 0.42, gravity: 0.6, drag: 2.2 });
   scatter.setSeason(clock.season);
   await stage('Parking your car', 0.93, 60);
   jeep = new Jeep(scene, settings.vehicle || 'jeep');
@@ -774,6 +776,17 @@ function vehicleEffects(dt) {
     }
   }
   jeep.wadeLevel = inWater ? Math.min(1, jeep.depth * 0.7 + sp / 25) : inPuddle ? Math.min(0.6, sp / 30) : 0;
+  // Snow: every wheel throws powder up and out to the side, and it falls back as the car passes,
+  // more of it the faster you go.
+  if (jeep.surface === 'snow' && sp > 1.5 && !jeep.air) {
+    const n = Math.ceil(Math.min(1, sp / 16) * 8);
+    wheelsWorld.forEach(([x, z, side], k) => {
+      const out = Math.sign(side) * (1.6 + sp * 0.08);
+      powder.emit(x, heightAt(x, z) + 0.25, z, rx * out - fx * sp * 0.25, 2.6 + sp * 0.12, rz * out - fz * sp * 0.25, n, 1.8, 1.0);
+      // A soft cloud hangs behind the rear wheels.
+      if (k >= 2 && Math.random() < Math.min(1, sp / 12)) powderCloud.emit(x, heightAt(x, z) + 0.6, z, rx * Math.sign(side) * 0.8 - fx * sp * 0.15, 1.2, rz * Math.sign(side) * 0.8 - fz * sp * 0.15, 1, 1.2, 1.6);
+    });
+  }
   // Dust off-road.
   if (!inWater && sp > 8 && (jeep.surface === 'gravel' || jeep.surface === 'sand' || jeep.surface === 'moss')) {
     const rear = wheelsWorld.slice(2);
@@ -812,7 +825,7 @@ function drivingHaptics(dt) {
   if (hapticClock > 0) return;
   if (jeep.boosting) { haptics.play('light'); hapticClock = 0.22; }
   else if (jeep.braking && kmh > 25) { haptics.play('light'); hapticClock = 0.16; }
-  else if (kmh > 20 && !jeep.air && (jeep.surface === 'gravel' || jeep.surface === 'sand' || jeep.surface === 'moss')) { haptics.play('select'); hapticClock = Math.max(0.3, 0.7 - kmh / 300); }
+  else if (kmh > 20 && !jeep.air && (jeep.surface === 'gravel' || jeep.surface === 'sand' || jeep.surface === 'moss' || jeep.surface === 'snow')) { haptics.play('select'); hapticClock = Math.max(0.3, 0.7 - kmh / 300); }
 }
 
 // Jump to any spot: the nearest road there, facing the place if it is a landmark.
@@ -860,6 +873,8 @@ function frame(now) {
   }
   spray.update(dt);
   dust.update(dt);
+  powder.update(dt);
+  powderCloud.update(dt);
 
   const p = activePos();
   const g = started ? guaranteeLevel() : 0;
@@ -1038,6 +1053,7 @@ window.chasingGreen = {
   nearestRoad: (x, z, r) => nearestRoad(x, z, r),
   roadPaths: () => roadPaths,
   heightAt: (x, z) => heightAt(x, z),
+  snowAt: (x, z) => snowAt(x, z),
   waterLevelAt: (x, z) => waterLevelAt(x, z),
   get kerid() { return KERID; },
   get bridges() { return bridges; },
