@@ -50,11 +50,11 @@ export function tickPlay(dt, { playing, driving, metresPerSecond, kmh, boosting 
     wasBoosting = boosting;
   }
   while (nextMinute < PLAY_MINUTES.length && run.play >= PLAY_MINUTES[nextMinute] * 60) {
-    track('play_milestone', { minutes: PLAY_MINUTES[nextMinute], distance_km: km(run.metres) });
+    track('play_milestone', { milestone_minutes: PLAY_MINUTES[nextMinute], total_km: km(run.metres) });
     nextMinute++;
   }
   while (nextKm < DRIVE_KM.length && run.metres >= DRIVE_KM[nextKm] * 1000) {
-    track('distance_milestone', { km: DRIVE_KM[nextKm], play_minutes: Math.round(run.play / 6) / 10 });
+    track('distance_milestone', { milestone_km: DRIVE_KM[nextKm], total_play_minutes: Math.round(run.play / 6) / 10 });
     nextKm++;
   }
 }

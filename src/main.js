@@ -551,7 +551,7 @@ $('set-haptics').addEventListener('change', (e) => {
   haptics.enabled = settings.haptics !== 'off';
   haptics.play('medium');
 });
-$('set-quality').addEventListener('change', (e) => { setQuality(e.target.value, true); track('setting_change', { setting: 'graphics', value: e.target.value }); });
+$('set-quality').addEventListener('change', (e) => { setQuality(e.target.value, true); track('setting_change', { setting: 'graphics', setting_value: e.target.value }); });
 function setQuality(name, save) {
   qualityName = name; Q = qualityFor(name);
   renderer.setPixelRatio(Math.min(devicePixelRatio, Q.pixelRatio));
@@ -584,7 +584,7 @@ function monthCardHTML() {
 function renderMonthCards() { document.querySelectorAll('.month-card').forEach((el) => (el.innerHTML = monthCardHTML())); }
 function setMonth(m, announce = false) {
   clock.month = m; settings.month = m; store.save();
-  if (announce) track('setting_change', { setting: 'month', value: clock.m.name });
+  if (announce) track('setting_change', { setting: 'month', setting_value: clock.m.name });
   forecast.monthFactor = clock.m.aurora;
   forecast.nights.clear();
   document.querySelectorAll('.month-select').forEach((sel) => (sel.value = String(m)));

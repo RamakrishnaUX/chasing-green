@@ -3,7 +3,7 @@
 export const CONFIG = {
   // ---------- Analytics ----------
   // Google Analytics 4 measurement ID (G-XXXXXXXXXX). Empty sends nothing. See src/analytics.js.
-  analytics: { id: '' },
+  analytics: { id: 'G-GZTW8WMR34' },
 
   // ---------- Time ----------
   time: {
