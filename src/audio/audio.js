@@ -20,9 +20,9 @@ export class AudioEngine {
     this.muted = false;
     this.ready = false;
     this.nextCrack = 0;
-    this.nextClick = 0;
-    this.musicOn = true;
     this.music = null;
+    // Volume of each group, 0 to 1, set from the Sound tab. master scales everything.
+    this.levels = { master: 1, music: 1, car: 1, ambience: 1 };
   }
 
   start() {
@@ -31,11 +31,15 @@ export class AudioEngine {
     if (!AC) return;
     const ctx = (this.ctx = new AC());
     this.master = ctx.createGain();
-    this.master.gain.value = this.muted ? 0 : 0.8;
+    this.master.gain.value = this.muted ? 0 : 0.8 * this.levels.master;
     const comp = ctx.createDynamicsCompressor();
     this.master.connect(comp).connect(ctx.destination);
     this.recordDest = ctx.createMediaStreamDestination();
     comp.connect(this.recordDest);
+    // The three groups the player sets separately: the stereo, the car, and the land around.
+    this.bus = {};
+    for (const k of ['music', 'car', 'ambience']) { this.bus[k] = ctx.createGain(); this.bus[k].gain.value = this.levels[k]; this.bus[k].connect(this.master); }
+    const { car, ambience } = this.bus;
 
     this.white = noiseBuffer(ctx, 2);
     this.brown = noiseBuffer(ctx, 3, true);
@@ -45,17 +49,17 @@ export class AudioEngine {
     this.windBand = ctx.createBiquadFilter();
     this.windBand.type = 'bandpass'; this.windBand.frequency.value = 500; this.windBand.Q.value = 0.7;
     this.windGain = ctx.createGain(); this.windGain.gain.value = 0;
-    loop(this.brown).connect(this.windBand).connect(this.windGain).connect(this.master);
+    loop(this.brown).connect(this.windBand).connect(this.windGain).connect(ambience);
     this.windHiss = ctx.createBiquadFilter();
     this.windHiss.type = 'highpass'; this.windHiss.frequency.value = 2500;
     this.windHissGain = ctx.createGain(); this.windHissGain.gain.value = 0;
-    loop(this.white).connect(this.windHiss).connect(this.windHissGain).connect(this.master);
+    loop(this.white).connect(this.windHiss).connect(this.windHissGain).connect(ambience);
 
     // Water: white noise shaped into a rumble plus a hiss.
     const wl = ctx.createBiquadFilter(); wl.type = 'lowpass'; wl.frequency.value = 900;
     const wh = ctx.createBiquadFilter(); wh.type = 'highpass'; wh.frequency.value = 120;
     this.waterGain = ctx.createGain(); this.waterGain.gain.value = 0;
-    loop(this.white).connect(wh).connect(wl).connect(this.waterGain).connect(this.master);
+    loop(this.white).connect(wh).connect(wl).connect(this.waterGain).connect(ambience);
 
     // Engine: two detuned saws through a low-pass.
     this.engLP = ctx.createBiquadFilter(); this.engLP.type = 'lowpass'; this.engLP.frequency.value = 300;
@@ -63,46 +67,41 @@ export class AudioEngine {
     this.eng1 = ctx.createOscillator(); this.eng1.type = 'sawtooth'; this.eng1.frequency.value = 42;
     this.eng2 = ctx.createOscillator(); this.eng2.type = 'sawtooth'; this.eng2.frequency.value = 42.7;
     this.eng1.connect(this.engLP); this.eng2.connect(this.engLP);
-    this.engLP.connect(this.engGain).connect(this.master);
+    this.engLP.connect(this.engGain).connect(car);
     this.eng1.start(); this.eng2.start();
 
-    // Aurora shimmer: a very quiet high pad under the crackle.
-    this.shimmerGain = ctx.createGain(); this.shimmerGain.gain.value = 0;
-    const trem = ctx.createGain(); trem.gain.value = 0.5;
-    const lfo = ctx.createOscillator(); lfo.frequency.value = 0.15;
-    const lfoAmt = ctx.createGain(); lfoAmt.gain.value = 0.5;
-    lfo.connect(lfoAmt).connect(trem.gain); lfo.start();
-    [1046.5, 1568, 2093].forEach((f, i) => {
-      const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = f + i * 0.7;
-      o.connect(trem); o.start();
-    });
-    trem.connect(this.shimmerGain).connect(this.master);
+    // The aurora makes no sound here: none felt right, so the sky stays silent.
 
     // Wading: churning water around the wheels, gurgling as it moves.
     this.wadeBand = ctx.createBiquadFilter(); this.wadeBand.type = 'bandpass'; this.wadeBand.frequency.value = 520; this.wadeBand.Q.value = 0.9;
     this.wadeGain = ctx.createGain(); this.wadeGain.gain.value = 0;
-    loop(this.white).connect(this.wadeBand).connect(this.wadeGain).connect(this.master);
+    loop(this.white).connect(this.wadeBand).connect(this.wadeGain).connect(car);
     const gurgle = ctx.createOscillator(); gurgle.frequency.value = 7;
     const gAmt = ctx.createGain(); gAmt.gain.value = 260;
     gurgle.connect(gAmt).connect(this.wadeBand.frequency); gurgle.start();
     // Nitro: a rising whoosh.
     this.nitroBand = ctx.createBiquadFilter(); this.nitroBand.type = 'bandpass'; this.nitroBand.frequency.value = 1400; this.nitroBand.Q.value = 0.7;
     this.nitroGain = ctx.createGain(); this.nitroGain.gain.value = 0;
-    loop(this.white).connect(this.nitroBand).connect(this.nitroGain).connect(this.master);
+    loop(this.white).connect(this.nitroBand).connect(this.nitroGain).connect(car);
     this.engine = { base: 38, perSpeed: 2.2, rumble: 1 };
 
     this.ready = true;
-    if (this.musicOn) this.playMusic();
+    if (this.levels.music > 0) this.playMusic();
+  }
+
+  // Volumes from the Sound tab, each 0 to 1. Music at zero also stops streaming the track.
+  setLevels(levels) {
+    Object.assign(this.levels, levels);
+    if (!this.ready) return;
+    const t = this.ctx.currentTime;
+    for (const k of ['music', 'car', 'ambience']) this.bus[k].gain.setTargetAtTime(this.levels[k], t, 0.08);
+    if (!this.muted) this.master.gain.setTargetAtTime(0.8 * this.levels.master, t, 0.08);
+    if (this.levels.music > 0) this.playMusic(); else this.music?.el.pause();
   }
 
   // ---------- Music: the car stereo ----------
   // Streamed, not decoded up front. It plays through a cabin EQ (a little fuller in the bass,
   // softer in the treble, like car speakers) into the same mix as the engine, so both are heard.
-  setMusic(on) {
-    this.musicOn = on;
-    if (!this.ready) return;
-    if (on) this.playMusic(); else this.music?.el.pause();
-  }
   playMusic() {
     const ctx = this.ctx, M = CONFIG.music;
     if (!this.music) {
@@ -113,7 +112,7 @@ export class AudioEngine {
       const treble = ctx.createBiquadFilter(); treble.type = 'highshelf'; treble.frequency.value = 5000; treble.gain.value = -5;
       const doors = ctx.createBiquadFilter(); doors.type = 'lowpass'; doors.frequency.value = 12000; doors.Q.value = 0.5;
       const gain = ctx.createGain(); gain.gain.value = 0;
-      src.connect(bass).connect(treble).connect(doors).connect(gain).connect(this.master);
+      src.connect(bass).connect(treble).connect(doors).connect(gain).connect(this.bus.music);
       // Start on either track, then take turns.
       this.music = { el, doors, gain, i: Math.floor(Math.random() * M.tracks.length) };
       el.addEventListener('ended', () => { this.music.i = (this.music.i + 1) % M.tracks.length; this.music.el.src = M.tracks[this.music.i]; this.music.el.play().catch(() => {}); });
@@ -133,8 +132,8 @@ export class AudioEngine {
   splash(strength) {
     if (!this.ready) return;
     const s = Math.min(1, strength);
-    this.burst(700 + Math.random() * 500, 0.8, 0.35 + s * 0.4, 0.35 * s + 0.08, 'lowpass');
-    this.burst(2200 + Math.random() * 1500, 1.2, 0.2 + s * 0.2, 0.12 * s + 0.03, 'bandpass');
+    this.burst(700 + Math.random() * 500, 0.8, 0.35 + s * 0.4, 0.35 * s + 0.08, 'lowpass', this.bus.car);
+    this.burst(2200 + Math.random() * 1500, 1.2, 0.2 + s * 0.2, 0.12 * s + 0.03, 'bandpass', this.bus.car);
   }
 
   // Thump of hitting a rock or wall. strength in speed units.
@@ -146,17 +145,17 @@ export class AudioEngine {
     o.frequency.setValueAtTime(95, t); o.frequency.exponentialRampToValueAtTime(38, t + 0.25);
     const g = ctx.createGain();
     g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.5 * s + 0.1, t + 0.005); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.4);
-    o.connect(g).connect(this.master); o.start(t); o.stop(t + 0.45);
-    this.burst(900, 0.7, 0.18 + s * 0.2, 0.3 * s + 0.05, 'lowpass');
+    o.connect(g).connect(this.bus.car); o.start(t); o.stop(t + 0.45);
+    this.burst(900, 0.7, 0.18 + s * 0.2, 0.3 * s + 0.05, 'lowpass', this.bus.car);
     if (s > 0.4) this.burst(3200, 2, 0.12, 0.15 * s, 'bandpass'); // scrape
   }
 
   setMuted(m) {
     this.muted = m;
-    if (this.master) this.master.gain.setTargetAtTime(m ? 0 : 0.8, this.ctx.currentTime, 0.1);
+    if (this.master) this.master.gain.setTargetAtTime(m ? 0 : 0.8 * this.levels.master, this.ctx.currentTime, 0.1);
   }
 
-  burst(freq, q, dur, gain, type = 'bandpass') {
+  burst(freq, q, dur, gain, type = 'bandpass', to = this.master) {
     const ctx = this.ctx, t = ctx.currentTime;
     const s = ctx.createBufferSource(); s.buffer = this.white;
     s.playbackRate.value = 0.8 + Math.random() * 0.4;
@@ -165,11 +164,11 @@ export class AudioEngine {
     g.gain.setValueAtTime(0, t);
     g.gain.linearRampToValueAtTime(gain, t + 0.002);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    s.connect(f).connect(g).connect(this.master);
+    s.connect(f).connect(g).connect(to);
     s.start(t, Math.random() * 1.5, dur + 0.05);
   }
 
-  update(dt, { speed, wind, exposure, waterProx, iceProx, aurora, inCar, wade = 0, nitro = false }) {
+  update(dt, { speed, wind, exposure, waterProx, iceProx, inCar, wade = 0, nitro = false }) {
     if (!this.ready) return;
     const t = this.ctx.currentTime;
     const ease = 0.25;
@@ -190,24 +189,18 @@ export class AudioEngine {
     this.wadeGain.gain.setTargetAtTime(0.32 * Math.min(1, wade), t, 0.15);
     this.nitroGain.gain.setTargetAtTime(nitro ? 0.12 : 0, t, nitro ? 0.08 : 0.3);
     this.nitroBand.frequency.setTargetAtTime(nitro ? 2600 : 1200, t, 0.5);
-    this.shimmerGain.gain.setTargetAtTime(0.0035 * aurora, t, 1.5);
     if (this.music) {
       // In the car: the stereo at its set level. On foot: quieter and muffled by the doors.
       const M = CONFIG.music;
-      this.music.gain.gain.setTargetAtTime(this.musicOn ? M.volume * (inCar ? 1 : M.outside) : 0, t, 1.2);
+      this.music.gain.gain.setTargetAtTime(M.volume * (inCar ? 1 : M.outside), t, 1.2);
       this.music.doors.frequency.setTargetAtTime(inCar ? 12000 : 900, t, 0.4);
     }
 
     // Ice cracks near the lagoon: a sharp snap and a deeper groan now and then.
     if (iceProx > 0.05 && t > this.nextCrack) {
-      this.burst(2400 + Math.random() * 2000, 4, 0.08, 0.25 * iceProx);
-      if (Math.random() < 0.4) this.burst(180 + Math.random() * 120, 2, 0.6, 0.35 * iceProx, 'lowpass');
+      this.burst(2400 + Math.random() * 2000, 4, 0.08, 0.25 * iceProx, 'bandpass', this.bus.ambience);
+      if (Math.random() < 0.4) this.burst(180 + Math.random() * 120, 2, 0.6, 0.35 * iceProx, 'lowpass', this.bus.ambience);
       this.nextCrack = t + 1.5 + Math.random() * 6 / (0.3 + iceProx);
-    }
-    // Aurora crackle: sparse, faint, electronic clicks.
-    if (aurora > 0.08 && t > this.nextClick) {
-      this.burst(5000 + Math.random() * 3000, 8, 0.012 + Math.random() * 0.02, 0.05 + 0.08 * aurora, 'highpass');
-      this.nextClick = t + (0.05 + Math.random() * 0.5) / (0.4 + aurora);
     }
   }
 }

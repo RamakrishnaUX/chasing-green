@@ -149,6 +149,7 @@
         <button role="tab" data-page="garage" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M5 15.5l1.6-5.2A2 2 0 0 1 8.5 9h7a2 2 0 0 1 1.9 1.3l1.6 5.2M3.5 15.5h17v2.5a1 1 0 0 1-1 1h-15a1 1 0 0 1-1-1z"/></svg><span>Cars</span></button>
         <button role="tab" data-page="notebook" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M6.5 3.5h10a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2h-10zM6.5 3.5v17M9.5 8h6M9.5 11.5h6"/></svg><span>Notebook</span></button>
         <button role="tab" data-page="learn" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M3 15c3-6 6-9 9-9s6 3 9 9M6 18c2-4 4-6 6-6s4 2 6 6"/></svg><span>Learn</span></button>
+        <button role="tab" data-page="sound" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9.5a3.5 3.5 0 0 1 0 5M18 7a7 7 0 0 1 0 10"/></svg><span>Sound</span></button>
         <button role="tab" data-page="settings" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M10.3 3h3.4l.5 2.4 1.6.9 2.3-.8 1.7 2.9-1.8 1.6v1.9l1.8 1.6-1.7 2.9-2.3-.8-1.6.9-.5 2.4h-3.4l-.5-2.4-1.6-.9-2.3.8-1.7-2.9L6 12.9V11L4.2 9.4l1.7-2.9 2.3.8 1.6-.9z"/><circle cx="12" cy="12" r="2.8"/></svg><span>Settings</span></button>
       </nav>
       <button class="icon-btn glass sheet-close" id="sheet-close" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M7 7l10 10M17 7L7 17"/></svg></button>
@@ -195,6 +196,20 @@
       <div class="tab-body" id="learn-body"></div>
     </section>
 
+    <!-- Sound -->
+    <section id="sound" class="sheet-page" data-page="sound" hidden aria-label="Sound">
+      <div class="sound-muted" id="sound-muted" hidden>
+        <span>Sound is muted.</span>
+        <button class="btn btn-small" id="sound-unmute">Turn sound on</button>
+      </div>
+      <div class="sound-list">
+        <div class="sound-row"><label for="vol-master"><b>All sound</b><span>Everything at once</span></label><input type="range" class="vol" id="vol-master" data-vol="master" min="0" max="100" step="5"><output for="vol-master"></output></div>
+        <div class="sound-row"><label for="vol-music"><b>Music</b><span>The car stereo</span></label><input type="range" class="vol" id="vol-music" data-vol="music" min="0" max="100" step="5"><output for="vol-music"></output></div>
+        <div class="sound-row"><label for="vol-car"><b>Car</b><span>Engine, nitro and splashes</span></label><input type="range" class="vol" id="vol-car" data-vol="car" min="0" max="100" step="5"><output for="vol-car"></output></div>
+        <div class="sound-row"><label for="vol-ambience"><b>Ambience</b><span>Wind, water and ice</span></label><input type="range" class="vol" id="vol-ambience" data-vol="ambience" min="0" max="100" step="5"><output for="vol-ambience"></output></div>
+      </div>
+    </section>
+
     <!-- Settings -->
     <section id="settings" class="sheet-page" data-page="settings" hidden aria-label="Settings">
       <div class="quick-actions" aria-label="Quick actions">
@@ -214,8 +229,6 @@
         <select id="set-nitro"><option value="on">On</option><option value="off">Off</option></select>
         <label for="set-haptics">Haptics</label>
         <select id="set-haptics"><option value="on">On</option><option value="off">Off</option></select>
-        <label for="set-music">Music</label>
-        <select id="set-music"><option value="on">On</option><option value="off">Off</option></select>
         <label for="set-places">Place cards</label>
         <select id="set-places"><option value="all">Every place</option><option value="new">New only</option><option value="off">Off</option></select>
         <label for="set-rocks" class="desk-only">Rocks</label>

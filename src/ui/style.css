@@ -765,3 +765,30 @@ body.has-touch .car-tag { font-size: 0.9rem; }
   .car-info, body.has-touch .car-info { grid-column: 1; padding: 2px 6px 4px; }
 }
 #sheet:focus { outline: none; }
+
+/* ---------- Sound tab: one slider per group ----------
+   Each row is a soft card: the name and what it covers, the slider, and the level. On narrow
+   screens the slider drops under the name. */
+.sound-list { display: grid; gap: 10px; }
+.sound-row { display: grid; grid-template-columns: minmax(120px, 0.9fr) minmax(0, 2fr) 3.4em; align-items: center; gap: 8px 16px; padding: 12px 16px;
+  border-radius: var(--r-lg); background: rgba(255, 255, 255, 0.05); border: 1px solid var(--hair-2); }
+.sound-row label { display: grid; gap: 2px; }
+.sound-row label b { color: var(--ink); font-size: 0.95rem; }
+.sound-row label span { color: var(--ink-3); font-size: 0.8rem; }
+.sound-row output { text-align: right; color: var(--ink-2); font-weight: 700; font-variant-numeric: tabular-nums; }
+.sound-muted { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; padding: 10px 14px; border-radius: var(--r-md);
+  background: rgba(255, 196, 92, 0.12); border: 1px solid rgba(255, 196, 92, 0.3); color: var(--ink); font-size: 0.9rem; }
+.sound-muted[hidden] { display: none; }
+input.vol { -webkit-appearance: none; appearance: none; width: 100%; height: 32px; margin: 0; background: transparent; cursor: pointer; --p: 100%; }
+input.vol:focus-visible { outline: 2px solid var(--green); outline-offset: 4px; border-radius: 8px; }
+input.vol::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; background: linear-gradient(90deg, var(--green) var(--p), rgba(255, 255, 255, 0.16) var(--p)); }
+input.vol::-webkit-slider-thumb { -webkit-appearance: none; width: 24px; height: 24px; margin-top: -9px; border-radius: 50%; border: 0; background: #f4f8f9;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4), inset 0 -1px 0 rgba(0, 0, 0, 0.12); transition: transform 0.15s var(--spring); }
+input.vol:active::-webkit-slider-thumb { transform: scale(1.12); }
+input.vol::-moz-range-track { height: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.16); }
+input.vol::-moz-range-progress { height: 6px; border-radius: 3px; background: var(--green); }
+input.vol::-moz-range-thumb { width: 24px; height: 24px; border-radius: 50%; border: 0; background: #f4f8f9; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4); }
+@media (max-width: 520px) {
+  .sound-row { grid-template-columns: minmax(0, 1fr) 3.4em; padding: 12px 14px; }
+  .sound-row label { grid-column: 1 / -1; }
+}

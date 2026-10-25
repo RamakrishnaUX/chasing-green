@@ -85,7 +85,9 @@ const sheet = new Sheet();
 haptics.enabled = settings.haptics !== 'off';
 const audio = new AudioEngine();
 audio.muted = !!settings.muted;
-audio.musicOn = settings.music !== 'off';
+// Volumes for the Sound tab. Anyone who had switched music off keeps it silent.
+const volumes = settings.volumes || (settings.volumes = { master: 1, music: settings.music === 'off' ? 0 : 1, car: 1, ambience: 1 });
+audio.setLevels(volumes);
 
 let world = null, sky, aurora, landmarks, jeep, walker, scatter, grass, props, post = null;
 let obstacles, puddles, spray, dust, powder, powderCloud, mapUI, towns, snow;
@@ -541,8 +543,20 @@ function setMuted(m) {
   settings.muted = m; store.save();
   $('btn-mute').setAttribute('aria-pressed', String(m));
   $('btn-mute').setAttribute('aria-label', m ? 'Unmute sound' : 'Mute sound');
+  $('sound-muted').hidden = !m;
 }
 setMuted(audio.muted);
+
+// ---------- Sound tab: a volume for each group ----------
+$('sound-unmute').addEventListener('click', () => { haptics.play('select'); setMuted(false); });
+for (const input of document.querySelectorAll('input.vol')) {
+  const k = input.dataset.vol, out = input.nextElementSibling;
+  const show = () => { out.textContent = `${input.value}%`; input.style.setProperty('--p', `${input.value}%`); };
+  input.value = Math.round(volumes[k] * 100);
+  show();
+  input.addEventListener('input', () => { volumes[k] = input.value / 100; show(); audio.setLevels({ [k]: volumes[k] }); });
+  input.addEventListener('change', () => { store.save(); haptics.play('select'); track('setting_change', { setting: `volume_${k}`, setting_value: input.value }); });
+}
 
 const recorder = new ClipRecorder(canvas, () => audio.recordDest?.stream);
 $('btn-record').addEventListener('click', toggleRecording);
@@ -571,7 +585,6 @@ function openSettings() {
   $('set-nitro').value = settings.nitro || 'on';
   $('set-haptics').value = settings.haptics || 'on';
   $('set-places').value = placeCards();
-  $('set-music').value = settings.music || 'on';
   settingsDialog.showModal();
   settingsDialog.dispatchEvent(new Event('sync'));
 }
@@ -579,11 +592,6 @@ $('btn-settings').addEventListener('click', openSettings);
 sheet.register('settings', openSettings);
 sheet.register('notebook', () => notebook.open());
 pcDialog.addEventListener('click', (e) => { if (e.target === pcDialog) pcDialog.close(); });
-$('set-music').addEventListener('change', (e) => {
-  settings.music = e.target.value; store.save();
-  audio.setMusic(settings.music !== 'off');
-  track('setting_change', { setting: 'music', setting_value: e.target.value });
-});
 $('set-places').addEventListener('change', (e) => {
   settings.placeCards = e.target.value; store.save();
   if (card.current) card.wanted = placeCards() === 'all' || (placeCards() === 'new' && !store.data.stamps[card.current.id]);
@@ -1006,7 +1014,7 @@ function frame(now) {
     }
     void near;
   }
-  audio.update(dt, { speed: mode === 'walk' ? 0 : jeep.speed, wind: w.strength, exposure: exposureAt(p.x, p.z), waterProx, iceProx, aurora: auroraVisSmoothed * (up ? 1 : 0.6), inCar: mode !== 'walk' && started, wade: mode === 'walk' ? 0 : jeep.wadeLevel || 0, nitro: jeep.boosting });
+  audio.update(dt, { speed: mode === 'walk' ? 0 : jeep.speed, wind: w.strength, exposure: exposureAt(p.x, p.z), waterProx, iceProx, inCar: mode !== 'walk' && started, wade: mode === 'walk' ? 0 : jeep.wadeLevel || 0, nitro: jeep.boosting });
 
   if (started) {
     if (jeep.warning && mode !== 'walk') hud.toast(jeep.warning, { seconds: 2.5, priority: 1 });
