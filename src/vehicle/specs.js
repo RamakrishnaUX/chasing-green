@@ -28,8 +28,8 @@ export const VEHICLES = {
   },
   camper: {
     name: 'Camper van',
-    tagline: 'Roomy, slow and covered in aurora graffiti.',
-    blurb: 'A classic split-window camper with a pop-top roof, a surfboard on the rack and hand-sprayed aurora graffiti down both sides. Take it slow and sleep anywhere.',
+    tagline: 'A black bay-window bus with wild graffiti.',
+    blurb: 'A classic bay-window camper in matte black, with a wild-style graffiti piece down both sides, daisy stickers on the roof line and a rack on top. Take it slow and sleep anywhere.',
     susp: { k: 4.5, roll: 1.8 },
     maxSpeed: 30, accel: 9, brake: 20, reverseMax: 8, steerRate: 1.5, grip: 7.5, handbrakeGrip: 1.5,
     offroad: { paved: 1, gravel: 0.86, moss: 0.7, sand: 0.6, snow: 0.55, ford: 0.55 },

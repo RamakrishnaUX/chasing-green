@@ -352,161 +352,218 @@ function buildVintage() {
 }
 
 // ---------- Camper van ----------
-// The mural down both sides: a night sky with aurora ribbons over snowy peaks, stars and spray
-// splatter, and "CHASING GREEN" in graffiti bubble letters with drips. One texture serves both
-// sides; each side faces outwards so the lettering reads correctly from either. Dark wheel
-// arches are painted in where the wheels sit (the wheelbase is symmetric, so they line up).
-function camperMural(W = 1600, H = 520, wheelU = [0.18, 0.82], wheelR = 0.14) {
+// A classic bay-window bus in matte black, with a wild-style graffiti piece down each side:
+// turquoise spray splashes and white sparkle stars behind big lime, yellow and green letters
+// with grey 3D edges and dark outlines, small tags, and pastel daisy stickers along the roof.
+// The lettering is drawn here for this game; the badge on the nose is a plain ring.
+
+// One side's graffiti. archU: where the rear wheel arch falls across the panel (0..1), so the
+// paint stops at the arch. Transparent outside the splashes, so the black body shows around it.
+function graffitiPanel(W, H, archU, archR, archY) {
   const c = document.createElement('canvas'); c.width = W; c.height = H;
   const g = c.getContext('2d');
-  let seed = 7;
+  let seed = 11;
   const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-  // Sky: deep violet to teal.
-  const sky = g.createLinearGradient(0, 0, 0, H);
-  sky.addColorStop(0, '#3b1f86'); sky.addColorStop(0.5, '#1f63a8'); sky.addColorStop(1, '#13a99a');
-  g.fillStyle = sky; g.fillRect(0, 0, W, H);
-  // Stars.
-  for (let i = 0; i < 140; i++) { g.fillStyle = `rgba(255,255,255,${0.4 + rnd() * 0.6})`; const s = rnd() * 3 + 1; g.fillRect(rnd() * W, rnd() * H * 0.6, s, s); }
-  // Aurora ribbons: soft wide strokes with a bright core.
-  const ribbon = (y0, amp, col, width) => {
-    g.save(); g.globalCompositeOperation = 'lighter'; g.lineCap = 'round';
-    for (const [w, a] of [[width * 2.6, 0.12], [width * 1.4, 0.25], [width * 0.5, 0.7]]) {
-      g.strokeStyle = col.replace('A', a); g.lineWidth = w; g.beginPath();
-      for (let x = -40; x <= W + 40; x += 20) { const y = y0 + Math.sin(x * 0.006 + y0) * amp + Math.sin(x * 0.017) * amp * 0.35; x < -20 ? g.moveTo(x, y) : g.lineTo(x, y); }
-      g.stroke();
-    }
+  // Turquoise splash: overlapping sprayed blobs with soft edges and sharp star bursts.
+  g.save();
+  g.shadowColor = 'rgba(70,215,230,0.9)'; g.shadowBlur = 26;
+  // Blobs sit inside a loose oval, so the splash has a ragged, sprayed outline, not a box.
+  const inOval = () => { const a = rnd() * Math.PI * 2, d = Math.sqrt(rnd()); return [W * (0.5 + Math.cos(a) * d * 0.4), H * (0.55 + Math.sin(a) * d * 0.33)]; };
+  for (let i = 0; i < 46; i++) {
+    const [x, y] = inOval(), r = H * (0.08 + rnd() * 0.16);
+    g.fillStyle = rnd() < 0.5 ? '#2fc6d3' : '#4fdbe6';
+    g.beginPath(); g.ellipse(x, y, r * 1.5, r, rnd() * Math.PI, 0, Math.PI * 2); g.fill();
+  }
+  g.restore();
+  const burst = (x, y, r, n, col) => {
+    g.fillStyle = col; g.beginPath();
+    for (let i = 0; i < n * 2; i++) { const a = (i / (n * 2)) * Math.PI * 2 + rnd() * 0.2, rr = i % 2 ? r * 0.35 : r * (0.8 + rnd() * 0.5); g.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); }
+    g.closePath(); g.fill();
+  };
+  // Star bursts around the rim of the splash, poking out like the spray in a real piece.
+  for (let i = 0; i < 12; i++) { const a = (i / 12) * Math.PI * 2 + rnd() * 0.3; burst(W * (0.5 + Math.cos(a) * 0.42), H * (0.55 + Math.sin(a) * 0.36), H * (0.1 + rnd() * 0.1), 5, '#38d0dc'); }
+  // Spray dots drifting off the edge of the splash.
+  for (let i = 0; i < 420; i++) { const a = rnd() * Math.PI * 2, d = 0.85 + rnd() * 0.35; g.fillStyle = `rgba(80,220,232,${0.3 + rnd() * 0.6})`; const r = rnd() * 3.2 + 0.6; g.beginPath(); g.arc(W * (0.5 + Math.cos(a) * d * 0.42), H * (0.55 + Math.sin(a) * d * 0.36), r, 0, Math.PI * 2); g.fill(); }
+
+  // Wild-style letters: each letter leans, stretches and overlaps its neighbours, with arrows.
+  const word = 'GREEN';
+  const size = Math.round(H * 0.7);
+  g.font = `italic 700 ${size}px "Atkinson Hyperlegible", "Arial Black", system-ui, sans-serif`;
+  g.textBaseline = 'alphabetic'; g.lineJoin = 'round';
+  const widths = [...word].map((ch) => g.measureText(ch).width);
+  const total = widths.reduce((a, b) => a + b, 0) * 0.86;
+  const left = W * 0.5 - total / 2, base = H * 0.8;
+  const L = []; let x = left;
+  [...word].forEach((ch, i) => { L.push({ ch, x, y: base + Math.sin(i * 1.9) * H * 0.05, rot: [-0.14, 0.08, -0.05, 0.12, -0.1][i], sx: [1.1, 0.95, 1.05, 0.9, 1.15][i], skew: [-0.25, -0.15, -0.3, -0.2, -0.28][i] }); x += widths[i] * 0.86; });
+  const each = (fn) => L.forEach((l) => { g.save(); g.translate(l.x, l.y); g.rotate(l.rot); g.transform(l.sx, 0, l.skew, 1, 0, 0); fn(l); g.restore(); });
+  // Arrows jutting out of the piece, behind the letters.
+  const arrow = (x0, y0, ang, len) => {
+    g.save(); g.translate(x0, y0); g.rotate(ang);
+    g.beginPath(); g.moveTo(0, -H * 0.04); g.lineTo(len, -H * 0.04); g.lineTo(len, -H * 0.1); g.lineTo(len + H * 0.14, 0); g.lineTo(len, H * 0.1); g.lineTo(len, H * 0.04); g.lineTo(0, H * 0.04); g.closePath();
+    g.lineWidth = H * 0.035; g.strokeStyle = '#151515'; g.stroke(); g.fillStyle = '#b8e636'; g.fill();
     g.restore();
   };
-  ribbon(H * 0.22, 34, 'rgba(92,242,160,A)', 26);
-  ribbon(H * 0.34, 26, 'rgba(255,92,190,A)', 16);
-  ribbon(H * 0.14, 22, 'rgba(120,200,255,A)', 12);
-  // Mountains with snowy tops.
-  g.fillStyle = '#1b2650'; g.beginPath(); g.moveTo(0, H);
-  const peaks = [[0, 0.78], [0.08, 0.6], [0.16, 0.72], [0.27, 0.5], [0.38, 0.7], [0.5, 0.56], [0.62, 0.74], [0.73, 0.52], [0.84, 0.68], [0.93, 0.58], [1, 0.72]];
-  for (const [u, v] of peaks) g.lineTo(u * W, v * H);
-  g.lineTo(W, H); g.closePath(); g.fill();
-  g.fillStyle = '#e9f1ff';
-  for (let i = 1; i < peaks.length - 1; i++) {
-    const [u, v] = peaks[i]; const [pu, pv] = peaks[i - 1]; const [nu, nv] = peaks[i + 1];
-    if (v > peaks[i - 1][1] || v > peaks[i + 1][1]) continue;
-    g.beginPath(); g.moveTo(u * W, v * H);
-    g.lineTo((u + (pu - u) * 0.28) * W, (v + (pv - v) * 0.28) * H);
-    g.lineTo((u + (nu - u) * 0.28) * W, (v + (nv - v) * 0.28) * H); g.closePath(); g.fill();
-  }
-  // Spray splatter and a few bright drips of colour.
-  const paint = ['#ffd23f', '#ff5cbe', '#5cf2a0', '#4fc3ff', '#ff8a3d'];
-  for (let i = 0; i < 260; i++) { g.fillStyle = paint[i % paint.length]; g.globalAlpha = 0.25 + rnd() * 0.5; const r = rnd() * 4 + 0.6; g.beginPath(); g.arc(rnd() * W, H * 0.45 + rnd() * H * 0.55, r, 0, Math.PI * 2); g.fill(); }
-  g.globalAlpha = 1;
-  // Graffiti bubble letters: thick dark outline, a lighter offset outline, gradient fill, drips.
-  const text = 'CHASING GREEN';
-  const size = Math.round(H * 0.36);
-  g.font = `italic 700 ${size}px "Atkinson Hyperlegible", "Arial Black", system-ui, sans-serif`;
-  g.textBaseline = 'alphabetic'; g.lineJoin = 'round'; g.miterLimit = 2;
-  const total = g.measureText(text).width;
-  const scale = Math.min(1, (W * 0.56) / total);
-  g.save();
-  g.translate(W / 2 - (total * scale) / 2, H * 0.6);
-  g.scale(scale, scale);
-  let x = 0;
-  const letters = [...text].map((ch, i) => { const w = g.measureText(ch).width; const item = { ch, x, rot: Math.sin(i * 1.7) * 0.07, dy: Math.sin(i * 2.3) * size * 0.05 }; x += w * 0.94; return item; });
-  const each = (fn) => letters.forEach((L) => { if (L.ch === ' ') return; g.save(); g.translate(L.x, L.dy); g.rotate(L.rot); fn(L); g.restore(); });
-  // Shadow, then the 3D side, then outline, then fill.
-  each((L) => { g.fillStyle = 'rgba(0,0,0,0.45)'; g.fillText(L.ch, 10, 12); });
-  each((L) => { g.strokeStyle = '#141018'; g.lineWidth = size * 0.2; g.strokeText(L.ch, 0, 0); });
-  each((L) => { g.strokeStyle = '#ffffff'; g.lineWidth = size * 0.09; g.strokeText(L.ch, 0, 0); });
-  const fill = g.createLinearGradient(0, -size, 0, 0);
-  fill.addColorStop(0, '#fff36b'); fill.addColorStop(0.5, '#5cf2a0'); fill.addColorStop(1, '#1fae8a');
-  each((L) => { g.fillStyle = fill; g.fillText(L.ch, 0, 0); });
-  // Highlights and drips.
-  each((L) => { g.fillStyle = 'rgba(255,255,255,0.75)'; g.fillRect(size * 0.08, -size * 0.62, size * 0.05, size * 0.16); });
-  letters.forEach((L, i) => { if (L.ch === ' ' || i % 3) return; g.fillStyle = '#1fae8a'; const dx = L.x + size * 0.25, len = size * (0.18 + (i % 5) * 0.06); g.fillRect(dx, L.dy - size * 0.02, size * 0.05, len); g.beginPath(); g.arc(dx + size * 0.025, L.dy + len, size * 0.04, 0, Math.PI * 2); g.fill(); });
+  arrow(left + total * 0.15, base - size * 0.75, -2.6, H * 0.3);
+  arrow(left + total * 0.6, base - size * 0.82, -1.25, H * 0.24);
+  arrow(left + total * 0.92, base - size * 0.3, 0.25, H * 0.28);
+  // 3D edge: the letters stacked down and to the right in grey.
+  for (let k = 14; k > 0; k -= 2) each((l) => { g.fillStyle = k > 8 ? '#5c6166' : '#7d8288'; g.fillText(l.ch, k * 0.9, k * 0.9); });
+  // Thick dark outline, then a thin white one.
+  each((l) => { g.strokeStyle = '#141414'; g.lineWidth = size * 0.16; g.strokeText(l.ch, 0, 0); });
+  each((l) => { g.strokeStyle = '#f7f7f2'; g.lineWidth = size * 0.05; g.strokeText(l.ch, 0, 0); });
+  // Fill: lime to yellow to green with darker cut-in stripes across the letters.
+  const fill = g.createLinearGradient(0, -size, size * 0.6, 0);
+  fill.addColorStop(0, '#e9f14a'); fill.addColorStop(0.45, '#b6e33a'); fill.addColorStop(1, '#5fd36a');
+  each((l) => {
+    g.fillStyle = fill; g.fillText(l.ch, 0, 0);
+    g.save(); g.globalCompositeOperation = 'source-atop';
+    g.fillStyle = 'rgba(40,120,60,0.45)';
+    for (let s = -2; s < 4; s++) { g.beginPath(); g.moveTo(s * size * 0.32, 0); g.lineTo(s * size * 0.32 + size * 0.1, 0); g.lineTo(s * size * 0.32 + size * 0.5, -size); g.lineTo(s * size * 0.32 + size * 0.4, -size); g.closePath(); g.fill(); }
+    g.restore();
+  });
+  // Shine marks and white sparkle stars over the piece.
+  each(() => { g.fillStyle = 'rgba(255,255,255,0.85)'; g.fillRect(size * 0.1, -size * 0.66, size * 0.05, size * 0.18); });
+  const sparkle = (x0, y0, r) => { g.fillStyle = '#ffffff'; g.beginPath(); for (let i = 0; i < 8; i++) { const a = (i / 8) * Math.PI * 2, rr = i % 2 ? r * 0.22 : r; g.lineTo(x0 + Math.cos(a) * rr, y0 + Math.sin(a) * rr); } g.closePath(); g.fill(); };
+  for (let i = 0; i < 12; i++) sparkle(W * (0.05 + rnd() * 0.9), H * (0.12 + rnd() * 0.7), H * (0.025 + rnd() * 0.05));
+  // Drips from the letters.
+  L.forEach((l, i) => { if (i % 2) return; g.fillStyle = '#5fd36a'; const dx = l.x + size * 0.3, len = H * (0.08 + (i % 3) * 0.04); g.fillRect(dx, l.y - 2, size * 0.035, len); g.beginPath(); g.arc(dx + size * 0.0175, l.y + len, size * 0.03, 0, Math.PI * 2); g.fill(); });
+  // A small tag in the corner.
+  g.save(); g.translate(W * 0.86, H * 0.9); g.rotate(-0.12);
+  g.font = `italic 700 ${Math.round(H * 0.11)}px "Young Serif", Georgia, serif`;
+  g.lineWidth = 6; g.strokeStyle = '#141414'; g.strokeText('aurora', 0, 0); g.fillStyle = '#ffffff'; g.fillText('aurora', 0, 0);
   g.restore();
-  // A small star tag.
-  g.save(); g.translate(W * 0.93, H * 0.2); g.fillStyle = '#ffd23f'; g.strokeStyle = '#141018'; g.lineWidth = 6;
-  g.beginPath(); for (let i = 0; i < 10; i++) { const a = (i / 10) * Math.PI * 2 - Math.PI / 2, r = i % 2 ? 18 : 40; g.lineTo(Math.cos(a) * r, Math.sin(a) * r); } g.closePath(); g.stroke(); g.fill(); g.restore();
-  // Wheel arches.
-  g.fillStyle = '#0c0d10';
-  for (const u of wheelU) { g.beginPath(); g.arc(u * W, H, wheelR * W, Math.PI, 0); g.fill(); }
+  // Keep the wheel arch clear.
+  g.globalCompositeOperation = 'destination-out';
+  g.beginPath(); g.arc(archU * W, archY, archR, 0, Math.PI * 2); g.fill();
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 4;
   return tex;
 }
 
+// A pastel daisy sticker.
+function daisyTexture(petal, center = '#ffd23f') {
+  const c = document.createElement('canvas'); c.width = c.height = 96;
+  const g = c.getContext('2d');
+  g.translate(48, 48);
+  g.fillStyle = petal; g.strokeStyle = 'rgba(0,0,0,0.25)'; g.lineWidth = 2;
+  for (let i = 0; i < 6; i++) { g.save(); g.rotate((i / 6) * Math.PI * 2); g.beginPath(); g.ellipse(0, -24, 13, 20, 0, 0, Math.PI * 2); g.fill(); g.stroke(); g.restore(); }
+  g.fillStyle = center; g.beginPath(); g.arc(0, 0, 13, 0, Math.PI * 2); g.fill();
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
 function buildCamper() {
   const g = new THREE.Group();
-  const teal = new THREE.MeshPhysicalMaterial({ color: 0x1f6f73, metalness: 0.2, roughness: 0.45, clearcoat: 0.6, clearcoatRoughness: 0.25 });
-  const cream = new THREE.MeshPhysicalMaterial({ color: 0xf1ead8, metalness: 0.05, roughness: 0.45, clearcoat: 0.5, clearcoatRoughness: 0.3 });
+  const body = new THREE.MeshPhysicalMaterial({ color: 0x0b0b0d, metalness: 0.1, roughness: 0.62, clearcoat: 0.2, clearcoatRoughness: 0.5 });
   const chr = M.chrome(), gls = M.glass(), blk = M.black(), rub = M.rubber();
   const lightMat = new THREE.MeshStandardMaterial({ color: 0xfffbea, emissive: 0xfff2c8, emissiveIntensity: 0.4, roughness: 0.1 });
   const tailMat = new THREE.MeshStandardMaterial({ color: 0x5a0c0c, emissive: 0xff2020, emissiveIntensity: 0.5, roughness: 0.2 });
-  const R = 0.38, track = 0.8, wb = 1.3, len = 4.4, half = len / 2, bw = 1.9;
+  const amber = new THREE.MeshStandardMaterial({ color: 0xff9a2e, emissive: 0x5a2a00, roughness: 0.3 });
+  const R = 0.38, track = 0.76, wb = 1.15, bw = 1.8, y0 = 0.46, archR = 0.48;
+  // Rounded edges grow the shape outward by the bevel, so the outline is drawn that much inside
+  // the van's real surface (b), and every detail below sits on the real surface.
+  const b = 0.12;
+  const ZF = 2.13, ZR = -2.1, YT = 2.02;
 
-  // Body: teal lower half, cream upper half and roof, rounded like a classic camper.
-  g.add(mesh(rbox(bw, 0.86, len, 0.28), teal, 0, 0.98, 0));
-  g.add(mesh(rbox(bw - 0.02, 0.7, len - 0.06, 0.3), cream, 0, 1.68, 0));
-  // Pop-top roof, with a canvas strip, a rack and a surfboard.
-  g.add(mesh(rbox(bw - 0.3, 0.16, len - 0.9, 0.08), cream, 0, 2.1, -0.15));
-  g.add(mesh(rbox(bw - 0.34, 0.06, len - 0.96, 0.03), new THREE.MeshStandardMaterial({ color: 0xe0612e, roughness: 0.85 }), 0, 2.01, -0.15));
-  for (const sx of [-1, 1]) g.add(mesh(rbox(0.04, 0.05, len - 1.2, 0.02), chr, sx * 0.72, 2.22, -0.15));
-  for (const z of [-1.4, -0.15, 1.1]) g.add(mesh(rbox(1.48, 0.04, 0.05, 0.02), chr, 0, 2.24, z));
-  const board = new THREE.SphereGeometry(1, 32, 12); board.scale(0.3, 0.05, 1.65);
-  const boardMat = new THREE.MeshStandardMaterial({ color: 0xffd23f, roughness: 0.35 });
-  g.add(mesh(board, boardMat, 0.2, 2.31, -0.15));
-  g.add(mesh(rbox(0.05, 0.012, 2.9, 0.005), new THREE.MeshStandardMaterial({ color: 0xff5cbe, roughness: 0.4 }), 0.2, 2.36, -0.15));
+  // Side profile: short, tall and rounded like a bay-window bus: a big raked windscreen, a
+  // bulging nose, a flat back, and real wheel arches cut out of the bottom edge.
+  const s = new THREE.Shape();
+  const ar = archR + b, a0 = Math.asin((y0 + b - R) / ar), dz = Math.cos(a0) * ar;
+  s.moveTo(ZR + 0.1, y0 + b);
+  s.quadraticCurveTo(ZR + b, y0 + b, ZR + b, 0.7);
+  s.lineTo(ZR + b, 1.7);
+  s.quadraticCurveTo(ZR + b, YT - b, ZR + 0.42, YT - b);
+  s.lineTo(1.7, YT - b);
+  s.quadraticCurveTo(ZF - 0.12 - b, YT - b, ZF - 0.1 - b, 1.78);
+  s.lineTo(ZF - 0.04 - b, 1.25);
+  s.quadraticCurveTo(ZF - b + 0.01, 1.0, ZF - b, 0.74);
+  s.quadraticCurveTo(ZF - b, y0 + b, ZF - 0.16, y0 + b);
+  s.lineTo(wb + dz, y0 + b);
+  s.absarc(wb, R, ar, a0, Math.PI - a0, false);
+  s.lineTo(-wb + dz, y0 + b);
+  s.absarc(-wb, R, ar, a0, Math.PI - a0, false);
+  s.lineTo(ZR + 0.1, y0 + b);
+  const geo = new THREE.ExtrudeGeometry(s, { depth: bw - b * 2, bevelEnabled: true, bevelThickness: b, bevelSize: b, bevelSegments: 5, curveSegments: 22 });
+  geo.translate(0, 0, -(bw - b * 2) / 2);
+  geo.rotateY(-Math.PI / 2);
+  g.add(mesh(geo, body));
+  // Dark wheel wells behind the arches.
+  const wellMat = new THREE.MeshStandardMaterial({ color: 0x050506, roughness: 1, side: THREE.BackSide });
+  for (const z of [wb, -wb]) {
+    const well = new THREE.CylinderGeometry(archR, archR, bw - 0.1, 28, 1, true); well.rotateZ(Math.PI / 2);
+    g.add(mesh(well, wellMat, 0, R, z));
+  }
 
-  // The mural on both sides.
-  const mural = camperMural(1600, 370, [0.5 - wb / 3.9, 0.5 + wb / 3.9], 0.1);
-  const muralMat = new THREE.MeshStandardMaterial({ map: mural, roughness: 0.5, metalness: 0.05 });
+  // Windscreen: one big pane, raked back with the nose.
+  const ws = mesh(rbox(1.5, 0.5, 0.04, 0.12), gls, 0, 1.52, ZF - 0.03); ws.rotation.x = -0.12; g.add(ws);
   for (const sx of [-1, 1]) {
-    const p = mesh(new THREE.PlaneGeometry(3.9, 0.9), muralMat, sx * (bw / 2 + 0.006), 1.0, 0);
-    p.rotation.y = sx * Math.PI / 2;
-    p.castShadow = false;
+    const side = sx * (bw / 2 + 0.004);
+    const pane = (z0, z1, y1 = 1.34, y2 = 1.8) => { const p = mesh(new THREE.PlaneGeometry(z1 - z0, y2 - y1), gls, side, (y1 + y2) / 2, (z0 + z1) / 2); p.rotation.y = sx * Math.PI / 2; g.add(p); return p; };
+    pane(1.3, 1.9, 1.34, 1.78);       // cab door
+    pane(0.55, 1.15);                 // sliding door window, with louvres
+    for (let k = 0; k < 5; k++) g.add(mesh(rbox(0.012, 0.03, 0.58, 0.008), chr, side + sx * 0.01, 1.42 + k * 0.08, 0.85));
+    pane(-0.35, 0.4); pane(-1.2, -0.5); pane(-1.95, -1.42, 1.38, 1.78);
+    // A thin chrome belt line under the windows.
+    g.add(mesh(rbox(0.012, 0.018, 3.9, 0.008), chr, side + sx * 0.006, 1.3, 0));
+    // Mirror on an arm by the cab door.
+    g.add(mesh(rbox(0.03, 0.03, 0.22, 0.01), blk, sx * (bw / 2 + 0.1), 1.42, 1.92));
+    g.add(mesh(rbox(0.06, 0.16, 0.12, 0.03), blk, sx * (bw / 2 + 0.2), 1.48, 2.0));
+    // Nose: round lamps low and wide, indicators up by the windscreen.
+    const lamp = new THREE.CylinderGeometry(0.16, 0.16, 0.08, 28); lamp.rotateX(Math.PI / 2);
+    g.add(mesh(lamp, chr, sx * 0.6, 0.86, ZF));
+    g.add(mesh(new THREE.CircleGeometry(0.13, 28), lightMat, sx * 0.6, 0.86, ZF + 0.045));
+    g.add(mesh(rbox(0.18, 0.09, 0.05, 0.02), amber, sx * 0.64, 1.16, ZF - 0.03));
+    // Tail lights.
+    g.add(mesh(rbox(0.1, 0.26, 0.05, 0.03), tailMat, sx * 0.74, 1.0, ZR - 0.01));
+  }
+  // Vent grille under the windscreen, a plain ring badge, plate and step bumpers.
+  g.add(mesh(rbox(0.84, 0.1, 0.03, 0.02), new THREE.MeshStandardMaterial({ color: 0x050506, roughness: 0.9 }), 0, 1.16, ZF - 0.02));
+  for (let i = -8; i <= 8; i++) if (i) g.add(mesh(new THREE.BoxGeometry(0.012, 0.075, 0.012), chr, i * 0.047, 1.16, ZF - 0.005));
+  g.add(mesh(new THREE.TorusGeometry(0.15, 0.024, 10, 36), chr, 0, 0.92, ZF + 0.01));
+  g.add(mesh(new THREE.BoxGeometry(0.44, 0.11, 0.02), M.white(), 0, 0.6, ZF + 0.06));
+  for (const z of [ZF + 0.05, ZR - 0.05]) g.add(mesh(rbox(bw + 0.04, 0.1, 0.12, 0.04), blk, 0, 0.53, z));
+  g.add(mesh(rbox(1.1, 0.32, 0.04, 0.06), gls, 0, 1.66, ZR - 0.005));
+  // Roof rack in black.
+  for (const sx of [-1, 1]) g.add(mesh(rbox(0.04, 0.05, 3.1, 0.02), blk, sx * 0.72, YT + 0.07, -0.2));
+  for (const z of [-1.55, -0.6, 0.35, 1.25]) g.add(mesh(rbox(1.48, 0.035, 0.05, 0.015), blk, 0, YT + 0.09, z));
+
+  // Graffiti on both sides, from the back to the sliding door, below the window line. The
+  // arch cut-out is mirrored per side so the paint stops at the rear wheel on both.
+  const z0 = -1.98, z1 = 0.78, panelLen = z1 - z0, panelY0 = y0 + 0.06, panelH = 0.78;
+  const PW = 1400, PH = Math.round(PW * panelH / panelLen);
+  const archPx = ((archR + 0.03) / panelLen) * PW, archYpx = PH + ((panelY0 - R) / panelH) * PH;
+  for (const sx of [-1, 1]) {
+    // Right side (sx = 1) runs from z1 at the left of the picture to z0; the left side the other way.
+    const u = sx > 0 ? (z1 + wb) / panelLen : (-wb - z0) / panelLen;
+    const tex = graffitiPanel(PW, PH, u, archPx, archYpx);
+    const mat = new THREE.MeshStandardMaterial({ map: tex, emissiveMap: tex, emissive: 0xffffff, emissiveIntensity: 0.22, transparent: true, alphaTest: 0.05, roughness: 0.55, metalness: 0.05 });
+    const p = mesh(new THREE.PlaneGeometry(panelLen, panelH), mat, sx * (bw / 2 + 0.006), panelY0 + panelH / 2, (z0 + z1) / 2);
+    p.rotation.y = sx * Math.PI / 2; p.castShadow = false;
     g.add(p);
   }
-
-  // Windows: split windscreen, side windows, rear window.
-  for (const sx of [-1, 1]) {
-    const ws = mesh(rbox(0.8, 0.5, 0.04, 0.08), gls, sx * 0.43, 1.7, half - 0.01); ws.rotation.x = -0.12; g.add(ws);
-    for (const z of [0.95, -0.05, -1.05]) {
-      const w = mesh(rbox(0.04, 0.42, 0.82, 0.06), gls, sx * (bw / 2 - 0.005), 1.72, z); g.add(w);
-    }
+  // Daisy stickers along the roof line and one on the nose.
+  const daisies = ['#c9a7ff', '#ffffff', '#ffe066', '#7fe3e8', '#ffb3d1'].map((c) => new THREE.MeshStandardMaterial({ map: daisyTexture(c), transparent: true, alphaTest: 0.3, roughness: 0.6 }));
+  let k = 0;
+  for (const sx of [-1, 1]) for (const z of [1.5, 0.8, 0.05, -0.75, -1.55]) {
+    const d = mesh(new THREE.PlaneGeometry(0.17, 0.17), daisies[k++ % daisies.length], sx * (bw / 2 + 0.007), 1.88, z + (k % 2) * 0.12);
+    d.rotation.y = sx * Math.PI / 2; d.rotation.x = k * 0.7; d.castShadow = false; g.add(d);
   }
-  g.add(mesh(rbox(0.06, 0.52, 0.06, 0.03), cream, 0, 1.7, half + 0.01));
-  g.add(mesh(rbox(1.2, 0.36, 0.04, 0.06), gls, 0, 1.74, -half - 0.005));
+  const nose = mesh(new THREE.PlaneGeometry(0.2, 0.2), daisies[3], -0.66, 0.62, ZF + 0.012); nose.castShadow = false; g.add(nose);
 
-  // Front: big round lamps, indicator lights, a round badge and a chrome bumper.
-  for (const sx of [-1, 1]) {
-    const lamp = new THREE.CylinderGeometry(0.16, 0.16, 0.08, 28); lamp.rotateX(Math.PI / 2);
-    g.add(mesh(lamp, chr, sx * 0.62, 0.98, half + 0.02));
-    g.add(mesh(new THREE.CircleGeometry(0.13, 28), lightMat, sx * 0.62, 0.98, half + 0.065));
-    g.add(mesh(rbox(0.12, 0.07, 0.04, 0.02), new THREE.MeshStandardMaterial({ color: 0xffa23a, emissive: 0x6a3000, roughness: 0.3 }), sx * 0.62, 1.22, half + 0.02));
-    // Tail lights and mirrors.
-    g.add(mesh(rbox(0.12, 0.26, 0.04, 0.03), tailMat, sx * 0.78, 1.08, -half - 0.02));
-    g.add(mesh(rbox(0.04, 0.14, 0.1, 0.02), blk, sx * 1.02, 1.5, half - 0.45));
-  }
-  const badge = new THREE.TorusGeometry(0.13, 0.025, 10, 32);
-  g.add(mesh(badge, chr, 0, 1.2, half + 0.03));
-  for (const z of [half + 0.08, -half - 0.08]) {
-    const b = new THREE.CapsuleGeometry(0.06, bw - 0.1, 6, 16); b.rotateZ(Math.PI / 2);
-    g.add(mesh(b, chr, 0, 0.6, z));
-  }
-  // A ladder up the back to the roof rack.
-  for (const sx of [-1, 1]) g.add(mesh(rbox(0.03, 1.1, 0.03, 0.01), chr, sx * 0.62 - 0.35, 1.55, -half - 0.06));
-  for (let i = 0; i < 5; i++) g.add(mesh(rbox(0.3, 0.025, 0.025, 0.01), chr, -0.35 + 0.0, 1.1 + i * 0.22, -half - 0.06));
-
-  // White steel wheels with whitewalls, tucked into the body.
+  // Black wheels with turquoise centre caps.
+  const cap = new THREE.MeshStandardMaterial({ color: 0x38d0dc, metalness: 0.4, roughness: 0.35 });
   const wheels = [];
   for (const [x, z] of [[track, wb], [-track, wb], [track, -wb], [-track, -wb]]) {
     const pivot = new THREE.Group(); pivot.position.set(x, R, z);
     const spin = new THREE.Group();
-    spin.add(buildWheel({ R, W: 0.22, style: 'road', rim: 'spoke5', rimColor: 0xf3f3ef, whitewall: true, hub: true, mirror: x < 0 }));
+    spin.add(buildWheel({ R, W: 0.21, style: 'road', rim: 'spoke5', rimColor: 0x1c1d20, hub: true, mirror: x < 0 }));
+    const cc = new THREE.CylinderGeometry(R * 0.2, R * 0.2, 0.03, 20); cc.rotateZ(Math.PI / 2);
+    spin.add(mesh(cc, cap, Math.sign(x) * 0.11, 0, 0));
     pivot.add(spin); g.add(pivot);
     wheels.push({ pivot, spin, front: z > 0, x, z });
   }
-  // A black sill along the bottom so the body sits on the wheels.
-  g.add(mesh(rbox(bw - 0.06, 0.12, len - 0.4, 0.04), rub, 0, 0.56, 0));
-  return { group: g, wheels, lightMat, tailMat, R, headlight: [0, 0.98, 2.3], exhaust: [0.45, 0.42, -2.25], camDist: 11, camHeight: 3.7, eye: 2.0 };
+  return { group: g, wheels, lightMat, tailMat, R, headlight: [0, 0.86, ZF + 0.06], exhaust: [0.42, 0.42, ZR - 0.05], camDist: 11, camHeight: 3.7, eye: 2.0 };
 }
 
 // ---------- Hypercar ----------

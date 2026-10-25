@@ -53,6 +53,8 @@ export const haptics = {
   // Fire a named pattern. minGap stops a stream of events from turning into a buzz.
   play(name = 'light', minGap = 40) {
     if (!this.enabled) return;
+    // Browsers refuse vibration before the first tap, and log an error if asked.
+    if (navigator.userActivation && !navigator.userActivation.hasBeenActive) return;
     if (isIOS && (!inClick || !iosLabel)) return;
     const now = performance.now();
     if (now - last < minGap) return;

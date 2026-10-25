@@ -34,7 +34,13 @@ export class Sheet {
     for (const page of this.pages) page.hidden = page.dataset.page !== name;
     for (const tab of this.tabs) { const on = tab.dataset.page === name; tab.classList.toggle('is-on', on); tab.setAttribute('aria-selected', String(on)); }
     this.dialog.dataset.page = name;
-    if (!this.dialog.open) this.dialog.showModal();
+    if (!this.dialog.open) {
+      this.dialog.showModal();
+      // Opening a dialog focuses its first button, which would ring the Map tab whatever page
+      // is open. The sheet takes focus itself instead; Tab still moves into the controls.
+      this.dialog.tabIndex = -1;
+      this.dialog.focus({ preventScroll: true });
+    }
     this.onShow?.(name);
   }
 
