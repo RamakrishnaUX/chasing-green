@@ -1077,8 +1077,9 @@ window.chasingGreen = {
   get jeep() { return jeep; }, get walker() { return walker; }, get sitting() { return sitting; }, get canyon() { return CANYONS[0]; }, get landmarks() { return landmarks; }, get aurora() { return aurora; }, get mode() { return mode; },
   setMode: (m) => { mode = m; },
   // Render one still with a forced aurora, from a given camera, at any size. Used to make the
-  // share image. Returns a PNG data URL and puts the renderer back the way it was.
-  still({ from, to, kp = 7.2, type = AURORA_TYPES.curtains, hour = 23.6, w = 1200, h = 630, scale = 2, fov } = {}) {
+  // share image and, frame by frame with a rising t, the share video. Returns a PNG data URL,
+  // or what grab(canvas) returns, and puts the renderer back the way it was.
+  still({ from, to, kp = 7.2, type = AURORA_TYPES.curtains, hour = 23.6, w = 1200, h = 630, scale = 2, fov, t = 40, grab } = {}) {
     const A = CONFIG.aurora;
     const state = {
       vis: 0.2 + 0.8 * smoothstep(A.minKp, A.fullKp, kp), curtains: 1 + 3 * smoothstep(A.minKp, 7.5, kp),
@@ -1092,11 +1093,11 @@ window.chasingGreen = {
     renderer.setPixelRatio(1); renderer.setSize(w * scale, h * scale, false);
     jeep.setLights(1); jeep.sync?.(0);
     Object.assign(aurora.smooth, state);
-    aurora.update(0, 40, camera, state);
-    sky.update({ camera, clock, cloud: 0.04, cloudOffset, city: { overhead: 0, horizon: 0, dirX: 1, dirZ: 0 }, auroraVis: state.vis, auroraTint: aurora.tint, t: 40 });
+    aurora.update(0, t, camera, state);
+    sky.update({ camera, clock, cloud: 0.04, cloudOffset, city: { overhead: 0, horizon: 0, dirX: 1, dirZ: 0 }, auroraVis: state.vis, auroraTint: aurora.tint, t });
     waterUniforms.uLight.value = 0.25;
-    if (post) { post.setSize(); post.render(40, { aurora: state.vis, dark: 1 }); } else renderer.render(scene, camera);
-    const url = renderer.domElement.toDataURL('image/png');
+    if (post) { post.setSize(); post.render(t, { aurora: state.vis, dark: 1 }); } else renderer.render(scene, camera);
+    const url = grab ? grab(renderer.domElement) : renderer.domElement.toDataURL('image/png');
     clock.gameHours = saved.hours; camera.fov = saved.fov; camera.aspect = saved.aspect; camera.updateProjectionMatrix();
     renderer.setPixelRatio(saved.pr); dispatchEvent(new Event('resize'));
     return url;
