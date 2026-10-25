@@ -34,6 +34,7 @@ import { drawPostcard, sharePostcard, canvasBlob, download } from './share/postc
 import { linkFor, readSharedSighting } from './share/link.js';
 import { ClipRecorder } from './share/recorder.js';
 import { dailyChallenge } from './challenges.js';
+import { track, tickPlay, countSighting, countStamp } from './analytics.js';
 
 const $ = (id) => document.getElementById(id);
 const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
@@ -306,13 +307,13 @@ function cycleCamera() {
   if (mode === 'chase') { enterLookUp(); hud.toast('Looking up, facing north. Drag to look around.', { seconds: 2.5 }); }
   else if (mode === 'lookup') {
     if (jeep.speed > 2.5) { mode = 'chase'; hud.toast('Slow down to step out.', { seconds: 2.5 }); }
-    else { mode = 'walk'; walkTilt = false; walker.enter(jeep); look.walkYaw = 0; hud.toast('On foot. Walk with the same keys. Press L to look up.', { seconds: 3.5 }); }
+    else { mode = 'walk'; walkTilt = false; walker.enter(jeep); track('step_out'); look.walkYaw = 0; hud.toast('On foot. Walk with the same keys. Press L to look up.', { seconds: 3.5 }); }
   } else { mode = 'chase'; walker.exit(); }
   syncLookButton();
 }
 // The lights usually sit to the north, so looking up turns you that way, the way a person would.
 function wrapAngle(a) { return Math.atan2(Math.sin(a), Math.cos(a)); }
-function enterLookUp() { mode = 'lookup'; look.yaw = wrapAngle(Math.PI - jeep.heading); look.pitch = 0.75; }
+function enterLookUp() { track('look_up'); mode = 'lookup'; look.yaw = wrapAngle(Math.PI - jeep.heading); look.pitch = 0.75; }
 function toggleLookUp() {
   if (mode === 'walk') { walkTilt = !walkTilt; look.pitch = 0.75; if (walkTilt) look.walkYaw = wrapAngle(Math.PI - walker.heading); }
   else if (mode === 'lookup') mode = 'chase';
@@ -358,6 +359,8 @@ function logSighting(a, { manual = false } = {}) {
   };
   const what = a.active ? `Sighting #${s.n}: ${s.type.toLowerCase()} at ${s.place}.` : `Postcard #${s.n} saved at ${s.place}.`;
   hud.toast(what, { seconds: 6, priority: 3, action: { label: 'View postcard', run: () => openPostcard(s.n) } });
+  if (a.active) { countSighting(); track('aurora_sighting', { kp: s.kp, aurora_type: s.type, place: s.place, game_hour: Math.floor(s.hour) }); }
+  else track('sky_photo', { place: s.place });
   if (a.active) checkChallenge(s);
 }
 
@@ -366,6 +369,7 @@ function checkChallenge(s) {
   if (rec?.done) return;
   if (challenge.check(s)) {
     store.data.challenges[challenge.key] = { id: challenge.id, done: new Date().toISOString() };
+    track('challenge_complete', { challenge: challenge.id });
     haptics.play('success', 0);
     store.save();
     setTimeout(() => hud.toast(`Daily challenge done: ${challenge.title}. Stamp added to your notebook.`, { seconds: 6, priority: 3 }), 7200);
@@ -390,13 +394,15 @@ async function openPostcard(n, sharedImg) {
   if (!pcDialog.open) pcDialog.showModal();
 }
 pcDialog.querySelector('[data-close]').addEventListener('click', () => pcDialog.close());
-$('pc-save').addEventListener('click', async () => download(await canvasBlob($('postcard-canvas')), `chasing-green-sighting-${pcSighting.n}.png`));
+$('pc-save').addEventListener('click', async () => { track('postcard_save'); download(await canvasBlob($('postcard-canvas')), `chasing-green-sighting-${pcSighting.n}.png`); });
 $('pc-share').addEventListener('click', async () => {
   const r = await sharePostcard($('postcard-canvas'), pcSighting, linkFor(pcSighting));
+  track('postcard_share', { result: r || 'shared' });
   if (r === 'downloaded') hud.toast('Sharing is not available here, so the image was saved instead.', { seconds: 4 });
 });
 $('pc-link').addEventListener('click', async () => {
   const link = linkFor(pcSighting);
+  track('postcard_link_copy');
   try { await navigator.clipboard.writeText(link); $('pc-link').textContent = 'Link copied'; }
   catch { prompt('Copy this link', link); }
   setTimeout(() => ($('pc-link').textContent = 'Copy link'), 2000);
@@ -450,6 +456,7 @@ $('info-close').addEventListener('click', () => {
 $('info-share').addEventListener('click', async () => {
   const lm = card.current; if (!lm) return;
   const text = `${lm.name}: ${lm.fact} (from Chasing Green, a road trip around Iceland)`;
+  track('fact_share', { landmark: lm.id });
   try {
     if (navigator.share) await navigator.share({ title: lm.name, text });
     else { await navigator.clipboard.writeText(text); hud.toast('Fact copied to your clipboard.', { seconds: 2.5 }); }
@@ -461,6 +468,8 @@ function updateLandmarks(p) {
   const reach = lm.reach || CONFIG.landmarkRadius;
   if (dist < reach) {
     if (store.stamp(lm.id)) {
+      countStamp();
+      track('landmark_stamp', { landmark: lm.id, landmark_name: lm.name, stamps_total: Object.keys(store.data.stamps).length });
       hud.toast(`New stamp: ${lm.name}.`, { seconds: 4, priority: 2 });
       haptics.play('success', 0);
       if (card.current === lm) card.stamp.innerHTML = stampSvg(lm.name, lm.glyph, true, 'card');
@@ -542,7 +551,7 @@ $('set-haptics').addEventListener('change', (e) => {
   haptics.enabled = settings.haptics !== 'off';
   haptics.play('medium');
 });
-$('set-quality').addEventListener('change', (e) => setQuality(e.target.value, true));
+$('set-quality').addEventListener('change', (e) => { setQuality(e.target.value, true); track('setting_change', { setting: 'graphics', value: e.target.value }); });
 function setQuality(name, save) {
   qualityName = name; Q = qualityFor(name);
   renderer.setPixelRatio(Math.min(devicePixelRatio, Q.pixelRatio));
@@ -575,6 +584,7 @@ function monthCardHTML() {
 function renderMonthCards() { document.querySelectorAll('.month-card').forEach((el) => (el.innerHTML = monthCardHTML())); }
 function setMonth(m, announce = false) {
   clock.month = m; settings.month = m; store.save();
+  if (announce) track('setting_change', { setting: 'month', value: clock.m.name });
   forecast.monthFactor = clock.m.aurora;
   forecast.nights.clear();
   document.querySelectorAll('.month-select').forEach((sel) => (sel.value = String(m)));
@@ -660,6 +670,7 @@ startBtn.addEventListener('click', () => {
   audio.setMuted(audio.muted);
   started = true;
   store.data.trips++; store.save();
+  track('game_start', { month: clock.m.name, vehicle: settings.vehicle || 'jeep', graphics: qualityName, input: isTouch ? 'touch' : 'keyboard', trip_number: store.data.trips });
   $('intro').classList.add('is-leaving');
   setTimeout(() => ($('intro').hidden = true), 900);
   hud.show();
@@ -693,6 +704,7 @@ function toggleSit(force) {
   walker.setSitting?.(sitting);
   if (sitting) {
     sitSpeedBefore = clock.speed; clock.speed = Math.max(clock.speed, 6);
+    track('sit_down');
     look.pitch = 0.45; look.walkYaw = 0;
     hud.toast('Sitting down. Time passes faster while you rest. Drag to look around, X to stand.', { seconds: 4, priority: 2 });
   } else clock.speed = sitSpeedBefore;
@@ -716,6 +728,7 @@ function setVehicle(kind, announce = true) {
     jeep.setType(kind);
     audio.setEngine(VEHICLES[kind].engine);
     if (announce) hud.toast(`Now driving the ${VEHICLES[kind].name.toLowerCase()}.`, { seconds: 2.5, priority: 2 });
+    if (announce) track('vehicle_change', { vehicle: kind });
   }
   $('intro-car').innerHTML = `Driving the <strong>${VEHICLES[kind].name}</strong>. Tap or click your car any time to switch.`;
   renderGarage();
@@ -742,6 +755,7 @@ function renderGarage() {
 function openGarage() { $('garage-list').dataset.wantThumbs = '1'; renderGarage(); $('garage').showModal(); }
 sheet.register('garage', openGarage);
 sheet.register('map', () => mapUI?.open());
+sheet.onShow = (page) => track('menu_open', { page });
 // Tap the car itself to switch to the next one.
 const carRay = new THREE.Raycaster(), carTap = new THREE.Vector2();
 let tapStart = null;
@@ -843,6 +857,7 @@ function fastTravel(x, z, label, face) {
   camera.position.set(r.x - Math.sin(heading) * jeep.model.camDist, heightAt(r.x, r.z) + jeep.model.camHeight, r.z - Math.cos(heading) * jeep.model.camDist);
   camera.lookAt(r.x, heightAt(r.x, r.z) + 1.5, r.z);
   infoDismissed = null;
+  track('fast_travel', { destination: label || describePlace(r.x, r.z).label });
   hud.toast(label ? `Arrived at ${label}.` : `Arrived near ${describePlace(r.x, r.z).label}.`, { seconds: 3, priority: 2 });
 }
 
@@ -973,6 +988,7 @@ function frame(now) {
   if (post) post.render(t, { aurora: auroraVisSmoothed, dark });
   else renderer.render(scene, camera);
   if (captureRequest) { const cb = captureRequest; captureRequest = null; cb(renderer.domElement.toDataURL('image/jpeg', 0.88)); }
+  tickPlay(dt, { playing: !paused, driving: mode !== 'walk', metresPerSecond: jeep.vF, kmh: jeep.kmh, boosting: jeep.boosting });
   input.endFrame();
 
   // If the device is struggling, step quality down once.
@@ -983,6 +999,7 @@ function frame(now) {
     if (started && fps < (isTouch ? 24 : 40) && !autoDowngraded && !settings.quality && qualityName !== 'low') {
       autoDowngraded = true;
       setQuality(qualityName === 'high' ? 'medium' : 'low', false);
+      track('graphics_auto_lowered', { to: qualityName, fps: Math.round(fps) });
       hud.toast('Lowered graphics quality to keep things smooth. You can change it in Settings.', { seconds: 4 });
     }
     fpsAcc = 0; fpsFrames = 0;

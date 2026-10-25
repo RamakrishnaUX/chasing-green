@@ -1,6 +1,10 @@
 // Every number worth tuning lives here. Change a value, save, and Vite reloads the game.
 
 export const CONFIG = {
+  // ---------- Analytics ----------
+  // Google Analytics 4 measurement ID (G-XXXXXXXXXX). Empty sends nothing. See src/analytics.js.
+  analytics: { id: '' },
+
   // ---------- Time ----------
   time: {
     // Real seconds per in-game hour. 60 means a full day takes 24 real minutes.
