@@ -82,6 +82,11 @@
     </div>
 
     <button id="minimap" class="minimap glass" aria-label="Open the map to travel anywhere" title="Map (M)"><canvas id="minimap-canvas" aria-hidden="true"></canvas></button>
+    <div class="nav glass" id="nav" hidden role="status" aria-live="polite">
+      <span class="nav-dir" aria-hidden="true"><svg id="nav-arrow" viewBox="0 0 24 24"><path d="M12 3.5l6.5 16-6.5-4-6.5 4z"/></svg></span>
+      <span class="nav-text"><b id="nav-name"></b><span id="nav-dist"></span></span>
+      <button class="nav-stop" id="nav-stop" aria-label="Stop the route"><svg viewBox="0 0 24 24"><path d="M7 7l10 10M17 7L7 17"/></svg></button>
+    </div>
     <div class="hud-tr" role="toolbar" aria-label="Game controls">
       <button class="icon-btn glass" id="btn-camera" aria-label="Change view: chase, hood or cockpit" title="Change view (C)"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.2"/><path d="M4.3 10.6l5.6 1M19.7 10.6l-5.6 1M12 14.2V20"/></svg></button>
       <button class="icon-btn glass hide-touch" id="btn-record" aria-label="Record a 15 second clip" title="Record a 15 second clip (R)"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7.5"/><circle cx="12" cy="12" r="3.2" class="fill"/></svg></button>
@@ -162,7 +167,15 @@
       <div class="map-wrap" id="map-wrap">
         <canvas id="map-canvas" aria-label="Map of Iceland"></canvas>
         <div id="map-markers"></div>
-        <p class="map-hint glass">Pinch or scroll to zoom. Tap a place to go there.</p>
+        <p class="map-hint glass">Pinch or scroll to zoom. Tap a place to drive or jump there.</p>
+        <div class="map-pick glass" id="map-pick" hidden>
+          <div class="map-pick-text"><b id="map-pick-name"></b><span id="map-pick-dist"></span></div>
+          <div class="map-pick-actions">
+            <button class="btn btn-small btn-primary" id="map-drive">Drive there</button>
+            <button class="btn btn-small" id="map-jump">Jump there</button>
+          </div>
+          <button class="map-pick-close" id="map-pick-close" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M7 7l10 10M17 7L7 17"/></svg></button>
+        </div>
         <div class="map-tools glass" role="group" aria-label="Map zoom">
           <button id="map-zoom-in" aria-label="Zoom in"><svg viewBox="0 0 24 24"><path d="M12 6v12M6 12h12"/></svg></button>
           <button id="map-zoom-out" aria-label="Zoom out"><svg viewBox="0 0 24 24"><path d="M6 12h12"/></svg></button>
@@ -231,6 +244,8 @@
         <select id="set-nitro"><option value="on">On</option><option value="off">Off</option></select>
         <label for="set-haptics">Haptics</label>
         <select id="set-haptics"><option value="on">On</option><option value="off">Off</option></select>
+        <label for="set-steering" class="touch-only">Steering</label>
+        <select id="set-steering" class="touch-only"><option value="buttons">Buttons</option><option value="tilt">Tilt phone</option></select>
         <label for="set-places">Place cards</label>
         <select id="set-places"><option value="all">Every place</option><option value="new">New only</option><option value="off">Off</option></select>
         <label for="set-rocks" class="desk-only">Rocks</label>

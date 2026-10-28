@@ -75,10 +75,17 @@ function paintIslandSlowly(px, done) {
 
 const ease = (t) => 1 - Math.pow(1 - t, 3);
 
+// The player's own colour on both maps, kept apart from the white and green landmark dots.
+const ME = '#2f8fff', ROUTE = '#5fb0ff';
+
 export class MapUI {
-  constructor({ landmarks, onTravel }) {
+  constructor({ landmarks, onTravel, onDrive, describe }) {
     this.landmarks = landmarks;
     this.onTravel = onTravel;
+    this.onDrive = onDrive;
+    this.describe = describe;
+    this.route = null; // [{x, z}] while driving to a place
+    this.dest = null;
     this.mini = $('minimap-canvas');
     this.ctx = this.mini.getContext('2d');
     this.big = $('map-canvas');
@@ -101,6 +108,9 @@ export class MapUI {
       this.animateTo({ cx: this.player.x, cz: this.player.z, k: Math.max(this.v.k, this.fitK * 4) });
     });
     addEventListener('resize', () => { if ($('map').open) { this.size(); this.v = this.clampView(this.v); this.draw(); } });
+    $('map-drive').addEventListener('click', () => { const s = this.sel; if (!s) return; haptics.play('medium'); $('map').close(); this.onDrive(s.x, s.z, s.label); });
+    $('map-jump').addEventListener('click', () => { const s = this.sel; if (s) this.travel(s.x, s.z, s.named ? s.label : null, s.face); });
+    $('map-pick-close').addEventListener('click', () => this.unpick());
   }
 
   travel(x, z, label, face) {
@@ -109,7 +119,24 @@ export class MapUI {
     this.onTravel(x, z, label, face);
   }
 
+  // A tap on the map picks a place; the card under it offers to drive there or jump there.
+  pick(x, z, label, face) {
+    haptics.play('select');
+    const named = !!label;
+    label ||= this.describe(x, z);
+    this.sel = { x, z, label, named, face };
+    $('map-pick-name').textContent = label;
+    const d = this.player ? Math.hypot(x - this.player.x, z - this.player.z) : 0;
+    $('map-pick-dist').textContent = d < 40 ? 'You are here' : d >= 1000 ? `${(d / 1000).toFixed(d >= 10000 ? 0 : 1)} km away` : `${Math.round(d / 10) * 10} m away`;
+    $('map-drive').disabled = d < 40;
+    $('map-pick').hidden = false;
+    this.draw();
+  }
+  unpick() { this.sel = null; $('map-pick').hidden = true; this.draw(); }
+
   open() {
+    this.sel = null;
+    $('map-pick').hidden = true;
     $('map').showModal();
     if (!this.detail) paintIslandSlowly(2400, (c) => { this.detail = c; if ($('map').open) this.draw(); });
     this.buildPins();
@@ -174,7 +201,7 @@ export class MapUI {
       }
     };
     this.wrap.addEventListener('pointerdown', (e) => {
-      if (e.target.closest('.map-tools')) return;
+      if (e.target.closest('.map-tools, .map-pick')) return;
       cancelAnimationFrame(this.anim);
       if (!pts.size) moved = false;
       pts.set(e.pointerId, local(e));
@@ -203,10 +230,10 @@ export class MapUI {
       if (!pts.has(e.pointerId)) return;
       const at = pts.get(e.pointerId);
       pts.delete(e.pointerId);
-      // A tap on open ground (not a pin) travels there.
+      // A tap on open ground (not a pin) picks that spot.
       if (!pts.size && !moved && e.type === 'pointerup' && e.target === this.big) {
         const w = this.toWorld(at.x, at.y);
-        this.travel(w.x, w.z, null);
+        this.pick(w.x, w.z, null, false);
       }
       this.suppressClick = moved;
       if (pts.size) begin(); else start = null;
@@ -227,8 +254,8 @@ export class MapUI {
       const btn = document.createElement('button');
       btn.className = `map-pin ${cls}`;
       btn.innerHTML = `<span class="dot"></span><span class="label">${label}</span>`;
-      btn.setAttribute('aria-label', `Go to ${label}`);
-      btn.addEventListener('click', (e) => { e.stopPropagation(); if (this.suppressClick) return; this.travel(x, z, label, face); });
+      btn.setAttribute('aria-label', `Choose ${label}`);
+      btn.addEventListener('click', (e) => { e.stopPropagation(); if (this.suppressClick) return; this.pick(x, z, label, face); });
       this.layer.appendChild(btn);
       this.pins.push({ el: btn, x, z });
     };
@@ -241,8 +268,13 @@ export class MapUI {
     const me = document.createElement('div');
     me.className = 'map-me';
     me.setAttribute('aria-hidden', 'true');
+    me.innerHTML = '<i class="map-me-halo"></i><i class="map-me-arrow"></i><span class="map-me-label">You</span>';
     this.layer.appendChild(me);
     this.me = me;
+    this.selEl = document.createElement('div');
+    this.selEl.className = 'map-sel';
+    this.selEl.setAttribute('aria-hidden', 'true');
+    this.layer.appendChild(this.selEl);
   }
 
   draw() {
@@ -259,6 +291,7 @@ export class MapUI {
     g.setTransform(s * dpr, 0, 0, s * dpr, -(left - BOUNDS.minX) * k * dpr, -(top - BOUNDS.minZ) * k * dpr);
     g.drawImage(img, 0, 0);
     g.setTransform(1, 0, 0, 1, 0, 0);
+    if (this.route) this.strokeRoute(g, (x) => (x - left) * k * dpr, (z) => (z - top) * k * dpr, dpr, true);
     // Pins and labels: landmark names once zoomed a little, towns once zoomed further.
     const r = k / this.fitK;
     this.layer.classList.toggle('show-lm', r > 1.7 || this.vw > 900);
@@ -271,8 +304,26 @@ export class MapUI {
     }
     if (this.me && this.player) {
       const x = (this.player.x - left) * k, y = (this.player.z - top) * k;
-      this.me.style.transform = `translate(${x}px, ${y}px) rotate(${(-this.player.heading + Math.PI)}rad)`;
+      this.me.style.transform = `translate(${x}px, ${y}px)`;
+      this.me.style.setProperty('--turn', `${-this.player.heading + Math.PI}rad`);
     }
+    if (this.selEl) {
+      const s = this.sel || this.dest;
+      this.selEl.hidden = !s;
+      if (s) this.selEl.style.transform = `translate(${(s.x - left) * k}px, ${(s.z - top) * k}px)`;
+    }
+  }
+
+  // The route as a dark-cased blue line, like a satnav, ending in a ring at the destination.
+  strokeRoute(g, X, Y, dpr, big) {
+    const p = this.route;
+    g.save();
+    g.lineCap = 'round'; g.lineJoin = 'round';
+    g.beginPath();
+    p.forEach((q, i) => (i ? g.lineTo(X(q.x), Y(q.z)) : g.moveTo(X(q.x), Y(q.z))));
+    g.strokeStyle = 'rgba(8,16,30,0.75)'; g.lineWidth = (big ? 7 : 6) * dpr; g.stroke();
+    g.strokeStyle = ROUTE; g.lineWidth = (big ? 4 : 3.5) * dpr; g.stroke();
+    g.restore();
   }
 
   update(dt, pos, heading) {
@@ -300,13 +351,30 @@ export class MapUI {
       g.fillStyle = store.data.stamps[lm.id] ? '#5cf2a0' : '#ffffff';
       g.fill(); g.lineWidth = 1.5 * dpr; g.strokeStyle = '#0d1520'; g.stroke();
     }
-    // Player arrow at the centre.
+    // Route and destination; a destination off the edge shows as a marker on the rim.
+    if (this.route) this.strokeRoute(g, (x) => (x - pos.x) * k + S / 2, (z) => (z - pos.z) * k + S / 2, dpr, false);
+    if (this.dest) {
+      let u = (this.dest.x - pos.x) * k, v = (this.dest.z - pos.z) * k;
+      const m = S / 2 - 9 * dpr, f = Math.max(Math.abs(u), Math.abs(v)) / m;
+      if (f > 1) { u /= f; v /= f; }
+      g.beginPath(); g.arc(u + S / 2, v + S / 2, 5.5 * dpr, 0, Math.PI * 2);
+      g.fillStyle = '#ffffff'; g.fill(); g.lineWidth = 3 * dpr; g.strokeStyle = ME; g.stroke();
+    }
+    // Player: a blue arrow with a white rim and a soft pulse, the one thing on the map that moves.
     g.save();
     g.translate(S / 2, S / 2);
+    const pulse = (performance.now() / 1400) % 1;
+    g.beginPath(); g.arc(0, 0, (9 + pulse * 9) * dpr, 0, Math.PI * 2);
+    g.fillStyle = `rgba(47,143,255,${0.35 * (1 - pulse)})`; g.fill();
+    g.beginPath(); g.arc(0, 0, 11 * dpr, 0, Math.PI * 2);
+    g.fillStyle = 'rgba(47,143,255,0.22)'; g.fill();
     g.rotate(-heading + Math.PI);
-    const s = 8 * dpr;
-    g.beginPath(); g.moveTo(0, -s); g.lineTo(s * 0.7, s * 0.8); g.lineTo(0, s * 0.35); g.lineTo(-s * 0.7, s * 0.8); g.closePath();
-    g.fillStyle = '#ffffff'; g.fill(); g.lineWidth = 2 * dpr; g.strokeStyle = '#0d1520'; g.stroke();
+    const s = 10 * dpr;
+    g.beginPath(); g.moveTo(0, -s); g.lineTo(s * 0.72, s * 0.8); g.lineTo(0, s * 0.38); g.lineTo(-s * 0.72, s * 0.8); g.closePath();
+    g.lineJoin = 'round';
+    g.lineWidth = 4.5 * dpr; g.strokeStyle = 'rgba(8,16,30,0.6)'; g.stroke();
+    g.lineWidth = 2.5 * dpr; g.strokeStyle = '#ffffff'; g.stroke();
+    g.fillStyle = ME; g.fill();
     g.restore();
     // North marker.
     g.fillStyle = 'rgba(13,21,32,0.75)';

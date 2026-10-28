@@ -35,7 +35,8 @@ Push the repo to GitHub and import it in Vercel. Vercel detects Vite on its own,
 | Sit down (on foot) | X | Sit button |
 | Look around | Drag with the mouse | Drag with a finger |
 | Switch car | V, or click the car | Tap the car, or Menu, Cars |
-| Map and fast travel | M | Tap the minimap |
+| Map: drive there or jump there | M | Tap the minimap |
+| Steer by tilting the phone | | Menu, Settings, Steering, Tilt phone |
 | Learn about the aurora | H, or any (i) on the radio | Menu, Learn, or any (i) on the radio |
 | Field notebook | N | Notebook button |
 | Record a 15 second clip | R | Menu, Settings, Record |
@@ -43,6 +44,19 @@ Push the repo to GitHub and import it in Vercel. Vercel detects Vite on its own,
 | Nitro boost (on by default, can be turned off in Settings) | Space | Slide up from Go; the ring around Go shows the tank |
 
 There is no race and no timer. Nitro is a speed boost that is on by default; you can switch it off in Settings.
+
+**Drive there or jump there.** Tap any place on the map, a landmark pin or open ground, and a card offers both. Jump there drops the car on the nearest road straight away. Drive there plans a route along the roads (cutting across country only for the last stretch to a place off the road) and guides you:
+
+- A blue line on the minimap and the full map.
+- A chip under the minimap with an arrow that points the way, leading into bends, and the distance left. Its × stops the route.
+- A column of light over the destination, visible from kilometres away and widening with distance.
+- The route re-plans if you wander more than about 120 m off it, and ends with an "arrived" toast within 30 m.
+
+Routing lives in `src/world/route.js` (the roads become a graph, joined wherever roads meet, searched with Dijkstra) and the guidance in `src/ui/nav.js`.
+
+On both maps you are a blue arrow with a white rim and a pulsing halo (and a "You" tag on the full map), so you never get mixed up with the white and green landmark dots.
+
+**Tilt steering (phones).** Settings, Steering, Tilt phone: hold the phone like a steering wheel. The roll is read from gravity in screen space, so it works in landscape or portrait however far the phone leans back, with a 3° dead zone and full lock at about 24°. iOS asks for motion access on the next tap. The arrow buttons stay until real tilt readings arrive, and a device with no sensor falls back to buttons.
 
 **Views.** C (or the steering-wheel button) cycles three driving views, and the game remembers your choice:
 
@@ -185,6 +199,7 @@ src/
   world/
     geo.js           coastline, roads, fords, lakes, ice caps, place names
     terrain.js       heightmap, terrain mesh, roads, water, spatial queries
+    route.js         road graph and Dijkstra routing for Drive there
     noise.js         simplex noise and a seeded random number generator
     sky.js           daytime scattering sky, night sky, clouds, lighting, fog, environment map
     time.js          game clock and seasonal sun path
@@ -211,7 +226,8 @@ src/
   ui/
     hud.js           radio, compass, readouts, toasts, look-up meter
     notebook.js      sightings, stamps, today's challenge
-    minimap.js       minimap, full map and fast travel
+    minimap.js       minimap, full map, the drive-or-jump card and fast travel
+    nav.js           Drive there: guide chip, beacon and route progress
     learn.js         Learn panel entries and the How auroras work lesson
     style.css
   audio/
@@ -282,7 +298,7 @@ Play is measured with Google Analytics 4 (property "Chasing Green", ID set in `C
 - `game_start`: month, vehicle, graphics, input (touch or keyboard), trip number.
 - `play_milestone` and `distance_milestone`: at 1 to 120 minutes of actual play and 1 to 500 km driven.
 - `session_summary`: sent when the tab is hidden or closed, with the play seconds, km driven, nitro boosts, aurora sightings and new stamps since the last summary, so they add up across visits. Top speed rides along.
-- Actions: `landmark_stamp`, `aurora_sighting`, `sky_photo`, `challenge_complete`, `postcard_share`, `postcard_save`, `postcard_link_copy`, `fact_share`, `vehicle_change`, `fast_travel`, `menu_open`, `look_up`, `step_out`, `sit_down`, `setting_change`, `graphics_auto_lowered`.
+- Actions: `landmark_stamp`, `aurora_sighting`, `sky_photo`, `challenge_complete`, `postcard_share`, `postcard_save`, `postcard_link_copy`, `fact_share`, `vehicle_change`, `fast_travel`, `nav_start`, `nav_arrive`, `nav_stop`, `menu_open`, `look_up`, `step_out`, `sit_down`, `setting_change`, `graphics_auto_lowered`.
 
 Event parameters such as landmark, vehicle, place and aurora type are registered as custom dimensions, and play time, distance driven, nitro boosts, aurora sightings and new stamps as custom metrics. Visitors with an ad blocker are not counted.
 

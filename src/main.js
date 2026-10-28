@@ -14,6 +14,7 @@ import { Towns } from './world/towns.js';
 import { Obstacles } from './world/obstacles.js';
 import { Puddles, Particles, SnowFall } from './world/effects.js';
 import { MapUI } from './ui/minimap.js';
+import { Nav } from './ui/nav.js';
 import { Sheet } from './ui/sheet.js';
 import { haptics } from './ui/haptics.js';
 import { Learn } from './ui/learn.js';
@@ -91,7 +92,7 @@ const volumes = settings.volumes || (settings.volumes = { master: 1, music: sett
 audio.setLevels(volumes);
 
 let world = null, sky, aurora, landmarks, jeep, walker, scatter, grass, props, post = null;
-let obstacles, puddles, spray, dust, powder, powderCloud, mapUI, towns, snow;
+let obstacles, puddles, spray, dust, powder, powderCloud, mapUI, towns, snow, nav;
 const snowNoise = createNoise2D(4040);
 let wasInPuddle = false, wasInWater = false, shake = 0, sitting = false, sitSpeedBefore = 1, camHeading = null;
 let started = false;
@@ -211,7 +212,11 @@ async function buildWorld(progress) {
   const sp = nearestRoadAnywhere(START.x, START.z);
   jeep.place(sp.x, sp.z, sp.heading);
   await stage('Drawing the map', 0.95, 180);
-  mapUI = new MapUI({ landmarks, onTravel: fastTravel });
+  nav = new Nav(scene, {
+    onArrive: (d) => { haptics.play('success'); hud.toast(`You have arrived at ${d.label}.`, { seconds: 4, priority: 2 }); track('nav_arrive', { destination: d.label }); },
+    onStop: (d, byUser) => { if (byUser) { hud.toast('Route cleared.', { seconds: 2, priority: 2 }); track('nav_stop', { destination: d.label }); } },
+  });
+  mapUI = new MapUI({ landmarks, onTravel: fastTravel, onDrive: driveTo, describe: (x, z) => describePlace(x, z).label });
   { const L = landmarks.list.find((l) => l.id === 'landmannalaugar'); if (L) surfaceUniforms.uRhyolite.value.set(L.x, L.z, 170); }
   surfaceUniforms.uSnowLine.value = [16, 18, 24, 32, 55, 95, 95, 85, 55, 32, 24, 18][clock.month];
   // Compile every shader now, in parallel where the browser allows, instead of freezing the
@@ -632,6 +637,7 @@ function openSettings() {
   $('set-nitro').value = settings.nitro || 'on';
   $('set-haptics').value = settings.haptics || 'on';
   $('set-places').value = placeCards();
+  $('set-steering').value = settings.steering || 'buttons';
   settingsDialog.showModal();
   settingsDialog.dispatchEvent(new Event('sync'));
 }
@@ -644,6 +650,43 @@ $('set-places').addEventListener('change', (e) => {
   if (card.current) card.wanted = placeCards() === 'all' || (placeCards() === 'new' && !store.data.stamps[card.current.id]);
   track('setting_change', { setting: 'place_cards', setting_value: e.target.value });
 });
+// ---------- Tilt steering (touch screens) ----------
+// The arrow buttons stay until the first tilt reading arrives, so a phone that cannot report tilt
+// (or has not been allowed to) is never left without steering.
+const needsTiltPermission = () => typeof window.DeviceOrientationEvent?.requestPermission === 'function';
+function applySteering() {
+  const tilt = settings.steering === 'tilt' && document.body.classList.contains('has-touch');
+  input.setTilt(tilt);
+  document.body.classList.toggle('tilt-steer', tilt && input.tiltSeen);
+  clearTimeout(applySteering.timer);
+  if (!tilt || needsTiltPermission()) return;
+  // No readings after a moment and no permission to wait for: there is no sensor.
+  applySteering.timer = setTimeout(() => {
+    if (!input.tiltOn || input.tiltSeen) return;
+    settings.steering = 'buttons'; store.save(); applySteering();
+    hud.toast('This device does not report tilt, so steering is back on the buttons.', { seconds: 5, priority: 2 });
+  }, 2500);
+}
+input.onTiltStart = () => document.body.classList.add('tilt-steer');
+// iOS lets a page read tilt only after asking from a tap, so ask on the next tap while it waits.
+let tiltAsk = 'idle';
+addEventListener('touchend', () => {
+  if (tiltAsk !== 'idle' || settings.steering !== 'tilt' || input.tiltSeen || !needsTiltPermission() || !document.body.classList.contains('has-touch')) return;
+  tiltAsk = 'asking';
+  Input.askTilt().then((ok) => {
+    tiltAsk = ok ? 'idle' : 'refused';
+    if (!ok) { settings.steering = 'buttons'; store.save(); hud.toast('Motion access was not allowed, so steering stays on the buttons.', { seconds: 5, priority: 2 }); }
+    applySteering();
+  });
+});
+$('set-steering').addEventListener('change', (e) => {
+  const v = e.target.value;
+  settings.steering = v; store.save();
+  if (v === 'tilt') { tiltAsk = 'idle'; Input.askTilt().then(applySteering); hud.toast('Hold the phone like a steering wheel. Level is straight ahead.', { seconds: 5, priority: 2 }); }
+  applySteering();
+  track('setting_change', { setting: 'steering', setting_value: v });
+});
+
 $('set-haptics').addEventListener('change', (e) => {
   settings.haptics = e.target.value; store.save();
   haptics.enabled = settings.haptics !== 'off';
@@ -730,6 +773,7 @@ function syncTouch() {
   const show = settings.touch === 'on' || (settings.touch === 'auto' && (isTouch || matchMedia('(pointer: coarse)').matches));
   $('touch').hidden = !show;
   document.body.classList.toggle('has-touch', show);
+  if (!!input.tiltOn !== (show && settings.steering === 'tilt')) applySteering();
 }
 input.bindSteerPair($('t-left'), $('t-right'), () => haptics.play('select', 0));
 input.bindGasButton($('t-gas'), (up) => { if (up) nitroHint(); });
@@ -804,6 +848,7 @@ startBtn.addEventListener('click', () => {
   setTimeout(() => ($('intro').hidden = true), 900);
   hud.show();
   syncTouch();
+  if (settings.steering === 'tilt') Input.askTilt().then(applySteering);
   if (isTouch) { touchLayout(); goLandscape(); }
   canvas.focus();
   hud.toast('Watch the Kp on the aurora radio. Tap the (i) next to it to learn what it means.', { seconds: 7 });
@@ -976,6 +1021,13 @@ function drivingHaptics(dt) {
 }
 
 // Jump to any spot: the nearest road there, facing the place if it is a landmark.
+// Drive there: plan a road route from here and guide the way with the chip, the maps and a beacon.
+function driveTo(x, z, label) {
+  nav.start({ x, z, label }, activePos());
+  hud.toast(`Route set. Follow the blue line to ${label}; a column of light marks the spot.`, { seconds: 5, priority: 2 });
+  track('nav_start', { destination: label, distance_km: Math.round(nav.route.length / 100) / 10 });
+}
+
 function fastTravel(x, z, label, face) {
   const r = nearestRoadAnywhere(x, z);
   if (!r) return;
@@ -1107,6 +1159,8 @@ function frame(now) {
     $('nitro-bar').parentElement.classList.toggle('is-on', jeep.boosting);
     $('t-gas').style.setProperty('--tank', jeep.nitro.toFixed(3));
     $('t-gas').classList.toggle('is-boosting', jeep.boosting);
+    nav.update(dt, activePos(), mode === 'walk' ? walker.heading : jeep.heading, t);
+    mapUI.route = nav.route?.pts || null; mapUI.dest = nav.dest;
     mapUI.update(dt, activePos(), mode === 'walk' ? walker.heading : jeep.heading);
     hud.update(dt, {
       kmh: jeep.kmh, walking: mode === 'walk', where: hud.whereText || '', clockLabel: clock.label(), season: clock.season, monthName: clock.m.name, aurora: a,
@@ -1287,7 +1341,7 @@ window.chasingGreen = {
 // handlers run. The long month list keeps its drop-down.
 for (const sel of document.querySelectorAll('.settings-grid select:not(.month-select)')) {
   const seg = document.createElement('div');
-  seg.className = sel.classList.contains('desk-only') ? 'seg desk-only' : 'seg';
+  seg.className = ['seg', ...['desk-only', 'touch-only'].filter((c) => sel.classList.contains(c))].join(' ');
   seg.setAttribute('role', 'radiogroup');
   seg.setAttribute('aria-label', document.querySelector(`label[for="${sel.id}"]`)?.textContent || '');
   const sync = () => seg.querySelectorAll('button').forEach((b) => { const on = b.dataset.value === sel.value; b.classList.toggle('is-on', on); b.setAttribute('aria-checked', String(on)); });

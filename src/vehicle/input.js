@@ -102,6 +102,38 @@ export class Input {
     el.addEventListener('contextmenu', (e) => e.preventDefault());
   }
 
+  // Tilt steering: hold the phone like a wheel. World up, turned into screen space, gives the
+  // roll, so it works in landscape or portrait however far the phone leans back.
+  setTilt(on) {
+    this.tiltOn = on;
+    this.tilt = 0;
+    if (on && !this.onOrient) {
+      this.tiltSeen = false;
+      this.onOrient = (e) => {
+        if (e.beta == null || e.gamma == null) return;
+        if (!this.tiltSeen) { this.tiltSeen = true; this.onTiltStart?.(); }
+        const b = (e.beta * Math.PI) / 180, g = (e.gamma * Math.PI) / 180;
+        const ux = -Math.cos(b) * Math.sin(g), uy = Math.sin(b);
+        const a = ((screen.orientation?.angle ?? window.orientation ?? 0) * Math.PI) / 180;
+        const sx = ux * Math.cos(a) - uy * Math.sin(a), sy = ux * Math.sin(a) + uy * Math.cos(a);
+        const roll = Math.atan2(sx, sy); // positive when the phone turns anticlockwise: steer left
+        const DEAD = 0.05, FULL = 0.42; // about 3 and 24 degrees
+        this.tilt = Math.sign(roll) * Math.min(1, Math.max(0, Math.abs(roll) - DEAD) / (FULL - DEAD));
+      };
+      addEventListener('deviceorientation', this.onOrient);
+    } else if (!on && this.onOrient) {
+      removeEventListener('deviceorientation', this.onOrient);
+      this.onOrient = null;
+    }
+  }
+  // iOS asks before a page may read the tilt, and only from a tap.
+  static async askTilt() {
+    const D = window.DeviceOrientationEvent;
+    if (!D) return false;
+    if (typeof D.requestPermission !== 'function') return true;
+    try { return (await D.requestPermission()) === 'granted'; } catch { return false; }
+  }
+
   get throttle() {
     if (!this.enabled) return 0;
     const k = this.keys;
@@ -116,6 +148,7 @@ export class Input {
     let s = 0;
     if (k.has('a') || k.has('arrowleft') || this.touch.left) s += 1;
     if (k.has('d') || k.has('arrowright') || this.touch.right) s -= 1;
+    if (this.tiltOn) s = Math.max(-1, Math.min(1, s + this.tilt));
     return s;
   }
   get handbrake() { return this.enabled && this.keys.has('shift'); }

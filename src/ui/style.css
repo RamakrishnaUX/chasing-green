@@ -367,9 +367,38 @@ dialog.sheet::backdrop { background: rgba(4, 8, 12, 0.42); -webkit-backdrop-filt
 .map-pin.is-town .label { left: 14px; font-weight: 400; font-size: 0.7rem; background: rgba(255, 255, 255, 0.66); }
 .show-lm .map-pin.is-lm .label, .show-town .map-pin.is-town .label { display: block; }
 .map-pin.is-lm { z-index: 2; }
-.map-me { position: absolute; left: -12px; top: -12px; width: 24px; height: 24px; z-index: 3; pointer-events: none;
-  background: no-repeat center / contain url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2l8 19-8-5-8 5z' fill='%23ffffff' stroke='%230d1520' stroke-width='2' stroke-linejoin='round'/%3E%3C/svg%3E");
-  filter: drop-shadow(0 0 6px rgba(92, 242, 160, 0.9)); }
+/* You: a blue arrow with a white rim, a pulsing halo and a "You" tag, unlike any landmark dot. */
+.map-me { position: absolute; left: 0; top: 0; width: 0; height: 0; z-index: 4; pointer-events: none; }
+.map-me-arrow { position: absolute; left: -15px; top: -15px; width: 30px; height: 30px; transform: rotate(var(--turn, 0rad)); filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.55));
+  background: no-repeat center / contain url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2.5l7.5 18-7.5-4.6-7.5 4.6z' fill='%232f8fff' stroke='%23ffffff' stroke-width='2.2' stroke-linejoin='round'/%3E%3C/svg%3E"); }
+.map-me-halo { position: absolute; left: -24px; top: -24px; width: 48px; height: 48px; border-radius: 50%; background: rgba(47, 143, 255, 0.28); box-shadow: 0 0 0 2px rgba(47, 143, 255, 0.55);
+  animation: me-pulse 1.6s ease-out infinite; }
+@keyframes me-pulse { from { transform: scale(0.45); opacity: 1; } to { transform: scale(1.35); opacity: 0; } }
+.map-me-label { position: absolute; left: 14px; top: -30px; padding: 1px 8px; border-radius: 999px; background: #2f8fff; color: #fff; font-size: 0.72rem; font-weight: 700;
+  box-shadow: 0 0 0 1.5px #fff, 0 2px 6px rgba(0, 0, 0, 0.4); }
+@media (prefers-reduced-motion: reduce) { .map-me-halo { animation: none; opacity: 0.6; } }
+.map-sel { position: absolute; left: -11px; top: -11px; width: 22px; height: 22px; border-radius: 50%; border: 5px solid #2f8fff; background: #fff; z-index: 3; pointer-events: none;
+  box-shadow: 0 0 0 2px rgba(8, 16, 30, 0.6), 0 2px 6px rgba(0, 0, 0, 0.4); }
+.map-sel[hidden] { display: none; }
+/* Picking a place on the map: drive there or jump there. */
+.map-pick { position: absolute; left: 12px; right: 68px; bottom: 12px; max-width: 440px; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px;
+  padding: 12px 44px 12px 14px; border-radius: var(--r-lg); }
+.map-pick[hidden] { display: none; }
+.map-pick-text { display: flex; flex-direction: column; flex: 1 1 140px; min-width: 0; }
+.map-pick-text b { font-family: var(--serif); font-size: 1.02rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.map-pick-text span { font-size: 0.8rem; color: var(--ink-2); }
+.map-pick-actions { display: flex; gap: 8px; }
+.map-pick-close { position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; border: 0; border-radius: 50%; background: rgba(255, 255, 255, 0.1); color: var(--ink); display: grid; place-items: center; }
+.map-pick-close svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; }
+@media (max-height: 520px) {
+  .map-pick { right: 196px; max-width: none; flex-wrap: nowrap; gap: 8px; padding: 7px 7px 7px 12px; }
+  .map-pick-text { flex: 1 1 auto; }
+  .map-pick-text b { font-size: 0.92rem; }
+  .map-pick-text span { font-size: 0.74rem; }
+  .map-pick-actions { gap: 6px; }
+  .map-pick-actions .btn { padding: 0 0.7rem; }
+  .map-pick-close { position: static; flex: none; }
+}
 .map-hint { position: absolute; left: 12px; top: 12px; margin: 0; padding: 6px 12px; border-radius: 999px; font-size: 0.78rem; color: var(--ink-2); pointer-events: none; }
 .map-tools { position: absolute; right: 12px; bottom: 12px; display: flex; flex-direction: column; border-radius: 18px; overflow: hidden; }
 .map-tools button { width: 44px; height: 44px; display: grid; place-items: center; border: 0; background: transparent; color: var(--ink); transition: background 0.2s; }
@@ -822,3 +851,28 @@ input.vol::-moz-range-thumb { width: 24px; height: 24px; border-radius: 50%; bor
   background: radial-gradient(ellipse 78% 72% at 50% 55%, transparent 58%, rgba(92, 242, 200, 0.3) 100%); }
 .boost-glow.is-on { opacity: 1; }
 @media (prefers-reduced-motion: reduce) { .boost-glow { transition: none; } }
+
+/* ---------- Drive there: the route chip sits under the minimap ---------- */
+.nav { position: absolute; left: calc(14px + var(--safe-l)); top: calc(var(--tl-bottom, calc(106px + var(--safe-t))) + 190px); z-index: 2;
+  display: flex; align-items: center; gap: 10px; max-width: 250px; padding: 6px 6px 6px 7px; border-radius: 999px; }
+.nav[hidden] { display: none; }
+.nav-dir { flex: none; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: #2f8fff; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.85); }
+.nav-dir svg { width: 19px; height: 19px; fill: #fff; }
+.nav-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
+.nav-text b { font-size: 0.86rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nav-text span { font-size: 0.78rem; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.nav-stop { flex: none; margin-left: auto; width: 30px; height: 30px; border: 0; border-radius: 50%; background: rgba(255, 255, 255, 0.1); color: var(--ink); display: grid; place-items: center; }
+.nav-stop svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; }
+body.is-looking #hud .nav { opacity: 0; pointer-events: none; }
+body.has-touch .nav { top: calc(var(--tl-bottom, calc(106px + var(--safe-t))) + 114px); max-width: 230px; }
+/* Phones sideways: the minimap is low on the left, so the chip goes just under the speed panel. */
+@media (max-height: 520px) { body.has-touch .nav { top: calc(var(--tl-bottom, calc(70px + var(--safe-t))) + 6px); max-width: 220px; } }
+/* Phones upright: under the minimap, with the sky hint moved below it. */
+@media (orientation: portrait) and (max-width: 600px) {
+  body.has-touch .nav { top: calc(198px + var(--safe-t)); left: calc(10px + var(--safe-l)); max-width: calc(100vw - 20px - var(--safe-l) - var(--safe-r)); }
+  body.has-touch.nav-on .sky-hint { top: calc(252px + var(--safe-t)); }
+}
+
+/* ---------- Steering setting: only on touch screens; tilt hides the arrow buttons ---------- */
+body:not(.has-touch) .touch-only { display: none !important; }
+body.has-touch.tilt-steer .touch-left { visibility: hidden; }
