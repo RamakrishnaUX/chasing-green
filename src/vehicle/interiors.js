@@ -123,7 +123,7 @@ function camper() {
   }
   dash(g, panel, 2.4, 1.5, 0.06, 0, 1.95, 1.0);
   return { group: g, steer, needles, draw, closed: true,
-    views: { cockpit: { eye: [0.6, 2.38, 1.5], fov: 72, pitch: -0.1 }, hood: { eye: [0, 3.02, 2.2], fov: 64, pitch: -0.16 } } };
+    views: { cockpit: { eye: [0.6, 2.38, 1.5], fov: 72, pitch: -0.1, snowFade: 1.0 }, hood: { eye: [0, 3.02, 2.2], fov: 64, pitch: -0.16 } } };
 }
 
 function race() {

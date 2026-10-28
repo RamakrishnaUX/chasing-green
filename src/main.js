@@ -1050,7 +1050,8 @@ function frame(now) {
   const band = snowNoise(p.x * 0.0022 + clock.realSeconds * 0.004, p.z * 0.0022) * 0.5 + 0.5;
   const altitude = Math.max(0, (heightAt(p.x, p.z) - 6) / 30) + Math.max(0, -p.z / 1050);
   const snowTarget = cold && a.cloud > 0.5 ? clamp((band - 0.45) * 3 + altitude * 0.8, 0, 1) * (clock.month === 11 || clock.month === 0 || clock.month === 1 ? 1 : 0.6) : 0;
-  snow.update(dt, camera, snowTarget, w);
+  const inside = mode === 'chase' && driveView === 'cockpit';
+  snow.update(dt, camera, snowTarget, w, inside ? jeep.interior.views.cockpit.snowFade ?? 0.6 : 0.4);
   if (snow.intensity > 0.02) { sky.fog.density += snow.intensity * 0.0012; sky.fog.color.lerp(new THREE.Color(0xd9dfe4), snow.intensity * 0.5); }
   grass?.update(camera, w);
   props?.setNight(dark);

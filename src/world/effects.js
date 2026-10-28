@@ -135,50 +135,76 @@ export class Puddles {
 
 // ---------- Snowfall ----------
 // Flakes in a box around the camera that wrap as it moves. Intensity 0..1 fades them in and out.
-export class SnowFall {
-  constructor(scene, count = 2200) {
-    this.n = count;
-    this.box = { x: 70, y: 36, z: 70 };
+// One layer of flakes. Flakes stay put in the world apart from falling and drifting, and wrap
+// round a box that follows the camera, so driving carries you through them. Flakes right in
+// front of the eye fade out: they would be big blurry blobs, or inside a closed cabin.
+class FlakeLayer {
+  constructor(scene, count, box, lift, size) {
+    this.n = count; this.box = box; this.lift = lift;
     this.pos = new Float32Array(count * 3);
     this.seed = new Float32Array(count);
     for (let i = 0; i < count; i++) {
-      this.pos[i * 3] = (Math.random() - 0.5) * this.box.x;
-      this.pos[i * 3 + 1] = Math.random() * this.box.y;
-      this.pos[i * 3 + 2] = (Math.random() - 0.5) * this.box.z;
+      this.pos[i * 3] = (Math.random() - 0.5) * box.x;
+      this.pos[i * 3 + 1] = (Math.random() - 0.5) * box.y;
+      this.pos[i * 3 + 2] = (Math.random() - 0.5) * box.z;
       this.seed[i] = Math.random();
     }
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3));
-    this.mat = new THREE.PointsMaterial({ color: 0xf4f8fb, size: 0.32, map: softSprite(), transparent: true, opacity: 0, depthWrite: false, sizeAttenuation: true });
+    this.mat = new THREE.PointsMaterial({ color: 0xf4f8fb, size, map: softSprite(), transparent: true, opacity: 0, depthWrite: false, sizeAttenuation: true });
+    this.fade = { value: 0.4 };
+    this.mat.onBeforeCompile = (sh) => {
+      sh.uniforms.uFade = this.fade;
+      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform float uFade;\nvarying float vNear;')
+        .replace('#include <fog_vertex>', '#include <fog_vertex>\nvNear = smoothstep(uFade, uFade * 2.0, -mvPosition.z);');
+      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vNear;')
+        .replace('#include <premultiplied_alpha_fragment>', 'gl_FragColor.a *= vNear;\n#include <premultiplied_alpha_fragment>');
+    };
     this.points = new THREE.Points(g, this.mat);
     this.points.frustumCulled = false;
     this.points.visible = false;
     scene.add(this.points);
-    this.intensity = 0;
-    this.anchor = new THREE.Vector3();
+    this.anchor = null;
   }
-  update(dt, camera, target, wind) {
-    this.intensity += (target - this.intensity) * Math.min(1, dt * 0.4);
-    this.points.visible = this.intensity > 0.01;
-    if (!this.points.visible) return;
-    this.mat.opacity = 0.75 * Math.min(1, this.intensity);
-    this.points.geometry.setDrawRange(0, Math.round(this.n * Math.min(1, this.intensity * 1.2)));
-    this.anchor.copy(camera.position);
-    const p = this.pos, b = this.box, wx = (wind?.x || 0) * 0.08, wz = (wind?.z || 0) * 0.08;
+  update(dt, eye, intensity, wind, fade) {
+    this.fade.value = fade;
+    this.mat.opacity = 0.75 * Math.min(1, intensity);
+    this.points.geometry.setDrawRange(0, Math.round(this.n * Math.min(1, intensity * 1.2)));
+    const c = { x: eye.x, y: eye.y + this.lift, z: eye.z };
+    const d = this.anchor ? { x: c.x - this.anchor.x, y: c.y - this.anchor.y, z: c.z - this.anchor.z } : { x: 0, y: 0, z: 0 };
+    this.anchor = c;
+    const p = this.pos, b = this.box, hx = b.x / 2, hy = b.y / 2, hz = b.z / 2;
+    const wx = (wind?.x || 0) * 0.08, wz = (wind?.z || 0) * 0.08, now = performance.now() * 0.001;
+    const wrap = (v, h, size) => ((v + h) % size + size) % size - h;
     for (let i = 0; i < this.n; i++) {
-      const s = this.seed[i];
-      p[i * 3] += (Math.sin(s * 6.28 + performance.now() * 0.001 * (0.5 + s)) * 0.6 + wx) * dt;
-      p[i * 3 + 1] -= (1.4 + s * 1.8) * dt;
-      p[i * 3 + 2] += (Math.cos(s * 4.1 + performance.now() * 0.0013) * 0.6 + wz) * dt;
-      if (p[i * 3 + 1] < -2) p[i * 3 + 1] += b.y;
+      const s = this.seed[i], k = i * 3;
+      p[k] = wrap(p[k] + (Math.sin(s * 6.28 + now * (0.5 + s)) * 0.6 + wx) * dt - d.x, hx, b.x);
+      p[k + 1] = wrap(p[k + 1] - (1.4 + s * 1.8) * dt - d.y, hy, b.y);
+      p[k + 2] = wrap(p[k + 2] + (Math.cos(s * 4.1 + now * 1.3) * 0.6 + wz) * dt - d.z, hz, b.z);
     }
-    // Keep the box centred on the camera without teleporting flakes: offset the whole cloud.
-    this.points.position.set(this.anchor.x, this.anchor.y - 8, this.anchor.z);
-    const sx = b.x / 2, sz = b.z / 2;
-    for (let i = 0; i < this.n; i++) {
-      if (p[i * 3] > sx) p[i * 3] -= b.x; else if (p[i * 3] < -sx) p[i * 3] += b.x;
-      if (p[i * 3 + 2] > sz) p[i * 3 + 2] -= b.z; else if (p[i * 3 + 2] < -sz) p[i * 3 + 2] += b.z;
-    }
+    this.points.position.set(c.x, c.y, c.z);
     this.points.geometry.attributes.position.needsUpdate = true;
+  }
+}
+
+// Snow showers: a wide sparse layer gives depth, and a dense layer of finer flakes close to the
+// camera keeps snow visible right in front of the car, including from the hood and cockpit.
+export class SnowFall {
+  constructor(scene, count = 2200) {
+    this.layers = [
+      new FlakeLayer(scene, count, { x: 70, y: 36, z: 70 }, 10, 0.32),
+      new FlakeLayer(scene, Math.round(count * 0.7), { x: 24, y: 14, z: 24 }, 3, 0.17),
+    ];
+    this.intensity = 0;
+  }
+  // fade: flakes nearer the eye than this (in metres) fade out, so none fall inside the cabin.
+  update(dt, camera, target, wind, fade = 0.4) {
+    this.intensity += (target - this.intensity) * Math.min(1, dt * 0.4);
+    const on = this.intensity > 0.01;
+    for (const l of this.layers) {
+      l.points.visible = on;
+      if (on) l.update(dt, camera.position, this.intensity, wind, fade);
+      else l.anchor = null;
+    }
   }
 }

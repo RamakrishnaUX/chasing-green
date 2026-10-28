@@ -16,8 +16,9 @@ const M = {
   rubber: () => new THREE.MeshStandardMaterial({ color: 0x141414, metalness: 0, roughness: 0.92 }),
   metal: () => new THREE.MeshStandardMaterial({ color: 0x8b8f94, metalness: 0.9, roughness: 0.35 }),
   carbon: () => new THREE.MeshStandardMaterial({ color: 0x101113, metalness: 0.4, roughness: 0.3 }),
-  // Tagged so the inside views can lighten it: tinted glass is near black from inside.
-  glass: () => Object.assign(new THREE.MeshPhysicalMaterial({ color: 0x0b1216, metalness: 0.1, roughness: 0.07, clearcoat: 1, transparent: true, opacity: 0.78 }), { userData: { glass: true } }),
+  // Tagged so the inside views can lighten it: tinted glass is near black from inside. It writes no
+  // depth, so snow and spray behind a windscreen still draw.
+  glass: () => Object.assign(new THREE.MeshPhysicalMaterial({ color: 0x0b1216, metalness: 0.1, roughness: 0.07, clearcoat: 1, transparent: true, opacity: 0.78, depthWrite: false }), { userData: { glass: true } }),
   leather: () => new THREE.MeshStandardMaterial({ color: 0x5a3420, metalness: 0, roughness: 0.6 }),
   white: () => new THREE.MeshStandardMaterial({ color: 0xf2f2ee, metalness: 0, roughness: 0.5 }),
   red: () => new THREE.MeshStandardMaterial({ color: 0xc0242b, metalness: 0.2, roughness: 0.4 }),
@@ -596,7 +597,7 @@ function buildCamper() {
 function buildRace() {
   const g = new THREE.Group();
   const P = new THREE.MeshPhysicalMaterial({ color: 0xff6a00, metalness: 0.5, roughness: 0.18, clearcoat: 1, clearcoatRoughness: 0.03 });
-  const cf = M.carbon(), gls = Object.assign(new THREE.MeshPhysicalMaterial({ color: 0x050607, metalness: 0.2, roughness: 0.04, clearcoat: 1, transparent: true, opacity: 0.86 }), { userData: { glass: true } });
+  const cf = M.carbon(), gls = Object.assign(new THREE.MeshPhysicalMaterial({ color: 0x050607, metalness: 0.2, roughness: 0.04, clearcoat: 1, transparent: true, opacity: 0.86, depthWrite: false }), { userData: { glass: true } });
   const lightMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xeaf4ff, emissiveIntensity: 0.6, roughness: 0.1 });
   const tailMat = new THREE.MeshStandardMaterial({ color: 0x5a0c0c, emissive: 0xff1010, emissiveIntensity: 0.7, roughness: 0.2 });
   const R = 0.36, track = 0.84, wbF = 1.38, wbR = -1.32;
