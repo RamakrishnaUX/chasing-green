@@ -81,7 +81,7 @@ function jeep() {
   const draw = radio(g, { x: -0.05, y: 1.75, z: 0.2 });
   const steer = wheel(g, { x: 0.4, y: 1.83, z: 0.04, tilt: 0.5, rim: std(0x4a4f57, 0.45, 0.4, { emissive: 0x0c1a14, emissiveIntensity: 0.5 }) });
   return { group: g, steer, needles, draw, closed: false,
-    views: { cockpit: { eye: [0.4, 2.02, -0.22], fov: 70, pitch: -0.08 }, hood: { eye: [0, 1.98, 0.86], fov: 66, pitch: -0.07 } } };
+    views: { cockpit: { eye: [0.4, 2.08, -0.22], fov: 70, pitch: -0.11 }, hood: { eye: [0, 1.94, 0.86], fov: 66, pitch: -0.08 } } };
 }
 
 function vintage(model) {

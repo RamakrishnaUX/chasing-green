@@ -192,8 +192,10 @@ function buildJeep(color = 0x8fc31f) {
   g.add(mesh(new THREE.BoxGeometry(1.3, 0.28, 4.2), blk, 0, 0.68, 0)); // frame
   // Tub with a lower body line, bonnet, cowl.
   g.add(mesh(rbox(1.8, 0.72, 4.15, 0.07), P, 0, 1.16, -0.05));
-  g.add(mesh(rbox(1.66, 0.2, 1.42, 0.09), P, 0, 1.6, 1.42));
-  for (const x of [-0.45, 0.45]) g.add(mesh(rbox(0.32, 0.03, 0.52, 0.012), pl, x, 1.71, 1.32));
+  // The bonnet slopes from the cowl down to the grille so the road shows over it from the driver's seat.
+  const bonnet = new THREE.Group(); bonnet.position.set(0, 1.515, 1.42); bonnet.rotation.x = 0.12; g.add(bonnet);
+  bonnet.add(mesh(rbox(1.66, 0.2, 1.42, 0.09), P));
+  for (const x of [-0.45, 0.45]) bonnet.add(mesh(rbox(0.32, 0.03, 0.52, 0.012), pl, x, 0.11, -0.1));
   // Seven-slot grille, round LED headlamps with halo, fog lamps.
   g.add(mesh(rbox(1.68, 0.66, 0.1, 0.05), P, 0, 1.2, 2.14));
   for (let i = -3; i <= 3; i++) g.add(mesh(rbox(0.08, 0.4, 0.05, 0.025), blk, i * 0.12, 1.24, 2.19));
