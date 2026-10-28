@@ -49,7 +49,7 @@ There is no race and no timer. Nitro is a speed boost that is on by default; you
 
 - A blue line on the minimap and the full map.
 - A chip under the minimap with an arrow that points the way, leading into bends, and the distance left. Its × stops the route.
-- A column of light over the destination, visible from kilometres away and widening with distance.
+- A slim, faint pillar of light over the destination, about 70 m tall, that widens a little far away.
 - The route re-plans if you wander more than about 120 m off it, and ends with an "arrived" toast within 30 m.
 
 Routing lives in `src/world/route.js` (the roads become a graph, joined wherever roads meet, searched with Dijkstra) and the guidance in `src/ui/nav.js`.

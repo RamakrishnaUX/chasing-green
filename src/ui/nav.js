@@ -12,22 +12,22 @@ export function formatDistance(m) {
   return `${Math.max(10, Math.round(m / 10) * 10)} m`;
 }
 
-// A tall soft column: bright at the ground, fading to nothing at the top. Drawn without fog so
-// it reads through haze, and widened with distance so it never shrinks to a hairline.
+// A slim, faint pillar of light: brightest at the ground, gone by about 60 m up. Drawn without fog
+// so it still reads through haze, and only a little wider far away so it never vanishes.
 function makeBeacon() {
   const c = document.createElement('canvas');
   c.width = 4; c.height = 128;
   const g = c.getContext('2d'), grad = g.createLinearGradient(0, 128, 0, 0);
-  grad.addColorStop(0, 'rgba(255,255,255,1)');
-  grad.addColorStop(0.25, 'rgba(255,255,255,0.55)');
+  grad.addColorStop(0, 'rgba(255,255,255,0.9)');
+  grad.addColorStop(0.3, 'rgba(255,255,255,0.3)');
   grad.addColorStop(1, 'rgba(255,255,255,0)');
   g.fillStyle = grad; g.fillRect(0, 0, 4, 128);
   const tex = new THREE.CanvasTexture(c);
   const mat = (color, opacity) => new THREE.MeshBasicMaterial({ color, alphaMap: tex, transparent: true, opacity, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false });
   const group = new THREE.Group();
-  const outer = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 3.2, 240, 24, 1, true), mat(0x4da3ff, 0.55));
-  const core = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.9, 240, 12, 1, true), mat(0xd8ecff, 0.9));
-  for (const m of [outer, core]) { m.position.y = 120; m.frustumCulled = false; group.add(m); }
+  const outer = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.8, 70, 16, 1, true), mat(0x4da3ff, 0.22));
+  const core = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 70, 8, 1, true), mat(0xd8ecff, 0.4));
+  for (const m of [outer, core]) { m.position.y = 35; m.frustumCulled = false; group.add(m); }
   group.visible = false;
   group.userData.outer = outer.material;
   return group;
@@ -102,8 +102,9 @@ export class Nav {
     this.arrow.style.transform = `rotate(${-rel}rad)`;
     const text = formatDistance(Math.max(toDest, bd + cum[cum.length - 1] - cum[best]));
     if (text !== this.distText) { this.distText = text; this.distEl.textContent = text; }
-    // The beacon breathes, and widens with distance so it stays visible.
-    this.beacon.scale.set(Math.max(1, toDest / 260), 1, Math.max(1, toDest / 260));
-    this.beacon.userData.outer.opacity = 0.45 + Math.sin(t * 2.4) * 0.12;
+    // The beacon breathes gently and widens a little with distance so it stays findable.
+    const w = Math.min(3, Math.max(1, toDest / 500));
+    this.beacon.scale.set(w, 1, w);
+    this.beacon.userData.outer.opacity = 0.2 + Math.sin(t * 1.6) * 0.04;
   }
 }
