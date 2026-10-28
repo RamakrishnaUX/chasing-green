@@ -7,6 +7,7 @@ import { VEHICLES, SURFACE_DRAG } from './specs.js';
 import { NitroFX } from './nitrofx.js';
 import { bakeStatic } from '../world/bake.js';
 import { solidStep, solidTopAt } from '../world/solids.js';
+import { buildInterior } from './interiors.js';
 
 // The player's car. Kept under the old name so the rest of the game needs no changes;
 // setType() swaps between the Jeep, the vintage roadster and the race car.
@@ -63,6 +64,15 @@ export class Jeep {
     for (const w of this.model.wheels) w.pivot.userData.dynamic = true;
     bakeStatic(this.model.group);
     this.body = this.model.group;
+    // The cockpit: built once per car, merged except for the parts that move.
+    this.interior = buildInterior(kind, this.model);
+    for (const n of Object.values(this.interior.needles)) n.userData.dynamic = true;
+    if (this.interior.steer) this.interior.steer.userData.dynamic = true;
+    bakeStatic(this.interior.group);
+    this.body.add(this.interior.group);
+    this.glass = [];
+    this.body.traverse((o) => { const m = o.material; if (m?.userData?.glass && !this.glass.includes(m)) { m.userData.opacity ??= m.opacity; this.glass.push(m); } });
+    this.setView(this.view || 'chase');
     this.wheels = this.model.wheels;
     this.lightMat = this.model.lightMat;
     this.tailMat = this.model.tailMat;
@@ -72,6 +82,16 @@ export class Jeep {
     this.nitroFx.place(this.model.exhaust);
     this.vF = 0; this.vL = 0;
     if (this.pos) this.sync(0);
+  }
+
+  // chase, hood or cockpit. Open cars always show their cockpit; closed ones only from inside,
+  // where their tinted glass is lightened so the road is not seen through near-black panes.
+  setView(view) {
+    this.view = view;
+    if (!this.interior) return;
+    const inside = view === 'cockpit';
+    this.interior.group.visible = inside || !this.interior.closed;
+    for (const m of this.glass) m.opacity = inside ? 0.12 : m.userData.opacity;
   }
 
   place(x, z, heading) {

@@ -680,7 +680,9 @@ body.is-looking #hud .touch-left:active, body.is-looking #hud #t-brake:active, b
   body.has-touch .radio-head { padding: 0.5rem 0.55rem 0.5rem 0.75rem; min-height: 40px; }
   body.has-touch .minimap { top: calc(84px + var(--safe-t)); left: calc(10px + var(--safe-l)); right: auto; width: 88px; height: 88px; }
   body.has-touch .toast, body.has-touch.sky-on .toast { top: calc(84px + var(--safe-t)); left: calc(108px + var(--safe-l)); right: auto; transform: none;
-    max-width: calc(100vw - 118px - var(--safe-l) - var(--safe-r)); text-align: left; }
+    max-width: calc(100vw - 168px - var(--safe-l) - var(--safe-r)); text-align: left; }
+  /* The view button tucks under the menu so the Kp chip keeps row 1. */
+  body.has-touch .hud-tr { flex-direction: column-reverse; }
   body.has-touch .sky-hint { top: calc(184px + var(--safe-t)); }
   body.has-touch .infocard { bottom: calc(118px + var(--safe-b)); }
 }
@@ -814,3 +816,9 @@ input.vol::-moz-range-thumb { width: 24px; height: 24px; border-radius: 50%; bor
   .sound-row { grid-template-columns: minmax(0, 1fr) 3.4em; padding: 12px 14px; }
   .sound-row label { grid-column: 1 / -1; }
 }
+
+/* Nitro seen from the hood or cockpit: the flames are behind you, so the screen edges glow. */
+.boost-glow { position: fixed; inset: 0; z-index: 1; pointer-events: none; opacity: 0; transition: opacity 0.3s ease;
+  background: radial-gradient(ellipse 78% 72% at 50% 55%, transparent 58%, rgba(92, 242, 200, 0.3) 100%); }
+.boost-glow.is-on { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .boost-glow { transition: none; } }

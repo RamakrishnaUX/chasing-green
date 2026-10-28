@@ -16,7 +16,8 @@ const M = {
   rubber: () => new THREE.MeshStandardMaterial({ color: 0x141414, metalness: 0, roughness: 0.92 }),
   metal: () => new THREE.MeshStandardMaterial({ color: 0x8b8f94, metalness: 0.9, roughness: 0.35 }),
   carbon: () => new THREE.MeshStandardMaterial({ color: 0x101113, metalness: 0.4, roughness: 0.3 }),
-  glass: () => new THREE.MeshPhysicalMaterial({ color: 0x0b1216, metalness: 0.1, roughness: 0.07, clearcoat: 1, transparent: true, opacity: 0.78 }),
+  // Tagged so the inside views can lighten it: tinted glass is near black from inside.
+  glass: () => Object.assign(new THREE.MeshPhysicalMaterial({ color: 0x0b1216, metalness: 0.1, roughness: 0.07, clearcoat: 1, transparent: true, opacity: 0.78 }), { userData: { glass: true } }),
   leather: () => new THREE.MeshStandardMaterial({ color: 0x5a3420, metalness: 0, roughness: 0.6 }),
   white: () => new THREE.MeshStandardMaterial({ color: 0xf2f2ee, metalness: 0, roughness: 0.5 }),
   red: () => new THREE.MeshStandardMaterial({ color: 0xc0242b, metalness: 0.2, roughness: 0.4 }),
@@ -333,7 +334,11 @@ function buildVintage() {
     g.add(mesh(rbox(0.5, 0.18, 0.52, 0.08), leather, sx * 0.28, 0.9, -0.45));
     g.add(mesh(rbox(0.5, 0.52, 0.15, 0.08), leather, sx * 0.28, 1.12, -0.76));
   }
-  const sw = mesh(new THREE.TorusGeometry(0.18, 0.022, 10, 28), wood, 0.28, 1.15, 0.05); sw.rotation.x = -0.5; g.add(sw);
+  // The wood wheel turns with the steering (seen best from the cockpit), so it has spokes.
+  const swMount = new THREE.Group(); swMount.position.set(0.28, 1.15, 0.05); swMount.rotation.x = -0.5; swMount.userData.dynamic = true; g.add(swMount);
+  const steer = new THREE.Group(); swMount.add(steer);
+  steer.add(mesh(new THREE.TorusGeometry(0.18, 0.022, 10, 28), wood));
+  for (const a of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) { const arm = new THREE.Group(); arm.rotation.z = a; const s = mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.17, 6), chr); s.rotation.z = Math.PI / 2; s.position.x = 0.09; arm.add(s); steer.add(arm); }
   const top = new THREE.CylinderGeometry(0.16, 0.16, 1.18, 16); top.rotateZ(Math.PI / 2);
   g.add(mesh(top, canvas, 0, 1.12, -1.0));
   // Spare wire wheel on the tail.
@@ -348,7 +353,7 @@ function buildVintage() {
     pivot.add(spin); g.add(pivot);
     wheels.push({ pivot, spin, front: z > 0, x, z });
   }
-  return { group: g, wheels, lightMat, tailMat, R, headlight: [0, 1.08, 2.3], exhaust: [0.74, 0.5, -0.5], camDist: 9, camHeight: 2.9, eye: 1.6 };
+  return { group: g, wheels, lightMat, tailMat, R, steer, headlight: [0, 1.08, 2.3], exhaust: [0.74, 0.5, -0.5], camDist: 9, camHeight: 2.9, eye: 1.6 };
 }
 
 // ---------- Camper van ----------
@@ -589,7 +594,7 @@ function buildCamper() {
 function buildRace() {
   const g = new THREE.Group();
   const P = new THREE.MeshPhysicalMaterial({ color: 0xff6a00, metalness: 0.5, roughness: 0.18, clearcoat: 1, clearcoatRoughness: 0.03 });
-  const cf = M.carbon(), gls = new THREE.MeshPhysicalMaterial({ color: 0x050607, metalness: 0.2, roughness: 0.04, clearcoat: 1, transparent: true, opacity: 0.86 });
+  const cf = M.carbon(), gls = Object.assign(new THREE.MeshPhysicalMaterial({ color: 0x050607, metalness: 0.2, roughness: 0.04, clearcoat: 1, transparent: true, opacity: 0.86 }), { userData: { glass: true } });
   const lightMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xeaf4ff, emissiveIntensity: 0.6, roughness: 0.1 });
   const tailMat = new THREE.MeshStandardMaterial({ color: 0x5a0c0c, emissive: 0xff1010, emissiveIntensity: 0.7, roughness: 0.2 });
   const R = 0.36, track = 0.84, wbF = 1.38, wbR = -1.32;

@@ -28,7 +28,8 @@ Push the repo to GitHub and import it in Vercel. Vercel detects Vite on its own,
 | Drive | WASD or arrow keys | Left and right buttons, Go (play button) and Brake |
 | Brake and reverse | S or down arrow; keep holding once stopped to reverse | Brake pill, labelled "Brake & reverse"; keep holding once stopped and it switches to a down arrow and "Reverse". A one-time bubble points it out on the first drive |
 | Handbrake | Shift | |
-| Change camera (chase, look up, step out) | C | Menu, Settings, Camera |
+| Change view (chase, hood, cockpit) | C | Steering-wheel button, top right |
+| Step out and get back in | E | Menu, Step out / Get in |
 | Look up (quick toggle) | L | Look button (glows green when the aurora is out) |
 | Capture a postcard | Click the shutter while looking up | Tap the shutter while looking up (postcards also save on their own when the aurora is out, again at each new place) |
 | Sit down (on foot) | X | Sit button |
@@ -43,7 +44,15 @@ Push the repo to GitHub and import it in Vercel. Vercel detects Vite on its own,
 
 There is no race and no timer. Nitro is a speed boost that is on by default; you can switch it off in Settings.
 
-**Step out and sit.** Park, press C until you are on foot, walk anywhere near the car (black sand at Reynisfjara and Diamond Beach included), then press X to sit. Sitting lowers the view, lets you look freely, and makes time pass six times faster so you can wait for the sky. Press X again or start walking to stand up.
+**Views.** C (or the steering-wheel button) cycles three driving views, and the game remembers your choice:
+
+- **Chase**: the camera behind the car.
+- **Hood**: low on the bonnet.
+- **Cockpit**: the driver's seat, with a modelled interior for each car. The steering wheel turns with your steering, the speed and rev needles move, the radio shows the track that is playing, and the screen edges glow when you boost. Drag to look around the cabin; the view drifts back to the road as you drive. The windscreen clears in this view.
+
+The interiors and the eye position for each view are built in `src/vehicle/interiors.js`.
+
+**Step out and sit.** Park, press E (or Menu, Step out) to get out, walk anywhere near the car (black sand at Reynisfjara and Diamond Beach included), then press X to sit. Sitting lowers the view, lets you look freely, and makes time pass six times faster so you can wait for the sky. Press X again or start walking to stand up.
 
 ## Cars
 
@@ -196,6 +205,7 @@ src/
     jeep.js          jeep model and driving physics
     walker.js        step-out character
     models.js        the three car models, built in code
+    interiors.js     dashboards, wheels and dials for the cockpit view, plus each car's hood and cockpit eye
     specs.js         handling, wading depth and nitro for each car
     input.js         keyboard, touch buttons, drag to look
   ui/

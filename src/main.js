@@ -25,6 +25,7 @@ import { Landmarks, waterUniforms } from './world/landmarks.js';
 import { Forecast, AURORA_TYPES } from './aurora/forecast.js';
 import { Aurora } from './aurora/aurora.js';
 import { Jeep } from './vehicle/jeep.js';
+import { updateInterior, trackTitle } from './vehicle/interiors.js';
 import { Walker } from './vehicle/walker.js';
 import { Input } from './vehicle/input.js';
 import { Hud } from './ui/hud.js';
@@ -96,7 +97,10 @@ let wasInPuddle = false, wasInWater = false, shake = 0, sitting = false, sitSpee
 let started = false;
 let mode = 'chase'; // chase | lookup | walk
 let walkTilt = false;
-const look = { yaw: 0, pitch: 0.95, orbit: 0, walkYaw: 0 };
+const look = { yaw: 0, pitch: 0.95, orbit: 0, walkYaw: 0, cabYaw: 0, cabPitch: 0 };
+// How you see the road while driving: from behind the car, from the bonnet, or from the seat.
+const VIEWS = ['chase', 'hood', 'cockpit'];
+let driveView = VIEWS.includes(settings.view) ? settings.view : 'chase';
 let lookTimer = 0;
 let loggedThisWindow = false, lastLoggedType = null, inactiveFor = 99, lastLogReal = -999, lastLogPos = null, lastShot = -1e9, lastAurora = null, wasLooking = false;
 let captureRequest = null;
@@ -108,7 +112,7 @@ let auroraVisSmoothed = 0;
 const cloudOffset = new THREE.Vector2();
 const startGameHours = clock.gameHours;
 const startNight = clock.nightIndex;
-let fpsAcc = 0, fpsFrames = 0, autoDowngraded = false;
+let fpsAcc = 0, fpsFrames = 0, autoDowngraded = false, boostGlowOn = false;
 
 // Dynamic resolution: a share of the quality preset's pixel ratio. It drops a step while frames
 // run long and climbs back once there is room, but not within 20 s of a drop, so it settles
@@ -201,6 +205,7 @@ async function buildWorld(progress) {
   scatter.setSeason(clock.season);
   await stage('Parking your car', 0.93, 60);
   jeep = new Jeep(scene, settings.vehicle || 'jeep');
+  jeep.setView(driveView);
   jeep.obstacles = obstacles;
   walker = new Walker(scene);
   const sp = nearestRoadAnywhere(START.x, START.z);
@@ -274,9 +279,35 @@ function nextWindowLabel() {
 
 // ---------- Camera ----------
 const camTarget = new THREE.Vector3();
+const eyeV = new THREE.Vector3(), qBody = new THREE.Quaternion(), qLook = new THREE.Quaternion(), eLook = new THREE.Euler(0, 0, 0, 'YXZ');
+// Hood and cockpit: the camera rides with the body (so bumps and body roll are felt), looks
+// along the car, and can be dragged to look around; let go and it eases back to the road.
+function insideCamera(dt, l) {
+  const spec = jeep.interior.views[driveView];
+  look.cabYaw = clamp(look.cabYaw - l.dx * 0.005, -2.0, 2.0);
+  look.cabPitch = clamp(look.cabPitch - l.dy * 0.004, -0.5, 0.7);
+  if (!l.dx && !l.dy) { const k = 1 - Math.min(1, dt * (jeep.speed > 3 ? 1.2 : 0.25)); look.cabYaw *= k; look.cabPitch *= k; }
+  jeep.body.updateWorldMatrix(true, false);
+  camera.position.copy(eyeV.set(...spec.eye).applyMatrix4(jeep.body.matrixWorld));
+  jeep.body.getWorldQuaternion(qBody);
+  camera.quaternion.copy(qBody).multiply(qLook.setFromEuler(eLook.set(spec.pitch + look.cabPitch, Math.PI + look.cabYaw, 0)));
+  // A light buzz on rough ground, and the knocks.
+  const j = shake * 0.3 + (jeep.surface === 'paved' ? 0 : Math.min(1, jeep.speed / 25) * 0.012);
+  if (j > 0.001) { camera.position.x += (Math.random() - 0.5) * j; camera.position.y += (Math.random() - 0.5) * j; }
+  // Upright phones keep at least a 60 degree sideways view, or the wheel fills the screen.
+  const narrow = camera.aspect < 1 ? Math.min(100, THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(Math.PI / 6) / camera.aspect))) : 0;
+  const fov = Math.max(spec.fov, narrow) + Math.min(1, jeep.speed / 60) * 5 + (jeep.boosting ? 7 : 0);
+  if (Math.abs(camera.fov - fov) > 0.05) { camera.fov += (fov - camera.fov) * Math.min(1, dt * 3); camera.updateProjectionMatrix(); }
+  camHeading = jeep.heading; // so switching back to the chase view does not swing round
+}
 function updateCamera(dt) {
   const l = input.consumeLook();
   if (mode === 'photo') return; // camera placed by hand from the console
+  // Inside the car things are centimetres from the eye, so the near clip comes in close.
+  const inside = mode === 'chase' && driveView !== 'chase';
+  const near = inside ? 0.05 : 0.4;
+  if (camera.near !== near) { camera.near = near; camera.updateProjectionMatrix(); }
+  if (inside) { insideCamera(dt, l); return; }
   if (mode === 'chase') {
     look.orbit -= l.dx * 0.006;
     if (!l.dx) look.orbit *= 1 - Math.min(1, dt * 0.8);
@@ -329,14 +360,29 @@ function updateCamera(dt) {
   }
 }
 
-function cycleCamera() {
-  if (mode === 'chase') { enterLookUp(); hud.toast('Looking up, facing north. Drag to look around.', { seconds: 2.5 }); }
-  else if (mode === 'lookup') {
-    if (jeep.speed > 2.5) { mode = 'chase'; hud.toast('Slow down to step out.', { seconds: 2.5 }); }
-    else { mode = 'walk'; walkTilt = false; walker.enter(jeep); track('step_out'); look.walkYaw = 0; hud.toast('On foot. Walk with the same keys. Press L to look up.', { seconds: 3.5 }); }
-  } else { mode = 'chase'; walker.exit(); }
+// C or the view button: Chase, Hood, Cockpit in turn. On foot it gets you back in the car.
+const VIEW_TOASTS = { chase: 'Chase view.', hood: 'Hood view.', cockpit: 'Cockpit view. Drag to look around.' };
+function cycleView() {
+  if (mode === 'walk') { getIn(); return; }
+  if (mode === 'lookup') { mode = 'chase'; syncLookButton(); }
+  setView(VIEWS[(VIEWS.indexOf(driveView) + 1) % VIEWS.length]);
+}
+function setView(v) {
+  driveView = v; settings.view = v; store.save();
+  jeep.setView(v);
+  look.cabYaw = 0; look.cabPitch = 0;
+  hud.toast(VIEW_TOASTS[v], { seconds: 2.2, priority: 2 });
+  track('setting_change', { setting: 'view', setting_value: v });
+}
+// E (or Step out in the menu): leave the car, or get back in.
+function stepOut() {
+  if (jeep.speed > 2.5) { hud.toast('Slow down to step out.', { seconds: 2.5 }); return; }
+  mode = 'walk'; walkTilt = false; walker.enter(jeep); track('step_out'); look.walkYaw = 0;
+  hud.toast('On foot. Walk with the same keys. Press L to look up, E to get back in.', { seconds: 3.5 });
   syncLookButton();
 }
+function getIn() { mode = 'chase'; walker.exit(); syncLookButton(); }
+function toggleWalk() { if (mode === 'walk') getIn(); else stepOut(); }
 // The lights usually sit to the north, so looking up turns you that way, the way a person would.
 function wrapAngle(a) { return Math.atan2(Math.sin(a), Math.cos(a)); }
 function enterLookUp() { track('look_up'); mode = 'lookup'; look.yaw = wrapAngle(Math.PI - jeep.heading); look.pitch = 0.75; }
@@ -536,7 +582,7 @@ function updateLandmarks(p) {
 // ---------- UI wiring ----------
 const notebook = new Notebook({ onPostcard: (n) => openPostcard(n), getChallenge: () => challenge });
 $('btn-notebook').addEventListener('click', () => notebook.open());
-$('btn-camera').addEventListener('click', cycleCamera);
+$('btn-camera').addEventListener('click', cycleView);
 $('btn-mute').addEventListener('click', () => setMuted(!audio.muted));
 function setMuted(m) {
   audio.setMuted(m);
@@ -577,6 +623,7 @@ function toggleRecording() {
 
 const settingsDialog = $('settings');
 function openSettings() {
+  $('quick-walk').textContent = mode === 'walk' ? 'Get in' : 'Step out';
   $('set-quality').value = qualityName;
   $('set-month').value = String(clock.month);
   $('set-speed').value = String(clock.speed);
@@ -674,7 +721,7 @@ document.querySelectorAll('[data-quick]').forEach((b) => b.addEventListener('cli
   const k = b.dataset.quick;
   haptics.play('select');
   if (k !== 'mute') settingsDialog.close();
-  if (k === 'camera') cycleCamera();
+  if (k === 'walk') toggleWalk();
   else if (k === 'record') toggleRecording();
   else if (k === 'mute') setMuted(!audio.muted);
   else if (k === 'fullscreen') goLandscape();
@@ -744,7 +791,7 @@ document.querySelectorAll('.month-select').forEach((sel) => {
 forecast.monthFactor = clock.m.aurora;
 renderMonthCards();
 $('intro-challenge').innerHTML = `Today’s challenge: <strong>${challenge.title}</strong>`;
-if (isTouch) document.querySelector('.keys-hint').textContent = 'Steer with the arrows and press Go to drive. Brake slows you down; keep holding it to reverse. Slide up from Go for a nitro boost. Tap Look when the radio says the aurora is out. Drag to look around.';
+if (isTouch) document.querySelector('.keys-hint').textContent = 'Steer with the arrows and press Go to drive. Brake slows you down; keep holding it to reverse. The camera button switches between chase, hood and cockpit views. Slide up from Go for a nitro boost. Tap Look when the radio says the aurora is out. Drag to look around.';
 const startBtn = $('start');
 startBtn.disabled = true;
 startBtn.addEventListener('click', () => {
@@ -766,7 +813,8 @@ startBtn.addEventListener('click', () => {
 addEventListener('keydown', (e) => {
   if (!started || document.querySelector('dialog[open]')) return;
   const k = e.key.toLowerCase();
-  if (k === 'c') cycleCamera();
+  if (k === 'c') cycleView();
+  else if (k === 'e') toggleWalk();
   else if (k === 'l') toggleLookUp();
   else if (k === 'u') setMuted(!audio.muted);
   else if (k === 'm') mapUI?.open();
@@ -782,7 +830,7 @@ const learn = new Learn();
 sheet.register('learn', () => learn.open());
 // Sit down on foot: lower view, free look, and time passes faster while you rest and watch.
 function toggleSit(force) {
-  if (mode !== 'walk') { hud.toast('Step out of the car first (C), then sit down.', { seconds: 2.5 }); return; }
+  if (mode !== 'walk') { hud.toast('Step out of the car first (E), then sit down.', { seconds: 2.5 }); return; }
   sitting = force ?? !sitting;
   walker.setSitting?.(sitting);
   if (sitting) {
@@ -1073,6 +1121,13 @@ function frame(now) {
   if (captureRequest) { const cb = captureRequest; captureRequest = null; cb(renderer.domElement.toDataURL('image/jpeg', 0.88)); }
   tickPlay(dt, { playing: !paused, driving: mode !== 'walk', metresPerSecond: jeep.vF, kmh: jeep.kmh, boosting: jeep.boosting });
   if (started) syncBrakePedal();
+  if (started) {
+    const inside = mode === 'chase' && driveView !== 'chase';
+    if (inside && driveView === 'cockpit') updateInterior(jeep.interior, { kmh: jeep.kmh, steer: jeep.steerVis, music: audio.music && volumes.music > 0 && !audio.muted ? trackTitle(audio.music.i) : null });
+    // Nitro from inside: the exhaust flames are behind you, so the screen edges glow instead.
+    const glow = inside && jeep.boosting;
+    if (glow !== boostGlowOn) { boostGlowOn = glow; $('boost-glow').classList.toggle('is-on', glow); }
+  }
   input.endFrame();
 
   // If the device is struggling, first draw fewer pixels; only when that is not enough, step
