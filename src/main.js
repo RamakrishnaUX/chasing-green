@@ -14,6 +14,7 @@ import { Towns } from './world/towns.js';
 import { Obstacles } from './world/obstacles.js';
 import { Puddles, Particles, SnowFall } from './world/effects.js';
 import { MapUI } from './ui/minimap.js';
+import { HD, loadHD, installAtmosphere, updateAtmosphere, detailScene, naturalize, demToGame } from './world/hd.js';
 import { Nav } from './ui/nav.js';
 import { Sheet } from './ui/sheet.js';
 import { haptics } from './ui/haptics.js';
@@ -53,6 +54,10 @@ const LITE = { pixelRatio: 0.75, auroraSteps: 6, terrainRes: 480, grass: 3500, g
 const qualityFor = (name) => (weakDevice && name === 'low' ? { ...CONFIG.quality.low, ...LITE } : CONFIG.quality[name]);
 const FRAME_GAP = isTouch ? 1000 / 30 : 0;
 let qualityName = settings.quality || (isTouch ? 'low' : CONFIG.defaultQuality);
+// The realistic look is desktop only (and not on Low): phones keep the classic look and never
+// download its textures. It is chosen at load, so a change applies on the next reload.
+const wantHD = !isTouch && qualityName !== 'low' && settings.look !== 'classic';
+if (wantHD) installAtmosphere();
 let Q = qualityFor(qualityName);
 const challenge = dailyChallenge();
 
@@ -93,6 +98,7 @@ audio.setLevels(volumes);
 
 let world = null, sky, aurora, landmarks, jeep, walker, scatter, grass, props, post = null;
 let obstacles, puddles, spray, dust, powder, powderCloud, mapUI, towns, snow, nav;
+let lastPostState = { aurora: 0, dark: 0 };
 const snowNoise = createNoise2D(4040);
 let wasInPuddle = false, wasInWater = false, shake = 0, sitting = false, sitSpeedBefore = 1, camHeading = null;
 let started = false;
@@ -166,15 +172,22 @@ async function buildWorld(progress) {
     await nextPaint();
   };
   // Only a small creep here: the terrain build reports its own progress through the stage.
+  if (wantHD) {
+    await stage('Loading realistic textures', 0.05, 1800);
+    HD.surface = surfaceUniforms;
+    try { await loadHD(renderer); } catch (e) { console.warn('Realistic textures did not load; using the classic look.', e); }
+  }
   await stage('Shaping the island', 0.06, 1500);
-  world = await buildTerrain(scene, Q.terrainRes, clock.season, (f) => progress(0.58 * f * BUILD_SHARE, 300, 'Shaping the island'));
+  // The realistic look uses a finer terrain mesh so the eroded faces have room to show.
+  world = await buildTerrain(scene, HD.on ? Math.max(Q.terrainRes, 1500) : Q.terrainRes, clock.season, (f) => progress(0.58 * f * BUILD_SHARE, 300, 'Shaping the island'));
   await stage('Lighting the sky', 0.59, 40);
   sky = new Sky(scene, { shadowSize: Q.shadowSize, renderer });
+  if (HD.on) sky.light = { env: 0.55, hemi: 0.5, sun: 1.3 };
   aurora = new Aurora(scene, Q.auroraSteps);
   await stage('Placing landmarks', 0.67, 220);
   // Pads under built landmarks, by kind (radius in world units). Natural sites keep their shape.
   const PAD = { building: 32, town: 30, sculpture: 12, pool: 26, geothermal: 24, cave: 16, bridge: 18, waterfall: 34, geyser: 18, wreck: 18 };
-  landmarks = new Landmarks(scene, { quality: qualityName, beforeBuild: (list) => {
+  landmarks = new Landmarks(scene, { quality: qualityName, beforeBake: (root, lm) => naturalize(root, lm.kind), beforeBuild: (list) => {
     const pads = list.filter((l) => PAD[l.kind] && l.id !== 'seydisfjordur').map((l) => ({ x: l.x, z: l.z, r: l.id === 'hallgrimskirkja' ? 38 : PAD[l.kind] }));
     flattenPads(pads, world.mesh);
   } });
@@ -189,13 +202,21 @@ async function buildWorld(progress) {
   await stage('Scattering rocks', 0.88, 560);
   // Bridge railings are solid on both sides.
   for (const B of bridges) for (const sx of [-1, 1]) obstacles.addBox(B.x - B.dz * sx * 4.65, B.z + B.dx * sx * 4.65, Math.atan2(B.dx, B.dz), 0.25, B.len / 2 + 2, 'wall');
-  scatter = new Scatter(scene, { grass: 0, rocks: Math.round(Q.rocks * (CONFIG.rockDensity[settings.rocks || 'normal'] || 1)), obstacles });
-  // No grass field on streets, churchyards and city squares.
+  // No rocks or grass field on streets, churchyards and city squares.
   const clear = landmarks.list.filter((l) => ['town', 'building', 'sculpture'].includes(l.kind)).map((l) => ({ x: l.x, z: l.z, r: l.id === 'seydisfjordur' ? 58 : l.id === 'laugavegur' ? 30 : l.id === 'hallgrimskirkja' ? 34 : 22 }));
-  if (Q.grass > 0) grass = new Grass(scene, { count: Q.grass, radius: Q.grassRadius, clear });
-  if (Q.post) post = new Post(renderer, scene, camera, { ao: !!Q.ao, samples: Q.msaa ?? 4 });
+  scatter = new Scatter(scene, { grass: 0, rocks: Math.round(Q.rocks * (CONFIG.rockDensity[settings.rocks || 'normal'] || 1)), obstacles, clear });
+  // The realistic look reaches further and grows thicker.
+  if (Q.grass > 0) grass = new Grass(scene, { count: HD.on ? Math.max(Q.grass, 48000) : Q.grass, radius: HD.on ? Math.max(Q.grassRadius, 54) : Q.grassRadius, clear });
+  // The realistic look always grounds things with ambient occlusion.
+  if (Q.post) post = new Post(renderer, scene, camera, { ao: !!Q.ao || HD.on, aoSamples: Q.ao ? 12 : 6, samples: Q.msaa ?? 4 });
+  // Realistic look: a little more contrast and a touch less saturation, like a photograph.
+  if (post && HD.on) { post.grade.uniforms.uContrast.value = 1.1; post.grade.uniforms.uSat.value = 1.18; }
+  // AgX rolls highlights off like a camera does, instead of clipping bright sky and snow.
+  if (HD.on) { renderer.toneMapping = THREE.AgXToneMapping; renderer.toneMappingExposure = (CONFIG.exposure ?? 0.95) * 1.2; }
   await stage('Building towns', 0.91, 80);
   props = new Props(scene, { farms: qualityName === 'low' ? 14 : 26, landmarks: landmarks.list, keepClear: [START], obstacles });
+  // Realistic look: scanned detail on landmark and prop surfaces (not town houses, cars or people).
+  if (HD.on) detailScene(scene);
   towns = new Towns(scene, { landmarks: landmarks.list, obstacles, scale: qualityName === 'low' ? 0.6 : 1 });
   snow = new SnowFall(scene, qualityName === 'low' ? 900 : 2200);
   puddles = new Puddles(scene, qualityName === 'low' ? 100 : 180);
@@ -218,7 +239,7 @@ async function buildWorld(progress) {
   });
   mapUI = new MapUI({ landmarks, onTravel: fastTravel, onDrive: driveTo, describe: (x, z) => describePlace(x, z).label });
   { const L = landmarks.list.find((l) => l.id === 'landmannalaugar'); if (L) surfaceUniforms.uRhyolite.value.set(L.x, L.z, 170); }
-  surfaceUniforms.uSnowLine.value = [16, 18, 24, 32, 55, 95, 95, 85, 55, 32, 24, 18][clock.month];
+  surfaceUniforms.uSnowLine.value = snowLineFor(clock.month);
   // Compile every shader now, in parallel where the browser allows, instead of freezing the
   // first frame doing it.
   await stage('Mixing the colours', 1, 1200);
@@ -234,6 +255,13 @@ function wind(t) {
   const dir = 0.6 + windNoise(t * 0.01, 1.5) * 1.2; // slowly turning, mostly from the east
   const strength = W.baseStrength + W.gustStrength * (0.5 + 0.5 * windNoise(t * W.gustSpeed, 4.2));
   return { x: Math.sin(dir) * strength, z: Math.cos(dir) * strength, strength, dir };
+}
+
+// Snow line by month. With real elevation (realistic look) it is set in real metres, roughly as
+// in Iceland, and turned into game units the same way the land is.
+function snowLineFor(m) {
+  if (HD.dem) return demToGame([150, 200, 300, 450, 800, 1100, 1200, 1150, 1000, 950, 500, 200][m]);
+  return [16, 18, 24, 32, 55, 95, 95, 85, 55, 32, 24, 18][m];
 }
 
 function describePlace(x, z) {
@@ -634,6 +662,7 @@ function openSettings() {
   $('set-speed').value = String(clock.speed);
   $('set-touch').value = settings.touch;
   $('set-rocks').value = settings.rocks || 'normal';
+  $('set-look').value = settings.look || 'realistic';
   $('set-nitro').value = settings.nitro || 'on';
   $('set-haptics').value = settings.haptics || 'on';
   $('set-places').value = placeCards();
@@ -732,7 +761,7 @@ function setMonth(m, announce = false) {
   renderMonthCards();
   setSeason(clock.season, announce);
   // Snow line by month: low in midwinter, high glaciers only in summer.
-  surfaceUniforms.uSnowLine.value = [16, 18, 24, 32, 55, 95, 95, 85, 55, 32, 24, 18][m];
+  surfaceUniforms.uSnowLine.value = snowLineFor(m);
 }
 function setSeason(season, announce = true) {
   if (world) { paintTerrain(season); scatter?.setSeason(season); }
@@ -740,6 +769,7 @@ function setSeason(season, announce = true) {
   if (started) hud.toast(clock.midnightSun ? `${clock.m.name}. Midnight sun. No aurora this month.` : `${clock.m.name}. Aurora chance: ${clock.m.chance.toLowerCase()}. ${clock.m.tip}`, { seconds: 5 });
 }
 $('set-speed').addEventListener('change', (e) => { clock.speed = +e.target.value; settings.speed = clock.speed; store.save(); });
+$('set-look').addEventListener('change', (e) => { settings.look = e.target.value; store.save(); hud.toast('The look changes on the next load. Reload the page to apply it.', { seconds: 4 }); track('setting_change', { setting: 'look', setting_value: e.target.value }); });
 $('set-rocks').addEventListener('change', (e) => { settings.rocks = e.target.value; store.save(); hud.toast('Rock density changes on the next load. Reload the page to apply it.', { seconds: 4 }); });
 $('set-touch').addEventListener('change', (e) => { settings.touch = e.target.value; store.save(); syncTouch(); });
 $('set-reset').addEventListener('click', () => {
@@ -1091,6 +1121,7 @@ function frame(now) {
   surfaceUniforms.uCloudCover.value = a.cloud;
   surfaceUniforms.uCloudOffset.value.copy(cloudOffset);
   surfaceUniforms.uSunDir.value.copy(sunDir);
+  if (HD.on) updateAtmosphere(sunDir, surfaceUniforms.uSunUp.value);
   surfaceUniforms.uSunUp.value = smoothstep(-2, 8, clock.sunElevation()) * (1 - dark);
   surfaceUniforms.uTime.value = t;
   if (postReflectorMat) postReflectorMat.emissiveIntensity = dark * 0.8;
@@ -1106,6 +1137,7 @@ function frame(now) {
   snow.update(dt, camera, snowTarget, w, inside ? jeep.interior.views.cockpit.snowFade ?? 0.6 : 0.4);
   if (snow.intensity > 0.02) { sky.fog.density += snow.intensity * 0.0012; sky.fog.color.lerp(new THREE.Color(0xd9dfe4), snow.intensity * 0.5); }
   grass?.update(camera, w);
+  scatter?.hdRocks?.update(dt, camera.position);
   props?.setNight(dark);
   towns?.setNight(dark);
   jeep.setLights(dark);
@@ -1171,7 +1203,7 @@ function frame(now) {
     });
   }
 
-  if (post) post.render(t, { aurora: auroraVisSmoothed, dark });
+  if (post) post.render(t, (lastPostState = { aurora: auroraVisSmoothed, dark }));
   else renderer.render(scene, camera);
   if (captureRequest) { const cb = captureRequest; captureRequest = null; cb(renderer.domElement.toDataURL('image/jpeg', 0.88)); }
   tickPlay(dt, { playing: !paused, driving: mode !== 'walk', metresPerSecond: jeep.vF, kmh: jeep.kmh, boosting: jeep.boosting });
@@ -1274,6 +1306,10 @@ window.chasingGreen = {
   get bridges() { return bridges; },
   get jumps() { return JUMPS; },
   // Debug switches for tracking down rendering problems.
+  // Render one frame now through the same pipeline as the game (for captures from the console).
+  get post() { return post; },
+  get sky() { return sky; },
+  renderNow() { if (post) post.render(clock.realSeconds, lastPostState); else renderer.render(scene, camera); },
   debugPost(on) { post = on ? (post || new Post(renderer, scene, camera)) : null; post?.setSize(); },
   debugShadows(on) { renderer.shadowMap.enabled = on; scene.traverse((o) => { if (o.material) [].concat(o.material).forEach((m) => (m.needsUpdate = true)); }); },
   // Stand on the nearest road at a real-world latitude and longitude, eye height, looking along it.

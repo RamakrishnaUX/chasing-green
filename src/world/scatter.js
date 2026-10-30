@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { roadPaths, heightAt, coastAt, waterLevelAt, lavaMask, glacierMask, sandMask, roadHalfWidth, roadDistAt } from './terrain.js';
 import { mulberry32, clamp } from './noise.js';
 import { createGrassMaterial, surfaceUniforms } from './materials.js';
+import { HD, HDRocks } from './hd.js';
 
 // A tussock: a fan of thin blades, darker at the root.
 function tuftGeometry() {
@@ -31,8 +32,9 @@ const WINTER = [0xc4994f, 0xa8823f, 0xd2ad66, 0x8f7a46].map((c) => new THREE.Col
 const SUMMER = [0x8fa33e, 0x7a9236, 0xa5b04c, 0x6c8a35].map((c) => new THREE.Color(c));
 
 export class Scatter {
-  constructor(scene, { grass, rocks, obstacles = null }) {
+  constructor(scene, { grass, rocks, obstacles = null, clear = [] }) {
     this.obstacles = obstacles;
+    this.clear = clear;
     this.rand = mulberry32(4242);
     this.grassMesh = null;
     this.grassPick = [];
@@ -125,6 +127,7 @@ export class Scatter {
     // Never on a road or its gravel shoulder, and only a few on flat grass.
     let n = 0, tries = 0;
     let cx = 0, cz = 0, left = 0;
+    const spots = [];
     while (n < count && tries < count * 14) {
       tries++;
       if (left <= 0) {
@@ -137,6 +140,7 @@ export class Scatter {
       const x = cx + (this.rand() - 0.5) * 14, z = cz + (this.rand() - 0.5) * 14;
       left--;
       if (roadDistAt(x, z) < 9) continue; // keep the road and shoulders clear
+      if (this.clear.some((c) => Math.hypot(x - c.x, z - c.z) < c.r)) continue; // and streets and squares
       const h = this.usable(x, z, 3);
       if (h == null) continue;
       const s = clamp(0.3 + Math.pow(this.rand(), 2) * 2.1, 0.3, 2.4);
@@ -144,10 +148,13 @@ export class Scatter {
       m.compose(v.set(x, h + s * 0.2, z), q, sc.set(s, s * (0.5 + this.rand() * 0.4), s * (0.8 + this.rand() * 0.4)));
       mesh.setMatrixAt(n, m);
       mesh.setColorAt(n, tones[Math.floor(this.rand() * tones.length)]);
+      spots.push({ x, y: h, z, s });
       // Anything bigger than a pebble is solid: you hit it rather than float over it.
       if (s > 0.45) this.obstacles?.addCircle(x, z, s * 0.95, 'rock');
       n++;
     }
+    // Desktop's realistic look draws the same spots with scanned rocks instead.
+    if (HD.on) { this.hdRocks = new HDRocks(scene, spots, this.rand); geo.dispose(); return; }
     mesh.count = n;
     mesh.castShadow = true;
     mesh.receiveShadow = true;

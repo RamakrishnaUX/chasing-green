@@ -9,6 +9,7 @@ import { waterLevelAt } from './terrain.js';
 import { rockMaterial } from './materials.js';
 import { bakeStatic } from './bake.js';
 import { addSolids } from './solids.js';
+import { HD } from './hd.js';
 
 // Built places keep their walls; everything else is a landform you can climb onto, not into.
 const NOT_GROUND = ['town', 'building', 'sculpture', 'bridge', 'wreck', 'pool', 'cave'];
@@ -312,6 +313,14 @@ void main(){
   a = max(a, froth * 0.5 * edge * smoothstep(0.25, 0.6, streak));
   a = mix(a, 0.85 * edge, lip);
   a = clamp(a + foam * 0.35, 0.0, 0.97);
+#ifdef HD_FALL
+  // Realistic look: the sheet breaks into ropes of water with gaps that show the wet rock behind.
+  float ropes = smoothstep(0.38, 0.8, streak * 0.7 + strands * 0.3);
+  a = edge * mix(0.12, 0.95, ropes);
+  a = mix(a, 0.85 * edge, lip);
+  a = clamp(max(a, froth * 0.6 * edge) + foam * 0.4, 0.0, 0.97);
+  c += vec3(1.0) * ropes * 0.08 * uLight;
+#endif
   gl_FragColor = vec4(c, a);
 }`;
 
@@ -340,6 +349,7 @@ void main(){
 function fallMaterial(color = 0xdbe9f2, speed = 2.6, arc = 1.2) {
   return new THREE.ShaderMaterial({
     vertexShader: FALL_CURVE_VERT, fragmentShader: FALL_FRAG, transparent: true, depthWrite: false, side: THREE.DoubleSide,
+    defines: HD.on ? { HD_FALL: '' } : {},
     uniforms: { ...waterUniforms, uColor: { value: new THREE.Color(color) }, uSpeed: { value: speed }, uArc: { value: arc } },
   });
 }
@@ -525,10 +535,11 @@ function makeWaterfall({ width, height, walkBehind = false, color, cliffWidth })
   g.add(boil);
   mossTufts(g, width, height, Math.round(10 + width), rand, cw);
   // Mist: soft, lit by the sky, drifting with the wind.
-  const mist = makeMist(Math.round(140 + width * 7), width + 8, height * 0.7);
+  // The realistic look uses many fine, faint droplets instead of a few big puffs.
+  const mist = makeMist(Math.round((140 + width * 7) * (HD.on ? 3 : 1)), width + 8, height * 0.7);
   mist.position.set(0, 0.5, arc + 1.5);
-  mist.material.size = 2.9 + width * 0.04;
-  mist.material.opacity = 0.3;
+  mist.material.size = (2.9 + width * 0.04) * (HD.on ? 0.3 : 1);
+  mist.material.opacity = HD.on ? 0.16 : 0.3;
   g.add(mist);
   return { group: g, mists: [mist] };
 }
@@ -536,6 +547,7 @@ function makeWaterfall({ width, height, walkBehind = false, color, cliffWidth })
 function makeColumns(rand) {
   const g = new THREE.Group();
   const cols = new THREE.Group();
+  cols.userData.keepShape = true; // basalt columns really are this regular
   cols.position.set(30, 0, 6);
   cols.rotation.y = -0.5;
   g.add(cols);
@@ -623,8 +635,9 @@ function makeRift() {
 }
 
 export class Landmarks {
-  constructor(scene, { quality = 'medium', beforeBuild = null } = {}) {
+  constructor(scene, { quality = 'medium', beforeBuild = null, beforeBake = null } = {}) {
     this.quality = quality;
+    this.beforeBake = beforeBake;
     this.scene = scene;
     this.mists = [];
     this.ice = [];
@@ -684,6 +697,14 @@ export class Landmarks {
       case 'gullfoss': {
         const upper = makeWaterfall({ width: 22, height: 5, cliffWidth: 34 });
         upper.group.position.set(0, 9, -10);
+        // The upper step stands on rock down to the ground: under its cliff, and a ledge in front
+        // that holds its pool, kept clear of the lower falls.
+        const base = rockBox(34, 12, 14);
+        base.position.set(0, -6, -7);
+        const ledge = rockBox(24, 12, 11);
+        ledge.position.set(0, -6.01, 5.5);
+        for (const m of [base, ledge]) { m.userData.collide = true; upper.group.add(m); }
+        for (const m of upper.group.children) if (m.geometry?.type === 'CircleGeometry') m.scale.set(0.26, 0.26, 1);
         const lower = makeWaterfall({ width: 14, height: 10, cliffWidth: 26 });
         lower.group.rotation.y = Math.PI / 2.4;
         lower.group.position.set(-14, 0, 0);
@@ -749,6 +770,7 @@ export class Landmarks {
     lm.root = root;
     this.collectColliders(root);
     if (!NOT_GROUND.includes(lm.kind)) addSolids(root);
+    this.beforeBake?.(root, lm);
     bakeStatic(root);
   }
 

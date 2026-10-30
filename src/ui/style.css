@@ -873,6 +873,9 @@ body.has-touch .nav { top: calc(var(--tl-bottom, calc(106px + var(--safe-t))) + 
   body.has-touch.nav-on .sky-hint { top: calc(252px + var(--safe-t)); }
 }
 
+/* ---------- Data credits in Settings ---------- */
+.credits { margin: 0.9rem 0 0; font-size: 0.72rem; line-height: 1.45; color: var(--ink-3); }
+
 /* ---------- Steering setting: only on touch screens; tilt hides the arrow buttons ---------- */
 body:not(.has-touch) .touch-only { display: none !important; }
 body.has-touch.tilt-steer .touch-left { visibility: hidden; }

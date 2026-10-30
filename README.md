@@ -138,6 +138,32 @@ Everything is generated in code. There are no image or model files.
 - **The character** on foot is an articulated figure: hooded jacket, backpack, arms and legs with elbows and knees, a proper walk cycle and a sitting pose.
 - **Post-processing** (medium and high quality). Subtle bloom for the sun, headlights and aurora, then a light colour grade, vignette and film grain.
 
+### Realistic look (desktop)
+
+On desktop (Medium and High) the game loads a realistic layer on top of the classic one; phones and Low always keep the classic look and never download it. Settings, Look switches between Realistic and Classic (applies on reload). Everything lives in `src/world/hd.js`, with small hooks in the terrain, road, sky, landmark and post code.
+
+- **Scanned surfaces.** Poly Haven textures (CC0) in `public/hd/` (about 20 MB): grass, slope earth, cliff rock, lava moss, black sand and snow on the terrain (blended by the classic layer weights, mapped from three sides on steep ground), asphalt and gravel on roads. The photos give detail and normals; the game's palette (seasons, grey basalt, black sand) stays.
+- **Landmarks and props** get the same detail, chosen by colour (grass, moss, rock, snow); painted things stay clean. Natural landmarks are also weathered: their solids are subdivided and pushed in and out by noise, so hills, cliffs and sea stacks stop looking like cylinders and boxes (basalt columns keep their shape).
+- **Scanned rocks** (Poly Haven rock_moss_set_01) replace the boulders, drawn within 700 m of the camera.
+- **Eroded mountains.** A finer terrain mesh with ridges and gullies cut into mountain faces, kept off the roads.
+- **Light.** Long sun shadows traced across the height map (mountains shade valleys at any distance; the shadow map still handles the car's surroundings), ambient occlusion, a stronger sun with less flat sky fill, height fog that thins towards peaks and warms towards the sun, and a slightly more contrasty grade.
+- **Clouds** are a raymarched layer with depth, shaped from warped cellular noise into puffy cells with flat bases: lit tops, grey bellies and a glow towards the sun. Low in the sky they hand over to the flat layer, and streaky cirrus shows only in fair weather. The daytime sky itself is physically based (Preetham scattering).
+- **Waterfalls** break into ropes of water with gaps, and their spray is a cloud of fine, faint droplets.
+- **Cars** pick up patchy road grime towards the wheels, which also turns the paint matte there.
+- **Eldhraun's moss** uses its intended deep grey-green (the classic look keeps its paler mounds).
+- **Grass** has its own shade per blade (dead straw among live olive), varied heights, a denser and wider field, and sun glowing through the tips when you look towards it.
+- **Rock and snow** lose the painted streaks up close (they swirled on weathered faces), dark rock breaks through snow on steep ground, mountains in the middle distance get rocky relief, and Landmannalaugar's rhyolite is muted.
+- **Camera look**: AgX tone mapping, which rolls off bright sky and snow like a camera instead of clipping.
+
+- **Real landforms.** The realistic terrain is shaped from real elevation: Copernicus DEM GLO-90 tiles for Iceland, baked onto the game grid (`public/hd/terrain/iceland_dem.bin`, 1536 x 1066 heights in metres, gzipped, about 1.1 MB) and squeezed with a compressing curve (500 m becomes 30 units, 2,000 m becomes 85), because the island is about 125 times smaller than life. Beside roads the land eases to a blurred copy so grades stay drivable, it fades in from the game's own coastline, and erosion detail rides on top. Lakes, canyons, lava fields, Kerið and the ice caps keep their own shaping, and the snow line is set in real metres by month. If the file fails to load, the generated mountains are used.
+
+  Elevation data: Copernicus DEM GLO-90, © DLR e.V. 2010–2014 and © Airbus Defence and Space GmbH 2014–2018, provided under COPERNICUS by the European Union and ESA; all rights reserved. The same credit is shown under Settings on desktop.
+- **Middle distance.** Past about 40 m the same scans are also laid at a large scale (30 to 60 m), so hills keep patches and grain where the fine detail has blurred away.
+- **Fords** on real terrain run at their own river level just under the banks (a patch of water of their own), so the track dips about a metre into the stream instead of down to sea level.
+- **Landmannalaugar's hut** has walls, a pitched green roof, a door and windows instead of a plain box.
+
+Cost: on the test machine the realistic look took about twice the classic frame time (the game's dynamic resolution absorbs part of it) and a few seconds more to build the world.
+
 ### Quality presets
 
 | Preset | Grass | Sun shadows | Post-processing | Notes |
@@ -301,6 +327,21 @@ Play is measured with Google Analytics 4 (property "Chasing Green", ID set in `C
 - Actions: `landmark_stamp`, `aurora_sighting`, `sky_photo`, `challenge_complete`, `postcard_share`, `postcard_save`, `postcard_link_copy`, `fact_share`, `vehicle_change`, `fast_travel`, `nav_start`, `nav_arrive`, `nav_stop`, `menu_open`, `look_up`, `step_out`, `sit_down`, `setting_change`, `graphics_auto_lowered`.
 
 Event parameters such as landmark, vehicle, place and aurora type are registered as custom dimensions, and play time, distance driven, nitro boosts, aurora sightings and new stamps as custom metrics. Visitors with an ad blocker are not counted.
+
+### Roads and landmarks on the ground
+
+Both looks fit roads and landmarks to the finished land (`src/world/terrain.js`):
+
+- **Road surfaces** follow the terrain mesh exactly, with a short skirt under each edge, so no road floats over a dip or sinks into a bump. The land beside a road is level with it out to the verge, and between two legs of road at different heights it slopes smoothly from one to the other.
+- **Junctions and shared stretches.** A road that meets or runs beside one listed before it takes that road's height and eases back to its own profile, faded as an offset so it keeps its own rise and fall. Where two roads share the same strip, only the earlier one is drawn.
+- **Landmark pads.** Built landmarks stand on level ground that fades into the land around; pads that touch share one height. A road that crosses a pad, or skirts it closely, runs at the pad's level, and either side keeps within its usual grade (7% on tarmac, 12% on gravel). Where that cannot be met (two pads at different levels, or a jump, bridge or ford in the way) the road keeps its own height and the land between is banked. The level ground under a landmark is never cut away, except right under a road.
+- **Fords.** The ramp down to a ford is as long as its banks need for about a 7% grade, and never past the road's end. The ford near Gullfoss sits a little way up Kjölur and the one at Landmannalaugar a little short of the hut, so the track has room to come down to each.
+- **Rocks** are kept off streets, churchyards and squares, as the grass already was.
+- **Models.** Gullfoss's upper step stands on rock down to the ground, and the Landmannalaugar hut's walls reach down to its lowest corner.
+
+### Roads by the sea
+
+A few roads (round Snæfellsnes, into Siglufjörður, at the Bridge between Continents) run just off the drawn coastline, as the real ones run on a thin strip of shore. Land is kept under any road there (`rawHeight` in `src/world/terrain.js`), so arriving at Arnarstapi or the Bridge between Continents puts the car level on the road, not in the sea.
 
 ## Known limitations
 

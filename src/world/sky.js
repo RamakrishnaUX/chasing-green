@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Sky as ScatterSky } from 'three/examples/jsm/objects/Sky.js';
 import { clamp, smoothstep } from './noise.js';
+import { HD } from './hd.js';
 
 export const GLSL_NOISE = /* glsl */ `
 float hash12(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * .1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
@@ -79,6 +80,65 @@ uniform float uCloud; uniform float uDark; uniform vec2 uOffset; uniform vec3 uC
 uniform float uCityOverhead; uniform vec3 uAuroraTint; uniform float uAurora; uniform float uTime; uniform vec2 uWind;
 varying vec3 vDir;
 ${GLSL_NOISE}
+#ifdef HD_CLOUDS
+// Realistic look (desktop): a cloud layer with depth. March through a slab between two heights,
+// shading each sample by how much cloud lies toward the sun (Beer-Lambert), with a soft powder
+// darkening on thin edges and forward scattering when looking toward the sun.
+float fbm3(vec2 p){ float s = 0.0, a = 0.5; for(int i=0;i<3;i++){ s += a*vnoise(p); p = p*2.03 + 17.1; a *= 0.5; } return s; }
+// Cellular noise (distance to the nearest random point): round cells that read as cloud puffs.
+float worley(vec2 p){
+  vec2 i = floor(p), f = fract(p); float d = 1.0;
+  for (int y = -1; y <= 1; y++) for (int x = -1; x <= 1; x++) {
+    vec2 g = vec2(float(x), float(y));
+    vec2 o = vec2(hash12(i + g), hash12(i + g + 19.7));
+    d = min(d, length(g + o - f));
+  }
+  return d;
+}
+float cDens(vec3 q, float cov, bool fine){
+  float hf = (q.y - 420.0) / 380.0;
+  if (hf < 0.0 || hf > 1.0) return 0.0;
+  vec2 p = q.xz + uOffset;
+  // Warp the field so cells bunch into ragged groups instead of a grid.
+  vec2 w = p + (vec2(vnoise(p * 0.0021), vnoise(p * 0.0021 + 5.2)) - 0.5) * 420.0;
+  float big = 1.0 - worley(w * 0.0034);
+  float lumps = fine ? 1.0 - worley(w * 0.0095 + 3.1) : 0.5;
+  float field = fbm3(w * 0.0011);
+  float n = field * 0.55 + big * 0.33 + lumps * 0.12;
+  // Flat bases; tops rounded and taller where a cell is thick.
+  float prof = smoothstep(0.0, 0.1, hf) * smoothstep(0.35 + 0.6 * big, 0.15 + 0.3 * big, hf);
+  float dd = smoothstep(1.0 - cov - 0.06, 1.0 - cov + 0.22, n);
+  if (fine) dd -= vnoise(p * 0.06 + hf * 3.0) * 0.28 * (1.0 - dd);
+  return clamp(dd, 0.0, 1.0) * prof;
+}
+vec4 volClouds(vec3 d, float cov, vec3 sunCol, vec3 ambCol){
+  if (cov < 0.03 || d.y < 0.015) return vec4(0.0);
+  float t0 = (420.0 - uCam.y) / d.y, t1 = min((800.0 - uCam.y) / d.y, t0 + 1300.0);
+  if (t0 < 0.0) t0 = 0.0;
+  const int N = 12;
+  float dt = (t1 - t0) / float(N);
+  // Interleaved gradient noise: a dither that hides banding with far less visible grain than white noise.
+  float jit = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+  float mu = dot(d, uSunDir);
+  float phase = 0.55 + 1.6 * pow(max(mu, 0.0), 8.0);
+  float T = 1.0; vec3 L = vec3(0.0);
+  for (int i = 0; i < N; i++) {
+    vec3 q = uCam + d * (t0 + (float(i) + jit) * dt);
+    float den = cDens(q, cov, true);
+    if (den < 0.01) continue;
+    float ld = den < 0.05 ? den : cDens(q + uSunDir * 45.0, cov, false) + cDens(q + uSunDir * 120.0, cov, false);
+    float sunT = exp(-ld * 1.6);
+    float powder = 1.0 - exp(-den * 3.0);
+    vec3 lit = sunCol * sunT * phase * (0.45 + 0.55 * powder) + ambCol * (0.55 + 0.45 * (1.0 - den));
+    float a = 1.0 - exp(-den * dt * 0.016);
+    L += T * a * lit;
+    T *= 1.0 - a;
+    if (T < 0.03) break;
+  }
+  float alpha = 1.0 - T;
+  return vec4(L / max(alpha, 1e-3), alpha);
+}
+#endif
 void main(){
   vec3 d = normalize(vDir);
   if (d.y < 0.0) discard;
@@ -114,6 +174,20 @@ void main(){
   vec3 col = mix(dayCol, twCol, wTw);
   col = mix(col, nightCol, wNight);
   float a = max(dens * 0.95, wisp * 0.6 * (1.0 - wNight * 0.85) * (1.0 - dens));
+#ifdef HD_CLOUDS
+  vec3 sunCol = vec3(1.0, 0.97, 0.92) * mix(vec3(1.0), vec3(1.0, 0.72, 0.48), golden);
+  vec4 v = volClouds(d, cov, sunCol * 1.15, vec3(0.5, 0.56, 0.66));
+  vec3 vcol = mix(v.rgb, twCol, wTw * 0.75);
+  vcol = mix(vcol, nightCol, wNight);
+  // Low in the sky the march grows too long for its steps, so hand over to the flat layer.
+  float vw = smoothstep(0.06, 0.22, d.y);
+  vcol = mix(col, vcol, vw);
+  float va = mix(dens * 0.95, v.a * horizonFade, vw);
+  // High streaky cirrus only shows in fair weather; under real cloud it reads as smears.
+  float wa = wisp * 0.6 * (1.0 - wNight * 0.85) * (1.0 - va) * (1.0 - smoothstep(0.25, 0.55, cov));
+  col = (vcol * va + col * wa) / max(va + wa, 1e-3);
+  a = va + wa;
+#endif
   gl_FragColor = vec4(col, clamp(a, 0.0, 0.97));
 }`;
 
@@ -137,6 +211,8 @@ export class Sky {
   constructor(scene, { shadowSize = 0, renderer = null } = {}) {
     this.scene = scene;
     this.renderer = renderer;
+    // Daylight balance. The realistic look lowers the sky fill and raises the sun so light has a direction.
+    this.light = { env: 1, hemi: 1, sun: 1 };
 
     // Daytime sky: physically based scattering (Preetham), so blues, haze and sunset colours
     // come out right for any sun angle. It also lights the world through an environment map.
@@ -183,6 +259,7 @@ export class Sky {
 
     this.cloudMat = new THREE.ShaderMaterial({
       vertexShader: DOME_VERT, fragmentShader: CLOUD_FRAG, side: THREE.BackSide, depthWrite: false, transparent: true,
+      defines: HD.on ? { HD_CLOUDS: '' } : {},
       uniforms: {
         uCloud: { value: 0 }, uDark: { value: 0 }, uOffset: { value: new THREE.Vector2() }, uCam: { value: new THREE.Vector3() },
         uSunDir: { value: new THREE.Vector3(0, 1, 0) }, uSunEl: { value: 10 }, uWind: { value: new THREE.Vector2(0.92, -0.4).normalize() },
@@ -231,7 +308,7 @@ export class Sky {
       this.envCloud = cloud;
       this.envTimer = 30;
     }
-    this.scene.environmentIntensity = 2.1 * (1 - overlay) * (1 - cloud * 0.15);
+    this.scene.environmentIntensity = 2.1 * this.light.env * (1 - overlay) * (1 - cloud * 0.15);
   }
 
   setRGB(target, a) { return target.setRGB(a[0], a[1], a[2], THREE.SRGBColorSpace); }
@@ -288,7 +365,7 @@ export class Sky {
     const f = focus || camera.position;
     const sunUp = smoothstep(-3, 4, elDeg);
     this.setRGB(this.sun.color, mixA([1.0, 0.76, 0.55], [1.0, 0.95, 0.88], sm(2, 22, elDeg)));
-    this.sun.intensity = 4.2 * sunUp * (1 - cloud * 0.55);
+    this.sun.intensity = 4.2 * this.light.sun * sunUp * (1 - cloud * 0.55);
     // Snap the shadow box to whole units so shadows don't shimmer as you drive.
     const fx = Math.round(f.x), fz = Math.round(f.z);
     this.sun.target.position.set(fx, f.y, fz);
@@ -305,7 +382,7 @@ export class Sky {
     this.c1.lerp(auroraTint, auroraVis * 0.22 * dark);
     this.hemi.color.copy(this.c1);
     this.setRGB(this.hemi.groundColor, mixA([0.42, 0.33, 0.22], [0.06, 0.07, 0.09], wNight));
-    this.hemi.intensity = 0.45 + wTw * 0.5 + wNight * 0.85 + auroraVis * 0.6 * dark;
+    this.hemi.intensity = 0.45 * this.light.hemi + wTw * 0.5 + wNight * 0.85 + auroraVis * 0.6 * dark;
 
     // Fog takes the horizon colour, so far hills fade into blue haze.
     this.setRGB(this.fog.color, horizonColor(elDeg));

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { BOUNDS, grid, roadField, coastAt, waterLevelAt, glacierMask, lavaMask, sandMask, heightAt } from './terrain.js';
 import { NOISE, surfaceUniforms } from './materials.js';
 import { mulberry32 } from './noise.js';
+import { HD } from './hd.js';
 
 // A dense field of tussock grass that follows the camera. Every clump lives in a fixed square
 // tile and wraps around as you move, so there is no work on the CPU per frame. The GPU reads
@@ -9,7 +10,7 @@ import { mulberry32 } from './noise.js';
 // sand, water and ice.
 
 function clumpGeometry(rand) {
-  const pos = [], idx = [], bladeN = [];
+  const pos = [], idx = [], bladeN = [], bladeR = [];
   const blades = 10;
   for (let b = 0; b < blades; b++) {
     const a = rand() * Math.PI * 2;
@@ -28,12 +29,14 @@ function clumpGeometry(rand) {
       [ox + px * 0.7 + lx * lean * 0.3, h * 0.5, oz + pz * 0.7 + lz * lean * 0.3], [ox - px * 0.7 + lx * lean * 0.3, h * 0.5, oz - pz * 0.7 + lz * lean * 0.3],
       [ox + lx * lean, h, oz + lz * lean],
     ];
-    pts.forEach((p) => { pos.push(...p); bladeN.push(-lz, 0.35, lx); });
+    const br = rand(); // one random value per blade, for the realistic look's colour mix
+    pts.forEach((p) => { pos.push(...p); bladeN.push(-lz, 0.35, lx); bladeR.push(br); });
     idx.push(base, base + 1, base + 2, base + 1, base + 3, base + 2, base + 2, base + 3, base + 4);
   }
   const g = new THREE.InstancedBufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('normal', new THREE.Float32BufferAttribute(bladeN, 3));
+  g.setAttribute('aBlade', new THREE.Float32BufferAttribute(bladeR, 1));
   g.setIndex(idx);
   return g;
 }
@@ -110,11 +113,14 @@ export class Grass {
       uWindStr: { value: 0.5 },
     };
     const mat = new THREE.MeshStandardMaterial({ roughness: 0.82, metalness: 0, side: THREE.DoubleSide });
+    // Realistic look: every blade its own shade (dead straw among live olive), varied heights,
+    // and sunlight glowing through the tips when you look towards the sun.
+    if (HD.on) mat.defines = { HD_GRASS: '' };
     mat.onBeforeCompile = (shader) => {
       Object.assign(shader.uniforms, surfaceUniforms, this.uniforms);
       shader.vertexShader = shader.vertexShader
         .replace('#include <common>', `#include <common>
-          attribute vec2 aOffset; attribute vec4 aRand;
+          attribute vec2 aOffset; attribute vec4 aRand; attribute float aBlade; varying float vTip;
           uniform vec3 uCam; uniform float uR; uniform sampler2D uHeight; uniform sampler2D uDens;
           uniform vec2 uGridMin; uniform vec2 uGridStep; uniform vec2 uGridN; uniform vec2 uDensSize;
           uniform vec2 uWindDir; uniform float uWindStr; uniform float uTime; uniform float uSnowLine; uniform float uSummer;
@@ -146,6 +152,9 @@ export class Grass {
           objectNormal = vec3(objectNormal.x, objectNormal.y, objectNormal.z);`)
         .replace('#include <begin_vertex>', `
           vec3 lp = position;
+          #ifdef HD_GRASS
+          lp.y *= 0.7 + 0.6 * fract(aBlade * 3.7);
+          #endif
           lp.xz = rot * lp.xz;
           float ty = clamp(lp.y / 0.62, 0.0, 1.0);
           // Wind: slow rolling gusts across the field plus a quick flutter.
@@ -165,6 +174,12 @@ export class Grass {
           float field = smoothstep(0.62, 0.66, g_f(base * 0.0045 + 3.3)) * (1.0 - smoothstep(9.0, 16.0, gh));
           col = mix(col, vec3(0.42, 0.6, 0.22), field * (0.55 + 0.4 * uSummer));
           col *= 0.85 + 0.3 * aRand.z;
+          #ifdef HD_GRASS
+          vec3 dead = vec3(0.66, 0.56, 0.37), live = mix(vec3(0.4, 0.42, 0.2), vec3(0.3, 0.44, 0.16), uSummer);
+          col = mix(col, step(0.66 - uSummer * 0.45, aBlade) > 0.5 ? live : dead, 0.45);
+          col *= 0.78 + 0.44 * fract(aBlade * 7.31);
+          #endif
+          vTip = ty;
           // Dark at the root, sunlit at the tip.
           col *= mix(0.62, 1.12, ty);
           if (uSunUp > 0.01 && uCloudCover > 0.05) {
@@ -173,8 +188,14 @@ export class Grass {
           }
           vGrassCol = pow(col, vec3(2.2));`);
       shader.fragmentShader = shader.fragmentShader
-        .replace('#include <common>', '#include <common>\nvarying vec3 vGrassCol;')
-        .replace('#include <color_fragment>', 'diffuseColor.rgb = vGrassCol;');
+        .replace('#include <common>', '#include <common>\nvarying vec3 vGrassCol; varying float vTip; uniform vec3 uSunDir; uniform float uSunUp;')
+        .replace('#include <color_fragment>', 'diffuseColor.rgb = vGrassCol;')
+        .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+          #ifdef HD_GRASS
+          { vec3 sv = normalize((viewMatrix * vec4(uSunDir, 0.0)).xyz);
+            float back = pow(max(dot(normalize(-vViewPosition), sv), 0.0), 3.0);
+            totalEmissiveRadiance += vGrassCol * back * vTip * vTip * uSunUp * 1.4; }
+          #endif`);
     };
     this.mesh = new THREE.Mesh(geo, mat);
     this.mesh.frustumCulled = false;

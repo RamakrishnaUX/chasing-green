@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { createWaterMaterial, createRiverMaterial, riverGeometry } from './materials.js';
 import { KERID, keridU, keridProfile, keridWob } from './geo.js';
+import { HD } from './hd.js';
 
 // New landmarks. Every builder works in the landmark's local frame: +z faces the road
 // (or the sea for coastal ones), y = 0 is the ground at the landmark's centre.
@@ -807,8 +808,11 @@ export function buildEldhraun(kit) {
     sc.set(s * (1 + kit.rand() * 0.4), s * 0.7, s);
     m4.compose(v, q, sc);
     inst.setMatrixAt(i, m4);
-    c.setRGB(0.52, 0.56, 0.42).lerp(new THREE.Color(0.62, 0.66, 0.5), kit.rand());
-    if (kit.rand() < 0.12) c.setRGB(0.15, 0.15, 0.14);
+    // The realistic look reads these as the display colours they were picked as (deep grey-green
+    // moss); the classic look keeps its paler mounds.
+    const cs = HD.on ? THREE.SRGBColorSpace : THREE.LinearSRGBColorSpace;
+    c.setRGB(0.52, 0.56, 0.42, cs).lerp(new THREE.Color().setRGB(0.62, 0.66, 0.5, cs), kit.rand());
+    if (kit.rand() < 0.12) c.setRGB(0.15, 0.15, 0.14, cs);
     inst.setColorAt(i, c);
   }
   inst.receiveShadow = true;

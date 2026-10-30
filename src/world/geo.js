@@ -118,8 +118,10 @@ export const ROADS = [
   },
 ];
 
-// Shallow river crossings on the highland track.
-export const FORDS = ll([[64.47, -20.02], [65.02, -19.64], [65.38, -19.72], [63.985, -19.3]]);
+// Shallow river crossings on the highland track. The first sits a little way up Kjölur from
+// Gullfoss and the last a little short of Landmannalaugar, so the track has room to come down
+// off the high ground to each.
+export const FORDS = ll([[64.525, -19.974], [65.02, -19.64], [65.38, -19.72], [63.99, -19.411]]);
 
 // Lakes carved into the terrain (water sits at y = 0).
 export const LAKES = [

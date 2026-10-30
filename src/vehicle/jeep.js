@@ -8,6 +8,7 @@ import { NitroFX } from './nitrofx.js';
 import { bakeStatic } from '../world/bake.js';
 import { solidStep, solidTopAt } from '../world/solids.js';
 import { buildInterior } from './interiors.js';
+import { HD, weatherCar, carGround } from '../world/hd.js';
 
 // The player's car. Kept under the old name so the rest of the game needs no changes;
 // setType() swaps between the Jeep, the vintage roadster and the race car.
@@ -60,6 +61,7 @@ export class Jeep {
     this.kind = kind;
     this.spec = VEHICLES[kind];
     this.model = buildVehicleModel(kind);
+    if (HD.on) weatherCar(this.model.group);
     // Wheels turn and steer; the rest of the body is merged into a few meshes.
     for (const w of this.model.wheels) w.pivot.userData.dynamic = true;
     bakeStatic(this.model.group);
@@ -107,6 +109,7 @@ export class Jeep {
   get name() { return this.spec.name; }
 
   update(dt, input, wind, active) {
+    carGround.value = this.pos.y;
     const S = this.spec, V = CONFIG.vehicle;
     const throttle = active ? input.throttle : 0;
     // Steering eases toward the key input instead of snapping, so turns feel smooth.

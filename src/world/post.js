@@ -55,7 +55,7 @@ const GradeShader = {
 };
 
 export class Post {
-  constructor(renderer, scene, camera, { samples = 4, ao = false } = {}) {
+  constructor(renderer, scene, camera, { samples = 4, ao = false, aoSamples = 12 } = {}) {
     const size = renderer.getDrawingBufferSize(new THREE.Vector2());
     const rt = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, samples });
     this.composer = new EffectComposer(renderer, rt);
@@ -66,7 +66,7 @@ export class Post {
       this.ao = new GTAOPass(scene, camera, size.x, size.y);
       this.ao.output = GTAOPass.OUTPUT.Default;
       this.ao.blendIntensity = 0.75;
-      this.ao.updateGtaoMaterial({ radius: 1.2, distanceExponent: 1, thickness: 1, scale: 1, samples: 12, distanceFallOff: 1, screenSpaceRadius: false });
+      this.ao.updateGtaoMaterial({ radius: 1.2, distanceExponent: 1, thickness: 1, scale: 1, samples: aoSamples, distanceFallOff: 1, screenSpaceRadius: false });
       this.composer.addPass(this.ao);
     }
     this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), 0.22, 0.55, 0.92);

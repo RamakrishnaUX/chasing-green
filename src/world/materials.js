@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { HD, HD_TERRAIN, HD_SUN_SHADOW, terrainUniforms, terrainShadowChunk } from './hd.js';
 
 // Shared uniforms for everything that changes with season, time or light.
 export const surfaceUniforms = {
@@ -32,6 +33,8 @@ float g_f(vec2 p){ float s = 0.0, a = 0.5; for(int i=0;i<4;i++){ s += a*g_n(p); 
 // rock layers and smooth snow.
 const TERRAIN_COLOR = /* glsl */ `
 float tBump; float tRough; float tSpark;
+// Layer weights, read by the realistic (desktop) shader to blend its scanned textures.
+float tEarthW; float tRockW; float tSnowW; float tLavaW;
 vec3 terrainColor(vec3 masks, vec3 p, vec3 nrm, float dist){
   float slope = 1.0 - clamp(nrm.y, 0.0, 1.0);
   float nL = g_f(p.xz * 0.006);
@@ -58,20 +61,34 @@ vec3 terrainColor(vec3 masks, vec3 p, vec3 nrm, float dist){
   tBump = streak * 0.08 * detail;
   tRough = 0.95;
   // Lower slopes: brown earth and moss; steep faces: dark layered basalt with pale scree streaks.
-  col = mix(col, mix(vec3(0.38, 0.30, 0.21), olive * 0.8, nM) * (0.85 + 0.3 * nF), smoothstep(0.14, 0.32, slope) * 0.8);
+  tEarthW = smoothstep(0.14, 0.32, slope) * 0.8;
+  col = mix(col, mix(vec3(0.38, 0.30, 0.21), olive * 0.8, nM) * (0.85 + 0.3 * nF), tEarthW);
   float warp = g_n(p.xz * 0.02 + p.y * 0.02) * 9.0 + g_n(p.xz * 0.045 + p.y * 0.03) * 3.0 + g_n(p.xz * 0.25) * 1.0 * lod;
   float layers = sin(p.y * (0.55 + 0.2 * nL) + warp) * (1.0 - smoothstep(250.0, 900.0, dist) * 0.7);
+#ifdef HD_ROCK
+  // The scanned rock carries the detail up close; strong painted bands would read as wood grain.
+  layers *= mix(0.1, 1.0, smoothstep(150.0, 600.0, dist));
+#endif
   vec3 rockDark = vec3(0.16, 0.15, 0.15), rockWarm = vec3(0.36, 0.27, 0.21), rockGrey = vec3(0.42, 0.42, 0.42);
   vec3 rock = mix(rockDark, rockWarm, (layers * 0.5 + 0.5) * 0.45 + nM * 0.3 + nF * 0.15 * detail);
   float scree = smoothstep(0.55, 0.8, g_n(vec2(p.x * 0.035, p.y * 0.012 + p.z * 0.035)) * 0.6 + mix(0.5, g_n(p.xz * 0.5), lod) * 0.4) * smoothstep(0.3, 0.5, slope);
+#ifdef HD_ROCK
+  scree *= mix(0.2, 1.0, smoothstep(120.0, 500.0, dist));
+#endif
   rock = mix(rock, rockGrey * (0.85 + 0.2 * nF), scree * 0.4);
   float rockAmt = smoothstep(0.28, 0.5, slope);
+  tRockW = rockAmt;
   // Erosion gullies running straight down the fall line, visible from any distance.
   vec2 fall = normalize(nrm.xz + vec2(1e-4));
   // On flat ground the fall line is undefined, so fade back to plain coordinates there.
   float across = mix(p.x + p.z * 0.37, dot(p.xz, vec2(-fall.y, fall.x)), smoothstep(0.08, 0.28, slope));
   float gully = g_n(vec2(across * 0.05, p.y * 0.008)) * 0.7 + mix(0.5, g_n(vec2(across * 0.16, p.y * 0.02)), lod) * 0.3;
   float gullyDark = smoothstep(0.58, 0.85, gully);
+#ifdef HD_ROCK
+  // On weathered (bumpy) faces the fall line wanders, which bends painted streaks into swirls.
+  // Up close the scanned rock carries the detail, so the painted gullies fade in only with distance.
+  gullyDark *= mix(0.15, 1.0, smoothstep(120.0, 500.0, dist));
+#endif
   rock *= 1.0 - gullyDark * 0.3;
   // Shadowed cavity under each basalt ledge.
   rock *= 0.78 + 0.22 * smoothstep(-0.7, 0.5, layers);
@@ -90,9 +107,18 @@ vec3 terrainColor(vec3 masks, vec3 p, vec3 nrm, float dist){
   float ledge = above * smoothstep(0.3, 0.85, layers) * smoothstep(0.28, 0.5, slope) * snowPatch;
   float dust = (1.0 - uSummer) * smoothstep(line - 18.0, line, p.y) * smoothstep(0.55, 0.85, nM) * (1.0 - rockAmt) * 0.6;
   float snow = max(max(flatSnow, ledge * 0.25 * lod), dust * 0.7);
+#ifdef HD_ROCK
+  // Wind scours steep faces and ridges, so dark rock breaks through the snow in patches.
+  float bare = smoothstep(0.36, 0.62, slope) * smoothstep(0.38, 0.68, g_n(p.xz * 0.05 + p.y * 0.04) * 0.6 + g_n(p.xz * 0.19 - p.y * 0.07) * 0.4);
+  snow *= 1.0 - bare * 0.9;
+#endif
+  tSnowW = snow;
   // Snow: wind streaks down the slope, cooler blue in hollows, brighter on the ridges,
   // with thin lines of rock showing through in the steeper gullies.
   float streakS = g_n(vec2(across * 0.06, p.y * 0.01)) * 0.6 + g_n(vec2(across * 0.22, p.y * 0.03)) * 0.4 * lod;
+#ifdef HD_ROCK
+  streakS = mix(0.5, streakS, mix(0.25, 0.55, smoothstep(150.0, 600.0, dist)));
+#endif
   // Wind streaks only where the slope is steep enough to have a clear fall line.
   vec3 snowC = mix(vec3(0.84, 0.88, 0.95), vec3(0.97, 0.98, 1.0), mix(0.65, smoothstep(0.28, 0.78, streakS), smoothstep(0.25, 0.55, slope)));
   snowC *= 0.94 + 0.06 * nF;
@@ -110,6 +136,10 @@ vec3 terrainColor(vec3 masks, vec3 p, vec3 nrm, float dist){
     float bandR = sin(p.y * 0.35 + g_n(p.xz * 0.02) * 6.0);
     vec3 r1 = vec3(0.72, 0.42, 0.28), r2 = vec3(0.85, 0.68, 0.38), r3 = vec3(0.5, 0.58, 0.44), r4 = vec3(0.62, 0.6, 0.58);
     vec3 rc = mix(mix(r1, r2, smoothstep(-0.6, 0.2, bandR)), mix(r3, r4, nM), smoothstep(0.3, 0.9, bandR));
+#ifdef HD_ROCK
+    // Real rhyolite is muted ochre, sage and grey, with softer band edges.
+    rc = mix(vec3(dot(rc, vec3(0.3, 0.5, 0.2))), rc, 0.55) * 0.92;
+#endif
     col = mix(col, rc * (0.85 + 0.2 * nF), rhy * smoothstep(0.18, 0.42, slope) * (1.0 - snow * 0.7));
   }
   // Black volcanic sand along the coast, darker and a little glossy where it is wet.
@@ -118,7 +148,8 @@ vec3 terrainColor(vec3 masks, vec3 p, vec3 nrm, float dist){
   // Lava fields: dark rock wrapped in grey-green moss.
   vec3 lavaMoss = mix(vec3(0.45, 0.47, 0.33), vec3(0.5, 0.56, 0.24), uSummer);
   vec3 lava = mix(vec3(0.13, 0.13, 0.12), lavaMoss, smoothstep(0.35, 0.7, nM) * (0.7 + 0.3 * nF));
-  col = mix(col, lava, masks.g * (1.0 - snow * 0.6));
+  tLavaW = masks.g * (1.0 - snow * 0.6);
+  col = mix(col, lava, tLavaW);
   tBump = mix(tBump, nF * 0.4 * lod, masks.g);
   // Glacier ice, with blue in the crevasses and grey ash bands.
   vec3 ice = mix(vec3(0.9, 0.94, 0.97), vec3(0.6, 0.76, 0.87), smoothstep(0.5, 0.8, nM) * 0.7);
@@ -162,32 +193,57 @@ export function rockMaterial() {
 
 export function createTerrainMaterial() {
   const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 });
+  const hd = HD.on;
+  if (hd) { mat.customProgramCacheKey = () => 'terrain-hd'; mat.defines = { HD_ROCK: '' }; }
   mat.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, surfaceUniforms);
+    Object.assign(shader.uniforms, surfaceUniforms, hd ? terrainUniforms() : {});
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vWPos;\nvarying vec3 vWNrm;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;\nvWNrm = normalize(mat3(modelMatrix) * objectNormal);');
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', `#include <common>\nuniform float uSnowLine; uniform float uSummer; uniform float uCloudCover; uniform vec2 uCloudOffset; uniform vec3 uSunDir; uniform float uSunUp; uniform vec3 uRhyolite;\nvarying vec3 vWPos;\nvarying vec3 vWNrm;\n${NOISE}\n${TERRAIN_COLOR}`)
+      .replace('#include <common>', `#include <common>\nuniform float uSnowLine; uniform float uSummer; uniform float uCloudCover; uniform vec2 uCloudOffset; uniform vec3 uSunDir; uniform float uSunUp; uniform vec3 uRhyolite;\nvarying vec3 vWPos;\nvarying vec3 vWNrm;\n${NOISE}\n${TERRAIN_COLOR}\n${hd ? HD_TERRAIN + HD_SUN_SHADOW : ''}`)
+      .replace('#include <lights_fragment_end>', hd ? terrainShadowChunk() : '#include <lights_fragment_end>')
       .replace('#include <normal_pars_fragment>', `#include <normal_pars_fragment>\n${BUMP}`)
-      .replace('#include <color_fragment>', 'diffuseColor.rgb = terrainColor(vColor, vWPos, normalize(vWNrm), length(vViewPosition)) * cloudShade(vWPos);')
+      .replace('#include <color_fragment>', hd
+        ? 'vec3 tCol = terrainColor(vColor, vWPos, normalize(vWNrm), length(vViewPosition));\nhdDetail(vColor, vWPos, normalize(vWNrm), length(vViewPosition));\ndiffuseColor.rgb = tCol * hdA * cloudShade(vWPos);'
+        : 'diffuseColor.rgb = terrainColor(vColor, vWPos, normalize(vWNrm), length(vViewPosition)) * cloudShade(vWPos);')
       .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vec3(0.9, 0.95, 1.0) * tSpark * uSunUp * 1.5;')
-      .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = tRough;')
-      .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\nnormal = bumpNormal(normal, tBump * (1.0 - smoothstep(40.0, 140.0, length(vViewPosition))), 4.0);');
+      .replace('#include <roughnessmap_fragment>', hd ? 'float roughnessFactor = hdR;' : 'float roughnessFactor = tRough;')
+      .replace('#include <normal_fragment_maps>', hd
+        ? `#include <normal_fragment_maps>
+          normal = normalize((viewMatrix * vec4(hdN, 0.0)).xyz);
+          {
+            // Beyond the scanned textures, rocky relief: crags and ribs on rock and snow slopes,
+            // so mountains in the middle distance still read as rough rather than smooth.
+            float dv = length(vViewPosition);
+            float far = smoothstep(120.0, 450.0, dv) * (1.0 - smoothstep(2500.0, 4000.0, dv));
+            float steep = max(tRockW, tSnowW * 0.7);
+            if (far * steep > 0.01) {
+              float r1 = 1.0 - abs(g_n(vWPos.xz * 0.045 + vWPos.y * 0.03) * 2.0 - 1.0);
+              float r2 = 1.0 - abs(g_n(vWPos.xz * 0.13 - vWPos.y * 0.05) * 2.0 - 1.0);
+              normal = bumpNormal(normal, (r1 * r1 * 0.7 + r2 * 0.3) * far * steep, 9.0);
+            }
+          }`
+        : '#include <normal_fragment_maps>\nnormal = bumpNormal(normal, tBump * (1.0 - smoothstep(40.0, 140.0, length(vViewPosition))), 4.0);');
   };
   return mat;
 }
 
 // Roads carry vRoad = (signed distance from centre line, distance along the road).
 export function createRoadMaterial({ paved, halfWidth }) {
-  const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8, metalness: 0, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+  // Two-sided: each road edge has a skirt hanging down, and the two skirts face opposite ways.
+  const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8, metalness: 0, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, side: THREE.DoubleSide });
+  const hd = HD.on;
+  if (hd) mat.customProgramCacheKey = () => `road-hd-${paved}`;
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, surfaceUniforms);
+    // Desktop: real asphalt and gravel under the painted lines, as light and shade on the classic colours.
+    if (hd) Object.assign(shader.uniforms, { rdAlb: { value: HD.road.asphalt.alb }, rdMean: { value: HD.road.asphalt.mean }, grAlb: { value: HD.road.gravel.alb }, grMean: { value: HD.road.gravel.mean } });
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nattribute vec2 aRoad;\nattribute float aJunction;\nvarying vec2 vRoad;\nvarying float vJ;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvRoad = aRoad;\nvJ = aJunction;');
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', `#include <common>\nvarying vec2 vRoad;\nvarying float vJ;\nuniform float uSummer;\n${NOISE}\nfloat rBump; float rRough;`)
+      .replace('#include <common>', `#include <common>\nvarying vec2 vRoad;\nvarying float vJ;\nuniform float uSummer;\n${NOISE}\nfloat rBump; float rRough;${hd ? `\nuniform sampler2D rdAlb; uniform vec3 rdMean; uniform sampler2D grAlb; uniform vec3 grMean;\nvec3 rdRatio(sampler2D t, vec3 m, vec2 uv, float chroma, out float lum){ vec3 a = texture2D(t, uv).rgb; lum = dot(a, vec3(0.2126, 0.7152, 0.0722)) / max(dot(m, vec3(0.2126, 0.7152, 0.0722)), 1e-3); return clamp(mix(vec3(lum), a / max(m, vec3(1e-3)), chroma), 0.0, 2.5); }` : ''}`)
       .replace('#include <normal_pars_fragment>', `#include <normal_pars_fragment>\n${BUMP}`)
       .replace('#include <color_fragment>', `
         float lat = abs(vRoad.x);
@@ -198,6 +254,7 @@ export function createRoadMaterial({ paved, halfWidth }) {
         float patchy = g_n(vRoad * vec2(0.35, 0.06));
         float shoulder = smoothstep(hw - 0.05, hw + 0.2, lat);
         vec3 c;
+        float hdPaint = 0.0;
         ${paved ? `
         // Dark, coarse Icelandic asphalt: pale stones in black binder, worn smoother in the wheel tracks.
         vec3 asphalt = mix(vec3(0.2, 0.2, 0.21), vec3(0.3, 0.3, 0.31), mix(0.5, grain, 0.35 + 0.65 * fine));
@@ -209,6 +266,7 @@ export function createRoadMaterial({ paved, halfWidth }) {
         // Painted lines stop short of junctions so they never cross another road.
         float paint = max(edge, dash) * (0.82 + 0.18 * grain) * smoothstep(0.0, 7.0, vJ);
         c = mix(asphalt, vec3(0.86, 0.86, 0.83), paint);
+        hdPaint = paint;
         rRough = mix(mix(0.78, 0.66, track), 0.55, paint);
         rBump = grain * 0.02 * (1.0 - paint) * fine;` : `
         vec3 gravel = mix(vec3(0.43, 0.39, 0.33), vec3(0.55, 0.5, 0.43), grain);
@@ -221,7 +279,12 @@ export function createRoadMaterial({ paved, halfWidth }) {
         c = mix(c, sh, shoulder);
         rRough = mix(rRough, 0.95, shoulder);
         rBump = mix(rBump, grain * 0.15 * fine, shoulder);
-        diffuseColor.rgb = pow(c, vec3(2.2));`)
+        diffuseColor.rgb = pow(c, vec3(2.2));${hd ? `
+        float hdFade = 1.0 - smoothstep(120.0, 420.0, dist), lA, lG;
+        vec3 ra = rdRatio(${paved ? 'rdAlb, rdMean, vRoad / 3.5, 0.0' : 'grAlb, grMean, vRoad / 4.0, 0.2'}, lA);
+        vec3 rg = rdRatio(grAlb, grMean, vRoad / 4.0, 0.2, lG);
+        diffuseColor.rgb *= mix(vec3(1.0), mix(ra, rg, shoulder), (1.0 - hdPaint) * hdFade);
+        rBump += (mix(lA, lG, shoulder) - 1.0) * 0.035 * fine;` : ''}`)
       .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = rRough;')
       .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\nnormal = bumpNormal(normal, rBump, 1.0);');
   };

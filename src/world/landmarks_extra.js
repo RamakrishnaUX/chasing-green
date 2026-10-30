@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { createWaterMaterial, createRiverMaterial, riverGeometry } from './materials.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { buildChurch, buildSkaftafell } from './landmarks_more.js';
+import { HD } from './hd.js';
 
 // Generic builders, chosen by a landmark's `model` field, with `params` for the details.
 const std = (color, rough = 0.85, metal = 0, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: metal, ...extra });
@@ -670,10 +671,30 @@ export const EXTRA = {
 
   rhyolite(kit) {
     const g = new THREE.Group();
-    const pts = []; for (let i = 0; i <= 10; i++) pts.push({ x: -10 + i * 3, y: kit.ground(-10 + i * 3, -6 + Math.sin(i) * 3) + 0.3, z: -6 + Math.sin(i) * 3 });
+    // The stream follows the ground a metre at a time, so it never bridges a dip.
+    const pts = []; for (let i = 0; i <= 30; i++) { const x = -10 + i, z = -6 + Math.sin(i / 3) * 3; pts.push({ x, y: kit.ground(x, z) + 0.3, z }); }
     g.add(M(riverGeometry(pts, 3), createRiverMaterial({ shallow: [0.34, 0.6, 0.62], deep: [0.1, 0.3, 0.34], speed: 0.6 })));
     const s = kit.makeMist(50, 10, 6); s.material = s.material.clone(); s.material.opacity = 0.18; s.material.size = 4; s.position.set(0, kit.ground(0, -6) + 0.5, -6); g.add(s); kit.steam(s);
-    const hut = M(new THREE.BoxGeometry(8, 3, 5), std(0x3f5a2f, 0.85), 14, kit.ground(14, 4) + 1.5, 4); hut.userData.solid = true; g.add(hut);
+    // The walls reach down to the lowest corner, so the hut never hangs over a slope.
+    const top = kit.ground(14, 4) + 3, low = Math.min(...[[10, 1.5], [18, 1.5], [10, 6.5], [18, 6.5]].map(([x, z]) => kit.ground(x, z))) - 0.3;
+    const hut = M(new THREE.BoxGeometry(8, top - low, 5), std(HD.on ? 0xd8d4cb : 0x3f5a2f, 0.85), 14, (top + low) / 2, 4); hut.userData.solid = true; g.add(hut);
+    if (HD.on) {
+      // Realistic look: the box becomes a mountain hut, pale walls under a pitched green roof.
+      const y = kit.ground(14, 4) + 3;
+      const roofMat = std(0x2f4a33, 0.6, 0.3);
+      for (const s of [-1, 1]) {
+        const slab = M(new THREE.BoxGeometry(8.8, 0.16, 3.25), roofMat, 14, y + 0.82, 4 + s * 1.38);
+        slab.rotation.x = s * 0.55;
+        g.add(slab);
+      }
+      // Gable ends under the roof.
+      const tri = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, -2.5), new THREE.Vector3(0, 0, 2.5), new THREE.Vector3(0, 1.7, 0)]);
+      tri.computeVertexNormals();
+      for (const dx of [-3.98, 3.98]) g.add(M(tri, std(0xd8d4cb, 0.85, 0, { side: THREE.DoubleSide }), 14 + dx, y, 4));
+      const dark = std(0x23262a, 0.4, 0.1);
+      g.add(M(new THREE.BoxGeometry(1.1, 2, 0.08), std(0x5a3b26, 0.8), 14, y - 2, 6.55));
+      for (const dx of [-2.6, 2.4]) g.add(M(new THREE.BoxGeometry(1.2, 0.9, 0.08), dark, 14 + dx, y - 1.2, 6.55));
+    }
     return g;
   },
 

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { createNoise2D, fbm, clamp, lerp, smoothstep } from './noise.js';
 import { COAST, ROADS, FORDS, LAKES, GLACIERS, LAVA, SANDS, PITS, CANYONS, PASSES, FLATS, JUMPS, BRIDGES, KERID, keridU, keridProfile, WS } from './geo.js';
 import { solidTopAt } from './solids.js';
+import { HD } from './hd.js';
 import { createTerrainMaterial, createRoadMaterial, createWaterMaterial, createRiverMaterial, riverGeometry, surfaceUniforms } from './materials.js';
 
 export const BOUNDS = { minX: -900 * WS, maxX: 930 * WS, minZ: -690 * WS, maxZ: 580 * WS };
@@ -115,6 +116,35 @@ export function nearestRoad(x, z, maxR = 96) {
 
 export function roadHalfWidth(type) { return type === 'paved' ? 3.3 : 2.7; }
 
+// The nearest stretch of road that is not the one already found: another road, or the same road
+// further along (the other leg of a hairpin).
+function otherLeg(x, z, first, maxR) {
+  const r = Math.ceil(maxR / CELL), cx0 = Math.floor(x / CELL), cz0 = Math.floor(z / CELL);
+  let best = null, bestD = maxR;
+  for (let cx = cx0 - r; cx <= cx0 + r; cx++) for (let cz = cz0 - r; cz <= cz0 + r; cz++) {
+    for (const s of roadHash.get(cellKey(cx, cz)) || []) {
+      if (s.path === first.seg.path && Math.abs(s.i - first.seg.i) < 10) continue;
+      const q = segDist(x, z, s.ax, s.az, s.bx, s.bz);
+      if (q.d < bestD) { bestD = q.d; best = { dist: q.d, type: s.type, h: lerp(s.ha, s.hb, q.t) }; }
+    }
+  }
+  return best;
+}
+
+// True where (x, z) lies on the carriageway of a road listed before path pi. Where two roads merge
+// and run together, only the earlier one is drawn (the Ring Road is first), so their surfaces
+// never interleave.
+function onEarlierRoad(x, z, pi) {
+  const cx0 = Math.floor(x / CELL), cz0 = Math.floor(z / CELL);
+  for (let cx = cx0 - 1; cx <= cx0 + 1; cx++) for (let cz = cz0 - 1; cz <= cz0 + 1; cz++) {
+    for (const s of roadHash.get(cellKey(cx, cz)) || []) {
+      if (s.path >= pi) continue;
+      if (segDist(x, z, s.ax, s.az, s.bx, s.bz).d < roadHalfWidth(s.type) + 0.4) return true;
+    }
+  }
+  return false;
+}
+
 // ---------- Road distance field ----------
 // Distance from every point to the nearest road, on a 2 unit grid. Built with a two-pass
 // nearest-seed sweep, so it is close to true Euclidean distance and takes a few milliseconds.
@@ -184,6 +214,13 @@ function ridged(x, z) {
 }
 
 // ---------- Height ----------
+// Realistic look: real elevation on the game grid, bilinear (see loadHD in hd.js).
+function demAt(x, z, a) {
+  const D = HD.dem;
+  const fx = clamp((x - D.minX) / D.sx - 0.5, 0, D.cols - 1.001), fz = clamp((z - D.minZ) / D.sz - 0.5, 0, D.rows - 1.001);
+  const ix = fx | 0, iz = fz | 0, tx = fx - ix, tz = fz - iz, w = D.cols, p = iz * w + ix;
+  return (a[p] * (1 - tx) + a[p + 1] * tx) * (1 - tz) + (a[p + w] * (1 - tx) + a[p + w + 1] * tx) * tz;
+}
 // Inland lakes get their own water level: the lowest ground around the rim, so the
 // surface sits in a shallow basin instead of a pit dug down to sea level.
 function lakeLevel(k) {
@@ -203,8 +240,11 @@ export function waterLevelAt(x, z) {
     const s = k.stretch || 1;
     if (Math.hypot((x - k.x) / s, z - k.z) < k.r * 1.1) return lakeLevel(k);
   }
+  for (const f of fordPools) if (f.level > 0 && Math.hypot(x - f.x, z - f.z) < f.r) return f.level;
   return 0;
 }
+// Where each ford's river runs: { x, z, r, level }.
+const fordPools = [];
 
 // ---------- Bridges ----------
 export const bridges = [];
@@ -259,6 +299,31 @@ export function bridgeGuard(prevX, prevZ, pos, r) {
   }
   return null;
 }
+// The land at (x, z) given its natural height h, pulled to the nearest road's height near it.
+function roadBlendAt(x, z, h) {
+  const r = nearestRoad(x, z, 34);
+  if (!r) return h;
+  const hw = roadHalfWidth(r.type);
+  // Under a bridge the land keeps its valley; elsewhere it rises to meet the road.
+  // Level with the road out to one grid cell past the shoulder, so no ground triangle under
+  // the road surface has a corner up or down the hillside (that tilts it through the road).
+  const verge = hw + SHOULDER + Math.max(grid.dx, grid.dz) * 1.2;
+  // Under a bridge the valley stays, except the last cells before each end, which meet the
+  // deck so the road does not dip as it leaves the bridge.
+  const blend = nearBridge(x, z, -Math.max(grid.dx, grid.dz) * 1.5) ? 1 : smoothstep(verge, verge + 16, r.dist);
+  // Between two legs of road at different heights (switchbacks, a road passing under a
+  // slope) the ground slopes smoothly from one to the other instead of stepping where the
+  // nearer road changes; under each road it stays at that road's height.
+  let rh = r.h;
+  const r2 = otherLeg(x, z, r, verge + 16);
+  if (r2) {
+    const W = hw + SHOULDER;
+    const wa = 1 / Math.max(r.dist - W, 1e-3) ** 2, wb = 1 / Math.max(r2.dist - roadHalfWidth(r2.type) - SHOULDER, 1e-3) ** 2;
+    rh = (r.h * wa + r2.h * wb) / (wa + wb);
+  }
+  return lerp(rh, h, blend);
+}
+
 function nearBridge(x, z, pad = 0) {
   for (const B of bridges) { const f = bridgeFrame(B, x, z); if (Math.abs(f.along) < B.len / 2 + pad && Math.abs(f.lat) < 30) return true; }
   return false;
@@ -269,14 +334,34 @@ export function groundAt(x, z) { const d = deckAt(x, z); return Math.max(d ?? -I
 
 let keridBusy = false;
 function rawHeight(x, z, cd, noLakes = false, noBridge = false) {
-  const d = cd ?? coastSignedDist(x, z);
-  if (d < 0) return Math.max(-16, -1.4 + d * 0.06);
+  let d = cd ?? coastSignedDist(x, z);
   const rd = roadDistAt(x, z);
+  // A few roads (round Snæfellsnes, into Siglufjörður) run just off the drawn coastline, as the
+  // real ones run on a thin strip of shore: keep low land under them so they never cross open sea.
+  if (d < 8 && roadField.d && rd < 26) d = Math.max(d, 8 * (1 - smoothstep(10, 26, rd)));
+  if (d < 0) return Math.max(-16, -1.4 + d * 0.06);
   const bc = noBridge ? 0 : bridgeCarve(x, z);
   const ramp = smoothstep(0, 40, d);
   // Lowland: broad golden plains that roll gently and rise toward the interior plateau.
   const nP = fbm(nA, x * 0.0024, z * 0.0024, 3) * 0.5 + 0.5;
   let h = 0.8 + ramp * (1.6 + 6 * nP) + smoothstep(60, 320, d) * 14 * nP;
+  let mountainH = 0;
+  if (HD.dem) {
+    // Realistic look: the land's shape comes from real elevation (Copernicus GLO-90), squeezed
+    // into the game's scale. Beside roads it eases to a blurred copy so grades stay drivable,
+    // and it fades in from the game's own coastline.
+    let flat = 0;
+    for (const k of FLATS) flat = Math.max(flat, 1 - smoothstep(0.55, 1.0, Math.hypot(x - k.x, z - k.z) / k.r));
+    const near = smoothstep(10, 70, rd);
+    const relief = lerp(demAt(x, z, HD.dem.blur), demAt(x, z, HD.dem.heights), near) * smoothstep(2, 40, d) * (1 - flat * 0.85);
+    h = 0.8 + ramp * (1.6 + 2.5 * nP) + relief;
+    const k = smoothstep(10, 45, relief) * near;
+    if (k > 0) {
+      const g = ridged(x * 0.016 + 31.7, z * 0.016 - 12.3), f = ridged(x * 0.045 - 8.1, z * 0.045 + 4.4);
+      h += ((g - 0.42) * 8 + (f - 0.42) * 2.5) * k;
+    }
+    mountainH = relief;
+  } else {
   // Mountain massifs: broad, steep-sided and often flat-topped, like Icelandic table mountains
   // and basalt ridges. They rise from the plains, leave a corridor open along every road, and
   // can stand right on the coast like the east fjords and Snæfellsnes.
@@ -289,7 +374,6 @@ function rawHeight(x, z, cd, noLakes = false, noBridge = false) {
   const corridor = lerp(smoothstep(24, 80, rd), 1, pass) * (1 - flat);
   // A pass always has a mountain under it, whatever the noise says.
   const mask = Math.pow(Math.max(foot, pass * 0.9), 0.7) * smoothstep(4, 34, d) * corridor;
-  let mountainH = 0;
   if (mask > 0) {
     const r = ridged(x * 0.0046, z * 0.0046);
     const peak = lerp(70 + 150 * smoothstep(0.52, 0.85, mm), 62, pass);
@@ -303,8 +387,16 @@ function rawHeight(x, z, cd, noLakes = false, noBridge = false) {
     const tq = m / step, fr = tq - Math.floor(tq);
     const terr = (Math.floor(tq) + smoothstep(0.5, 1.0, fr)) * step;
     m = lerp(m, terr, smoothstep(16, 45, m) * 0.6);
+    // Realistic look (desktop): erosion. Sharper sub-ridges and gullies cut into every face,
+    // with finer rills on top, growing with height so foothills and roads stay as they were.
+    if (HD.on) {
+      const k = smoothstep(6, 40, m);
+      const g = ridged(x * 0.016 + 31.7, z * 0.016 - 12.3), f = ridged(x * 0.045 - 8.1, z * 0.045 + 4.4);
+      m += ((g - 0.42) * 11 + (f - 0.42) * 3.2) * k;
+    }
     h += m;
     mountainH = m;
+  }
   }
   // Basalt step cliffs along parts of the coast.
   const cliffMask = smoothstep(0.15, 0.45, nC(x * 0.004, z * 0.004));
@@ -315,7 +407,8 @@ function rawHeight(x, z, cd, noLakes = false, noBridge = false) {
   // Ice caps: smooth domes that ride over the mountains, kept off the road corridor.
   for (const g of GLACIERS) {
     const gd = Math.hypot(x - g.x, z - g.z) / g.r;
-    if (gd < 1) h += g.h * Math.pow(1 - gd * gd, 0.5) * smoothstep(18, 75, rd);
+    // With real elevation the ice caps are already high, so their domes are only a cap of ice.
+    if (gd < 1) h += g.h * (HD.dem ? 0.3 : 1) * Math.pow(1 - gd * gd, 0.5) * smoothstep(18, 75, rd);
   }
   for (const l of LAVA) {
     const m = 1 - smoothstep(0.55, 1, Math.hypot(x - l.x, z - l.z) / l.r);
@@ -436,13 +529,100 @@ function computeRoadHeights() {
     for (let i = 1; i < p.length; i++) { const d = Math.hypot(p[i].x - p[i - 1].x, p[i].z - p[i - 1].z); h[i] = clamp(h[i], h[i - 1] - g * d, h[i - 1] + g * d); }
     for (let i = p.length - 2; i >= 0; i--) { const d = Math.hypot(p[i + 1].x - p[i].x, p[i + 1].z - p[i].z); h[i] = clamp(h[i], h[i + 1] - g * d, h[i + 1] + g * d); }
     applyJumps(path, h);
+    // A ford dips the road into the river. On real terrain the river runs just under the banks;
+    // in the classic look it is at sea level. The wet stretch is always the same, but the ramp
+    // down to it on each side reaches as far as that bank needs for about a 7% average grade, so
+    // a high bank is no cliff. A road that only passes near a ford gets the old short dip.
+    const ramps = FORDS.map((f, k) => {
+      let at = -1, best = 10;
+      p.forEach((q, i) => { const d = Math.hypot(q.x - f.x, q.z - f.z); if (d < best) { best = d; at = i; } });
+      if (at < 0) return { at, R: [20, 20], bed: (fordPools[k]?.level ?? 0) - 0.4 };
+      if (!fordPools[k]) {
+        let bank = Infinity;
+        p.forEach((q, i) => { if (Math.hypot(q.x - f.x, q.z - f.z) < 30) bank = Math.min(bank, h[i]); });
+        fordPools[k] = { x: f.x, z: f.z, r: 18, level: HD.dem ? Math.max(0, bank - 1) : 0 };
+      }
+      const bed = fordPools[k].level - 0.4;
+      const R = [0, 1].map((side) => {
+        let r = 20;
+        p.forEach((q, i) => {
+          if ((i < at) !== (side === 0)) return;
+          const d = Math.hypot(q.x - f.x, q.z - f.z), need = 6 + (Math.max(0.9, h[i]) - bed) / 0.07;
+          if (d > 6 && d < need) r = Math.max(r, need);
+        });
+        // Never past the road's end on that side, which meets a road or a landmark at its own height.
+        if (!path.loop) { const e = side === 0 ? p[0] : p[p.length - 1]; r = Math.min(r, Math.max(20, Math.hypot(e.x - f.x, e.z - f.z) - 10)); }
+        return Math.min(r, 300);
+      });
+      return { at, R, bed };
+    });
     p.forEach((q, i) => {
-      let ford = 0;
-      for (const f of FORDS) ford = Math.max(ford, 1 - smoothstep(6, 20, Math.hypot(q.x - f.x, q.z - f.z)));
+      let ford = 0, dip = 0, bed = -0.4;
+      FORDS.forEach((f, k) => {
+        const d = Math.hypot(q.x - f.x, q.z - f.z), { at, R } = ramps[k];
+        const w = 1 - smoothstep(6, at < 0 ? 20 : R[i < at ? 0 : 1], d);
+        ford = Math.max(ford, 1 - smoothstep(6, 20, d));
+        if (w > dip) { dip = w; bed = ramps[k].bed; }
+      });
       q.ford = ford;
-      q.h = lerp(Math.max(0.9, h[i]), -0.4, ford);
+      q.h = lerp(Math.max(0.9, h[i]), bed, dip);
     });
   }
+  meetAtJunctions();
+}
+
+// Each road's profile is smoothed on its own, so two roads can meet, or run side by side, at
+// different heights and leave a step. Wherever a road touches one listed before it (and at its
+// ends, wherever it ends on any road) it takes that road's height, easing back to its own
+// profile over the next 90 m.
+function meetAtJunctions() {
+  const REACH = 12, EASE = 90;
+  const hash = new Map();
+  roadPaths.forEach((other, oi) => other.pts.forEach((q) => {
+    const k = cellKey(Math.floor(q.x / REACH), Math.floor(q.z / REACH));
+    (hash.get(k) || hash.set(k, []).get(k)).push([q, oi]);
+  }));
+  const nearestOn = (x, z, test) => {
+    let best = null;
+    const cx = Math.floor(x / REACH), cz = Math.floor(z / REACH);
+    for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
+      for (const [q, oi] of hash.get(cellKey(cx + i, cz + j)) || []) {
+        if (!test(oi)) continue;
+        const d = Math.hypot(q.x - x, q.z - z);
+        if (d < REACH && (!best || d < best.d)) best = { d, h: q.h };
+      }
+    }
+    return best;
+  };
+  roadPaths.forEach((path, pi) => {
+    const p = path.pts, n = p.length;
+    const anchor = p.map((q, i) => {
+      const end = !path.loop && (i === 0 || i === n - 1);
+      return nearestOn(q.x, q.z, (oi) => oi < pi || (end && oi !== pi))?.h ?? null;
+    });
+    if (anchor.every((a) => a === null)) return;
+    // Walk forward then back, carrying the step at the last anchor and the distance since it. The
+    // step fades out along the road, which keeps its own rise and fall; a bigger step is faded
+    // over a longer stretch, at no more than about a 5% grade on top. Between two anchors the
+    // steps from either side are mixed by how near each one is.
+    const side = [1, -1].map((dir) => {
+      const out = p.map(() => ({ run: Infinity, off: 0, w: 0 }));
+      let run = Infinity, off = 0, ease = EASE;
+      for (let k = 0; k < n; k++) {
+        const i = dir > 0 ? k : n - 1 - k, j = i - dir;
+        if (k > 0) run += Math.hypot(p[i].x - p[j].x, p[i].z - p[j].z);
+        if (anchor[i] !== null) { run = 0; off = anchor[i] - p[i].h; ease = Math.max(EASE, Math.abs(off) / 0.05); }
+        out[i] = { run, off, w: run < ease ? 1 - smoothstep(0, ease, run) : 0 };
+      }
+      return out;
+    });
+    p.forEach((q, i) => {
+      const [a, b] = [side[0][i], side[1][i]];
+      if (a.w <= 0 && b.w <= 0) return;
+      const ka = a.w / (a.run + 1e-3), kb = b.w / (b.run + 1e-3);
+      q.h += ((a.off * ka + b.off * kb) / (ka + kb)) * Math.max(a.w, b.w);
+    });
+  });
 }
 
 // ---------- Grid ----------
@@ -469,7 +649,7 @@ export function surfaceAt(x, z) {
   const r = nearestRoad(x, z, 12);
   const h = heightAt(x, z);
   if (r && r.dist < roadHalfWidth(r.type) + 0.6) {
-    if (r.ford > 0.35 && h < 0.15) return 'ford';
+    if (r.ford > 0.35 && h < waterLevelAt(x, z) + 0.15) return 'ford';
     return r.type;
   }
   if (h < waterLevelAt(x, z) + 0.12) return 'ford';
@@ -557,15 +737,7 @@ export async function buildTerrain(scene, res, season, onProgress) {
       const z = BOUNDS.minZ + iz * grid.dz;
       const cd = coastSignedDist(x, z);
       let h = rawHeight(x, z, cd);
-      if (cd > -4) {
-        const r = nearestRoad(x, z, 26);
-        if (r) {
-          const hw = roadHalfWidth(r.type);
-          // Under a bridge the land keeps its valley; elsewhere it rises to meet the road.
-          const blend = nearBridge(x, z) ? 1 : smoothstep(hw + 0.5, hw + 17, r.dist);
-          h = lerp(r.h, h, blend);
-        }
-      }
+      if (cd > -4 || roadDistAt(x, z) < 26) h = roadBlendAt(x, z, h);
       const i = iz * nx + ix;
       grid.heights[i] = h;
       grid.coast[i] = cd;
@@ -653,6 +825,16 @@ export async function buildTerrain(scene, res, season, onProgress) {
     disc.position.set(k.x, lv, k.z);
     scene.add(disc);
   });
+
+  // A ford above sea level gets a patch of river of its own; the land hides all but the crossing.
+  for (const f of fordPools) {
+    if (f.level <= 0) continue;
+    const disc = new THREE.Mesh(new THREE.CircleGeometry(f.r, 32), lakeMat);
+    disc.receiveShadow = true;
+    disc.rotation.x = -Math.PI / 2;
+    disc.position.set(f.x, f.level, f.z);
+    scene.add(disc);
+  }
 
   buildCanyonWater(scene);
   return { mesh, water, waterMat, lakeMat };
@@ -766,25 +948,45 @@ function buildRoadRibbons(scene) {
       if (i) along += Math.hypot(p[i].x - p[i - 1].x, p[i].z - p[i - 1].z);
       alongArr.push(along);
     }
-    // Strips across: shoulder, lane, centre, lane, shoulder. Each vertex follows the ground.
-    const offs = [-W, -hw, -hw / 2, 0, hw / 2, hw, W];
+    // Strips across: a skirt down from each edge (it fills any gap where the land falls away from
+    // the road), shoulder, lane, centre, lane, shoulder. Each vertex follows the ground, and there
+    // are three rows per step along the road so the ribbon hugs the ground on bends.
+    // Skirt columns: its own top edge (so the shoulder keeps its own normals) and its bottom.
+    const TOP = W + 0.25, BOT = W + 0.5;
+    const offs = [-BOT, -TOP, -W, -hw, -hw / 2, 0, hw / 2, hw, W, TOP, BOT];
     const K = offs.length;
+    const rows = [];
     for (let i = 0; i < p.length; i++) {
-      const [nx, nz] = side[i];
+      rows.push({ x: p[i].x, z: p[i].z, n: side[i], along: alongArr[i] });
+      if (i < p.length - 1) {
+        for (const t of [1 / 3, 2 / 3]) {
+          const n0 = side[i], n1 = side[i + 1], nx = n0[0] + (n1[0] - n0[0]) * t, nz = n0[1] + (n1[1] - n0[1]) * t, nl = Math.hypot(nx, nz) || 1;
+          rows.push({ x: p[i].x + (p[i + 1].x - p[i].x) * t, z: p[i].z + (p[i + 1].z - p[i].z) * t, n: [nx / nl, nz / nl], along: alongArr[i] + (alongArr[i + 1] - alongArr[i]) * t });
+        }
+      }
+    }
+    const pi = roadPaths.indexOf(path);
+    for (const row of rows) row.hidden = onEarlierRoad(row.x, row.z, pi);
+    for (const row of rows) {
+      const [nx, nz] = row.n;
       for (const o of offs) {
-        const x = p[i].x + nx * o, z = p[i].z + nz * o;
-        const lift = Math.abs(o) > hw ? 0.08 : 0.13;
+        // The skirt hangs straight down below the shoulder's edge.
+        const e = Math.abs(o) > W ? Math.sign(o) * W : o;
+        const x = row.x + nx * e, z = row.z + nz * e;
+        const lift = Math.abs(o) > W + 0.4 ? -1.2 : Math.abs(o) > hw ? 0.08 : 0.13;
         const dk = deckAt(x, z);
         pos.push(x, (dk ?? heightAt(x, z)) + lift, z);
-        road.push(o, alongArr[i]);
+        road.push(o, row.along);
         jd.push(junctionDist(x, z));
       }
     }
-    for (let i = 0; i < p.length - 1; i++)
+    for (let i = 0; i < rows.length - 1; i++) {
+      if (rows[i].hidden && rows[i + 1].hidden) continue;
       for (let j = 0; j < K - 1; j++) {
         const a = i * K + j, b = a + 1, c = a + K, d = c + 1;
         idx.push(a, b, c, b, d, c);
       }
+    }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     geo.setAttribute('aRoad', new THREE.Float32BufferAttribute(road, 2));
@@ -793,6 +995,9 @@ function buildRoadRibbons(scene) {
     geo.computeVertexNormals();
     const mesh = new THREE.Mesh(geo, createRoadMaterial({ paved: path.type === 'paved', halfWidth: hw }));
     mesh.receiveShadow = true;
+    mesh.userData.roadLift = (o) => (Math.abs(o) > W + 0.4 ? -1.2 : Math.abs(o) > hw ? 0.08 : 0.13);
+    mesh.userData.roadEdge = W;
+    roadMeshes.push(mesh);
     scene.add(mesh);
 
     // Yellow marker posts every 30 units on both sides, like every rural road in Iceland.
@@ -835,12 +1040,44 @@ function buildRoadRibbons(scene) {
     mat.polygonOffsetFactor = -3.5; mat.polygonOffsetUnits = -3.5;
     const mesh = new THREE.Mesh(geo, mat);
     mesh.receiveShadow = true;
+    mesh.userData.roadLift = () => 0.17;
+    roadMeshes.push(mesh);
     scene.add(mesh);
   }
   buildPosts(scene, posts);
 }
 
 export let postReflectorMat = null;
+
+// Road surfaces, junction patches and marker posts, kept so they can be laid back onto the ground
+// after anything reshapes it (landmark pads are levelled after the roads are built).
+const roadMeshes = [];
+let roadPosts = null;
+function refitRoads() {
+  for (const mesh of roadMeshes) {
+    const P = mesh.geometry.attributes.position, R = mesh.geometry.attributes.aRoad, lift = mesh.userData.roadLift;
+    for (let i = 0; i < P.count; i++) {
+      const x = P.getX(i), z = P.getZ(i);
+      P.setY(i, (deckAt(x, z) ?? heightAt(x, z)) + lift(R.getX(i)));
+    }
+    // A skirt vertex sits under its shoulder edge: keep it a fixed drop below that edge.
+    if (mesh.userData.roadEdge) {
+      const K = 11;
+      for (let i = 0; i < P.count; i += K) { P.setY(i, P.getY(i + 1) - 1.3); P.setY(i + K - 1, P.getY(i + K - 2) - 1.3); }
+    }
+    P.needsUpdate = true;
+    mesh.geometry.computeVertexNormals();
+    mesh.geometry.computeBoundingSphere();
+  }
+  if (roadPosts) {
+    const { a, b, posts } = roadPosts, m = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), sc = new THREE.Vector3(1, 1, 1), v = new THREE.Vector3();
+    posts.forEach(([x, , z, r], i) => {
+      m.compose(v.set(x, heightAt(x, z) - 0.05, z), q.setFromAxisAngle(up, r), sc);
+      a.setMatrixAt(i, m); b.setMatrixAt(i, m);
+    });
+    a.instanceMatrix.needsUpdate = true; b.instanceMatrix.needsUpdate = true;
+  }
+}
 
 function buildPosts(scene, posts) {
   const postGeo = new THREE.BoxGeometry(0.16, 1.15, 0.16);
@@ -860,34 +1097,117 @@ function buildPosts(scene, posts) {
   });
   a.castShadow = true;
   scene.add(a, b);
+  roadPosts = { a, b, posts };
 }
 
-// Level the ground under built landmarks so nothing perches on a slope. Each pad pulls the land
-// toward a single height inside its radius, fading out at the edge and staying clear of roads.
+// Level the ground under built landmarks so nothing perches on a slope. Each pad is fully level
+// across its footprint (plus one grid cell, so no ground triangle at its edge tilts) and eases back
+// to the land, the fade widening on a hillside up to the pad's own radius again. All the fades go first and all the level cores last,
+// so a neighbour's fade never tilts a landmark that is already level. Roads crossing a pad follow
+// the new ground: they are laid back on afterwards.
 export function flattenPads(pads, mesh) {
   const H = grid.heights, nx = grid.nx, nz = grid.nz;
   const pos = mesh.geometry.attributes.position;
   for (const pd of pads) {
-    let sum = 0, n = 0;
-    for (let k = 0; k < 12; k++) { const a = (k / 12) * Math.PI * 2; sum += heightAt(pd.x + Math.cos(a) * pd.r * 0.35, pd.z + Math.sin(a) * pd.r * 0.35); n++; }
-    const target = Math.max(sum / n, waterLevelAt(pd.x, pd.z) + 0.8);
-    pd.h = target;
-    const i0 = Math.max(0, Math.floor((pd.x - pd.r - BOUNDS.minX) / grid.dx)), i1 = Math.min(nx - 1, Math.ceil((pd.x + pd.r - BOUNDS.minX) / grid.dx));
-    const j0 = Math.max(0, Math.floor((pd.z - pd.r - BOUNDS.minZ) / grid.dz)), j1 = Math.min(nz - 1, Math.ceil((pd.z + pd.r - BOUNDS.minZ) / grid.dz));
+    let sum = 0;
+    for (let k = 0; k < 12; k++) { const a = (k / 12) * Math.PI * 2; sum += heightAt(pd.x + Math.cos(a) * pd.r * 0.35, pd.z + Math.sin(a) * pd.r * 0.35); }
+    pd.h = Math.max(sum / 12, waterLevelAt(pd.x, pd.z) + 0.8);
+    pd.core = pd.r * 0.7 + Math.max(grid.dx, grid.dz);
+    let drop = 0;
+    for (let k = 0; k < 16; k++) { const a = (k / 16) * Math.PI * 2; drop = Math.max(drop, Math.abs(heightAt(pd.x + Math.cos(a) * pd.r, pd.z + Math.sin(a) * pd.r) - pd.h)); }
+    pd.outer = pd.core + clamp(drop * 3, pd.r * 0.3, pd.r);
+  }
+  // Pads whose level cores overlap (Skógafoss and Kvernufoss, Hallgrímskirkja and Laugavegur)
+  // share one height, so neither ends up tilted on the other's level.
+  const group = pads.map((_, i) => i);
+  const root = (i) => (group[i] === i ? i : (group[i] = root(group[i])));
+  pads.forEach((a, i) => pads.forEach((b, j) => { if (j > i && Math.hypot(a.x - b.x, a.z - b.z) < a.core + b.core) group[root(j)] = root(i); }));
+  const sums = new Map();
+  pads.forEach((pd, i) => { const g = root(i), s = sums.get(g) || { h: 0, n: 0 }; s.h += pd.h; s.n++; sums.set(g, s); });
+  pads.forEach((pd, i) => { const s = sums.get(root(i)); pd.h = s.h / s.n; });
+  const each = (pd, radius, fn) => {
+    const i0 = Math.max(0, Math.floor((pd.x - radius - BOUNDS.minX) / grid.dx)), i1 = Math.min(nx - 1, Math.ceil((pd.x + radius - BOUNDS.minX) / grid.dx));
+    const j0 = Math.max(0, Math.floor((pd.z - radius - BOUNDS.minZ) / grid.dz)), j1 = Math.min(nz - 1, Math.ceil((pd.z + radius - BOUNDS.minZ) / grid.dz));
     for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
-      const x = BOUNDS.minX + i * grid.dx, z = BOUNDS.minZ + j * grid.dz;
-      const d = Math.hypot(x - pd.x, z - pd.z);
-      if (d > pd.r) continue;
-      const w = (1 - smoothstep(pd.r * 0.55, pd.r, d)) * smoothstep(7, 18, roadDistAt(x, z));
-      if (w <= 0) continue;
-      const k = j * nx + i;
-      H[k] = lerp(H[k], target, w);
-      pos.setY(k, H[k]);
+      const d = Math.hypot(BOUNDS.minX + i * grid.dx - pd.x, BOUNDS.minZ + j * grid.dz - pd.z);
+      if (d <= radius) fn(j * nx + i, d);
+    }
+  };
+  for (const pd of pads) each(pd, pd.outer, (k, d) => { if (d > pd.core) H[k] = lerp(H[k], pd.h, 1 - smoothstep(pd.core, pd.outer, d)); });
+  for (const pd of pads) each(pd, pd.core, (k) => { H[k] = pd.h; });
+  // A road that crosses or skirts a pad's level ground takes its level there; either side it keeps
+  // its own rise and fall, held within its usual grade of that level. Elsewhere a road keeps its
+  // heights, and the land beside every road near a pad is blended to the road again below.
+  const before = roadPaths.map((path) => path.pts.map((q) => q.h));
+  const verge = roadHalfWidth('paved') + SHOULDER + Math.max(grid.dx, grid.dz) * 1.2;
+  roadPaths.forEach((path) => {
+    const p = path.pts, n = p.length, g = path.type === 'paved' ? 0.07 : 0.12;
+    // Held: on a pad (at its level), and on a bridge, a ford's wet stretch or a jump (as they
+    // are). A ford's ramp gives way to a pad nearby, within the grade limit.
+    const jumps = JUMPS.filter((J) => J.path === path.name);
+    // slack: how far outside its pad's level ground a pad-held point is (-Infinity: held as it is).
+    const slack = p.map(() => -Infinity);
+    const fixed = p.map((q, i) => {
+      if (q.ford > 0 || nearBridge(q.x, q.z, 10) || jumps.some((J) => Math.hypot(q.x - J.x, q.z - J.z) < 50)) return q.h;
+      // A road on a pad, or skirting one so its verge reaches the level ground, is at that level;
+      // unless two pads at different levels both reach it, when it keeps its own height.
+      const reach = pads.filter((pd) => Math.hypot(q.x - pd.x, q.z - pd.z) < pd.core + verge);
+      if (!reach.length || reach.some((pd) => Math.abs(pd.h - reach[0].h) >= 1)) return null;
+      slack[i] = Math.min(...reach.map((pd) => Math.hypot(q.x - pd.x, q.z - pd.z) - pd.core));
+      return reach[0].h;
+    });
+    if (!fixed.some((v, i) => v !== null && v !== p[i].h)) return;
+    const cum = [0];
+    for (let i = 1; i < n; i++) cum.push(cum[i - 1] + Math.hypot(p[i].x - p[i - 1].x, p[i].z - p[i - 1].z));
+    // A pad's level gives way where it cannot be met at the road's grade from a held stretch that
+    // matters more: one held as it is, or one nearer its own pad.
+    const release = [];
+    for (let i = 0; i < n; i++) {
+      if (fixed[i] === null || slack[i] === -Infinity) continue;
+      for (const dir of [1, -1]) {
+        for (let j = i + dir; j >= 0 && j < n && Math.abs(cum[j] - cum[i]) < 300; j += dir) {
+          if (fixed[j] === null || slack[j] >= slack[i]) continue;
+          if (Math.abs(fixed[j] - fixed[i]) > g * Math.abs(cum[j] - cum[i]) + 0.05) { release.push(i); break; }
+        }
+      }
+    }
+    for (const i of release) fixed[i] = null;
+    // Two held stretches too far apart in height for the grade between them: a straight ramp.
+    let last = -1;
+    for (let i = 0; i < n; i++) {
+      if (fixed[i] === null) continue;
+      if (last >= 0 && i > last + 1 && Math.abs(fixed[i] - fixed[last]) > g * (cum[i] - cum[last])) {
+        for (let k = last + 1; k < i; k++) fixed[k] = lerp(fixed[last], fixed[i], (cum[k] - cum[last]) / (cum[i] - cum[last]));
+      }
+      last = i;
+    }
+    const h = p.map((q, i) => fixed[i] ?? q.h);
+    for (let i = 1; i < n; i++) if (fixed[i] === null) { const d = g * (cum[i] - cum[i - 1]); h[i] = clamp(h[i], h[i - 1] - d, h[i - 1] + d); }
+    for (let i = n - 2; i >= 0; i--) if (fixed[i] === null) { const d = g * (cum[i + 1] - cum[i]); h[i] = clamp(h[i], h[i + 1] - d, h[i + 1] + d); }
+    p.forEach((q, i) => { q.h = h[i]; });
+  });
+  // Roads that meet one that moved follow it again.
+  meetAtJunctions();
+  const changed = [];
+  roadPaths.forEach((path, pi) => path.pts.forEach((q, i) => {
+    if (Math.abs(q.h - before[pi][i]) > 0.01 || pads.some((pd) => Math.hypot(q.x - pd.x, q.z - pd.z) < pd.outer + 4)) changed.push(q);
+  }));
+  if (changed.length) {
+    for (const seg of segments) { const p = roadPaths[seg.path].pts; seg.ha = p[seg.i].h; seg.hb = p[seg.i + 1].h; }
+    const near = new Set();
+    for (const q of changed) each(q, verge + 19, (k) => near.add(k));
+    for (const k of near) {
+      const x = BOUNDS.minX + (k % nx) * grid.dx, z = BOUNDS.minZ + Math.floor(k / nx) * grid.dz;
+      // A pad's level ground stays level (a landmark stands on it), except right under a road.
+      if (pads.some((pd) => Math.hypot(x - pd.x, z - pd.z) < pd.core) && !nearestRoad(x, z, verge)) continue;
+      H[k] = roadBlendAt(x, z, H[k]);
     }
   }
+  for (let k = 0; k < H.length; k++) pos.setY(k, H[k]);
   pos.needsUpdate = true;
   mesh.geometry.computeVertexNormals();
   if (surfaceUniforms.uHeightTex.value) surfaceUniforms.uHeightTex.value.needsUpdate = true;
+  refitRoads();
 }
 
 function buildBridges(scene) {
