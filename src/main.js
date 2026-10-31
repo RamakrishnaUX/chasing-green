@@ -29,6 +29,7 @@ import { Aurora } from './aurora/aurora.js';
 import { Jeep } from './vehicle/jeep.js';
 import { updateInterior, trackTitle } from './vehicle/interiors.js';
 import { Walker } from './vehicle/walker.js';
+import { Wake } from './vehicle/boat.js';
 import { Input } from './vehicle/input.js';
 import { Hud } from './ui/hud.js';
 import { Notebook, stampSvg } from './ui/notebook.js';
@@ -97,7 +98,7 @@ const volumes = settings.volumes || (settings.volumes = { master: 1, music: sett
 audio.setLevels(volumes);
 
 let world = null, sky, aurora, landmarks, jeep, walker, scatter, grass, props, post = null;
-let obstacles, puddles, spray, dust, powder, powderCloud, mapUI, towns, snow, nav;
+let obstacles, puddles, spray, wake, dust, powder, powderCloud, mapUI, towns, snow, nav;
 let lastPostState = { aurora: 0, dark: 0 };
 const snowNoise = createNoise2D(4040);
 let wasInPuddle = false, wasInWater = false, shake = 0, sitting = false, sitSpeedBefore = 1, camHeading = null;
@@ -222,6 +223,7 @@ async function buildWorld(progress) {
   snow = new SnowFall(scene, qualityName === 'low' ? 900 : 2200);
   puddles = new Puddles(scene, qualityName === 'low' ? 100 : 180);
   spray = new Particles(scene, { count: qualityName === 'low' ? 260 : 600, color: 0xe6f0f4, size: 0.5, opacity: 0.75, gravity: 9.5, drag: 1.2 });
+  wake = new Wake(scene);
   dust = new Particles(scene, { count: qualityName === 'low' ? 120 : 300, color: 0xb39a74, size: 1.3, opacity: 0.28, gravity: -0.4, drag: 1.4 });
   powder = new Particles(scene, { count: qualityName === 'low' ? 500 : 1100, color: 0xf6f9ff, size: 0.85, opacity: 0.95, gravity: 7, drag: 1.1 });
   powderCloud = new Particles(scene, { count: qualityName === 'low' ? 120 : 260, color: 0xdfe8f2, size: 2.6, opacity: 0.42, gravity: 0.6, drag: 2.2 });
@@ -419,6 +421,7 @@ function setView(v) {
 }
 // E (or Step out in the menu): leave the car, or get back in.
 function stepOut() {
+  if (jeep.boatOn || jeep.boat > 0) { hud.toast('You are on the water. Head back to the shore to step out.', { seconds: 2.5 }); return; }
   if (jeep.speed > 2.5) { hud.toast('Slow down to step out.', { seconds: 2.5 }); return; }
   mode = 'walk'; walkTilt = false; walker.enter(jeep); track('step_out'); look.walkYaw = 0;
   hud.toast('On foot. Walk with the same keys. Press L to look up, E to get back in.', { seconds: 3.5 });
@@ -998,8 +1001,9 @@ function vehicleEffects(dt) {
   if (inPuddle && !wasInPuddle && sp > 3) { audio.splash(Math.min(1, sp / 30)); haptics.play('light'); }
   if (inWater && !wasInWater && sp > 2) { audio.splash(Math.min(1, sp / 18 + jeep.depth * 0.4)); haptics.play(sp > 10 ? 'heavy' : 'medium'); }
   wasInPuddle = inPuddle; wasInWater = inWater;
+  boatEffects(dt, fx, fz, rx, rz, sp);
   // Spray from the wheels, thrown out sideways and up.
-  if ((inWater || inPuddle) && sp > 1.5) {
+  if ((inWater || inPuddle) && sp > 1.5 && jeep.boat < 0.5) {
     const amount = inWater ? Math.min(1, sp / 15) * (0.6 + Math.min(1, jeep.depth)) : Math.min(1, sp / 25);
     for (const [x, z, side] of wheelsWorld) {
       const y = (inWater ? waterLevelAt(x, z) : heightAt(x, z)) + 0.15;
@@ -1007,7 +1011,7 @@ function vehicleEffects(dt) {
       jeep.root && spray.emit(x, y, z, rx * out - fx * sp * 0.15, 2.5 + sp * 0.12, rz * out - fz * sp * 0.15, Math.ceil(amount * 4), 1.6, 0.8);
     }
   }
-  jeep.wadeLevel = inWater ? Math.min(1, jeep.depth * 0.7 + sp / 25) : inPuddle ? Math.min(0.6, sp / 30) : 0;
+  jeep.wadeLevel = jeep.boat > 0.5 ? Math.min(0.8, sp / 16) : inWater ? Math.min(1, jeep.depth * 0.7 + sp / 25) : inPuddle ? Math.min(0.6, sp / 30) : 0;
   // Snow: every wheel throws powder up and out to the side, and it falls back as the car passes,
   // more of it the faster you go.
   if (jeep.surface === 'snow' && sp > 1.5 && !jeep.air) {
@@ -1040,6 +1044,27 @@ function vehicleEffects(dt) {
   }
   shake *= Math.max(0, 1 - dt * 6);
   drivingHaptics(dt);
+}
+
+// Boat mode: say when it changes, throw a rooster tail from the jet and spray off the bow, and
+// leave a wake.
+let boatToldOnce = false;
+function boatEffects(dt, fx, fz, rx, rz, sp) {
+  const ev = jeep.boatEvent; jeep.boatEvent = null;
+  if (ev === 'boat') {
+    hud.toast(boatToldOnce ? 'Boat mode.' : 'Too deep to wade, so it floats: boat mode. Cruise out, then head back to the shore to drive on.', { seconds: boatToldOnce ? 1.8 : 4.5, priority: 2 });
+    boatToldOnce = true; haptics.play('medium'); track('boat_mode', { vehicle: jeep.kind });
+  } else if (ev === 'car') hud.toast('Wheels down. Back on the road.', { seconds: 2, priority: 2 });
+  const K = jeep.kit, afloat = jeep.boatOn && jeep.boat > 0.7;
+  const stern = { x: jeep.pos.x + fx * (K.z0 - 0.3), z: jeep.pos.z + fz * (K.z0 - 0.3) };
+  wake.update(dt, stern, jeep.heading, afloat && sp > 1);
+  if (!afloat || sp < 1) return;
+  const wl = waterLevelAt(jeep.pos.x, jeep.pos.z);
+  spray.emit(stern.x, wl + 0.1, stern.z, -fx * sp * 0.4, 2.2 + sp * 0.18, -fz * sp * 0.4, Math.ceil(sp * 0.25), 1.2, 1.0);
+  if (sp > 7) for (const sx of [-1, 1]) {
+    const bx = jeep.pos.x + fx * (K.z1 - 1.2) + rx * sx * K.halfW, bz = jeep.pos.z + fz * (K.z1 - 1.2) + rz * sx * K.halfW;
+    spray.emit(bx, wl + 0.05, bz, rx * sx * 2.2 - fx * 2, 1.2 + sp * 0.06, rz * sx * 2.2 - fz * 2, 1, 1.0, 0.7);
+  }
 }
 
 // Feel the drive: a kick when nitro fires and a soft pulse while it burns, an ABS-style

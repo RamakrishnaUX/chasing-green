@@ -171,6 +171,9 @@ function profileBody(points, width, bevel = 0.1, curveSeg = 10) {
 }
 
 // Wheel arch: a thick half ring, extruded across the wheel width.
+// Fender flares stay separate meshes so boat mode can tuck them away as the wheels fold.
+const flare = (m) => { Object.assign(m.userData, { flare: true, dynamic: true }); return m; };
+
 function archGeometry(r1, r2, width, a0 = 0.15, a1 = Math.PI - 0.15) {
   const s = new THREE.Shape();
   s.absarc(0, 0, r2, a0, a1, false);
@@ -207,7 +210,7 @@ function buildJeep(color = 0x8fc31f) {
     g.add(mesh(new THREE.TorusGeometry(0.1, 0.012, 6, 24), lightMat, x, 1.22, 2.215)); // LED halo
   }
   // Fender flares, wide and squared off.
-  for (const z of [wbF, wbR]) for (const sx of [-1, 1]) g.add(mesh(archGeometry(R + 0.08, R + 0.24, 0.36), pl, sx * (track + 0.03), R, z));
+  for (const z of [wbF, wbR]) for (const sx of [-1, 1]) g.add(flare(mesh(archGeometry(R + 0.08, R + 0.24, 0.36), pl, sx * (track + 0.03), R, z)));
   // Windscreen, roll bar, hard top rails, tube doors.
   const ws = new THREE.Group(); ws.position.set(0, 1.68, 0.64); ws.rotation.x = -0.16;
   ws.add(mesh(rbox(1.72, 0.08, 0.08, 0.03), P, 0, 0.62, 0));
@@ -297,10 +300,10 @@ function buildVintage() {
   for (const sx of [-1, 1]) for (let i = 0; i < 9; i++) g.add(mesh(rbox(0.01, 0.16, 0.035, 0.005), chr, sx * 0.63, 0.92, 0.7 + i * 0.13));
   // Long sweeping front fenders down to running boards, rounded rear fenders.
   for (const sx of [-1, 1]) {
-    g.add(mesh(archGeometry(R + 0.05, R + 0.17, 0.36, 0.0, Math.PI), red, sx * (track + 0.04), R, wbF));
+    g.add(flare(mesh(archGeometry(R + 0.05, R + 0.17, 0.36, 0.0, Math.PI), red, sx * (track + 0.04), R, wbF)));
     const sweep = mesh(rbox(0.36, 0.1, 1.15, 0.05), red, sx * (track + 0.04), 0.62, wbF - 0.85);
     sweep.rotation.x = 0.42; g.add(sweep);
-    g.add(mesh(archGeometry(R + 0.05, R + 0.17, 0.38, 0.0, Math.PI), red, sx * (track + 0.04), R, wbR));
+    g.add(flare(mesh(archGeometry(R + 0.05, R + 0.17, 0.38, 0.0, Math.PI), red, sx * (track + 0.04), R, wbR)));
     g.add(mesh(rbox(0.34, 0.05, 1.3, 0.02), blk, sx * (track + 0.04), 0.42, 0.1));
     // Paired headlamps on the fenders and a chrome spotlamp inboard.
     const lamp = new THREE.SphereGeometry(0.17, 24, 16); lamp.scale(1, 1, 1.2);
@@ -621,7 +624,7 @@ function buildRace() {
   for (const sx of [-1, 1]) {
     const sw = mesh(rbox(0.02, 0.2, 0.86, 0.01), gls, sx * 0.735, 0.97, -0.12); sw.rotation.z = sx * 0.12; g.add(sw);
     // Wheel arches so the wheels show, and crisp haunches flaring out above the rear ones.
-    for (const [z, w] of [[wbF, 0.36], [wbR, 0.42]]) g.add(mesh(archGeometry(R + 0.03, R + 0.17, w, 0.02, Math.PI - 0.02), P, sx * track, R, z));
+    for (const [z, w] of [[wbF, 0.36], [wbR, 0.42]]) g.add(flare(mesh(archGeometry(R + 0.03, R + 0.17, w, 0.02, Math.PI - 0.02), P, sx * track, R, z)));
     g.add(mesh(rbox(0.34, 0.2, 1.25, 0.09), P, sx * 0.84, 0.7, wbR + 0.05));
     g.add(mesh(rbox(0.3, 0.14, 1.0, 0.07), P, sx * 0.81, 0.62, wbF - 0.05));
     // Sill with a carbon side intake behind the door, and a shoulder crease.

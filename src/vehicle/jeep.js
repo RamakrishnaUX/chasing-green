@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
-import { groundAt as heightAt, surfaceAt, nearestRoad, exposureAt, waterLevelAt, bridgeGuard } from '../world/terrain.js';
+import { groundAt as heightAt, surfaceAt, roadDistAt, exposureAt, waterLevelAt, bridgeGuard } from '../world/terrain.js';
 import { clamp, lerp } from '../world/noise.js';
 import { buildVehicleModel } from './models.js';
 import { VEHICLES, SURFACE_DRAG } from './specs.js';
@@ -9,6 +9,7 @@ import { bakeStatic } from '../world/bake.js';
 import { solidStep, solidTopAt } from '../world/solids.js';
 import { buildInterior } from './interiors.js';
 import { HD, weatherCar, carGround } from '../world/hd.js';
+import { buildBoatKit, stages } from './boat.js';
 
 // The player's car. Kept under the old name so the rest of the game needs no changes;
 // setType() swaps between the Jeep, the vintage roadster and the race car.
@@ -49,6 +50,8 @@ export class Jeep {
     this.impact = 0;
     this.braking = 0;
     this.obstacles = null;
+    // Boat mode: boatOn is where it is heading, boat how far the change has got (0 car, 1 boat).
+    this.boat = 0; this.boatOn = false; this.boatEvent = null; this.bobT = 0;
     this.setType(kind);
   }
 
@@ -62,6 +65,7 @@ export class Jeep {
     this.spec = VEHICLES[kind];
     this.model = buildVehicleModel(kind);
     if (HD.on) weatherCar(this.model.group);
+    this.kit = buildBoatKit(this.model);
     // Wheels turn and steer; the rest of the body is merged into a few meshes.
     for (const w of this.model.wheels) w.pivot.userData.dynamic = true;
     bakeStatic(this.model.group);
@@ -83,6 +87,7 @@ export class Jeep {
     this.spread.position.set(...this.model.headlight);
     this.nitroFx.place(this.model.exhaust);
     this.vF = 0; this.vL = 0;
+    this.kit.apply(this.boat);
     if (this.pos) this.sync(0);
   }
 
@@ -101,6 +106,7 @@ export class Jeep {
     this.pos.set(x, heightAt(x, z), z);
     this.heading = heading;
     this.vF = 0; this.vL = 0;
+    this.boat = 0; this.boatOn = false; this.kit.apply(0);
     this.sync(0);
   }
 
@@ -110,6 +116,7 @@ export class Jeep {
 
   update(dt, input, wind, active) {
     carGround.value = this.pos.y;
+    this.bobT += dt;
     const S = this.spec, V = CONFIG.vehicle;
     const throttle = active ? input.throttle : 0;
     // Steering eases toward the key input instead of snapping, so turns feel smooth.
@@ -126,10 +133,22 @@ export class Jeep {
     if (this.boosting) this.nitro = Math.max(0, this.nitro - dt * 0.22);
     else this.nitro = Math.min(1, this.nitro + dt * 0.09);
 
+    // Boat mode. Past the depth a car can wade (no deeper than 1.4 m) it floats and turns into a
+    // boat; back in shallow water it turns into a car again. The gap stops it flicking between them.
+    const floatAt = Math.min(S.wade, 1.4);
+    if (!this.boatOn && !this.air && this.depth > floatAt) { this.boatOn = true; this.boatEvent = 'boat'; }
+    else if (this.boatOn && this.depth < floatAt * 0.6) { this.boatOn = false; this.boatEvent = 'car'; }
+    this.boat = clamp(this.boat + (this.boatOn ? dt : -dt) / 1.6, 0, 1);
+    this.kit.apply(this.boat);
+    const wet = this.boatOn || this.boat > 0;
+    const afloat = this.boatOn && this.boat > 0.6; // hull down and jet out
+    const B = S.boat || { maxSpeed: 15, accel: 6 };
+
     const inWater = this.depth > 0.05;
     const waterF = inWater ? lerp(1, 0.5, clamp(this.depth / S.wade, 0, 1)) : 1;
-    const maxV = S.maxSpeed * (S.offroad[this.surface] ?? 1) * waterF * (this.boosting ? S.nitro.speed : 1);
-    const accel = S.accel * (this.boosting ? S.nitro.accel : 1);
+    // While the kit unfolds (either way) it only paddles along.
+    const maxV = wet ? (afloat ? B.maxSpeed : 3.5) : S.maxSpeed * (S.offroad[this.surface] ?? 1) * waterF * (this.boosting ? S.nitro.speed : 1);
+    const accel = wet ? (afloat ? B.accel : 3) : S.accel * (this.boosting ? S.nitro.accel : 1);
 
     // In the air there is no grip: no engine, brakes or steering, just momentum.
     const air = !!this.air;
@@ -144,21 +163,24 @@ export class Jeep {
     }
     // Rolling resistance: small on tarmac, more off-road for cars that are bad at it.
     const off = S.offroad[this.surface] ?? 1;
-    let drag = (SURFACE_DRAG[this.surface] ?? 0.05) * (1.6 - off);
-    if (inWater) drag += S.waterDrag * clamp(this.depth, 0, 1.5) * 0.6;
+    let drag = wet ? 0.08 : (SURFACE_DRAG[this.surface] ?? 0.05) * (1.6 - off);
+    if (inWater && !wet) drag += S.waterDrag * clamp(this.depth, 0, 1.5) * 0.6;
     this.vF -= this.vF * drag * dt;
-    if (throttle === 0) this.vF -= Math.sign(this.vF) * Math.min(Math.abs(this.vF), 1.0 * dt);
+    if (throttle === 0) this.vF -= Math.sign(this.vF) * Math.min(Math.abs(this.vF), (wet ? 0.5 : 1.0) * dt);
     if (this.vF > maxV) this.vF -= (this.vF - maxV) * 1.8 * dt;
 
-    // Hills.
+    // Hills (water is flat).
     const ahead = heightAt(this.pos.x + fx * 2, this.pos.z + fz * 2);
     const behind = heightAt(this.pos.x - fx * 2, this.pos.z - fz * 2);
     const holding = throttle === 0 && Math.abs(this.vF) < 2.2;
-    if (!holding) this.vF -= ((ahead - behind) / 4) * 8 * dt;
+    if (!holding && !wet) this.vF -= ((ahead - behind) / 4) * 8 * dt;
 
-    // Steering is softer at speed so it stays forgiving, even when boosting.
+    // Steering is softer at speed so it stays forgiving, even when boosting. A boat steers with
+    // its jet, so it turns once it has a little way on, even slowly, and wider when fast.
     const sp = Math.abs(this.vF);
-    const steerAmt = steer * S.steerRate * 0.72 * clamp(this.vF / 6, -1, 1) * (1 - 0.62 * clamp(sp / (S.maxSpeed * 1.2), 0, 1));
+    const steerAmt = wet
+      ? steer * S.steerRate * 0.55 * clamp(this.vF / 3, -1, 1) * (1 - 0.35 * clamp(sp / B.maxSpeed, 0, 1))
+      : steer * S.steerRate * 0.72 * clamp(this.vF / 6, -1, 1) * (1 - 0.62 * clamp(sp / (S.maxSpeed * 1.2), 0, 1));
     if (!air) this.heading += steerAmt * dt;
     this.steerVis = lerp(this.steerVis, steer * 0.45, Math.min(1, dt * 8));
 
@@ -167,14 +189,16 @@ export class Jeep {
     const exposure = exposureAt(this.pos.x, this.pos.z);
     const windSide = (wind.x * rx + wind.z * rz) * exposure * V.windPush;
     if (!holding) this.vL += windSide * dt * 3;
-    const grip = (handbrake && active ? S.handbrakeGrip : S.grip) * (inWater ? 0.7 : 1);
+    // Afloat it slides through turns, as a boat does.
+    const grip = wet ? 1.4 : (handbrake && active ? S.handbrakeGrip : S.grip) * (inWater ? 0.7 : 1);
     this.vL -= this.vL * Math.min(1, grip * dt);
     if (handbrake) this.vF -= this.vF * Math.min(1, 1.6 * dt);
-    if (handbrake && active && sp > 4) this.vL += steer * -this.vF * 0.12 * dt * 8;
+    if (handbrake && active && sp > 4 && !wet) this.vL += steer * -this.vF * 0.12 * dt * 8;
 
     // Parking hold: no throttle and below walking pace means the car is parked. It stops dead,
     // so wind and slopes cannot creep it along (which made the whole world seem to slide).
-    const parked = throttle === 0 && Math.abs(this.vF) < 2.2 && Math.abs(this.vL) < 1.5;
+    // A boat just drifts to a stop.
+    const parked = !wet && throttle === 0 && Math.abs(this.vF) < 2.2 && Math.abs(this.vL) < 1.5;
     if (parked) {
       this.vF *= Math.max(0, 1 - dt * 10);
       this.vL *= Math.max(0, 1 - dt * 10);
@@ -185,14 +209,7 @@ export class Jeep {
     this.pos.x += (fx * this.vF + rx * this.vL) * dt;
     this.pos.z += (fz * this.vF + rz * this.vL) * dt;
 
-    // Deep water: each car has its own limit (the Jeep has a snorkel).
     let warn = '';
-    const newDepth = waterLevelAt(this.pos.x, this.pos.z) - heightAt(this.pos.x, this.pos.z);
-    if (newDepth > S.wade) {
-      this.pos.x = prevX; this.pos.z = prevZ;
-      this.vF *= -0.2; this.vL = 0;
-      warn = this.kind === 'jeep' ? 'Too deep, even for the Jeep. Back up.' : `Too deep for the ${S.name.toLowerCase()}. The Jeep can wade much deeper.`;
-    }
     // Landmark rock and ice: drive up a slope like any hill, but a face steeper than about 50
     // degrees is a wall. Checked under the car and at the bumper in the direction of travel.
     const moved = Math.hypot(this.pos.x - prevX, this.pos.z - prevZ);
@@ -202,15 +219,17 @@ export class Jeep {
       this.pos.x = prevX; this.pos.z = prevZ;
       this.vF *= -0.15; this.vL = 0;
     }
-    const road = nearestRoad(this.pos.x, this.pos.z, V.offRoadLimit + 30);
-    if (!road || road.dist > V.offRoadLimit) {
-      if (road) {
-        const over = road.dist - V.offRoadLimit;
-        const dx = (road.px - this.pos.x) / road.dist, dz = (road.pz - this.pos.z) / road.dist;
-        this.pos.x += dx * over; this.pos.z += dz * over;
-      } else { this.pos.x = prevX; this.pos.z = prevZ; }
+    // How far from the roads you can go: not far on land, much further out on the water. Only
+    // moving further out is stopped, sliding along the limit, so a boat that lands on a shore
+    // beyond the land limit can still drive back in.
+    const limit = wet ? V.boatRange : V.offRoadLimit;
+    const dNew = roadDistAt(this.pos.x, this.pos.z), dOld = roadDistAt(prevX, prevZ);
+    if (dNew > limit && dNew > dOld) {
+      const e = 2, gx = roadDistAt(this.pos.x + e, this.pos.z) - roadDistAt(this.pos.x - e, this.pos.z), gz = roadDistAt(this.pos.x, this.pos.z + e) - roadDistAt(this.pos.x, this.pos.z - e);
+      const gl = Math.hypot(gx, gz) || 1, over = dNew - Math.max(limit, dOld);
+      this.pos.x -= (gx / gl) * over; this.pos.z -= (gz / gl) * over;
       this.vF *= 1 - Math.min(1, 3 * dt);
-      warn = 'The ground gets too rough past here. Head back toward the road.';
+      warn = wet ? 'That is far enough out. Turn back toward the shore.' : 'The ground gets too rough past here. Head back toward the road.';
     }
 
     // Solid obstacles and bridge parapets: two circles (front and back) give a car-shaped footprint.
@@ -255,8 +274,10 @@ export class Jeep {
     let y = Math.max((front + back) / 2, solidTopAt(this.pos.x, this.pos.z) - 0.2);
     const sus = this.spec.susp || { k: 7, roll: 1 };
     // In water the body rides above the surface with only the wheels under: a ford, not a sink.
-    const wl = waterLevelAt(this.pos.x, this.pos.z);
-    if (wl - this.draft() > y) y = wl - this.draft();
+    // As a boat it floats on its hull instead, bobbing on the swell and lifting a little at speed.
+    const fl = this.floatY();
+    if (fl > y) y = fl;
+    const hull = stages(this.boat).hull, afloat = hull > 0 && fl >= y - 1e-6;
     // The suspension smooths bumps but not the road's own rise and fall: the body moves with the
     // ground's smoothed vertical speed, and only what is left over is eased out. (Easing the whole
     // height made the body lag below a climb; with a catch-up past 25 cm it then snapped up and
@@ -274,9 +295,20 @@ export class Jeep {
         this.pos.y = clamp(this.pos.y, y - 0.08, y + 0.25); // never sinks into the road
       }
     }
-    this.pitch = this.air ? lerp(this.pitch, this.airPitch ?? 0, dt ? Math.min(1, dt * 3) : 1) : lerp(this.pitch, Math.atan2(back - front, wbLen) - this.braking * 0.02 * sus.roll, dt ? Math.min(1, dt * sus.k * 0.85) : 1);
+    let pitchT = Math.atan2(back - front, wbLen) - this.braking * 0.02 * sus.roll;
     const lean = -this.steerVis * clamp(this.vF / 30, 0, 1) * 0.07 * sus.roll;
-    this.roll = lerp(this.roll, Math.atan2(right - left, trackW) + (this.windSide || 0) * 0.01 + lean, dt ? Math.min(1, dt * sus.k * 0.85) : 1);
+    let rollT = Math.atan2(right - left, trackW) + (this.windSide || 0) * 0.01 + lean;
+    let rate = sus.k * 0.85;
+    if (afloat) {
+      // Afloat the seabed does not tilt it: the bow lifts with speed, it rocks on the swell
+      // and leans out of a turn.
+      const t = this.bobT, plane = clamp(this.vF / 14, 0, 1);
+      pitchT = lerp(pitchT, -plane * 0.06 + Math.sin(t * 1.1) * 0.018, hull);
+      rollT = lerp(rollT, -this.steerVis * clamp(this.vF / 12, -1, 1) * 0.1 + Math.sin(t * 0.8 + 1) * 0.025 + (this.windSide || 0) * 0.02, hull);
+      rate = lerp(rate, 2, hull);
+    }
+    this.pitch = this.air ? lerp(this.pitch, this.airPitch ?? 0, dt ? Math.min(1, dt * 3) : 1) : lerp(this.pitch, pitchT, dt ? Math.min(1, dt * rate) : 1);
+    this.roll = lerp(this.roll, rollT, dt ? Math.min(1, dt * rate) : 1);
     this.root.position.copy(this.pos);
     this.root.rotation.set(0, this.heading, 0);
     if (this.blob) {
@@ -284,7 +316,7 @@ export class Jeep {
       this.blob.position.set(this.pos.x, Math.max(this.pos.y, waterLevelAt(this.pos.x, this.pos.z)) + 0.06, this.pos.z);
       this.blob.rotation.z = this.heading;
       this.blob.scale.set(wid * 1.25, len * 1.15, 1);
-      this.blob.visible = this.root.visible;
+      this.blob.visible = this.root.visible && this.boat < 0.3;
     }
     this.body.rotation.set(this.pitch, 0, this.roll);
     // Accelerating squats the back a touch; braking dips the nose.
@@ -294,13 +326,18 @@ export class Jeep {
     if (this.landing > 0) this.landing -= dt || 0;
     // A model may be built at one size and scaled up (model.scale): its wheel pivots live in the
     // model's own units, so suspension travel is divided by the scale and spin uses the real radius.
-    const R = this.model.R, MS = this.model.scale || 1;
+    // In boat mode the wheels rise and turn to lie flat on the deck, and stop turning.
+    const R = this.model.R, MS = this.model.scale || 1, fold = stages(this.boat).fold, K = this.kit;
     this.wheels.forEach((w, i) => {
       const plane = y + (w.z / wbLen) * (front - back) + (w.x / trackW) * (right - left);
-      w.pivot.position.y = R + clamp(g[i] - plane, -0.12, 0.12) / MS;
-      w.spin.rotation.x += (this.vF * (dt || 0)) / (R * MS);
-      if (w.front) w.pivot.rotation.y = this.steerVis;
+      const sx = Math.sign(w.x);
+      w.pivot.position.y = R + clamp(g[i] - plane, -0.12, 0.12) / MS * (1 - fold) + K.lift * fold;
+      w.pivot.position.x = w.baseX - sx * K.inset * fold;
+      w.pivot.rotation.z = -sx * (Math.PI / 2) * fold;
+      w.spin.rotation.x += (this.vF * (dt || 0)) / (R * MS) * (1 - fold);
+      if (w.front) w.pivot.rotation.y = this.steerVis * (1 - fold);
     });
+    K.bucket.rotation.y = -this.steerVis * 0.9;
     this.nitroFx.update(dt, this.boosting, Math.abs(this.vF));
   }
 
@@ -308,12 +345,20 @@ export class Jeep {
   // follow, fly ballistically, and land with a squash and (on hard landings) a bounce.
   // How deep the wheels sit in water before the body rides on the surface.
   draft() { return clamp(this.spec.wade * 0.2, 0.12, 0.5); }
+  // Height the car rides at on water: on its wheels' draft, or on the hull's waterline with a
+  // gentle bob and a lift at speed as a boat.
+  floatY() {
+    const wl = waterLevelAt(this.pos.x, this.pos.z), h = stages(this.boat).hull;
+    if (!h) return wl - this.draft();
+    const t = this.bobT, bob = Math.sin(t * 1.3) * 0.045 + Math.sin(t * 2.1 + 1) * 0.02;
+    return wl - lerp(this.draft(), this.kit.waterline, h) + (bob + clamp(this.vF / 14, 0, 1) * 0.06) * h;
+  }
   groundY() {
     const fx = Math.sin(this.heading), fz = Math.cos(this.heading), rx = fz, rz = -fx;
     let s = 0;
     for (const w of this.wheels) s += heightAt(this.pos.x + rx * w.x + fx * w.z, this.pos.z + rz * w.x + fz * w.z);
-    const g = Math.max(s / this.wheels.length, solidTopAt(this.pos.x, this.pos.z) - 0.2), wl = waterLevelAt(this.pos.x, this.pos.z);
-    return Math.max(g, wl - this.draft());
+    const g = Math.max(s / this.wheels.length, solidTopAt(this.pos.x, this.pos.z) - 0.2);
+    return Math.max(g, this.floatY());
   }
   vertical(dt, sp) {
     if (!dt) return;

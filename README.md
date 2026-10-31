@@ -285,7 +285,17 @@ The road from Egilsstaðir to Seyðisfjörður is a long hairpin climb over the 
 
 ## Water
 
-Cars ford shallow water with their wheels under and the body above the surface, at reduced speed. The Trail 4x4 fords up to 2.8 m, the roadster 0.95 m and the supercar 0.55 m.
+Cars ford shallow water with their wheels under and the body above the surface, at reduced speed. The supercar wades up to 0.55 m, the roadster 0.95 m and the camper 1 m; the Trail 4x4 could wade 2.8 m but floats from 1.4 m.
+
+### Boat mode
+
+Drive into water deeper than that and the car turns into a boat (`src/vehicle/boat.js`). Over about a second and a half a white V-hull with an orange rubbing strake drops out from under the body, the wheels rise and fold flat onto its deck (the fender flares tuck away), and a water jet and navigation lights come out: red to port, green to starboard, white at the stern. One kit fits every car; it is sized from each body's length and width.
+
+- **Handling.** It floats on the hull's waterline, bobs on the swell, lifts its bow and leans out of turns at speed, and slides through turns as a boat does. Top speed is about 47 km/h in the 4x4, 35 in the roadster and camper and 60 in the supercar. It steers with the jet, so it turns even when slow. Nitro is off on the water.
+- **Range.** It can go 420 m from the nearest road (70 m on land). Past that it slides along the limit and is told to turn back toward the shore.
+- **Back ashore.** In water shallower than 60% of the floating depth the wheels come down, the hull folds away and it drives up the beach. A car that comes ashore past the 70 m land limit can always drive back toward the road.
+- **On the water** the jet throws a rooster tail, the bow throws spray at speed and a wake spreads and fades behind. The hull's hiss replaces the wading sound. You cannot step out on the water.
+- **Where.** Off any shore near a road: the south coast at Vík, round Snæfellsnes, below Siglufjörður, and on Þingvallavatn. The highland fords are at most 0.4 m deep, so they are still waded.
 
 ## Grounding
 
