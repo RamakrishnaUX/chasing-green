@@ -200,6 +200,7 @@ export class Grass {
     this.mesh = new THREE.Mesh(geo, mat);
     this.mesh.frustumCulled = false;
     this.mesh.receiveShadow = true;
+    this.mesh.userData.noAO = true;
     scene.add(this.mesh);
   }
 

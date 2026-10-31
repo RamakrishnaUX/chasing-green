@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { createWaterMaterial } from './materials.js';
 import { toWorld, LAKES, CANYONS, WS } from './geo.js';
 import { heightAt, nearestRoad, roadDistAt } from './terrain.js';
@@ -398,34 +399,30 @@ function rockBox(w, h, d, rough = 0.6) {
 // Glacier ice: a faceted crystal. Starts from a subdivided sphere, then every face is pushed
 // in or out by its own amount and the mesh is split so each facet keeps a hard edge.
 function iceGeometry(size, rand) {
-  const base = new THREE.IcosahedronGeometry(size, 2);
-  const p = base.attributes.position;
-  const k = [rand() * 6, rand() * 6, rand() * 6];
-  const sx = 0.8 + rand() * 0.6, sy = 0.5 + rand() * 0.35, sz = 0.8 + rand() * 0.6;
+  // Glacier ice washed up on black sand: rounded and polished by the waves, flattened, with a
+  // few softer bulges, and coloured from frosty white on top to deep blue underneath.
+  // The icosahedron comes with every triangle separate; weld it so the normals come out smooth.
+  const ico = new THREE.IcosahedronGeometry(size, 3);
+  ico.deleteAttribute('normal'); ico.deleteAttribute('uv');
+  const g = mergeVertices(ico);
+  ico.dispose();
+  const p = g.attributes.position;
+  const k = [rand() * 6, rand() * 6, rand() * 6, rand() * 6];
+  const sx = 0.8 + rand() * 0.6, sy = 0.45 + rand() * 0.35, sz = 0.8 + rand() * 0.6;
   for (let i = 0; i < p.count; i++) {
-    const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
-    // Large lumps, then sharp noise that snaps vertices onto a few planes.
-    const n = 1 + 0.22 * Math.sin(x * 2.1 / size + k[0]) * Math.sin(z * 1.7 / size + k[1]) + 0.12 * Math.sin(y * 3.3 / size + k[2]);
-    const snap = 0.12 * size;
-    let nx = x * n * sx, ny = y * n * sy, nz = z * n * sz;
-    nx = Math.round(nx / snap) * snap; ny = Math.round(ny / snap) * snap; nz = Math.round(nz / snap) * snap;
-    p.setXYZ(i, nx, Math.max(ny, -size * 0.3), nz);
-  }
-  // Split faces so normals are flat per facet, then jut some facets out.
-  const g = base.toNonIndexed();
-  const q = g.attributes.position;
-  const v = new THREE.Vector3(), c = new THREE.Vector3(), nrm = new THREE.Vector3(), e1 = new THREE.Vector3(), e2 = new THREE.Vector3();
-  for (let f = 0; f < q.count; f += 3) {
-    if (rand() > 0.3) continue;
-    c.set(0, 0, 0);
-    for (let j = 0; j < 3; j++) c.add(v.fromBufferAttribute(q, f + j));
-    c.multiplyScalar(1 / 3);
-    e1.fromBufferAttribute(q, f + 1).sub(v.fromBufferAttribute(q, f)); e2.fromBufferAttribute(q, f + 2).sub(v);
-    nrm.crossVectors(e1, e2).normalize();
-    const push = (rand() - 0.4) * 0.16 * size;
-    for (let j = 0; j < 3; j++) { v.fromBufferAttribute(q, f + j).addScaledVector(nrm, push); q.setXYZ(f + j, v.x, v.y, v.z); }
+    const x = p.getX(i) / size, y = p.getY(i) / size, z = p.getZ(i) / size;
+    const n = 1 + 0.2 * Math.sin(x * 2.1 + k[0]) * Math.sin(z * 1.7 + k[1]) + 0.1 * Math.sin(y * 3.3 + k[2])
+      + 0.05 * Math.sin(x * 6.3 + z * 5.1 + k[3]) + 0.025 * Math.sin(x * 13 - y * 11 + z * 9);
+    p.setXYZ(i, x * n * sx * size, Math.max(y * n * sy * size, -size * 0.28), z * n * sz * size);
   }
   g.computeVertexNormals();
+  g.computeBoundingBox();
+  const y0 = g.boundingBox.min.y, y1 = g.boundingBox.max.y, col = new Float32Array(p.count * 3);
+  for (let i = 0; i < p.count; i++) {
+    const t = (p.getY(i) - y0) / Math.max(y1 - y0, 1e-3), f = 0.85 + rand() * 0.15;
+    col[i * 3] = (0.32 + 0.6 * t * t) * f; col[i * 3 + 1] = (0.6 + 0.37 * t) * f; col[i * 3 + 2] = (0.78 + 0.21 * t) * f;
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
   return g;
 }
 
@@ -770,6 +767,11 @@ export class Landmarks {
     lm.root = root;
     this.collectColliders(root);
     if (!NOT_GROUND.includes(lm.kind)) addSolids(root);
+    else {
+      // Built places are not ground, except the parts marked as such (the knoll under a church).
+      root.updateMatrixWorld(true);
+      root.traverse((m) => { if (m.userData.ground) addSolids(m); });
+    }
     this.beforeBake?.(root, lm);
     bakeStatic(root);
   }
@@ -838,7 +840,9 @@ export class Landmarks {
     tongue.userData.collide = true;
     this.collectColliders(tongue);
     this.scene.add(tongue);
-    const iceMats = [0xcfe9f4, 0xa9d6ea, 0x8fc7e3, 0xe4f2f8].map((c) => new THREE.MeshPhysicalMaterial({ roughness: 0.08, metalness: 0, color: c, emissive: 0x0d2230, emissiveIntensity: 0.5, clearcoat: 1, clearcoatRoughness: 0.05, flatShading: true }));
+    // Smooth, wet ice; each chunk's colours run from frosty white on top to blue underneath, and
+    // the four tints vary the blue from bergy white to deep glacier blue.
+    const iceMats = [0xffffff, 0xe6f4fb, 0xd2ecf8, 0xf4fbff].map((c) => new THREE.MeshPhysicalMaterial({ roughness: 0.2, metalness: 0, color: c, vertexColors: true, emissive: 0x0d2a3c, emissiveIntensity: 0.45, clearcoat: 1, clearcoatRoughness: 0.04, sheen: 0.4, sheenColor: new THREE.Color(0xd8f0ff), sheenRoughness: 0.5 }));
     for (let i = 0; i < 42; i++) {
       const size = 0.6 + Math.pow(rand(), 2) * 3.2;
       const geo = iceGeometry(size, rand);

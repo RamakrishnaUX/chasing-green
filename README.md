@@ -298,6 +298,17 @@ Nothing can be driven into, either. Landmark landforms (Kirkjufell, sea stacks, 
 - Landmarks, farms and the car are built from many small parts. Once their collisions are read, static parts that share a material are merged into one mesh (`src/world/bake.js`), which took the scene from about 5,500 meshes to about 1,600 and cut draw calls roughly in half. Moving parts (wheels, mud bubbles, the geyser) and see-through or locally shaded materials are left as they are.
 - Dynamic resolution: when frames run long the game draws fewer pixels (down to 60% of the preset, never below 0.55 of a CSS pixel) and steps back up when there is room. Only if that is not enough does it drop the quality preset.
 - Bloom only runs from dusk on, when lights and the aurora need it, and Medium uses 2x instead of 4x multisampling.
+- **Terrain tiles.** The island is one height grid but is drawn as tiles that share its vertex buffers, so the camera and the sun's shadow camera skip the tiles they cannot see instead of drawing the whole island (over three million triangles on the realistic look) in every pass.
+- **Bridges** are merged like landmarks (each was some 75 parts).
+- **No freezes from shaders.** Every shader is compiled while the world loads, including things hidden at that moment (night lights, the aurora, the route beacon) and the bloom passes used from dusk. The sun keeps casting shadows when it is too weak to matter and its shadow map simply stops updating: switching shadows off and on used to change every material's shader, so the whole scene recompiled at every dusk and dawn.
+- **Ice** is drawn without a refraction pass, which re-rendered the whole scene every frame the ice was on screen.
+
+On the realistic look, in addition (measured on an M1 Pro at 1600 x 1000, about 33 ms a frame before and 20 ms after):
+
+- **Clouds** are raymarched into a panorama of the sky, an eighth of it each frame, and the dome reads the panorama. They drift slowly and sit hundreds of metres up, so a panorama a few frames old looks the same, and the slices can afford twice the march steps with no dither.
+- **Scanned rocks** are full scans (10,000 to 16,000 triangles each) only within 90 m, where they cast shadows; further out, to 500 m, each is a low-poly boulder in the same material.
+- **Ambient occlusion** leaves out grass blades and far boulders, which add many triangles to its pass and little shading.
+- **Grass** keeps its density over a slightly smaller circle (46 m instead of 54 m).
 
 ## Weather and snow
 
@@ -337,7 +348,16 @@ Both looks fit roads and landmarks to the finished land (`src/world/terrain.js`)
 - **Landmark pads.** Built landmarks stand on level ground that fades into the land around; pads that touch share one height. A road that crosses a pad, or skirts it closely, runs at the pad's level, and either side keeps within its usual grade (7% on tarmac, 12% on gravel). Where that cannot be met (two pads at different levels, or a jump, bridge or ford in the way) the road keeps its own height and the land between is banked. The level ground under a landmark is never cut away, except right under a road.
 - **Fords.** The ramp down to a ford is as long as its banks need for about a 7% grade, and never past the road's end. The ford near Gullfoss sits a little way up Kjölur and the one at Landmannalaugar a little short of the hut, so the track has room to come down to each.
 - **Rocks** are kept off streets, churchyards and squares, as the grass already was.
-- **Models.** Gullfoss's upper step stands on rock down to the ground, and the Landmannalaugar hut's walls reach down to its lowest corner.
+- **Models.** Gullfoss's upper step stands on rock down to the ground, and the Landmannalaugar hut's walls reach down to its lowest corner. The grassy knolls under Perlan and Vík's church are laid over the land rather than set on it as flat-bottomed cones, so their rims follow the slope instead of hanging in the air, and they are solid: you drive up them, not into them.
+- **Bridges.** The ground under a deck is kept at least 1.2 m below it (a river bank used to rise through the end of one deck, a ridge the car hit as it drove on), and the abutments and piers sit under the deck where they stand: on a sloping bridge an abutment set at the middle height stood up out of the road at the lower end like a barrier.
+- **The Ring Road's loop** is closed smoothly near Reykjavík; its heights are worked out from one end round to the other, and used to meet with a 0.8 m step.
+
+### Reykjavík and the ice
+
+- **Harpa** is a dark, angular hall wrapped in a honeycomb of glass cells, each a shallow six-sided prism of iridescent glass that shifts between sea green, gold and violet with the angle and glows its own colour at night.
+- **Hallgrímskirkja's** concrete has a fine grain, faint rain streaks down the columns and a little grime at the foot, so it reads as weathered concrete rather than flat paint.
+- **Diamond Beach** lies on black sand (Breiðamerkursandur), and its ice, like the icebergs in Jökulsárlón, is rounded and polished by the waves, frosty white on top and deep blue underneath, instead of faceted crystals.
+- Town windows light up one by one at night as intended; the per-window colour never reached the shader before, so every window glowed.
 
 ### Roads by the sea
 

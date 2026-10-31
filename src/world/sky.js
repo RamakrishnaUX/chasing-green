@@ -115,10 +115,17 @@ vec4 volClouds(vec3 d, float cov, vec3 sunCol, vec3 ambCol){
   if (cov < 0.03 || d.y < 0.015) return vec4(0.0);
   float t0 = (420.0 - uCam.y) / d.y, t1 = min((800.0 - uCam.y) / d.y, t0 + 1300.0);
   if (t0 < 0.0) t0 = 0.0;
+#ifdef PANO
+  // The panorama is drawn a slice at a time, so it can afford twice the steps and needs no dither
+  // (a dither per texel would be stretched over many screen pixels into streaks).
+  const int N = 24;
+  float jit = 0.5;
+#else
   const int N = 12;
-  float dt = (t1 - t0) / float(N);
   // Interleaved gradient noise: a dither that hides banding with far less visible grain than white noise.
   float jit = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+#endif
+  float dt = (t1 - t0) / float(N);
   float mu = dot(d, uSunDir);
   float phase = 0.55 + 1.6 * pow(max(mu, 0.0), 8.0);
   float T = 1.0; vec3 L = vec3(0.0);
@@ -139,9 +146,8 @@ vec4 volClouds(vec3 d, float cov, vec3 sunCol, vec3 ambCol){
   return vec4(L / max(alpha, 1e-3), alpha);
 }
 #endif
-void main(){
-  vec3 d = normalize(vDir);
-  if (d.y < 0.0) discard;
+vec4 cloudAt(vec3 d){
+  if (d.y < 0.0) return vec4(0.0);
   float horizonFade = smoothstep(0.0, 0.09, d.y);
   vec2 p = uCam.xz + d.xz / max(d.y, 0.04) * 420.0 + uOffset;
   // Weather clouds, driven by the simulation's local cover.
@@ -188,8 +194,37 @@ void main(){
   col = (vcol * va + col * wa) / max(va + wa, 1e-3);
   a = va + wa;
 #endif
-  gl_FragColor = vec4(col, clamp(a, 0.0, 0.97));
-}`;
+  return vec4(col, clamp(a, 0.0, 0.97));
+}
+#ifdef PANO
+// Writing the cloud panorama: x is the compass direction, y the square root of the height above
+// the horizon, so more of the texture goes to the low sky where clouds are seen edge-on.
+varying vec2 vUv;
+void main(){
+  float az = vUv.x * 6.2831853, y = vUv.y * vUv.y, r = sqrt(max(1.0 - y * y, 0.0));
+  vec4 c = cloudAt(vec3(r * sin(az), y, r * cos(az)));
+  gl_FragColor = vec4(c.rgb * c.a, c.a);
+}
+#elif defined(USE_PANO)
+uniform sampler2D uPano;
+void main(){
+  vec3 d = normalize(vDir);
+  if (d.y < 0.0) discard;
+  float az = atan(d.x, d.z) / 6.2831853;
+  vec4 c = texture2D(uPano, vec2(az < 0.0 ? az + 1.0 : az, sqrt(d.y)));
+  gl_FragColor = vec4(c.rgb / max(c.a, 1e-3), c.a);
+}
+#else
+void main(){
+  vec4 c = cloudAt(normalize(vDir));
+  if (c.a <= 0.0 && vDir.y < 0.0) discard;
+  gl_FragColor = c;
+}
+#endif`;
+
+const PANO_VERT = /* glsl */ `
+varying vec2 vUv; varying vec3 vDir;
+void main(){ vUv = uv; vDir = vec3(0.0); gl_Position = vec4(position.xy, 0.0, 1.0); }`;
 
 const DOME_VERT = /* glsl */ `
 varying vec3 vDir;
@@ -266,6 +301,20 @@ export class Sky {
         uCityOverhead: { value: 0 }, uAuroraTint: { value: new THREE.Color(0x3cff9a) }, uAurora: { value: 0 }, uTime: { value: 0 },
       },
     });
+    if (HD.on && renderer) {
+      // The realistic clouds are raymarched, which is too heavy to repeat for every sky pixel every
+      // frame. They are drawn into a panorama of the sky instead, an eighth of it each frame, and
+      // the dome reads the panorama. Clouds drift slowly and sit hundreds of metres up, so a
+      // panorama a few frames old looks the same.
+      this.pano = new THREE.WebGLRenderTarget(2048, 512, { type: THREE.HalfFloatType, depthBuffer: false, wrapS: THREE.RepeatWrapping });
+      this.panoMat = new THREE.ShaderMaterial({ vertexShader: PANO_VERT, fragmentShader: CLOUD_FRAG, defines: { HD_CLOUDS: '', PANO: '' }, uniforms: this.cloudMat.uniforms, depthTest: false, depthWrite: false });
+      this.panoScene = new THREE.Scene();
+      this.panoScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.panoMat));
+      this.panoCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+      this.panoStrip = -1;
+      this.cloudMat.uniforms.uPano = { value: this.pano.texture };
+      this.cloudMat.defines = { USE_PANO: '' };
+    }
     this.clouds = new THREE.Mesh(new THREE.SphereGeometry(1500, 48, 24), this.cloudMat);
     this.clouds.renderOrder = -1;
     this.clouds.frustumCulled = false;
@@ -313,6 +362,21 @@ export class Sky {
 
   setRGB(target, a) { return target.setRGB(a[0], a[1], a[2], THREE.SRGBColorSpace); }
 
+  // One eighth of the cloud panorama per call; all of it on the first call.
+  drawPano() {
+    const r = this.renderer, rt = this.pano, N = 8, w = rt.width / N;
+    const prev = r.getRenderTarget();
+    const strips = this.panoStrip < 0 ? [...Array(N).keys()] : [this.panoStrip];
+    r.setRenderTarget(rt);
+    for (const k of strips) {
+      rt.scissor.set(k * w, 0, w, rt.height);
+      rt.scissorTest = true;
+      r.render(this.panoScene, this.panoCam);
+    }
+    rt.scissorTest = false;
+    r.setRenderTarget(prev);
+    this.panoStrip = ((this.panoStrip < 0 ? 0 : this.panoStrip) + 1) % N;
+  }
   update({ camera, clock, cloud, cloudOffset, city, auroraVis, auroraTint, t, focus }) {
     const elDeg = clock.sunElevation();
     const el = THREE.MathUtils.degToRad(elDeg);
@@ -348,6 +412,7 @@ export class Sky {
     c.uAurora.value = auroraVis;
     c.uTime.value = t;
 
+    if (this.pano) this.drawPano();
     this.sky.position.copy(camera.position);
     this.clouds.position.copy(camera.position);
     this.scatter.position.copy(camera.position);
@@ -370,7 +435,11 @@ export class Sky {
     const fx = Math.round(f.x), fz = Math.round(f.z);
     this.sun.target.position.set(fx, f.y, fz);
     this.sun.position.set(fx, f.y, fz).addScaledVector(sunDir, 500);
-    this.sun.castShadow = this.shadowsWanted && this.sun.intensity > 0.05;
+    // The sun keeps casting even when it is too weak to matter: switching castShadow changes every
+    // material's shader, so the whole scene recompiled (a long freeze) at every dusk and dawn. When
+    // the sun is that weak the shadow map just stops being redrawn.
+    this.sun.castShadow = this.shadowsWanted;
+    if (this.renderer && this.shadowsWanted) this.renderer.shadowMap.autoUpdate = this.sun.intensity > 0.05;
     this.moon.position.copy(camera.position).addScaledVector(moonDir, 500);
     this.moon.target.position.copy(camera.position);
     this.moon.intensity = 1.3 * dark * (1 - cloud * 0.6) * smoothstep(-0.05, 0.15, moonDir.y);

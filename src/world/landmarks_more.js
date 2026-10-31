@@ -11,6 +11,40 @@ import { HD } from './hd.js';
 
 const lerp = (a, b, t) => a + (b - a) * t;
 const std = (color, rough = 0.85, metal = 0, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: metal, ...extra });
+// A grassy knoll under a building: level on top, then easing down to the land all round. Its rim
+// is laid on the ground itself, a little below the surface, so on a slope it never stands proud
+// of the land (a flat-bottomed cylinder hung in the air on the downhill side and could be driven
+// under). Returns the mesh and the knoll's height at a local point, for placing things on it.
+function knoll(kit, { top, topR, R, color }) {
+  const rings = 14, segs = 56, smooth = (t) => t * t * (3 - 2 * t);
+  const heightAt = (lx, lz) => {
+    const r = Math.hypot(lx, lz);
+    if (r >= R) return kit.ground(lx, lz) - 0.4;
+    const t = smooth(Math.min(1, Math.max(0, (R - r) / (R - topR))));
+    return lerp(Math.min(kit.ground(lx, lz) - 0.4, top), top, t);
+  };
+  const pos = [0, top, 0], idx = [];
+  for (let i = 1; i <= rings; i++) {
+    const r = topR * 0.6 + (R - topR * 0.6) * (i / rings);
+    for (let k = 0; k < segs; k++) {
+      const a = (k / segs) * Math.PI * 2, x = Math.cos(a) * r, z = Math.sin(a) * r;
+      pos.push(x, heightAt(x, z), z);
+    }
+  }
+  for (let k = 0; k < segs; k++) idx.push(0, 1 + ((k + 1) % segs), 1 + k);
+  for (let i = 1; i < rings; i++) for (let k = 0; k < segs; k++) {
+    const a = 1 + (i - 1) * segs + k, b = 1 + (i - 1) * segs + ((k + 1) % segs), c = a + segs, d = b + segs;
+    idx.push(a, b, c, b, d, c);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  const mesh = M(g, std(color, 0.95));
+  mesh.userData.ground = true; // you drive up it, not into it
+  return { mesh, heightAt };
+}
+
 function M(geo, mat, x = 0, y = 0, z = 0) {
   const m = new THREE.Mesh(geo, mat);
   m.position.set(x, y, z);
@@ -54,9 +88,25 @@ export function buildHallgrimskirkja(kit) {
   const concrete = std(0xb9b0a3, 0.9, 0, { emissive: 0xffc27a, emissiveIntensity: 0 });
   kit.nightLit(concrete, 0.55);
   concrete.userData.localShading = true; // shades by each part's own height: never merged
+  // The concrete itself: a fine grain, faint rain streaks running down the columns, and a
+  // little grime at the foot, so it reads as weathered concrete rather than flat paint.
   concrete.onBeforeCompile = (sh) => {
-    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying float vObjY;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvObjY = position.y;');
-    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vObjY;')
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying float vObjY; varying vec3 vCW;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvObjY = position.y; vCW = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
+varying float vObjY; varying vec3 vCW;
+float hgH(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float hgN(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hgH(i), hgH(i + vec2(1, 0)), f.x), mix(hgH(i + vec2(0, 1)), hgH(i + vec2(1, 1)), f.x), f.y); }`)
+      .replace('#include <color_fragment>', `#include <color_fragment>
+{
+  float grain = hgN(vCW.xy * 7.0) * 0.5 + hgN(vCW.zy * 7.0 + 3.1) * 0.5;
+  float blot = hgN(vCW.xz * 0.35 + vCW.y * 0.15);
+  float streak = hgN(vec2((vCW.x + vCW.z) * 2.3, vCW.y * 0.08));
+  float foot = 1.0 - smoothstep(0.0, 5.0, vObjY);
+  diffuseColor.rgb *= (0.9 + 0.1 * grain) * (0.94 + 0.08 * blot) * (1.0 - 0.09 * smoothstep(0.6, 0.95, streak)) * (1.0 - 0.14 * foot);
+}`)
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = clamp(roughnessFactor * (0.85 + 0.25 * hgN(vCW.xy * 3.0)), 0.0, 1.0);')
       .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance *= 0.18 + 1.1 * (1.0 - smoothstep(0.0, 34.0, vObjY));');
   };
   const parts = [];
@@ -173,45 +223,76 @@ export function buildHallgrimskirkja(kit) {
 }
 
 export function buildHarpa(kit) {
+  // A dark, angular hall wrapped in Olafur Eliasson's facade: thousands of glass cells in a
+  // honeycomb, each a shallow six-sided prism of iridescent glass that shifts between sea green,
+  // gold and violet with the angle, and lights up in its own colour at night.
   const g = new THREE.Group();
-  const frame = std(0x1d2227, 0.4, 0.7);
-  // Leaning, faceted block.
-  const geo = new THREE.BoxGeometry(30, 17, 20, 1, 1, 1);
-  const p = geo.attributes.position;
-  for (let i = 0; i < p.count; i++) {
-    if (p.getY(i) > 0) { p.setX(i, p.getX(i) + p.getZ(i) * 0.18); p.setY(i, p.getY(i) + p.getX(i) * 0.12); }
-  }
-  geo.computeVertexNormals();
-  const body = M(geo, new THREE.MeshPhysicalMaterial({ color: 0x1b2632, metalness: 0.7, roughness: 0.1, clearcoat: 1 }), 0, 8.5, -4);
+  const W = 34, D = 24, H0 = 21, H1 = 15; // front taller than back; the roof falls toward the land
+  // Footprint corners (local, +z faces the sea), the front wall leaning out a little at the top.
+  const lean = 1.6;
+  const top = (x, z) => lerp(H1, H0, (z + D / 2) / D) + (x / W) * 2.5;
+  const shell = new THREE.BufferGeometry();
+  const P = [], I = [];
+  const quad = (a, b, c, d) => { const k = P.length / 3; P.push(...a, ...b, ...c, ...d); I.push(k, k + 1, k + 2, k, k + 2, k + 3); };
+  const X = W / 2, Z = D / 2;
+  const fl = (x) => [x, -1, Z], ft = (x) => [x, top(x, Z), Z + lean];
+  quad(fl(-X), fl(X), ft(X), ft(-X));                                       // front
+  quad([X, -1, -Z], [-X, -1, -Z], [-X, top(-X, -Z), -Z], [X, top(X, -Z), -Z]); // back
+  quad([X, -1, Z], [X, -1, -Z], [X, top(X, -Z), -Z], ft(X));                 // east
+  quad([-X, -1, -Z], [-X, -1, Z], ft(-X), [-X, top(-X, -Z), -Z]);            // west
+  quad(ft(-X), ft(X), [X, top(X, -Z), -Z], [-X, top(-X, -Z), -Z]);           // roof
+  shell.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
+  shell.setIndex(I);
+  shell.computeVertexNormals();
+  const body = M(shell.toNonIndexed(), std(0x161b21, 0.35, 0.75));
+  body.geometry.computeVertexNormals();
+  body.position.z = -4;
   body.userData.solid = true;
   g.add(body);
-  // Glass panels in a grid on the front and side faces. Each glows its own colour at night.
-  const palette = [0x2f6fd0, 0x5a3fc8, 0x2bb7c9, 0x3cc28f, 0x8a52d6, 0x1f4aa6, 0xd6e4ff];
-  const panelGeo = new THREE.BoxGeometry(1.75, 1.75, 0.12);
-  const count = 15 * 8 + 10 * 8;
-  const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.03, roughness: 0.06, metalness: 0.7 });
-  mat.onBeforeCompile = (sh) => { sh.fragmentShader = sh.fragmentShader
-    .replace('#include <color_fragment>', '#include <color_fragment>\n#ifdef USE_INSTANCING_COLOR\ndiffuseColor.rgb = vec3(0.05, 0.07, 0.09) + vColor * 0.06;\n#endif')
-    .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n#ifdef USE_INSTANCING_COLOR\ntotalEmissiveRadiance *= vColor;\n#endif'); };
-  kit.nightLit(mat, 1.8, 0.03);
-  const inst = new THREE.InstancedMesh(panelGeo, mat, count);
-  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(1, 1, 1), v = new THREE.Vector3(), c = new THREE.Color();
-  let n = 0;
-  for (let ix = 0; ix < 15; ix++) for (let iy = 0; iy < 8; iy++) {
-    v.set(-14 + ix * 2 + (iy * 0.18), 1.2 + iy * 2, 6.08);
-    q.identity(); m4.compose(v, q, sc); inst.setMatrixAt(n, m4);
-    inst.setColorAt(n, c.set(palette[Math.floor(kit.rand() * palette.length)])); n++;
-  }
-  q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2);
-  for (let iz = 0; iz < 10; iz++) for (let iy = 0; iy < 8; iy++) {
-    v.set(15.2 + iy * 0.18, 1.2 + iy * 2, 5 - iz * 2);
-    m4.compose(v, q, sc); inst.setMatrixAt(n, m4);
-    inst.setColorAt(n, c.set(palette[Math.floor(kit.rand() * palette.length)])); n++;
-  }
-  inst.castShadow = true;
+
+  // The cells. Iridescent physical glass reflects the sky and shifts colour with the angle.
+  const cellGeo = new THREE.CylinderGeometry(0.54, 0.54, 0.24, 6, 1);
+  cellGeo.rotateX(Math.PI / 2);
+  const glass = new THREE.MeshPhysicalMaterial({
+    color: 0xffffff, metalness: 0.55, roughness: 0.1, clearcoat: 1, clearcoatRoughness: 0.03,
+    iridescence: 0.7, iridescenceIOR: 1.35, iridescenceThicknessRange: [180, 620], envMapIntensity: 0.5,
+    emissive: 0xffffff, emissiveIntensity: 0,
+  });
+  glass.onBeforeCompile = (sh) => { sh.fragmentShader = sh.fragmentShader
+    .replace('#include <color_fragment>', '#include <color_fragment>\n#ifdef USE_COLOR\ndiffuseColor.rgb = mix(vec3(0.02, 0.03, 0.04), vColor, 0.12);\n#endif')
+    .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n#ifdef USE_COLOR\ntotalEmissiveRadiance *= vColor;\n#endif'); };
+  kit.nightLit(glass, 0.55, 0);
+  const palette = [0x1f9a80, 0x2266c0, 0x6a3cc0, 0xc88a1c, 0x22a6b8, 0x3f9f46, 0x8a9ab0];
+  const cells = [];
+  // Fill each wall: a staggered honeycomb laid out in the wall's own plane.
+  const wall = (o, u, v, w, hAt) => {
+    const sx = 1.12, sy = 0.97;
+    for (let r = 0; r * sy < 40; r++) for (let k = 0; k * sx < w; k++) {
+      const a = k * sx + (r % 2 ? sx / 2 : 0) + 0.6, b = r * sy + 0.6;
+      if (a > w - 0.6 || b > hAt(a) - 0.7) continue;
+      cells.push(o.clone().addScaledVector(u, a).addScaledVector(v, b));
+    }
+  };
+  const V3 = (x, y, z) => new THREE.Vector3(x, y, z);
+  const frontUp = V3(0, top(0, Z) + 1, lean).normalize();
+  const cellFaces = [];
+  const addWall = (o, u, v, n, w, hAt) => { const before = cells.length; wall(o, u, v, w, hAt); for (let k = before; k < cells.length; k++) cellFaces.push(n); };
+  addWall(V3(-X, -1, Z + 0.17), V3(1, 0, 0), frontUp, V3(0, 0, 1), W, (a) => top(a - X, Z) + 1);
+  addWall(V3(X, -1, -Z - 0.17), V3(-1, 0, 0), V3(0, 1, 0), V3(0, 0, -1), W, (a) => top(X - a, -Z) + 1);
+  addWall(V3(X + 0.17, -1, Z), V3(0, 0, -1), V3(0, 1, 0), V3(1, 0, 0), D, (a) => top(X, Z - a) + 1 - (a < 2 ? 2 : 0));
+  addWall(V3(-X - 0.17, -1, -Z), V3(0, 0, 1), V3(0, 1, 0), V3(-1, 0, 0), D, (a) => top(-X, a - Z) + 1 - (a > D - 2 ? 2 : 0));
+  const inst = new THREE.InstancedMesh(cellGeo, glass, cells.length);
+  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), c = new THREE.Color(), zAxis = V3(0, 0, 1);
+  cells.forEach((p, k) => {
+    q.setFromUnitVectors(zAxis, cellFaces[k]);
+    m4.compose(p.add(V3(0, 0, -4)), q, V3(1, 1, 1));
+    inst.setMatrixAt(k, m4);
+    inst.setColorAt(k, c.set(palette[Math.floor(kit.rand() * palette.length)]));
+  });
+  inst.castShadow = true; inst.receiveShadow = true;
   g.add(inst);
-  g.add(M(new THREE.BoxGeometry(31, 0.5, 21), frame, 0, 17.2, -4));
-  g.add(M(new THREE.BoxGeometry(40, 0.3, 14), std(0x3a3c3f, 0.85), 0, 0.15, 12));
+  // Forecourt by the harbour.
+  g.add(M(new THREE.BoxGeometry(44, 0.3, 16), std(0x3a3c3f, 0.85), 0, 0.15, 15));
   return g;
 }
 
@@ -238,15 +319,14 @@ export function buildSunVoyager() {
 
 export function buildPerlan(kit) {
   const g = new THREE.Group();
-  const hill = M(new THREE.CylinderGeometry(9, 34, 9, 40, 1), std(0x4f5d36, 0.95), 0, 3.5, 0);
-  g.add(hill);
+  const hill = knoll(kit, { top: 8, topR: 9, R: 34, color: 0x4f5d36 });
+  g.add(hill.mesh);
   // Trees on the slopes.
   const tree = std(0x2f4a26, 0.9);
   for (let i = 0; i < 40; i++) {
-    const a = kit.rand() * Math.PI * 2, r = 14 + kit.rand() * 17;
-    const t = M(new THREE.ConeGeometry(0.9 + kit.rand() * 0.6, 3 + kit.rand() * 2, 7), tree, Math.cos(a) * r, 0, Math.sin(a) * r);
-    t.position.y = 8 - (r - 9) * (9 / 25) + 1.5;
-    g.add(t);
+    const a = kit.rand() * Math.PI * 2, r = 14 + kit.rand() * 17, h = 3 + kit.rand() * 2;
+    const x = Math.cos(a) * r, z = Math.sin(a) * r;
+    g.add(M(new THREE.ConeGeometry(0.9 + kit.rand() * 0.6, h, 7), tree, x, hill.heightAt(x, z) + h / 2 - 0.2, z));
   }
   const tankMat = std(0xb9c0c6, 0.35, 0.65);
   for (let i = 0; i < 6; i++) {
@@ -763,19 +843,20 @@ export function buildSkaftafell(kit) {
 
 // ---------- Beaches and lava ----------
 export function iceMaterial(quality) {
-  // Translucent, refracting glacier ice with a faint blue core. Transmission is skipped on Low.
+  // Polished glacier ice: frosty white to deep blue from the geometry's colours, a wet clearcoat
+  // and a faint blue glow from inside. No refraction pass: transmission re-renders the whole
+  // scene every frame the ice is on screen, and the colours carry the look.
   return new THREE.MeshPhysicalMaterial({
-    color: 0xe8f6fc, roughness: 0.05, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.03,
-    transmission: quality === 'low' ? 0 : 0.88, thickness: 1.4, ior: 1.31,
-    attenuationColor: new THREE.Color(0x5aa8d0), attenuationDistance: 2.2,
-    emissive: new THREE.Color(0x0a2a3c), emissiveIntensity: 0.35, specularIntensity: 1, flatShading: true,
+    color: 0xffffff, vertexColors: true, roughness: 0.22, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.04,
+    ior: 1.31, specularIntensity: 1, sheen: 0.4, sheenColor: new THREE.Color(0xd8f0ff), sheenRoughness: 0.5,
+    emissive: new THREE.Color(0x0b3550), emissiveIntensity: quality === 'low' ? 0.3 : 0.45,
   });
 }
 
 export function buildDiamondBeach(kit) {
   const g = new THREE.Group();
   const mats = [iceMaterial(kit.quality), iceMaterial(kit.quality)];
-  mats[1].attenuationColor.set(0x3f86c0);
+  mats[1].emissive.set(0x0d2c4a); // a second, deeper blue
   mats.forEach((m) => kit.auroraLit(m, 0.5));
   for (let i = 0, tries = 0; i < 46 && tries < 400; tries++) {
     const s = 0.25 + Math.pow(kit.rand(), 2.5) * 1.1;
@@ -827,7 +908,7 @@ export function buildEldhraun(kit) {
 // ---------- Churches ----------
 export function buildChurch(kit, { hill = 8, roof = 0xa3281e, scale = 1, walls = 0xf2f0ea } = {}) {
   const g = new THREE.Group();
-  if (hill > 0) g.add(M(new THREE.CylinderGeometry(7, 20, hill, 36), std(0x5b6a3a, 0.95), 0, hill / 2 - 0.5, 0));
+  if (hill > 0) g.add(knoll(kit, { top: hill, topR: 7, R: 20, color: 0x5b6a3a }).mesh);
   const c = new THREE.Group();
   c.position.y = hill;
   c.scale.setScalar(scale);

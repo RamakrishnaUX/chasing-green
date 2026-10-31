@@ -482,6 +482,9 @@ export function weatherCar(group) {
 // every few frames the instance lists are rebuilt from the rocks within reach.
 export class HDRocks {
   constructor(scene, spots, rand) {
+    // Near the camera each rock is a full scan and casts a shadow. Further out the same rock is a
+    // lumpy low-poly boulder in the same scanned material: a scan is 10,000 to 16,000 triangles,
+    // and drawing hundreds of them, three times a frame, was most of the realistic look's cost.
     this.variants = HD.rocks.map((v) => {
       const mesh = new THREE.InstancedMesh(v.geometry, v.material, spots.length);
       mesh.count = 0;
@@ -491,6 +494,19 @@ export class HDRocks {
       scene.add(mesh);
       return { mesh, big: v.big };
     });
+    const far = new THREE.IcosahedronGeometry(0.55, 2), fp = far.attributes.position;
+    for (let k = 0; k < fp.count; k++) {
+      const x = fp.getX(k), y = fp.getY(k), z = fp.getZ(k);
+      const n = 1 + 0.2 * Math.sin(x * 5.6 + 1.3) * Math.sin(z * 4.9) + 0.1 * Math.sin(y * 9.5 + x * 3.6);
+      fp.setXYZ(k, x * n, Math.max(y * n, -0.25), z * n);
+    }
+    far.computeVertexNormals();
+    this.far = new THREE.InstancedMesh(far, HD.rocks[0].material, spots.length);
+    this.far.count = 0;
+    this.far.receiveShadow = true;
+    this.far.frustumCulled = false;
+    this.far.userData.noAO = true;
+    scene.add(this.far);
     const small = this.variants.filter((v) => !v.big), big = this.variants.filter((v) => v.big);
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), sc = new THREE.Vector3(), p = new THREE.Vector3();
     // The heavy boulder scans go only to the largest rocks.
@@ -501,20 +517,23 @@ export class HDRocks {
       return { x: s.x, z: s.z, v: pool[Math.floor(rand() * pool.length)], m: m.clone() };
     });
     this.timer = 0;
-    this.reach = 700;
+    this.near = 90;
+    this.reach = 500;
   }
   update(dt, cam) {
     this.timer -= dt;
     if (this.timer > 0) return;
-    this.timer = 0.4;
+    this.timer = 0.25;
     for (const v of this.variants) v.mesh.count = 0;
-    const r2 = this.reach * this.reach;
+    this.far.count = 0;
+    const n2 = this.near * this.near, r2 = this.reach * this.reach;
     for (const s of this.spots) {
-      const dx = s.x - cam.x, dz = s.z - cam.z;
-      if (dx * dx + dz * dz > r2) continue;
-      const mesh = s.v.mesh;
+      const dx = s.x - cam.x, dz = s.z - cam.z, d2 = dx * dx + dz * dz;
+      if (d2 > r2) continue;
+      const mesh = d2 < n2 ? s.v.mesh : this.far;
       mesh.setMatrixAt(mesh.count++, s.m);
     }
     for (const v of this.variants) v.mesh.instanceMatrix.needsUpdate = true;
+    this.far.instanceMatrix.needsUpdate = true;
   }
 }

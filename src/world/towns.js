@@ -54,7 +54,7 @@ function litGlass() {
   m.onBeforeCompile = (sh) => {
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.rgb = vec3(0.06, 0.08, 0.1);')
-      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n#ifdef USE_INSTANCING_COLOR\ntotalEmissiveRadiance *= vColor;\n#endif');
+      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n#ifdef USE_COLOR\ntotalEmissiveRadiance *= vColor;\n#endif');
   };
   return m;
 }
@@ -87,7 +87,7 @@ export class Towns {
         if (roadDistAt(x, z) < Math.hypot(bw, bd) / 2 + 4) continue;
         const slope = Math.abs(heightAt(x + 4, z) - heightAt(x - 4, z)) + Math.abs(heightAt(x, z + 4) - heightAt(x, z - 4));
         if (slope > 1.6) continue; // gentle ground only, so foundations stay short
-        if (landmarks.some((l) => Math.hypot(l.x - x, l.z - z) < (l.id === 'hallgrimskirkja' || l.id === 'harpa' || l.id === 'perlan' ? 30 : 22))) continue;
+        if (landmarks.some((l) => Math.hypot(l.x - x, l.z - z) < (l.id === 'perlan' ? 38 : l.id === 'hallgrimskirkja' || l.id === 'harpa' ? 30 : 22))) continue;
         const rot = Math.atan2(dx, dz) + (rand() - 0.5) * 0.15;
         const all = houses.concat(blocks);
         if (all.some((b) => Math.hypot(b.x - x, b.z - z) < (block ? 14 : 7.5))) continue;

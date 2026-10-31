@@ -205,8 +205,9 @@ async function buildWorld(progress) {
   // No rocks or grass field on streets, churchyards and city squares.
   const clear = landmarks.list.filter((l) => ['town', 'building', 'sculpture'].includes(l.kind)).map((l) => ({ x: l.x, z: l.z, r: l.id === 'seydisfjordur' ? 58 : l.id === 'laugavegur' ? 30 : l.id === 'hallgrimskirkja' ? 34 : 22 }));
   scatter = new Scatter(scene, { grass: 0, rocks: Math.round(Q.rocks * (CONFIG.rockDensity[settings.rocks || 'normal'] || 1)), obstacles, clear });
-  // The realistic look reaches further and grows thicker.
-  if (Q.grass > 0) grass = new Grass(scene, { count: HD.on ? Math.max(Q.grass, 48000) : Q.grass, radius: HD.on ? Math.max(Q.grassRadius, 54) : Q.grassRadius, clear });
+  // The realistic look grows the field thicker and a little further out (each tuft is ten blades,
+  // so this is most of the grass's cost: the same density over a smaller circle is far cheaper).
+  if (Q.grass > 0) grass = new Grass(scene, { count: HD.on ? Math.max(Q.grass, 34000) : Q.grass, radius: HD.on ? Math.max(Q.grassRadius, 46) : Q.grassRadius, clear });
   // The realistic look always grounds things with ambient occlusion.
   if (Q.post) post = new Post(renderer, scene, camera, { ao: !!Q.ao || HD.on, aoSamples: Q.ao ? 12 : 6, samples: Q.msaa ?? 4 });
   // Realistic look: a little more contrast and a touch less saturation, like a photograph.
@@ -243,8 +244,17 @@ async function buildWorld(progress) {
   // Compile every shader now, in parallel where the browser allows, instead of freezing the
   // first frame doing it.
   await stage('Mixing the colours', 1, 1200);
+  // Things hidden at load (night lights, the aurora, the route beacon) are compiled too, shown just
+  // for the call, so dusk or the first aurora never freezes the game while their shaders build.
   // Never wait more than 2.5 s here; anything left compiles on the first frame as before.
-  try { await Promise.race([renderer.compileAsync(scene, camera), new Promise((r) => setTimeout(r, 2500))]); } catch { renderer.compile(scene, camera); }
+  const hidden = [];
+  scene.traverse((o) => { if (!o.visible) { hidden.push(o); o.visible = true; } });
+  let compiled;
+  try { compiled = renderer.compileAsync(scene, camera); } catch { renderer.compile(scene, camera); }
+  for (const o of hidden) o.visible = false;
+  if (compiled) try { await Promise.race([compiled, new Promise((r) => setTimeout(r, 2500))]); } catch { /* compiles on first use */ }
+  // Bloom only runs from dusk on: draw one frame with it now so its passes are ready by then.
+  if (post) { const was = post.bloom.enabled; post.bloom.enabled = true; post.composer.render(); post.bloom.enabled = was; }
   stageTimes[current] = Math.round(performance.now() - tStage);
   console.info(`World built in ${Math.round(performance.now() - t0)} ms`, stageTimes);
 }

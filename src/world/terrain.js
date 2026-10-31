@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { createNoise2D, fbm, clamp, lerp, smoothstep } from './noise.js';
 import { COAST, ROADS, FORDS, LAKES, GLACIERS, LAVA, SANDS, PITS, CANYONS, PASSES, FLATS, JUMPS, BRIDGES, KERID, keridU, keridProfile, WS } from './geo.js';
 import { solidTopAt } from './solids.js';
+import { bakeStatic } from './bake.js';
 import { HD } from './hd.js';
 import { createTerrainMaterial, createRoadMaterial, createWaterMaterial, createRiverMaterial, riverGeometry, surfaceUniforms } from './materials.js';
 
@@ -301,6 +302,7 @@ export function bridgeGuard(prevX, prevZ, pos, r) {
 }
 // The land at (x, z) given its natural height h, pulled to the nearest road's height near it.
 function roadBlendAt(x, z, h) {
+  h = underDecks(x, z, h);
   const r = nearestRoad(x, z, 34);
   if (!r) return h;
   const hw = roadHalfWidth(r.type);
@@ -324,6 +326,17 @@ function roadBlendAt(x, z, h) {
   return lerp(rh, h, blend);
 }
 
+// Under a bridge the valley keeps its shape, but never reaches up to the deck: a bank that rose
+// through the end of the deck was a ridge the car hit as it drove on.
+function underDecks(x, z, h) {
+  for (const B of bridges) {
+    const f = bridgeFrame(B, x, z);
+    if (Math.abs(f.along) > B.len / 2 + 1 || Math.abs(f.lat) > 9) continue;
+    if (B.ends == null) B.ends = [-1, 1].map((s) => nearestRoad(B.x + B.dx * s * (B.len / 2 + 2), B.z + B.dz * s * (B.len / 2 + 2), 20)?.h ?? 2);
+    h = Math.min(h, lerp(B.ends[0], B.ends[1], clamp(f.along / B.len + 0.5, 0, 1)) - 1.2);
+  }
+  return h;
+}
 function nearBridge(x, z, pad = 0) {
   for (const B of bridges) { const f = bridgeFrame(B, x, z); if (Math.abs(f.along) < B.len / 2 + pad && Math.abs(f.lat) < 30) return true; }
   return false;
@@ -569,6 +582,23 @@ function computeRoadHeights() {
     });
   }
   meetAtJunctions();
+  closeLoops();
+}
+
+// A loop road's heights are worked out from its first point round to its last, so where the loop
+// closes they can disagree. The step is shared out over the 30 points either side.
+function closeLoops() {
+  for (const path of roadPaths) {
+    if (!path.loop) continue;
+    const p = path.pts, n = p.length, K = 30;
+    const d = (i, j) => Math.hypot(p[i].x - p[j].x, p[i].z - p[j].z);
+    const step = p[0].h - (p[n - 1].h + ((p[n - 1].h - p[n - 2].h) / Math.max(d(n - 1, n - 2), 0.1)) * d(0, n - 1));
+    for (let k = 0; k < K; k++) {
+      const w = (step / 2) * (1 - k / K);
+      p[k].h -= w;
+      p[n - 1 - k].h += w;
+    }
+  }
 }
 
 // Each road's profile is smoothed on its own, so two roads can meet, or run side by side, at
@@ -782,7 +812,7 @@ export async function buildTerrain(scene, res, season, onProgress) {
   const mesh = new THREE.Mesh(geo, createTerrainMaterial());
   mesh.receiveShadow = true;
   mesh.castShadow = true;
-  scene.add(mesh);
+  addTerrainTiles(scene, mesh, nx, nz);
   colorCtx = { geo, pos };
   writeMasks();
   paintTerrain(season);
@@ -891,6 +921,36 @@ function writeMasks() {
 }
 
 // Season only changes shader uniforms, so switching is instant.
+// The island is one grid, drawn as tiles that share its vertex buffers. The camera, and the sun's
+// shadow camera, then skip the tiles they cannot see instead of drawing the whole island in every
+// pass; heights and colours written to the grid still reach every tile. Each tile's bounds allow
+// for the pads and roads reshaping the land after it is built.
+const TILE = 96;
+function addTerrainTiles(scene, mesh, nx, nz) {
+  const geo = mesh.geometry, P = geo.attributes.position.array;
+  for (let tz = 0; tz < nz - 1; tz += TILE) for (let tx = 0; tx < nx - 1; tx += TILE) {
+    const x1 = Math.min(tx + TILE, nx - 1), z1 = Math.min(tz + TILE, nz - 1);
+    const idx = new Uint32Array((x1 - tx) * (z1 - tz) * 6);
+    let k = 0, y0 = Infinity, y1 = -Infinity;
+    for (let iz = tz; iz < z1; iz++) for (let ix = tx; ix < x1; ix++) {
+      const a = iz * nx + ix, b = a + 1, c = a + nx, d = c + 1;
+      idx[k++] = a; idx[k++] = c; idx[k++] = b;
+      idx[k++] = b; idx[k++] = c; idx[k++] = d;
+    }
+    for (let iz = tz; iz <= z1; iz++) for (let ix = tx; ix <= x1; ix++) { const y = P[(iz * nx + ix) * 3 + 1]; y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+    const g = new THREE.BufferGeometry();
+    for (const name in geo.attributes) g.setAttribute(name, geo.attributes[name]);
+    g.setIndex(new THREE.BufferAttribute(idx, 1));
+    const lo = P[(tz * nx + tx) * 3], hi = P[(z1 * nx + x1) * 3], lz = P[(tz * nx + tx) * 3 + 2], hz = P[(z1 * nx + x1) * 3 + 2];
+    g.boundingBox = new THREE.Box3(new THREE.Vector3(lo, y0 - 40, lz), new THREE.Vector3(hi, y1 + 40, hz));
+    g.boundingSphere = g.boundingBox.getBoundingSphere(new THREE.Sphere());
+    const t = new THREE.Mesh(g, mesh.material);
+    t.receiveShadow = mesh.receiveShadow; t.castShadow = mesh.castShadow;
+    t.userData.terrainTile = true;
+    scene.add(t);
+  }
+}
+
 export function paintTerrain(season) {
   const summer = season === 'Summer';
   surfaceUniforms.uSummer.value = summer ? 1 : 0;
@@ -1188,6 +1248,7 @@ export function flattenPads(pads, mesh) {
   });
   // Roads that meet one that moved follow it again.
   meetAtJunctions();
+  closeLoops();
   const changed = [];
   roadPaths.forEach((path, pi) => path.pts.forEach((q, i) => {
     if (Math.abs(q.h - before[pi][i]) > 0.01 || pads.some((pd) => Math.hypot(q.x - pd.x, q.z - pd.z) < pd.outer + 4)) changed.push(q);
@@ -1240,14 +1301,18 @@ function buildBridges(scene) {
       for (let zz = -B.len / 2 - 1.5; zz <= B.len / 2 + 1.5; zz += 3) add(new THREE.BoxGeometry(0.1, 0.4, 0.1), steel, sx * (hw - 0.05), 1.2, zz, deck);
       add(new THREE.BoxGeometry(0.16, 0.1, B.len + 3.6), steel, sx * (hw - 0.05), 1.42, 0, deck);
     }
-    // Piers down to the river bed, and abutments at both ends.
+    // Piers down to the river bed, and abutments at both ends. Each sits under the deck where it
+    // stands: the deck slopes from one bank's height to the other's, so an abutment set at the
+    // middle height would stand up out of the road at the lower end.
+    const deckAtZ = (zz) => lerp(B.h0, B.h1, zz / B.len + 0.5);
     for (const zz of [-B.len / 4, 0, B.len / 4]) {
       const wx = B.x + B.dx * zz, wz = B.z + B.dz * zz, floor = heightAt(wx, wz) - 1;
-      const h = deckY - 0.8 - floor;
+      const h = deckAtZ(zz) - 0.8 - floor;
       if (h > 0.5) for (const sx of [-0.5, 0.5]) add(new THREE.CylinderGeometry(0.75, 0.95, h, 14), concrete, sx * hw, floor + h / 2, zz);
     }
-    for (const s2 of [-1, 1]) add(new THREE.BoxGeometry(hw * 2 + 1, 4, 3), concrete, 0, deckY - 2.4, s2 * (B.len / 2 + 0.5));
+    for (const s2 of [-1, 1]) add(new THREE.BoxGeometry(hw * 2 + 1, 4, 3), concrete, 0, deckAtZ(s2 * B.len / 2) - 2.4, s2 * (B.len / 2 + 0.5));
     scene.add(g);
+    bakeStatic(g); // some 75 parts, one mesh per material
     // The river along the valley floor, flowing downhill.
     const pts = [];
     for (let t = -B.valley * 0.85; t <= B.valley * 0.85; t += 8) {

@@ -194,6 +194,7 @@ export const LAVA = [
 // Black sand plains inland from the shore (outwash sandur), painted and driven as beach sand.
 export const SANDS = [
   { ...toWorld(63.4605, -19.29), r: 40 * WS, top: 11 }, // Sólheimasandur, around the plane wreck
+  { ...toWorld(64.022, -16.18), r: 34 * WS, top: 9 }, // Breiðamerkursandur: Diamond Beach's black sand under the ice
 ];
 
 // Names used to describe where a sighting happened.
