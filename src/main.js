@@ -29,7 +29,8 @@ import { Aurora } from './aurora/aurora.js';
 import { Jeep } from './vehicle/jeep.js';
 import { updateInterior, trackTitle } from './vehicle/interiors.js';
 import { Walker } from './vehicle/walker.js';
-import { Wake } from './vehicle/boat.js';
+import { solidTopAt } from './world/solids.js';
+import { BoatWater } from './vehicle/boat.js';
 import { Input } from './vehicle/input.js';
 import { Hud } from './ui/hud.js';
 import { Notebook, stampSvg } from './ui/notebook.js';
@@ -98,7 +99,7 @@ const volumes = settings.volumes || (settings.volumes = { master: 1, music: sett
 audio.setLevels(volumes);
 
 let world = null, sky, aurora, landmarks, jeep, walker, scatter, grass, props, post = null;
-let obstacles, puddles, spray, wake, dust, powder, powderCloud, mapUI, towns, snow, nav;
+let obstacles, puddles, spray, boatWater, dust, powder, powderCloud, mapUI, towns, snow, nav;
 let lastPostState = { aurora: 0, dark: 0 };
 const snowNoise = createNoise2D(4040);
 let wasInPuddle = false, wasInWater = false, shake = 0, sitting = false, sitSpeedBefore = 1, camHeading = null;
@@ -223,7 +224,7 @@ async function buildWorld(progress) {
   snow = new SnowFall(scene, qualityName === 'low' ? 900 : 2200);
   puddles = new Puddles(scene, qualityName === 'low' ? 100 : 180);
   spray = new Particles(scene, { count: qualityName === 'low' ? 260 : 600, color: 0xe6f0f4, size: 0.5, opacity: 0.75, gravity: 9.5, drag: 1.2 });
-  wake = new Wake(scene);
+  boatWater = new BoatWater(scene, { low: qualityName === 'low' });
   dust = new Particles(scene, { count: qualityName === 'low' ? 120 : 300, color: 0xb39a74, size: 1.3, opacity: 0.28, gravity: -0.4, drag: 1.4 });
   powder = new Particles(scene, { count: qualityName === 'low' ? 500 : 1100, color: 0xf6f9ff, size: 0.85, opacity: 0.95, gravity: 7, drag: 1.1 });
   powderCloud = new Particles(scene, { count: qualityName === 'low' ? 120 : 260, color: 0xdfe8f2, size: 2.6, opacity: 0.42, gravity: 0.6, drag: 2.2 });
@@ -362,7 +363,8 @@ function updateCamera(dt) {
     const h = camHeading + look.orbit;
     const cd = jeep.model.camDist + (jeep.boosting ? 1.2 : 0), ch = jeep.model.camHeight;
     const desired = new THREE.Vector3(jeep.pos.x - Math.sin(h) * cd, jeep.pos.y + ch, jeep.pos.z - Math.cos(h) * cd);
-    desired.y = Math.max(desired.y, groundAt(desired.x, desired.z) + 1.5);
+    // Under a sea arch the camera follows the car through rather than jumping over the roof.
+    desired.y = Math.max(desired.y, groundAt(desired.x, desired.z, jeep.pos.y + jeep.kit.height + 0.1) + 1.5);
     camera.position.lerp(desired, Math.min(1, dt * 4));
     if (jeep.speed < 0.3 && camera.position.distanceTo(desired) < 0.08) camera.position.copy(desired);
     camTarget.set(jeep.pos.x + Math.sin(h) * 14, jeep.pos.y + ch * 0.7, jeep.pos.z + Math.cos(h) * 14);
@@ -1001,7 +1003,7 @@ function vehicleEffects(dt) {
   if (inPuddle && !wasInPuddle && sp > 3) { audio.splash(Math.min(1, sp / 30)); haptics.play('light'); }
   if (inWater && !wasInWater && sp > 2) { audio.splash(Math.min(1, sp / 18 + jeep.depth * 0.4)); haptics.play(sp > 10 ? 'heavy' : 'medium'); }
   wasInPuddle = inPuddle; wasInWater = inWater;
-  boatEffects(dt, fx, fz, rx, rz, sp);
+  boatEffects(dt);
   // Spray from the wheels, thrown out sideways and up.
   if ((inWater || inPuddle) && sp > 1.5 && jeep.boat < 0.5) {
     const amount = inWater ? Math.min(1, sp / 15) * (0.6 + Math.min(1, jeep.depth)) : Math.min(1, sp / 25);
@@ -1046,25 +1048,15 @@ function vehicleEffects(dt) {
   drivingHaptics(dt);
 }
 
-// Boat mode: say when it changes, throw a rooster tail from the jet and spray off the bow, and
-// leave a wake.
+// Boat mode: say when it changes; the wake, foam and spray are drawn by BoatWater.
 let boatToldOnce = false;
-function boatEffects(dt, fx, fz, rx, rz, sp) {
+function boatEffects(dt) {
   const ev = jeep.boatEvent; jeep.boatEvent = null;
   if (ev === 'boat') {
     hud.toast(boatToldOnce ? 'Boat mode.' : 'Too deep to wade, so it floats: boat mode. Cruise out, then head back to the shore to drive on.', { seconds: boatToldOnce ? 1.8 : 4.5, priority: 2 });
     boatToldOnce = true; haptics.play('medium'); track('boat_mode', { vehicle: jeep.kind });
   } else if (ev === 'car') hud.toast('Wheels down. Back on the road.', { seconds: 2, priority: 2 });
-  const K = jeep.kit, afloat = jeep.boatOn && jeep.boat > 0.7;
-  const stern = { x: jeep.pos.x + fx * (K.z0 - 0.3), z: jeep.pos.z + fz * (K.z0 - 0.3) };
-  wake.update(dt, stern, jeep.heading, afloat && sp > 1);
-  if (!afloat || sp < 1) return;
-  const wl = waterLevelAt(jeep.pos.x, jeep.pos.z);
-  spray.emit(stern.x, wl + 0.1, stern.z, -fx * sp * 0.4, 2.2 + sp * 0.18, -fz * sp * 0.4, Math.ceil(sp * 0.25), 1.2, 1.0);
-  if (sp > 7) for (const sx of [-1, 1]) {
-    const bx = jeep.pos.x + fx * (K.z1 - 1.2) + rx * sx * K.halfW, bz = jeep.pos.z + fz * (K.z1 - 1.2) + rz * sx * K.halfW;
-    spray.emit(bx, wl + 0.05, bz, rx * sx * 2.2 - fx * 2, 1.2 + sp * 0.06, rz * sx * 2.2 - fz * 2, 1, 1.0, 0.7);
-  }
+  boatWater.update(dt, jeep, camera, renderer.domElement.height);
 }
 
 // Feel the drive: a kick when nitro fires and a soft pulse while it burns, an ABS-style
@@ -1177,6 +1169,7 @@ function frame(now) {
   towns?.setNight(dark);
   jeep.setLights(dark);
   waterUniforms.uLight.value = 1 - dark * 0.82;
+  if (boatWater) boatWater.light = 1 - dark * 0.85;
   waterUniforms.uTint.value.copy(aurora.tint).multiplyScalar(auroraVisSmoothed * 0.25 * dark);
   world.waterMat.emissive.copy(aurora.tint).multiplyScalar(auroraVisSmoothed * 0.07 * dark);
 
@@ -1332,7 +1325,7 @@ requestAnimationFrame(() => setTimeout(async () => {
 window.chasingGreen = {
   clock, forecast, CONFIG, store, linkFor, scene, renderer, camera, setVehicle, fastTravel, input,
   get obstacles() { return obstacles; }, get scene() { return scene; }, Vec3: THREE.Vector3, get puddles() { return puddles; }, get mapUI() { return mapUI; }, get snow() { return snow; },
-  nearestRoad: (x, z, r) => nearestRoad(x, z, r), coastAt, roadDistAt, shoreDistAt,
+  nearestRoad: (x, z, r) => nearestRoad(x, z, r), coastAt, roadDistAt, shoreDistAt, groundAt, solidTopAt,
   roadPaths: () => roadPaths,
   heightAt: (x, z) => heightAt(x, z),
   snowAt: (x, z) => snowAt(x, z),

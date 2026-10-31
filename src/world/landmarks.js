@@ -8,6 +8,10 @@ import * as More from './landmarks_more.js';
 import { EXTRA } from './landmarks_extra.js';
 import { waterLevelAt } from './terrain.js';
 import { rockMaterial } from './materials.js';
+
+// Ground or water level under a landform: its faces looking down below this are buried, and the
+// rest (the underside of an arch) are ceilings something can pass beneath.
+const solidFloor = (x, z) => Math.max(heightAt(x, z), waterLevelAt(x, z));
 import { bakeStatic } from './bake.js';
 import { addSolids } from './solids.js';
 import { HD } from './hd.js';
@@ -766,11 +770,11 @@ export class Landmarks {
     this.scene.add(root);
     lm.root = root;
     this.collectColliders(root);
-    if (!NOT_GROUND.includes(lm.kind)) addSolids(root);
+    if (!NOT_GROUND.includes(lm.kind)) addSolids(root, solidFloor);
     else {
       // Built places are not ground, except the parts marked as such (the knoll under a church).
       root.updateMatrixWorld(true);
-      root.traverse((m) => { if (m.userData.ground) addSolids(m); });
+      root.traverse((m) => { if (m.userData.ground) addSolids(m, solidFloor); });
     }
     this.beforeBake?.(root, lm);
     bakeStatic(root);

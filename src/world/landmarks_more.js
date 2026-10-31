@@ -786,11 +786,13 @@ export function buildAsbyrgi(kit) {
 
 export function buildDyrholaey(kit) {
   const g = new THREE.Group();
-  // The headland with its sea arch, standing in the sea south of the road.
+  // The headland with its sea arch, standing in the sea south of the road. It reaches well down
+  // under the sea, so the water runs clear through the arch and a boat can pass beneath.
+  const yb = Math.min(-6, -kit.baseY - 9);
   const s = new THREE.Shape();
-  s.moveTo(-34, -6); s.lineTo(34, -6); s.lineTo(32, 18); s.quadraticCurveTo(10, 26, -30, 22); s.lineTo(-34, -6);
+  s.moveTo(-34, yb); s.lineTo(34, yb); s.lineTo(32, 18); s.quadraticCurveTo(10, 26, -30, 22); s.lineTo(-34, yb);
   const hole = new THREE.Path();
-  hole.moveTo(4, -6); hole.lineTo(4, 6); hole.quadraticCurveTo(12, 17, 20, 6); hole.lineTo(20, -6); hole.lineTo(4, -6);
+  hole.moveTo(4, yb); hole.lineTo(4, 6); hole.quadraticCurveTo(12, 17, 20, 6); hole.lineTo(20, yb); hole.lineTo(4, yb);
   s.holes.push(hole);
   const geo = new THREE.ExtrudeGeometry(s, { depth: 18, bevelEnabled: true, bevelSize: 1.2, bevelThickness: 1.2, bevelSegments: 2 });
   geo.translate(-12, 0, -9);

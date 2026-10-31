@@ -560,8 +560,10 @@ export const EXTRA = {
   arch(kit, p = {}) {
     const g = new THREE.Group();
     const rock = kit.rockMaterial();
-    const s = new THREE.Shape(); s.moveTo(-12, -4); s.lineTo(12, -4); s.lineTo(11, 9); s.quadraticCurveTo(0, 12, -11, 9); s.lineTo(-12, -4);
-    const hole = new THREE.Path(); hole.moveTo(-4, -4); hole.lineTo(-4, 1); hole.quadraticCurveTo(0, 7, 4, 1); hole.lineTo(4, -4); hole.lineTo(-4, -4);
+    // Down under the sea, so the water runs clear through the arch and a boat can pass beneath.
+    const yb = Math.min(-4, -kit.baseY - 9);
+    const s = new THREE.Shape(); s.moveTo(-12, yb); s.lineTo(12, yb); s.lineTo(11, 9); s.quadraticCurveTo(0, 12, -11, 9); s.lineTo(-12, yb);
+    const hole = new THREE.Path(); hole.moveTo(-4, yb); hole.lineTo(-4, 1); hole.quadraticCurveTo(0, 7, 4, 1); hole.lineTo(4, yb); hole.lineTo(-4, yb);
     s.holes.push(hole);
     const geo = new THREE.ExtrudeGeometry(s, { depth: 7, bevelEnabled: true, bevelSize: 0.6, bevelThickness: 0.6, bevelSegments: 2 }); geo.translate(0, 0, -3.5);
     const a = M(geo, rock, 0, 0, 26); g.add(a);
@@ -577,16 +579,18 @@ export const EXTRA = {
     const g = new THREE.Group();
     // Heights from kit.ground are relative to this landmark; kit.baseY is its world height.
     const W0 = -kit.baseY;          // local height of the sea surface (world y = 0)
-    // Walk out from the beach until the seabed is properly under water, and stand it there.
+    // Walk out from the beach until the seabed is properly under water, and stand it there, with
+    // open water through its arches.
     let zs = 40;
-    for (let z = 6; z < 220; z += 2) { if (kit.ground(0, z) + kit.baseY < -1.5) { zs = z + 16; break; } }
+    for (let z = 6; z < 220; z += 2) { if (kit.ground(0, z) + kit.baseY < -2.5) { zs = z + 18; break; } }
     const bed = W0 - 7;             // well below the water
 
     // Silhouette, in metres above sea level (x across, y up).
     const outer = [[-11, -7], [-11, 0.5], [-10.6, 6], [-10.1, 10.5], [-9.3, 13.4], [-8.5, 12.2], [-8.1, 8.5], [-7.1, 9.4], [-6.9, 14.8], [-5.2, 17.4], [-3.4, 17.1], [-2.2, 18.6], [0.4, 18.2], [1.6, 17.4], [3.4, 17.9], [5.6, 17.1], [7.6, 15.6], [9.3, 12.4], [10.4, 6.5], [10.9, 1.2], [11, -7]];
     const inPoly = (x, y) => { let c = false; for (let i = 0, j = outer.length - 1; i < outer.length; j = i++) { const [xi, yi] = outer[i], [xj, yj] = outer[j]; if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) c = !c; } return c; };
     // Arches go all the way down to the seabed, so open water runs through them.
-    const arches = [{ cx: -7.6, hw: 1.05, top: 4.8 }, { cx: 0.3, hw: 3.9, top: 3.3 }];
+    // The big one is wide and high enough for a boat to pass through.
+    const arches = [{ cx: -7.6, hw: 1.05, top: 4.8 }, { cx: 0.3, hw: 4.4, top: 4.2 }];
     const inArch = (x, y) => arches.some((A) => { const dx = (x - A.cx) / A.hw; if (Math.abs(dx) >= 1) return false; const r = Math.min(A.hw, A.top * 0.6); const knee = A.top - r; return y < knee || dx * dx + ((y - knee) / r) ** 2 < 1; });
     const solid = (x, y) => inPoly(x, y) && !inArch(x, y);
 
@@ -624,9 +628,10 @@ export const EXTRA = {
         parts.push(box.index ? box.toNonIndexed() : box);
       }
     }
-    // Low rock shelf at the waterline that the legs stand on.
+    // Low rock shelf at the waterline that the legs stand on (not under the arches).
     for (let i = 0; i < 9; i++) {
       const x = -10 + i * 2.5, sh = lump(1.6 + kit.rand() * 0.8, kit.rand, 0.25);
+      if (arches.some((A) => Math.abs(x - A.cx) < A.hw + 1.5)) continue; // keep the arches open to boats
       sh.translate(x, W0 + 0.1, zs + (kit.rand() - 0.5) * 3);
       const n = sh.attributes.position.count, c = new Float32Array(n * 3); for (let k = 0; k < n; k++) c.set([0.008, 0.01, 0.009], k * 3);
       sh.setAttribute('color', new THREE.BufferAttribute(c, 3));

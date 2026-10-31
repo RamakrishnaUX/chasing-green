@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
-import { groundAt as heightAt, surfaceAt, roadDistAt, shoreDistAt, exposureAt, waterLevelAt, bridgeGuard, BOUNDS } from '../world/terrain.js';
+import { heightAt as terrainAt, deckAt, surfaceAt, roadDistAt, shoreDistAt, exposureAt, waterLevelAt, bridgeGuard, BOUNDS } from '../world/terrain.js';
 import { clamp, lerp } from '../world/noise.js';
 import { buildVehicleModel } from './models.js';
 import { VEHICLES, SURFACE_DRAG } from './specs.js';
@@ -10,6 +10,16 @@ import { solidStep, solidTopAt } from '../world/solids.js';
 import { buildInterior } from './interiors.js';
 import { HD, weatherCar, carGround } from '../world/hd.js';
 import { buildBoatKit, stages } from './boat.js';
+
+// The top of the car, so it can pass beneath a sea arch rather than treating the arch's roof as
+// ground. Set as each update and sync begins. Rock more than a little above the car is a wall
+// or a roof, not ground: the centre and bumper checks stop the car at it, and a wheel beside an
+// arch's opening does not lift the car onto the arch.
+let clearTop = null;
+function heightAt(x, z) {
+  const base = Math.max(deckAt(x, z) ?? -Infinity, terrainAt(x, z)), rock = solidTopAt(x, z, clearTop);
+  return rock > base && (clearTop == null || rock < clearTop - 1.2) ? rock : base;
+}
 
 // The player's car. Kept under the old name so the rest of the game needs no changes;
 // setType() swaps between the Jeep, the vintage roadster and the race car.
@@ -102,6 +112,7 @@ export class Jeep {
   }
 
   place(x, z, heading) {
+    clearTop = null;
     this.air = false; this.vy = 0; this.vyPrev = 0; this.lastGround = null; this.lastSyncY = null; this.groundVy = 0;
     this.pos.set(x, heightAt(x, z), z);
     this.heading = heading;
@@ -116,6 +127,7 @@ export class Jeep {
 
   update(dt, input, wind, active) {
     carGround.value = this.pos.y;
+    clearTop = this.pos.y + this.kit.height + 0.1;
     this.bobT += dt;
     const S = this.spec, V = CONFIG.vehicle;
     const throttle = active ? input.throttle : 0;
@@ -128,11 +140,6 @@ export class Jeep {
     this.depth = Math.max(0, waterLevelAt(this.pos.x, this.pos.z) - heightAt(this.pos.x, this.pos.z));
     const fx = Math.sin(this.heading), fz = Math.cos(this.heading);
 
-    // Nitro: hold to boost while the gauge lasts; it refills when you let go.
-    this.boosting = active && !!input.nitro && this.nitro > 0.02 && throttle > 0 && this.depth < 0.3;
-    if (this.boosting) this.nitro = Math.max(0, this.nitro - dt * 0.22);
-    else this.nitro = Math.min(1, this.nitro + dt * 0.09);
-
     // Boat mode. Past the depth a car can wade (no deeper than 1.4 m) it floats and turns into a
     // boat; back in shallow water it turns into a car again. The gap stops it flicking between them.
     const floatAt = Math.min(S.wade, 1.4);
@@ -144,11 +151,17 @@ export class Jeep {
     const afloat = this.boatOn && this.boat > 0.6; // hull down and jet out
     const B = S.boat || { maxSpeed: 15, accel: 6 };
 
+    // Nitro: hold to boost while the gauge lasts; it refills when you let go. It works on the
+    // road and as a boat (it digs the jet in), but not while wading or changing over.
+    this.boosting = active && !!input.nitro && this.nitro > 0.02 && throttle > 0 && (afloat || (!wet && this.depth < 0.3));
+    if (this.boosting) this.nitro = Math.max(0, this.nitro - dt * 0.22);
+    else this.nitro = Math.min(1, this.nitro + dt * 0.09);
+
     const inWater = this.depth > 0.05;
     const waterF = inWater ? lerp(1, 0.5, clamp(this.depth / S.wade, 0, 1)) : 1;
     // While the kit unfolds (either way) it only paddles along.
-    const maxV = wet ? (afloat ? B.maxSpeed : 3.5) : S.maxSpeed * (S.offroad[this.surface] ?? 1) * waterF * (this.boosting ? S.nitro.speed : 1);
-    const accel = wet ? (afloat ? B.accel : 3) : S.accel * (this.boosting ? S.nitro.accel : 1);
+    const maxV = wet ? (afloat ? B.maxSpeed * (this.boosting ? S.nitro.speed : 1) : 3.5) : S.maxSpeed * (S.offroad[this.surface] ?? 1) * waterF * (this.boosting ? S.nitro.speed : 1);
+    const accel = wet ? (afloat ? B.accel * (this.boosting ? S.nitro.accel : 1) : 3) : S.accel * (this.boosting ? S.nitro.accel : 1);
 
     // In the air there is no grip: no engine, brakes or steering, just momentum.
     const air = !!this.air;
@@ -188,7 +201,8 @@ export class Jeep {
     const rx = fz, rz = -fx;
     const exposure = exposureAt(this.pos.x, this.pos.z);
     const windSide = (wind.x * rx + wind.z * rz) * exposure * V.windPush;
-    if (!holding) this.vL += windSide * dt * 3;
+    // A boat has little grip, so the wind only nudges it, or it would drift sideways like a leaf.
+    if (!holding) this.vL += windSide * dt * (wet ? 0.6 : 3);
     // Afloat it slides through turns, as a boat does.
     const grip = wet ? 1.4 : (handbrake && active ? S.handbrakeGrip : S.grip) * (inWater ? 0.7 : 1);
     this.vL -= this.vL * Math.min(1, grip * dt);
@@ -214,8 +228,8 @@ export class Jeep {
     // degrees is a wall. Checked under the car and at the bumper in the direction of travel.
     const moved = Math.hypot(this.pos.x - prevX, this.pos.z - prevZ);
     const reach = (S.halfLength || 2.4) * (Math.sign(this.vF) || 1);
-    if (solidStep(this.pos.x, this.pos.z, this.pos.y, 0.6 + moved * 1.2) ||
-        solidStep(this.pos.x + fx * reach, this.pos.z + fz * reach, this.pos.y, 0.6 + (Math.abs(reach) + moved) * 1.2)) {
+    if (solidStep(this.pos.x, this.pos.z, this.pos.y, 0.6 + moved * 1.2, clearTop) ||
+        solidStep(this.pos.x + fx * reach, this.pos.z + fz * reach, this.pos.y, 0.6 + (Math.abs(reach) + moved) * 1.2, clearTop)) {
       this.pos.x = prevX; this.pos.z = prevZ;
       this.vF *= -0.15; this.vL = 0;
     }
@@ -276,7 +290,7 @@ export class Jeep {
     const wbLen = this.wheels[0].z - this.wheels[2].z, trackW = Math.abs(this.wheels[0].x - this.wheels[1].x);
     // A rock or hummock smaller than the wheelbase can sit between the wheels: the body rides
     // over it rather than letting it poke through the floor.
-    let y = Math.max((front + back) / 2, solidTopAt(this.pos.x, this.pos.z) - 0.2);
+    let y = Math.max((front + back) / 2, solidTopAt(this.pos.x, this.pos.z, clearTop) - 0.2);
     const sus = this.spec.susp || { k: 7, roll: 1 };
     // In water the body rides above the surface with only the wheels under: a ford, not a sink.
     // As a boat it floats on its hull instead, bobbing on the swell and lifting a little at speed.
@@ -307,7 +321,7 @@ export class Jeep {
     if (afloat) {
       // Afloat the seabed does not tilt it: the bow lifts with speed, it rocks on the swell
       // and leans out of a turn.
-      const t = this.bobT, plane = clamp(this.vF / 14, 0, 1);
+      const t = this.bobT, plane = clamp(this.vF / 14, 0, 1.4);
       pitchT = lerp(pitchT, -plane * 0.06 + Math.sin(t * 1.1) * 0.018, hull);
       rollT = lerp(rollT, -this.steerVis * clamp(this.vF / 12, -1, 1) * 0.1 + Math.sin(t * 0.8 + 1) * 0.025 + (this.windSide || 0) * 0.02, hull);
       rate = lerp(rate, 2, hull);
@@ -343,7 +357,8 @@ export class Jeep {
       if (w.front) w.pivot.rotation.y = this.steerVis * (1 - fold);
     });
     K.bucket.rotation.y = -this.steerVis * 0.9;
-    this.nitroFx.update(dt, this.boosting, Math.abs(this.vF));
+    // On the water nitro shows in the jet's plume (BoatWater), not as exhaust flames and streaks.
+    this.nitroFx.update(dt, this.boosting && this.boat < 0.5, Math.abs(this.vF));
   }
 
   // Vertical motion: follow the ground, take off where it drops away faster than the car can
@@ -356,13 +371,13 @@ export class Jeep {
     const wl = waterLevelAt(this.pos.x, this.pos.z), h = stages(this.boat).hull;
     if (!h) return wl - this.draft();
     const t = this.bobT, bob = Math.sin(t * 1.3) * 0.045 + Math.sin(t * 2.1 + 1) * 0.02;
-    return wl - lerp(this.draft(), this.kit.waterline, h) + (bob + clamp(this.vF / 14, 0, 1) * 0.06) * h;
+    return wl - lerp(this.draft(), this.kit.waterline, h) + (bob + clamp(this.vF / 14, 0, 1.4) * 0.06) * h;
   }
   groundY() {
     const fx = Math.sin(this.heading), fz = Math.cos(this.heading), rx = fz, rz = -fx;
     let s = 0;
     for (const w of this.wheels) s += heightAt(this.pos.x + rx * w.x + fx * w.z, this.pos.z + rz * w.x + fz * w.z);
-    const g = Math.max(s / this.wheels.length, solidTopAt(this.pos.x, this.pos.z) - 0.2);
+    const g = Math.max(s / this.wheels.length, solidTopAt(this.pos.x, this.pos.z, clearTop) - 0.2);
     return Math.max(g, this.floatY());
   }
   vertical(dt, sp) {
