@@ -332,7 +332,7 @@ function underDecks(x, z, h) {
   for (const B of bridges) {
     const f = bridgeFrame(B, x, z);
     if (Math.abs(f.along) > B.len / 2 + 1 || Math.abs(f.lat) > 9) continue;
-    if (B.ends == null) B.ends = [-1, 1].map((s) => nearestRoad(B.x + B.dx * s * (B.len / 2 + 2), B.z + B.dz * s * (B.len / 2 + 2), 20)?.h ?? 2);
+    if (B.ends == null) B.ends = [-1, 1].map((s) => nearestRoad(B.x + B.dx * s * (B.len / 2), B.z + B.dz * s * (B.len / 2), 20)?.h ?? 2);
     h = Math.min(h, lerp(B.ends[0], B.ends[1], clamp(f.along / B.len + 0.5, 0, 1)) - 1.2);
   }
   return h;
@@ -581,8 +581,35 @@ function computeRoadHeights() {
       q.h = lerp(Math.max(0.9, h[i]), bed, dip);
     });
   }
-  meetAtJunctions();
+  roundProfiles();
   closeLoops();
+  meetAtJunctions();
+}
+
+// Grade limits, pads and fords leave corners in a road's profile: a climb meeting a level
+// stretch at an angle. At speed each one throws the car up or drops it away. Real roads are
+// rounded into vertical curves; here every profile is smoothed over about 13 m either way.
+// Bridge decks, the wet stretch of a ford and jump ramps keep their exact heights.
+function roundProfiles() {
+  const R = 3, wts = [1, 2, 3, 4, 3, 2, 1];
+  for (const path of roadPaths) {
+    const p = path.pts, n = p.length;
+    const jumps = JUMPS.filter((J) => J.path === path.name);
+    const held = p.map((q) => q.ford > 0 || nearBridge(q.x, q.z, 10) || jumps.some((J) => Math.hypot(q.x - J.x, q.z - J.z) < 50));
+    for (let pass = 0; pass < 3; pass++) {
+      const h = p.map((q) => q.h);
+      for (let i = 0; i < n; i++) {
+        if (held[i]) continue;
+        let sum = 0, w = 0;
+        for (let k = -R; k <= R; k++) {
+          const j = path.loop ? (i + k + n) % n : i + k;
+          if (j < 0 || j >= n) continue;
+          sum += h[j] * wts[k + R]; w += wts[k + R];
+        }
+        p[i].h = sum / w;
+      }
+    }
+  }
 }
 
 // A loop road's heights are worked out from its first point round to its last, so where the loop
@@ -1247,8 +1274,9 @@ export function flattenPads(pads, mesh) {
     p.forEach((q, i) => { q.h = h[i]; });
   });
   // Roads that meet one that moved follow it again.
-  meetAtJunctions();
+  roundProfiles();
   closeLoops();
+  meetAtJunctions();
   const changed = [];
   roadPaths.forEach((path, pi) => path.pts.forEach((q, i) => {
     if (Math.abs(q.h - before[pi][i]) > 0.01 || pads.some((pd) => Math.hypot(q.x - pd.x, q.z - pd.z) < pd.outer + 4)) changed.push(q);
@@ -1277,7 +1305,9 @@ function buildBridges(scene) {
   const riverMat = createRiverMaterial({ shallow: [0.36, 0.52, 0.5], deep: [0.1, 0.2, 0.22], speed: 1.8 });
   const hw = roadHalfWidth('paved') + 1.4;
   for (const B of bridges) {
-    const end = (s) => nearestRoad(B.x + B.dx * s * (B.len / 2 + 2), B.z + B.dz * s * (B.len / 2 + 2), 20);
+    // The deck meets the road at its own ends: read 2 m further out, on a sloping road it started
+    // a lip of 10 cm or more above the tarmac, a knock at every crossing.
+    const end = (s) => nearestRoad(B.x + B.dx * s * (B.len / 2), B.z + B.dz * s * (B.len / 2), 20);
     const e0 = end(-1), e1 = end(1);
     B.h0 = (e0 ? e0.h : 2); B.h1 = (e1 ? e1.h : 2);
     const deckY = (B.h0 + B.h1) / 2;

@@ -97,7 +97,7 @@ export class Jeep {
   }
 
   place(x, z, heading) {
-    this.air = false; this.vy = 0; this.vyPrev = 0; this.lastGround = null;
+    this.air = false; this.vy = 0; this.vyPrev = 0; this.lastGround = null; this.lastSyncY = null; this.groundVy = 0;
     this.pos.set(x, heightAt(x, z), z);
     this.heading = heading;
     this.vF = 0; this.vL = 0;
@@ -254,13 +254,26 @@ export class Jeep {
     // over it rather than letting it poke through the floor.
     let y = Math.max((front + back) / 2, solidTopAt(this.pos.x, this.pos.z) - 0.2);
     const sus = this.spec.susp || { k: 7, roll: 1 };
-    const k = dt ? Math.min(1, dt * sus.k) : 1;
     // In water the body rides above the surface with only the wheels under: a ford, not a sink.
     const wl = waterLevelAt(this.pos.x, this.pos.z);
     if (wl - this.draft() > y) y = wl - this.draft();
-    // The suspension smooths bumps, but on a steep rise the body keeps up, so it never sinks
-    // into a slope it is climbing.
-    if (!this.air) this.pos.y = this.landing > 0 ? y : lerp(this.pos.y, y, y > this.pos.y + 0.25 && dt ? Math.min(1, dt * 30) : k);
+    // The suspension smooths bumps but not the road's own rise and fall: the body moves with the
+    // ground's smoothed vertical speed, and only what is left over is eased out. (Easing the whole
+    // height made the body lag below a climb; with a catch-up past 25 cm it then snapped up and
+    // fell back every frame, a fast judder at speed.) Frame-rate independent.
+    if (dt && this.lastSyncY != null) {
+      const gv = (y - this.lastSyncY) / dt;
+      this.groundVy = this.groundVy == null ? gv : lerp(this.groundVy, gv, 1 - Math.exp(-dt * 14));
+    } else this.groundVy = 0;
+    this.lastSyncY = y;
+    if (!this.air) {
+      if (this.landing > 0 || !dt) this.pos.y = y;
+      else {
+        const follow = this.pos.y + this.groundVy * dt;
+        this.pos.y = lerp(follow, y, 1 - Math.exp(-dt * sus.k * 1.6));
+        this.pos.y = clamp(this.pos.y, y - 0.08, y + 0.25); // never sinks into the road
+      }
+    }
     this.pitch = this.air ? lerp(this.pitch, this.airPitch ?? 0, dt ? Math.min(1, dt * 3) : 1) : lerp(this.pitch, Math.atan2(back - front, wbLen) - this.braking * 0.02 * sus.roll, dt ? Math.min(1, dt * sus.k * 0.85) : 1);
     const lean = -this.steerVis * clamp(this.vF / 30, 0, 1) * 0.07 * sus.roll;
     this.roll = lerp(this.roll, Math.atan2(right - left, trackW) + (this.windSide || 0) * 0.01 + lean, dt ? Math.min(1, dt * sus.k * 0.85) : 1);
