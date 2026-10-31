@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
-import { groundAt as heightAt, surfaceAt, roadDistAt, exposureAt, waterLevelAt, bridgeGuard } from '../world/terrain.js';
+import { groundAt as heightAt, surfaceAt, roadDistAt, shoreDistAt, exposureAt, waterLevelAt, bridgeGuard, BOUNDS } from '../world/terrain.js';
 import { clamp, lerp } from '../world/noise.js';
 import { buildVehicleModel } from './models.js';
 import { VEHICLES, SURFACE_DRAG } from './specs.js';
@@ -219,17 +219,22 @@ export class Jeep {
       this.pos.x = prevX; this.pos.z = prevZ;
       this.vF *= -0.15; this.vL = 0;
     }
-    // How far from the roads you can go: not far on land, much further out on the water. Only
-    // moving further out is stopped, sliding along the limit, so a boat that lands on a shore
-    // beyond the land limit can still drive back in.
+    // How far you can roam. On land: 70 m from a road, but you can always head down to the sea or
+    // a lake and drive along its shore. On the water: 400 m out from the shore. Only moving further
+    // out is stopped, sliding along the limit, so you can always come back.
     const limit = wet ? V.boatRange : V.offRoadLimit;
-    const dNew = roadDistAt(this.pos.x, this.pos.z), dOld = roadDistAt(prevX, prevZ);
-    if (dNew > limit && dNew > dOld) {
-      const e = 2, gx = roadDistAt(this.pos.x + e, this.pos.z) - roadDistAt(this.pos.x - e, this.pos.z), gz = roadDistAt(this.pos.x, this.pos.z + e) - roadDistAt(this.pos.x, this.pos.z - e);
+    // Past the edge of the land map there is only open sea: count that distance as offshore too.
+    const outside = (x, z) => Math.max(0, BOUNDS.minX - x, x - BOUNDS.maxX, BOUNDS.minZ - z, z - BOUNDS.maxZ);
+    const far = wet ? (x, z) => -shoreDistAt(x, z) + outside(x, z) : roadDistAt;
+    const dNew = far(this.pos.x, this.pos.z), dOld = far(prevX, prevZ);
+    const shore = wet ? 0 : shoreDistAt(this.pos.x, this.pos.z);
+    const toWater = !wet && (shore < V.shoreBand || shore <= shoreDistAt(prevX, prevZ));
+    if (dNew > limit && dNew > dOld && !toWater) {
+      const e = 2, gx = far(this.pos.x + e, this.pos.z) - far(this.pos.x - e, this.pos.z), gz = far(this.pos.x, this.pos.z + e) - far(this.pos.x, this.pos.z - e);
       const gl = Math.hypot(gx, gz) || 1, over = dNew - Math.max(limit, dOld);
       this.pos.x -= (gx / gl) * over; this.pos.z -= (gz / gl) * over;
       this.vF *= 1 - Math.min(1, 3 * dt);
-      warn = wet ? 'That is far enough out. Turn back toward the shore.' : 'The ground gets too rough past here. Head back toward the road.';
+      warn = wet ? 'That is far enough out. Turn back toward the shore.' : 'Head back toward the road, or down to the water.';
     }
 
     // Solid obstacles and bridge parapets: two circles (front and back) give a car-shaped footprint.

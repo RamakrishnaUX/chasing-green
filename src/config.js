@@ -111,7 +111,8 @@ export const CONFIG = {
     maxSpeedFactor: { paved: 1.0, gravel: 0.72, moss: 0.55, sand: 0.5, ford: 0.28 },
     windPush: 0.55, // how much wind nudges the car
     offRoadLimit: 70, // how far from any road the jeep can roam
-    boatRange: 420, // and how far out it can go as a boat
+    shoreBand: 200, // off-road you can always head for the water, and roam freely this close to it
+    boatRange: 400, // how far out from the shore it can go as a boat
     walkSpeed: 4.2,
     walkRadius: 60,
   },

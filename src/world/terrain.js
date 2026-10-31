@@ -701,6 +701,16 @@ export function coastAt(x, z) {
   const fz = clamp((z - BOUNDS.minZ) / grid.dz, 0, grid.nz - 1.001);
   return grid.coast[Math.round(fz) * grid.nx + Math.round(fx)];
 }
+// Distance to the nearest sea or lake shore: positive on land, negative out on the water. Smooth
+// (bilinear) so a car can tell whether each small move takes it toward the water.
+export function shoreDistAt(x, z) {
+  const fx = clamp((x - BOUNDS.minX) / grid.dx, 0, grid.nx - 1.001), fz = clamp((z - BOUNDS.minZ) / grid.dz, 0, grid.nz - 1.001);
+  const ix = Math.floor(fx), iz = Math.floor(fz), tx = fx - ix, tz = fz - iz, w = grid.nx, C = grid.coast;
+  const a = C[iz * w + ix], b = C[iz * w + ix + 1], c = C[(iz + 1) * w + ix], e = C[(iz + 1) * w + ix + 1];
+  let d = (a * (1 - tx) + b * tx) * (1 - tz) + (c * (1 - tx) + e * tx) * tz;
+  for (const k of LAKES) d = Math.min(d, Math.hypot((x - k.x) / (k.stretch || 1), z - k.z) - k.r);
+  return d;
+}
 
 export function surfaceAt(x, z) {
   const r = nearestRoad(x, z, 12);
