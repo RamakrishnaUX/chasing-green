@@ -31,6 +31,7 @@ import { updateInterior, trackTitle } from './vehicle/interiors.js';
 import { Walker } from './vehicle/walker.js';
 import { solidTopAt } from './world/solids.js';
 import { BoatWater } from './vehicle/boat.js';
+import { Wildlife, WILDLIFE_NOTES } from './world/wildlife.js';
 import { Input } from './vehicle/input.js';
 import { Hud } from './ui/hud.js';
 import { Notebook, stampSvg } from './ui/notebook.js';
@@ -99,7 +100,7 @@ const volumes = settings.volumes || (settings.volumes = { master: 1, music: sett
 audio.setLevels(volumes);
 
 let world = null, sky, aurora, landmarks, jeep, walker, scatter, grass, props, post = null;
-let obstacles, puddles, spray, boatWater, dust, powder, powderCloud, mapUI, towns, snow, nav;
+let obstacles, puddles, spray, boatWater, wildlife, dust, powder, powderCloud, mapUI, towns, snow, nav;
 let lastPostState = { aurora: 0, dark: 0 };
 const snowNoise = createNoise2D(4040);
 let wasInPuddle = false, wasInWater = false, shake = 0, sitting = false, sitSpeedBefore = 1, camHeading = null;
@@ -225,6 +226,7 @@ async function buildWorld(progress) {
   puddles = new Puddles(scene, qualityName === 'low' ? 100 : 180);
   spray = new Particles(scene, { count: qualityName === 'low' ? 260 : 600, color: 0xe6f0f4, size: 0.5, opacity: 0.75, gravity: 9.5, drag: 1.2 });
   boatWater = new BoatWater(scene, { low: qualityName === 'low' });
+  wildlife = new Wildlife(scene, { low: qualityName === 'low' });
   dust = new Particles(scene, { count: qualityName === 'low' ? 120 : 300, color: 0xb39a74, size: 1.3, opacity: 0.28, gravity: -0.4, drag: 1.4 });
   powder = new Particles(scene, { count: qualityName === 'low' ? 500 : 1100, color: 0xf6f9ff, size: 0.85, opacity: 0.95, gravity: 7, drag: 1.1 });
   powderCloud = new Particles(scene, { count: qualityName === 'low' ? 120 : 260, color: 0xdfe8f2, size: 2.6, opacity: 0.42, gravity: 0.6, drag: 2.2 });
@@ -443,7 +445,7 @@ function toggleLookUp() {
 function syncLookButton() { $('t-look').setAttribute('aria-pressed', String(lookingUp() || mode === 'lookup')); }
 
 // ---------- Sightings ----------
-const TYPE_RANK = { [AURORA_TYPES.arc]: 0, [AURORA_TYPES.curtains]: 1, [AURORA_TYPES.pink]: 2, [AURORA_TYPES.red]: 3, [AURORA_TYPES.corona]: 4 };
+const TYPE_RANK = { [AURORA_TYPES.arc]: 0, [AURORA_TYPES.curtains]: 1, [AURORA_TYPES.pulsating]: 1.5, [AURORA_TYPES.pink]: 2, [AURORA_TYPES.red]: 3, [AURORA_TYPES.corona]: 4 };
 
 // manual: the player pressed the shutter. That works any time they look up, aurora or not.
 function logSighting(a, { manual = false } = {}) {
@@ -544,6 +546,7 @@ function renderSharedSighting(s) {
     vis: 0.2 + 0.8 * smoothstep(A.minKp, A.fullKp, kp), curtains: 1 + 3 * smoothstep(A.minKp, 7.5, kp),
     pink: s.type === AURORA_TYPES.pink ? 1 : smoothstep(4.5, 6.5, kp), red: s.type === AURORA_TYPES.red ? 1 : 0,
     corona: s.type === AURORA_TYPES.corona ? 1 : 0,
+    ...(s.type === AURORA_TYPES.pulsating ? { breakup: 0, diffuse: 0.7, pulse: 1 } : {}),
   };
   if (state.corona) camera.lookAt(s.x, camera.position.y + 5, s.z - 0.6);
   Object.assign(aurora.smooth, state);
@@ -1155,6 +1158,14 @@ function frame(now) {
   if (lakeMat) lakeMat.emissive.copy(aurora.tint).multiplyScalar(auroraVisSmoothed * 0.1 * dark);
 
   landmarks.update(dt, t, { wind: w, dark, auroraTint: aurora.tint, auroraVis: auroraVisSmoothed, player: p });
+  // Wildlife, and a word about each species the first time you see it.
+  for (const sp of wildlife.update(paused ? 0 : dt, { pos: p, car: jeep, camera, clock, dark, walking: mode === 'walk' })) {
+    const seen = store.data.wildlife || (store.data.wildlife = {});
+    if (seen[sp]) continue;
+    seen[sp] = new Date().toISOString(); store.save();
+    hud.toast(WILDLIFE_NOTES[sp], { seconds: 4.5, priority: 1 });
+    track('wildlife_seen', { species: sp });
+  }
   // Snow showers: winter months, cold ground (high or far north) and thick cloud, in drifting bands.
   const cold = clock.month >= 9 || clock.month <= 3;
   const band = snowNoise(p.x * 0.0022 + clock.realSeconds * 0.004, p.z * 0.0022) * 0.5 + 0.5;
@@ -1325,7 +1336,7 @@ requestAnimationFrame(() => setTimeout(async () => {
 window.chasingGreen = {
   clock, forecast, CONFIG, store, linkFor, scene, renderer, camera, setVehicle, fastTravel, input,
   get obstacles() { return obstacles; }, get scene() { return scene; }, Vec3: THREE.Vector3, get puddles() { return puddles; }, get mapUI() { return mapUI; }, get snow() { return snow; },
-  nearestRoad: (x, z, r) => nearestRoad(x, z, r), coastAt, roadDistAt, shoreDistAt, groundAt, solidTopAt,
+  nearestRoad: (x, z, r) => nearestRoad(x, z, r), coastAt, roadDistAt, shoreDistAt, groundAt, solidTopAt, get wildlife() { return wildlife; },
   roadPaths: () => roadPaths,
   heightAt: (x, z) => heightAt(x, z),
   snowAt: (x, z) => snowAt(x, z),
@@ -1361,6 +1372,7 @@ window.chasingGreen = {
     const state = {
       vis: 0.2 + 0.8 * smoothstep(A.minKp, A.fullKp, kp), curtains: 1 + 3 * smoothstep(A.minKp, 7.5, kp),
       pink: type === AURORA_TYPES.pink ? 1 : smoothstep(4.5, 6.5, kp), red: type === AURORA_TYPES.red ? 1 : 0, corona: type === AURORA_TYPES.corona ? 1 : 0,
+      ...(type === AURORA_TYPES.pulsating ? { breakup: 0, diffuse: 0.7, pulse: 1 } : {}),
     };
     const saved = { hours: clock.gameHours, aspect: camera.aspect, fov: camera.fov, pr: renderer.getPixelRatio() };
     clock.gameHours = hour;

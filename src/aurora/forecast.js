@@ -4,11 +4,25 @@ import { createNoise2D, mulberry32, clamp, smoothstep, lerp } from '../world/noi
 const TYPES = {
   arc: 'Green arc',
   curtains: 'Green curtains',
+  pulsating: 'Pulsating aurora',
   pink: 'Pink-topped curtains',
   red: 'Red aurora',
   corona: 'Corona',
 };
 export const AURORA_TYPES = TYPES;
+
+// Each activity window is a substorm with the three phases real ones have. Growth: a quiet arc
+// low in the north slowly brightens (typically 30 to 60 minutes). Breakup: the arc nearest the
+// horizon suddenly flares, splits into folding curtains and races overhead (10 to 30 minutes).
+// Recovery: the light goes diffuse and dim, with patches that pulse on and off every few
+// seconds, fading over one to three hours. Times are game hours from the window's onset.
+function activity(w, t) {
+  if (t < -w.g || t > w.e + w.r) return 0;
+  if (t < 0) return 0.3 * smoothstep(-w.g, 0, t);
+  if (t < w.e) return 0.3 + 0.7 * smoothstep(0, w.e * 0.35, t);
+  const u = (t - w.e) / w.r;
+  return lerp(1, 0.3, smoothstep(0, 0.4, u)) * (1 - smoothstep(0.55, 1, u));
+}
 
 export class Forecast {
   constructor(tripSeed, { redChallenge = false } = {}) {
@@ -34,17 +48,20 @@ export class Forecast {
     for (let i = 0; i < count; i++) {
       // Activity clusters around local midnight but can land anywhere in the dark (17:00 to 08:00).
       const c = lerp(5.5, 19.5, r());
-      const w = lerp(F.windowWidthHours[0], F.windowWidthHours[1], r());
       const a = lerp(F.windowAmpMin, F.windowAmpMax, r()) * mf;
-      windows.push({ c, w, a });
+      windows.push(this.substorm(c, a, r));
     }
     const stormChance = this.redChallenge ? F.stormChanceRedChallenge : F.stormChance;
-    if (r() < stormChance) {
-      windows.push({ c: lerp(8, 15, r()), w: lerp(0.8, 1.6, r()), a: lerp(F.stormAmp[0], F.stormAmp[1], r()) });
-    }
+    if (r() < stormChance) windows.push(this.substorm(lerp(8, 15, r()), lerp(F.stormAmp[0], F.stormAmp[1], r()), r, 1.4));
     const data = { base, windows };
     this.nights.set(n, data);
     return data;
+  }
+
+  // One substorm: onset c (game hours after noon), peak amplitude a, phase lengths from F.phases.
+  substorm(c, a, r, stretch = 1) {
+    const P = CONFIG.forecast.phases;
+    return { c, a, g: lerp(...P.growth, r()) * stretch, e: lerp(...P.breakup, r()) * stretch, r: lerp(...P.recovery, r()) * stretch };
   }
 
   // Actual Kp at an absolute game hour.
@@ -53,12 +70,28 @@ export class Forecast {
     const local = gameHours - 12 - n * 24;
     const night = this.night(n);
     let kp = night.base;
-    for (const w of night.windows) {
-      const x = (local - w.c) / w.w;
-      kp += w.a * Math.exp(-x * x);
-    }
+    for (const w of night.windows) kp += w.a * activity(w, local - w.c);
     kp += CONFIG.forecast.jitter * this.timeNoise(gameHours * 2.2, 3.1);
     return clamp(kp, 0, 9);
+  }
+
+  // Where tonight's strongest substorm is in its life: quiet, growth, breakup or recovery, with
+  // 0..1 amounts the aurora uses for its look, and whether a display worth seeing is building.
+  phaseAt(gameHours) {
+    const n = Math.floor((gameHours - 12) / 24), local = gameHours - 12 - n * 24, night = this.night(n);
+    let best = null, bestA = 0;
+    for (const w of night.windows) { const v = w.a * activity(w, local - w.c); if (v > bestA) { bestA = v; best = w; } }
+    const out = { phase: 'quiet', growth: 0, breakup: 0, diffuse: 0, pulse: 0, promising: false };
+    if (!best || bestA < 0.08) return out;
+    const t = local - best.c, w = best;
+    out.promising = night.base + w.a >= CONFIG.aurora.minKp + 0.3;
+    if (t < 0) { out.phase = 'growth'; out.growth = smoothstep(-w.g, 0, t); return out; }
+    out.breakup = smoothstep(0, w.e * 0.12, t) * (1 - smoothstep(w.e * 0.7, w.e * 1.4, t));
+    out.diffuse = smoothstep(w.e * 0.8, w.e + w.r * 0.3, t);
+    const u = (t - w.e) / w.r;
+    out.pulse = smoothstep(0.08, 0.3, u) * (1 - smoothstep(0.75, 1, u));
+    out.phase = t < w.e ? 'breakup' : 'recovery';
+    return out;
   }
 
   // What the radio predicts. Fuzzier the further ahead it looks.
@@ -129,7 +162,12 @@ export class Forecast {
     const cloudGate = 1 - smoothstep(A.maxCloud - 0.1, A.maxCloud + 0.04, cloud);
     const cityGate = 1 - city.overhead * A.cityGlowPenalty;
     const summer = clock.midnightSun;
-    const rawVis = summer ? 0 : strength * darkGate * cityGate;
+    const ph = this.phaseAt(clock.gameHours);
+    if (this.debugPhase) Object.assign(ph, this.debugPhase); // console: forecast.debugPhase = { phase: 'breakup', breakup: 1 }
+    // In the growth phase a faint quiet arc is already there, before Kp has properly risen: a
+    // promise of what is coming, if you know to wait for it.
+    const arc = ph.promising ? A.growthArcVis * ph.growth : 0;
+    const rawVis = summer ? 0 : Math.max(strength * (1 - 0.35 * ph.diffuse), arc) * darkGate * cityGate;
     const vis = rawVis * cloudGate;
 
     // Corona: rare, only at high activity, and only when the sky is properly clear.
@@ -151,12 +189,14 @@ export class Forecast {
     if (this.corona.level > 0.5) type = TYPES.corona;
     else if (red > 0.5) type = TYPES.red;
     else if (pink > 0.5) type = TYPES.pink;
+    else if (ph.pulse > 0.5) type = TYPES.pulsating;
     else if (kp >= 4.2) type = TYPES.curtains;
 
     return {
       kp, cloud, dark, city, vis, rawVis, strength, summer,
       active: vis > A.activeThreshold,
       red, pink, curtains, corona: this.corona.level, type,
+      phase: ph.phase, growth: ph.growth, breakup: ph.breakup, diffuse: ph.diffuse, pulse: ph.pulse, promising: ph.promising,
     };
   }
 }

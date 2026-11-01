@@ -101,11 +101,30 @@ Reykjavík district (Hallgrímskirkja, Harpa, Sun Voyager, Perlan, the Laugavegu
 
 They sit on the Ring Road or a detour: Reykjanes (Blue Lagoon), the Reykjavík waterfront, the Golden Circle, Snæfellsnes, Dyrhólaey, Fjaðrárgljúfur, Skaftafell, Hengifoss, Jökuldalur (Stuðlagil), the Diamond Circle (Húsavík, Ásbyrgi, Dettifoss) and Kjölur (Hveravellir). Positions come from approximate real coordinates. The Reykjavík sights are really within 2 km of each other, so they are spread out a little at the game's scale. Towns have houses, and Reykjavík and Akureyri have lit apartment blocks.
 
+## Wildlife
+
+Animals live where and when they really do (`src/world/wildlife.js`). The first time you see each one, a short note says what it is (saved, so it shows once).
+
+- **Sheep** roam free in the hills from May to October in groups of three to seven, sometimes onto the road; in winter only a few stay out. **Icelandic horses** graze near farms all year, in bay, chestnut, grey, black, palomino and white. **Reindeer** live only in the east, in herds of four to nine. An **arctic fox** (white in winter, brown or dark in summer) turns up alone now and then, and at night its eyes shine green-gold in your headlights.
+- Herd animals graze, wander a little, and move off when a car or a walker comes close: sheep at 14 m, horses at 9 m, the skittish reindeer at 38 m. Their legs swing as they walk. Each species is one instanced body mesh and one instanced leg mesh, and herds are seeded per 220 m cell, so the same flock is in the same field when you come back. They cost well under a tenth of a millisecond a frame.
+- **Seals** haul out at Jökulsárlón, Diamond Beach and Ytri Tunga, lift their heads now and then, and slip into the water if you get close, hauling out again once it is quiet.
+- **Puffins** wheel round the Dyrhólaey cliffs from May to August.
+- **Humpback whales** feed in Skjálfandi Bay off Húsavík from April to October: under water most of the time, then a blow, the long back rolling over, and the fluke lifting as they dive. In winter **orcas** come into the fjords on the north side of Snæfellsnes after the herring.
+- Take the boat out at speed, away from land, and a pod of **white-beaked dolphins** may come to ride the bow wave, porpoising and now and then leaping, until you slow down or near the shore.
+
 ## How the aurora system works
 
 Everything lives in `src/aurora/forecast.js` and is tuned from `src/config.js`.
 
-**The forecast.** Each night (noon to noon) gets its own seeded curve on a 0 to 9 scale, like Kp. It starts from a quiet base level, then adds two to four activity windows, which are bell-shaped bumps placed somewhere in the dark hours. About one night in ten also gets a big storm window. The radio shows what has happened so far tonight as a solid green line, and a dashed prediction ahead. The prediction is deliberately fuzzy, and gets fuzzier the further ahead it looks.
+**The forecast.** Each night (noon to noon) gets its own seeded curve on a 0 to 9 scale, like Kp. It starts from a quiet base level, then adds two to four activity windows somewhere in the dark hours. About one night in ten also gets a big storm window.
+
+**Substorms.** Each window is a substorm with the three phases real ones have (lengths in `CONFIG.forecast.phases`, in game hours, so minutes of real time):
+
+1. Growth, about 30 to 60 minutes: a single quiet arc sits low in the north and slowly brightens. It shows faintly even before Kp has properly risen, when a real display is on its way, and the radio says so: "A faint arc is forming in the north. Stay put."
+2. Breakup, 20 to 30 minutes: the arc suddenly flares, splits into folding curtains and sweeps overhead. Kp jumps, the curtains move about three times faster, the rays sharpen, and the whole display is much brighter and shimmers.
+3. Recovery, 1 to 2.5 hours: the light spreads into soft, dim patches that fade away, some pulsing on and off every few seconds (pulsating aurora, a sighting type of its own).
+
+`Forecast.phaseAt` reports the phase; the aurora shader takes it as uniforms (`uGrowth`, `uBreak`, `uDiffuse`, `uPulse`) and runs the curtains on their own clock, `uFlow`, so a breakup speeds them up without a jump. The Learn panel explains substorms and pulsating aurora. To test from the console: `chasingGreen.forecast.debugPhase = { phase: 'breakup', breakup: 1 }`. The radio shows what has happened so far tonight as a solid green line, and a dashed prediction ahead. The prediction is deliberately fuzzy, and gets fuzzier the further ahead it looks.
 
 **The four conditions.** The aurora only appears when all of these are true at the player's position:
 

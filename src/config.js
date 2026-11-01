@@ -46,7 +46,9 @@ export const CONFIG = {
     windowsMax: 4,
     windowAmpMin: 1.6, // how much each window adds at its peak
     windowAmpMax: 3.0,
-    windowWidthHours: [0.5, 1.4], // how long each window lasts (gaussian width, game hours)
+    // Each window is a substorm: growth (a quiet arc brightening), breakup (curtains flare and race
+    // overhead), recovery (diffuse, dim, pulsing patches). Lengths in game hours, picked in these ranges.
+    phases: { growth: [0.5, 1.0], breakup: [0.3, 0.55], recovery: [1.2, 2.4] },
     stormChance: 0.1, // chance a night carries one big storm window
     stormAmp: [4.3, 5.7],
     stormChanceRedChallenge: 0.45, // storm chance when today's challenge asks for a red aurora
@@ -62,6 +64,7 @@ export const CONFIG = {
     minDarkness: 0.7, // 0 = full day, 1 = full night
     cityGlowPenalty: 0.85, // how strongly city light washes the aurora out (0 to 1)
     activeThreshold: 0.16, // visibility needed to count as an active aurora
+    growthArcVis: 0.24, // how bright the quiet arc gets before a substorm breaks up
     redKp: 7.0, // forecast at or above this can produce a red aurora
     coronaKp: 6.0, // forecast at or above this can produce a corona overhead
     coronaChancePerMinute: 0.25,

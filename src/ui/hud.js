@@ -96,11 +96,22 @@ export class Hud {
     const a = s.aurora, A = CONFIG.aurora;
     if (a.summer) return 'Midnight sun. The sky never gets dark enough for aurora in summer.';
     if (a.dark < A.minDarkness) return a.dark < 0.2 ? 'Too bright for now. Darkness comes after sunset.' : 'Getting darker. Give it a little longer.';
-    if (a.active) return s.lookingUp ? 'Lights overhead. Stay with them.' : s.lookingUpWrongWay ? 'The lights are to the north. Turn around.' : 'Aurora active now. Look up.';
+    if (a.active) {
+      // Say what the substorm is doing, so waiting through a quiet arc makes sense.
+      if (s.lookingUpWrongWay) return 'The lights are to the north. Turn around.';
+      if (a.phase === 'breakup') return s.lookingUp ? 'Breakup! The whole sky is moving.' : 'Breakup! The aurora is bursting across the sky. Look up.';
+      if (a.pulse > 0.5) return s.lookingUp ? 'Soft patches, pulsing on and off. Watch one.' : 'The display is fading into pulsing patches. Look up.';
+      if (a.phase === 'growth') return s.lookingUp ? 'A quiet arc. It can break up any minute.' : 'A quiet arc low in the north. Look up, and wait.';
+      return s.lookingUp ? 'Lights overhead. Stay with them.' : 'Aurora active now. Look up.';
+    }
     if (a.kp >= A.minKp) {
       if (a.cloud > A.maxCloud) return 'Activity is up, but clouds are in the way. Drive toward clearer sky.';
       if (a.city.overhead > 0.3) return `Activity is up. Get away from the ${a.city.name} lights.`;
       return 'Activity is building. Watch the sky.';
+    }
+    if (a.phase === 'growth' && a.promising) {
+      if (a.cloud > A.maxCloud) return 'A substorm is building, but clouds are in the way. Find clearer sky.';
+      return 'A faint arc is forming in the north. Stay put: it often breaks up within the hour.';
     }
     if (s.nextWindow) return `Quiet for now. The radio expects activity around ${s.nextWindow}.`;
     return 'Quiet for now. Keep driving and check back.';
