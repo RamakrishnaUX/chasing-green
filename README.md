@@ -299,8 +299,8 @@ src/
     scatter.js       boulders
     post.js          bloom, colour grade, vignette
     obstacles.js     solid rocks, cliffs, buildings and trees
-    effects.js       road puddles, spray and dust particles
     stations.js      the six fuel stations: sites, buildings and night lights
+    effects.js       road puddles, spray and dust particles
   aurora/
     forecast.js      Kp curve, clouds, city light, visibility rules, aurora type
     aurora.js        raymarched curtain shader on a sky dome
@@ -310,8 +310,8 @@ src/
     models.js        the three car models, built in code
     interiors.js     dashboards, wheels and dials for the cockpit view, plus each car's hood and cockpit eye
     specs.js         handling, wading depth and nitro for each car
-    input.js         keyboard, touch buttons, drag to look
     fuel.js          each car's tank and how fast it burns
+    input.js         keyboard, touch buttons, drag to look
   ui/
     hud.js           radio, compass, readouts, toasts, look-up meter
     notebook.js      sightings, stamps, today's challenge
