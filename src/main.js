@@ -226,7 +226,7 @@ async function buildWorld(progress) {
   puddles = new Puddles(scene, qualityName === 'low' ? 100 : 180);
   spray = new Particles(scene, { count: qualityName === 'low' ? 260 : 600, color: 0xe6f0f4, size: 0.5, opacity: 0.75, gravity: 9.5, drag: 1.2 });
   boatWater = new BoatWater(scene, { low: qualityName === 'low' });
-  wildlife = new Wildlife(scene, { low: qualityName === 'low', fur: qualityName !== 'low' && !isTouch });
+  wildlife = new Wildlife(scene, { low: qualityName === 'low' });
   dust = new Particles(scene, { count: qualityName === 'low' ? 120 : 300, color: 0xb39a74, size: 1.3, opacity: 0.28, gravity: -0.4, drag: 1.4 });
   powder = new Particles(scene, { count: qualityName === 'low' ? 500 : 1100, color: 0xf6f9ff, size: 0.85, opacity: 0.95, gravity: 7, drag: 1.1 });
   powderCloud = new Particles(scene, { count: qualityName === 'low' ? 120 : 260, color: 0xdfe8f2, size: 2.6, opacity: 0.42, gravity: 0.6, drag: 2.2 });

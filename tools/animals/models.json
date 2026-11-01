@@ -1,0 +1,114 @@
+{
+  "horse": {
+    "src": "downloads/horse/scene.gltf",
+    "out": "public/models/horse.glb",
+    "drop": "Saddle",
+    "clips": {
+      "idle": "Horse|Horse_Idle",
+      "walk": "Horse|Horse_Walk"
+    },
+    "ratio": {
+      "Body": 0.3,
+      "Hair": 0.35,
+      "Eye": 0.2
+    },
+    "lod": 0.05,
+    "lodSkip": "Eye",
+    "tex": 1024
+  },
+  "sheep": {
+    "src": "downloads/sheep/scene.gltf",
+    "out": "public/models/sheep.glb",
+    "join": true,
+    "clips": {
+      "idle": "idle"
+    },
+    "ratio": {
+      ".": 0.1
+    },
+    "error": 0.01,
+    "lod": 0.025,
+    "tex": 1024
+  },
+  "fox": {
+    "src": "downloads/fox/scene.gltf",
+    "out": "public/models/fox.glb",
+    "clips": {
+      "idle": "Fox|Fox_Stand",
+      "walk": "Fox|Fox_WalkFast_F"
+    },
+    "ratio": {
+      ".": 0.6
+    },
+    "lod": 0.15,
+    "lodSkip": "Fur",
+    "tex": 1024
+  },
+  "reindeer": {
+    "src": "downloads/elk/scene.gltf",
+    "out": "public/models/reindeer.glb",
+    "clips": {
+      "idle": "Stand_Breathing_01",
+      "graze": "Stand_Eating_01",
+      "walk": "Walk",
+      "trot": "Trot",
+      "run": "Run"
+    },
+    "ratio": {
+      ".": 1
+    },
+    "lod": 0.35,
+    "lodSkip": "Eye",
+    "tex": 1024,
+    "normals": true
+  },
+  "seal": {
+    "src": "downloads/seal/scene.gltf",
+    "out": "public/models/seal.glb",
+    "join": true,
+    "ratio": {
+      ".": 0.025
+    },
+    "error": 0.05,
+    "tex": 1024,
+    "normals": true
+  },
+  "humpback": {
+    "src": "downloads/humpback/scene.gltf",
+    "out": "public/models/humpback.glb",
+    "clips": {
+      "swim": "Take 001"
+    },
+    "ratio": {
+      ".": 1
+    },
+    "tex": 1024,
+    "normals": true
+  },
+  "orca": {
+    "src": "downloads/orca/scene.gltf",
+    "out": "public/models/orca.glb",
+    "drop": "TEETH|TONGUE",
+    "clips": {
+      "swim": "Take 001"
+    },
+    "ratio": {
+      ".": 1
+    },
+    "tex": 1024,
+    "normals": true
+  },
+  "dolphin": {
+    "src": "downloads/dolphin/scene.gltf",
+    "out": "public/models/dolphin.glb",
+    "drop": "Cube",
+    "clips": {
+      "swim": "Scene"
+    },
+    "ratio": {
+      ".": 0.5
+    },
+    "tex": 1024,
+    "normals": true
+  }
+}
