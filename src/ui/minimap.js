@@ -79,8 +79,9 @@ const ease = (t) => 1 - Math.pow(1 - t, 3);
 const ME = '#2f8fff', ROUTE = '#5fb0ff';
 
 export class MapUI {
-  constructor({ landmarks, onTravel, onDrive, describe }) {
+  constructor({ landmarks, stations = [], onTravel, onDrive, describe }) {
     this.landmarks = landmarks;
+    this.stations = stations;
     this.onTravel = onTravel;
     this.onDrive = onDrive;
     this.describe = describe;
@@ -264,6 +265,7 @@ export class MapUI {
       if (this.landmarks.list.some((lm) => Math.hypot(lm.x - p.x, lm.z - p.z) < 60)) continue;
       add(p.x, p.z, p.name, 'is-town', false);
     }
+    for (const st of this.stations) add(st.x, st.z, `${st.name} fuel`, 'is-fuel', false);
     for (const lm of this.landmarks.list) add(lm.x, lm.z, lm.name, store.data.stamps[lm.id] ? 'is-lm is-got' : 'is-lm', true);
     const me = document.createElement('div');
     me.className = 'map-me';
@@ -350,6 +352,14 @@ export class MapUI {
       g.beginPath(); g.arc(u, v, 4.5 * dpr, 0, Math.PI * 2);
       g.fillStyle = store.data.stamps[lm.id] ? '#5cf2a0' : '#ffffff';
       g.fill(); g.lineWidth = 1.5 * dpr; g.strokeStyle = '#0d1520'; g.stroke();
+    }
+    // Fuel stations: small amber squares.
+    for (const st of this.stations) {
+      const u = (st.x - pos.x) * k + S / 2, v = (st.z - pos.z) * k + S / 2;
+      if (u < -10 || v < -10 || u > S + 10 || v > S + 10) continue;
+      const r = 4.5 * dpr;
+      g.beginPath(); g.roundRect(u - r, v - r, r * 2, r * 2, 2 * dpr);
+      g.fillStyle = '#ffb547'; g.fill(); g.lineWidth = 1.5 * dpr; g.strokeStyle = '#0d1520'; g.stroke();
     }
     // Route and destination; a destination off the edge shows as a marker on the rim.
     if (this.route) this.strokeRoute(g, (x) => (x - pos.x) * k + S / 2, (z) => (z - pos.z) * k + S / 2, dpr, false);

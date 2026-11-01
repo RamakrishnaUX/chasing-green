@@ -42,6 +42,7 @@ Push the repo to GitHub and import it in Vercel. Vercel detects Vite on its own,
 | Record a 15 second clip | R | Menu, Settings, Record |
 | Mute | U | Menu, Settings, Sound |
 | Nitro boost (on by default, can be turned off in Settings) | Space | Slide up from Go; the ring around Go shows the tank |
+| Refuel, or a tow when the tank is dry (fuel is on by default, can be turned off in Settings) | F, or the Refuel button | The Refuel button |
 
 There is no race and no timer. Nitro is a speed boost that is on by default; you can switch it off in Settings.
 
@@ -78,6 +79,25 @@ The interiors and the eye position for each view are built in `src/vehicle/inter
 | Camper van | Split-window camper, white over mint and 1.4 times the size of the other cars: wide raked windscreen, round lamps, louvred side window, white bumpers, mint wheels with white caps, and an AURORA graffiti piece in yellow, orange and pink over a violet burst down both sides, tagged "chasing green" | Slow and steady, fine on gravel | 1.0 m |
 
 Handling lives in `src/vehicle/specs.js` (including suspension stiffness), and the models are built in code in `src/vehicle/models.js`. There are no brand logos; the 4x4 wears a plain "Trail" badge.
+
+## Fuel
+
+Each car has its own tank, saved between visits, shown as a pump and a bar under the speed: white, amber below a fifth, red and blinking when empty. Turn it off in Settings, Fuel.
+
+| Car | Tank | Range on a full tank |
+| --- | --- | --- |
+| Trail 4x4 | 80 litres | about 9 km |
+| Vintage roadster | 45 litres | about 7 km |
+| Camper van | 90 litres | about 10 km |
+| Supercar | 70 litres | about 8.5 km |
+
+- **Burning it.** Fuel goes with distance, not time: under power it burns at the full rate, coasting at a fifth, and standing still not at all, so waiting for the aurora costs nothing. Nitro burns three times as fast, and off-road and afloat a little more. In the last 1.5% the engine coughs and loses power now and then; at empty it stops and the car rolls to a halt.
+- **Warnings.** At a fifth of a tank and again near empty a message gives the litres left and the nearest station, with a Route button that sets up Drive there to it.
+- **Stations.** Six, on the Ring Road outside Selfoss, Vík, Höfn, Egilsstaðir, Akureyri and Borgarnes, so a full tank always reaches the next: a forecourt open to the road, a lit roof over two pump islands, a small shop, and a sign by the road reading ELDSNEYTI (Icelandic for fuel). At night the roof, the shop and the sign light up. Each sits on a level pad, and they show as amber squares on the minimap and the map.
+- **Refuelling.** Stop under a station's roof and a Refuel button appears (F on a keyboard). It fills in about three seconds, the button filling with it; press again to stop. Driving off stops it too.
+- **Running dry.** Once the car has stopped with an empty tank the button offers a tow to the nearest station, which leaves you at the pumps ready to refuel.
+
+The sites are chosen when the world is built (`src/world/stations.js`): a level, dry spot beside the Ring Road 60 to 340 m out of town, clear of landmarks and other roads. Tanks and burn rates are in `src/vehicle/fuel.js`.
 
 ## Months
 
@@ -279,6 +299,7 @@ src/
     post.js          bloom, colour grade, vignette
     obstacles.js     solid rocks, cliffs, buildings and trees
     effects.js       road puddles, spray and dust particles
+    stations.js      the six fuel stations: sites, buildings and night lights
   aurora/
     forecast.js      Kp curve, clouds, city light, visibility rules, aurora type
     aurora.js        raymarched curtain shader on a sky dome
@@ -289,6 +310,7 @@ src/
     interiors.js     dashboards, wheels and dials for the cockpit view, plus each car's hood and cockpit eye
     specs.js         handling, wading depth and nitro for each car
     input.js         keyboard, touch buttons, drag to look
+    fuel.js          each car's tank and how fast it burns
   ui/
     hud.js           radio, compass, readouts, toasts, look-up meter
     notebook.js      sightings, stamps, today's challenge
@@ -372,7 +394,7 @@ Towns have about a quarter of the buildings they once had, and each house is mor
 
 ## What gets saved
 
-All of this is stored in the browser's localStorage, with no account and no server: sightings, a small JPEG thumbnail for each (up to 40 kept), landmark stamps, completed daily challenges and settings. Clear notebook in Settings wipes everything except the settings.
+All of this is stored in the browser's localStorage, with no account and no server: sightings, a small JPEG thumbnail for each (up to 40 kept), landmark stamps, completed daily challenges, the fuel in each car's tank and settings. Clear notebook in Settings wipes everything except the settings.
 
 ## Music
 

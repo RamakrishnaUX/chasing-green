@@ -60,7 +60,7 @@ function litGlass() {
 }
 
 export class Towns {
-  constructor(scene, { landmarks = [], obstacles = null, scale = 1 } = {}) {
+  constructor(scene, { landmarks = [], obstacles = null, scale = 1, clear = [] } = {}) {
     const rand = mulberry32(4242);
     const houses = [], blocks = [];
     for (const place of PLACES) {
@@ -88,6 +88,7 @@ export class Towns {
         const slope = Math.abs(heightAt(x + 4, z) - heightAt(x - 4, z)) + Math.abs(heightAt(x, z + 4) - heightAt(x, z - 4));
         if (slope > 1.6) continue; // gentle ground only, so foundations stay short
         if (landmarks.some((l) => Math.hypot(l.x - x, l.z - z) < (l.id === 'perlan' ? 38 : l.id === 'hallgrimskirkja' || l.id === 'harpa' ? 30 : 22))) continue;
+        if (clear.some((c) => Math.hypot(c.x - x, c.z - z) < c.r)) continue; // fuel station forecourts
         const rot = Math.atan2(dx, dz) + (rand() - 0.5) * 0.15;
         const all = houses.concat(blocks);
         if (all.some((b) => Math.hypot(b.x - x, b.z - z) < (block ? 14 : 7.5))) continue;

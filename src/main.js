@@ -15,7 +15,9 @@ import { Obstacles } from './world/obstacles.js';
 import { Puddles, Particles, SnowFall } from './world/effects.js';
 import { MapUI } from './ui/minimap.js';
 import { HD, loadHD, installAtmosphere, updateAtmosphere, detailScene, naturalize, demToGame } from './world/hd.js';
-import { Nav } from './ui/nav.js';
+import { Nav, formatDistance } from './ui/nav.js';
+import { siteStations, Stations } from './world/stations.js';
+import { FuelTank } from './vehicle/fuel.js';
 import { Sheet } from './ui/sheet.js';
 import { haptics } from './ui/haptics.js';
 import { Learn } from './ui/learn.js';
@@ -100,7 +102,7 @@ const volumes = settings.volumes || (settings.volumes = { master: 1, music: sett
 audio.setLevels(volumes);
 
 let world = null, sky, aurora, landmarks, jeep, walker, scatter, grass, props, post = null;
-let obstacles, puddles, spray, boatWater, wildlife, dust, powder, powderCloud, mapUI, towns, snow, nav;
+let obstacles, puddles, spray, boatWater, wildlife, dust, powder, powderCloud, mapUI, towns, snow, nav, stations, stationSites = [];
 let lastPostState = { aurora: 0, dark: 0 };
 const snowNoise = createNoise2D(4040);
 let wasInPuddle = false, wasInWater = false, shake = 0, sitting = false, sitSpeedBefore = 1, camHeading = null;
@@ -192,7 +194,9 @@ async function buildWorld(progress) {
   const PAD = { building: 32, town: 30, sculpture: 12, pool: 26, geothermal: 24, cave: 16, bridge: 18, waterfall: 34, geyser: 18, wreck: 18 };
   landmarks = new Landmarks(scene, { quality: qualityName, beforeBake: (root, lm) => naturalize(root, lm.kind), beforeBuild: (list) => {
     const pads = list.filter((l) => PAD[l.kind] && l.id !== 'seydisfjordur').map((l) => ({ x: l.x, z: l.z, r: l.id === 'hallgrimskirkja' ? 38 : PAD[l.kind] }));
-    flattenPads(pads, world.mesh);
+    // Fuel stations beside the Ring Road get level forecourts too.
+    stationSites = siteStations(list);
+    flattenPads(pads.concat(stationSites.map((s) => s.pad)), world.mesh);
   } });
   landmarks.onEvent = (type, lm) => {
     const pp = activePos(), d = Math.hypot(pp.x - lm.x, pp.z - lm.z);
@@ -206,7 +210,8 @@ async function buildWorld(progress) {
   // Bridge railings are solid on both sides.
   for (const B of bridges) for (const sx of [-1, 1]) obstacles.addBox(B.x - B.dz * sx * 4.65, B.z + B.dx * sx * 4.65, Math.atan2(B.dx, B.dz), 0.25, B.len / 2 + 2, 'wall');
   // No rocks or grass field on streets, churchyards and city squares.
-  const clear = landmarks.list.filter((l) => ['town', 'building', 'sculpture'].includes(l.kind)).map((l) => ({ x: l.x, z: l.z, r: l.id === 'seydisfjordur' ? 58 : l.id === 'laugavegur' ? 30 : l.id === 'hallgrimskirkja' ? 34 : 22 }));
+  const clear = landmarks.list.filter((l) => ['town', 'building', 'sculpture'].includes(l.kind)).map((l) => ({ x: l.x, z: l.z, r: l.id === 'seydisfjordur' ? 58 : l.id === 'laugavegur' ? 30 : l.id === 'hallgrimskirkja' ? 34 : 22 }))
+    .concat(stationSites.map((st) => ({ x: st.pad.x, z: st.pad.z, r: 30 })));
   scatter = new Scatter(scene, { grass: 0, rocks: Math.round(Q.rocks * (CONFIG.rockDensity[settings.rocks || 'normal'] || 1)), obstacles, clear });
   // The realistic look grows the field thicker and a little further out (each tuft is ten blades,
   // so this is most of the grass's cost: the same density over a smaller circle is far cheaper).
@@ -218,10 +223,11 @@ async function buildWorld(progress) {
   // AgX rolls highlights off like a camera does, instead of clipping bright sky and snow.
   if (HD.on) { renderer.toneMapping = THREE.AgXToneMapping; renderer.toneMappingExposure = (CONFIG.exposure ?? 0.95) * 1.2; }
   await stage('Building towns', 0.91, 80);
-  props = new Props(scene, { farms: qualityName === 'low' ? 14 : 26, landmarks: landmarks.list, keepClear: [START], obstacles });
+  props = new Props(scene, { farms: qualityName === 'low' ? 14 : 26, landmarks: landmarks.list, keepClear: [START, ...stationSites], obstacles });
   // Realistic look: scanned detail on landmark and prop surfaces (not town houses, cars or people).
   if (HD.on) detailScene(scene);
-  towns = new Towns(scene, { landmarks: landmarks.list, obstacles, scale: qualityName === 'low' ? 0.6 : 1 });
+  stations = new Stations(scene, stationSites, { obstacles });
+  towns = new Towns(scene, { landmarks: landmarks.list, obstacles, scale: qualityName === 'low' ? 0.6 : 1, clear: stationSites.map((st) => ({ x: st.pad.x, z: st.pad.z, r: 34 })) });
   snow = new SnowFall(scene, qualityName === 'low' ? 900 : 2200);
   puddles = new Puddles(scene, qualityName === 'low' ? 100 : 180);
   spray = new Particles(scene, { count: qualityName === 'low' ? 260 : 600, color: 0xe6f0f4, size: 0.5, opacity: 0.75, gravity: 9.5, drag: 1.2 });
@@ -243,7 +249,7 @@ async function buildWorld(progress) {
     onArrive: (d) => { haptics.play('success'); hud.toast(`You have arrived at ${d.label}.`, { seconds: 4, priority: 2 }); track('nav_arrive', { destination: d.label }); },
     onStop: (d, byUser) => { if (byUser) { hud.toast('Route cleared.', { seconds: 2, priority: 2 }); track('nav_stop', { destination: d.label }); } },
   });
-  mapUI = new MapUI({ landmarks, onTravel: fastTravel, onDrive: driveTo, describe: (x, z) => describePlace(x, z).label });
+  mapUI = new MapUI({ landmarks, stations: stations.list, onTravel: fastTravel, onDrive: driveTo, describe: (x, z) => describePlace(x, z).label });
   { const L = landmarks.list.find((l) => l.id === 'landmannalaugar'); if (L) surfaceUniforms.uRhyolite.value.set(L.x, L.z, 170); }
   surfaceUniforms.uSnowLine.value = snowLineFor(clock.month);
   // Compile every shader now, in parallel where the browser allows, instead of freezing the
@@ -883,7 +889,7 @@ document.querySelectorAll('.month-select').forEach((sel) => {
 forecast.monthFactor = clock.m.aurora;
 renderMonthCards();
 $('intro-challenge').innerHTML = `Today’s challenge: <strong>${challenge.title}</strong>`;
-if (isTouch) document.querySelector('.keys-hint').textContent = 'Steer with the arrows and press Go to drive. Brake slows you down; keep holding it to reverse. The camera button switches between chase, hood and cockpit views. Slide up from Go for a nitro boost. Tap Look when the radio says the aurora is out. Drag to look around.';
+if (isTouch) document.querySelector('.keys-hint').textContent = 'Steer with the arrows and press Go to drive. Brake slows you down; keep holding it to reverse. The camera button switches between chase, hood and cockpit views. Slide up from Go for a nitro boost. When the tank runs low, pull in under a fuel station’s roof and tap Refuel. Tap Look when the radio says the aurora is out. Drag to look around.';
 const startBtn = $('start');
 startBtn.disabled = true;
 startBtn.addEventListener('click', () => {
@@ -916,6 +922,7 @@ addEventListener('keydown', (e) => {
   else if (k === 'r') toggleRecording();
   else if (k === 'x') toggleSit();
   else if (k === 'h') learn.open();
+  else if (k === 'f') fuelAction();
 });
 
 // ---------- Learn, sitting, nitro option ----------
@@ -943,6 +950,80 @@ function applyNitroSetting() {
 }
 $('set-nitro').addEventListener('change', (e) => { settings.nitro = e.target.value; store.save(); applyNitroSetting(); });
 applyNitroSetting();
+
+// ---------- Fuel ----------
+// The gauge under the speed, warnings with a route to the nearest station, and one button that
+// refuels under a station's roof or, with the tank dry, tows you to the nearest station.
+const fuel = new FuelTank(store);
+let fuelWarned = 1, fuelMode = '', fuelText = '', fuelStart = 0;
+function applyFuelSetting() {
+  fuel.on = settings.fuel !== 'off';
+  document.body.classList.toggle('fuel-off', !fuel.on);
+  if (!fuel.on && jeep) jeep.power = 1;
+}
+$('set-fuel').value = settings.fuel || 'on';
+$('set-fuel').addEventListener('change', (e) => { settings.fuel = e.target.value; store.save(); applyFuelSetting(); });
+applyFuelSetting();
+function fuelAction() {
+  if (fuelMode === 'refuel') {
+    fuel.filling = !fuel.filling;
+    if (fuel.filling) haptics.play('medium', 0);
+  } else if (fuelMode === 'tow') towToStation();
+}
+$('fuel-act').addEventListener('click', fuelAction);
+function towToStation() {
+  const n = stations?.nearest(jeep.pos.x, jeep.pos.z);
+  if (!n) return;
+  const b = stations.bay(n.station);
+  if (nav.active) nav.stop();
+  putCar(b.x, b.z, b.heading);
+  track('fuel_tow', { station: n.station.name, distance_km: Math.round(n.dist / 100) / 10 });
+  hud.toast(`Towed to the fuel station at ${n.station.name}. ${isTouch ? 'Tap' : 'Press F or click'} Refuel to fill up.`, { seconds: 5, priority: 3 });
+}
+function fuelTick(dt) {
+  const kind = jeep.kind, driving = mode !== 'walk';
+  let lvl = fuel.level(kind);
+  // Pumping: stop if the car moves off, finish when the tank is full.
+  const here = driving && fuel.on && Math.abs(jeep.vF) < 1.2 && !jeep.boatOn ? stations?.at(jeep.pos.x, jeep.pos.z) : null;
+  if (fuel.filling && !here) fuel.filling = false;
+  if (fuel.filling && fuel.fill(dt, kind)) {
+    fuel.filling = false;
+    const added = fuel.litres(kind, 1 - fuelStart);
+    haptics.play('success');
+    hud.toast(`Tank full. That took ${added} litres.`, { seconds: 3, priority: 2 });
+    track('fuel_refuel', { station: here.name, litres: added, vehicle: kind });
+  }
+  lvl = fuel.level(kind);
+  const g = $('fuel');
+  $('fuel-bar').style.transform = `scaleX(${lvl.toFixed(3)})`;
+  g.classList.toggle('is-low', lvl < 0.2 && lvl > 0);
+  g.classList.toggle('is-empty', lvl <= 0);
+  g.setAttribute('aria-valuenow', String(Math.round(lvl * 100)));
+  if (!fuel.on) { if (fuelMode) { fuelMode = ''; $('fuel-act').hidden = true; document.body.classList.remove('fuel-prompt'); } return; }
+  // Low fuel: say so twice on the way down, with a route to the nearest station.
+  if (lvl > 0.3) fuelWarned = 1;
+  const step = lvl < 0.08 ? 0.08 : lvl < 0.2 ? 0.2 : 1;
+  if (step < fuelWarned && lvl > 0 && driving && !here) {
+    fuelWarned = step;
+    const n = stations?.nearest(jeep.pos.x, jeep.pos.z);
+    if (n) {
+      const label = `${n.station.name} fuel station`;
+      hud.toast(`${step < 0.1 ? 'Almost out of fuel' : 'Fuel is getting low'}: ${fuel.litres(kind)} litres left. The nearest station is at ${n.station.name}, ${formatDistance(n.dist)} away.`, {
+        seconds: 7, priority: 3, action: nav.dest?.label === label ? null : { label: 'Route', run: () => { driveTo(n.station.x, n.station.z, label); haptics.play('medium'); } },
+      });
+      haptics.play('warning', 0);
+    }
+  }
+  // The button: refuel under a roof, or a tow once the tank is dry and the car has stopped.
+  const m = here && lvl < 0.995 ? 'refuel' : driving && lvl <= 0 && Math.abs(jeep.vF) < 0.5 ? 'tow' : '';
+  const b = $('fuel-act');
+  if (m !== fuelMode) { if (m === 'refuel') fuelStart = lvl; fuelMode = m; b.hidden = !m; document.body.classList.toggle('fuel-prompt', !!m); b.classList.toggle('is-tow', m === 'tow'); if (m === 'tow') hud.toast('Out of fuel. The engine has stopped.', { seconds: 3, priority: 3 }); }
+  if (!m) return;
+  const n = m === 'tow' ? stations?.nearest(jeep.pos.x, jeep.pos.z) : null;
+  const text = m === 'tow' ? `<span class="fa-lead">Out of fuel · </span>Tow to ${n?.station.name || 'a station'}` : fuel.filling ? `Filling · ${fuel.litres(kind)} L` : `Refuel · ${fuel.litres(kind, 1 - lvl)} L`;
+  if (text !== fuelText) { fuelText = text; $('fuel-act-text').innerHTML = text; b.setAttribute('aria-label', m === 'tow' ? `Out of fuel. Get a tow to the fuel station at ${n?.station.name}` : fuel.filling ? 'Stop filling' : 'Refuel the car'); }
+  b.style.setProperty('--p', m === 'refuel' ? lvl.toFixed(3) : '0');
+}
 
 // ---------- Vehicles ----------
 function setVehicle(kind, announce = true) {
@@ -1088,18 +1169,23 @@ function driveTo(x, z, label) {
   track('nav_start', { destination: label, distance_km: Math.round(nav.route.length / 100) / 10 });
 }
 
+// Put the car down somewhere new, back in it, with the camera behind.
+function putCar(x, z, heading) {
+  if (mode === 'walk') walker.exit();
+  mode = 'chase';
+  jeep.place(x, z, heading);
+  camHeading = heading;
+  camera.position.set(x - Math.sin(heading) * jeep.model.camDist, heightAt(x, z) + jeep.model.camHeight, z - Math.cos(heading) * jeep.model.camDist);
+  camera.lookAt(x, heightAt(x, z) + 1.5, z);
+  infoDismissed = null;
+}
+
 function fastTravel(x, z, label, face) {
   const r = nearestRoadAnywhere(x, z);
   if (!r) return;
   const d = Math.hypot(x - r.x, z - r.z);
   const heading = face && d > 8 ? Math.atan2(x - r.x, z - r.z) : r.heading;
-  if (mode === 'walk') walker.exit();
-  mode = 'chase';
-  jeep.place(r.x, r.z, heading);
-  camHeading = heading;
-  camera.position.set(r.x - Math.sin(heading) * jeep.model.camDist, heightAt(r.x, r.z) + jeep.model.camHeight, r.z - Math.cos(heading) * jeep.model.camDist);
-  camera.lookAt(r.x, heightAt(r.x, r.z) + 1.5, r.z);
-  infoDismissed = null;
+  putCar(r.x, r.z, heading);
   track('fast_travel', { destination: label || describePlace(r.x, r.z).label });
   hud.toast(label ? `Arrived at ${label}.` : `Arrived near ${describePlace(r.x, r.z).label}.`, { seconds: 3, priority: 2 });
 }
@@ -1128,6 +1214,7 @@ function frame(now) {
     walker.update(dt, input, jeep.pos);
     obstacles.resolve(walker.pos, 0.4);
   } else {
+    if (!paused) jeep.power = fuel.burn(dt, jeep, input.throttle);
     jeep.update(paused ? 0 : dt, input, w, !paused);
     if (!paused) vehicleEffects(dt);
   }
@@ -1178,6 +1265,7 @@ function frame(now) {
   scatter?.hdRocks?.update(dt, camera.position);
   props?.setNight(dark);
   towns?.setNight(dark);
+  stations?.setNight(dark);
   jeep.setLights(dark);
   waterUniforms.uLight.value = 1 - dark * 0.82;
   if (boatWater) boatWater.light = 1 - dark * 0.85;
@@ -1230,6 +1318,7 @@ function frame(now) {
     $('nitro-bar').parentElement.classList.toggle('is-on', jeep.boosting);
     $('t-gas').style.setProperty('--tank', jeep.nitro.toFixed(3));
     $('t-gas').classList.toggle('is-boosting', jeep.boosting);
+    if (!paused) fuelTick(dt);
     nav.update(dt, activePos(), mode === 'walk' ? walker.heading : jeep.heading, t);
     mapUI.route = nav.route?.pts || null; mapUI.dest = nav.dest;
     mapUI.update(dt, activePos(), mode === 'walk' ? walker.heading : jeep.heading);
@@ -1337,7 +1426,7 @@ window.chasingGreen = {
   clock, forecast, CONFIG, store, linkFor, scene, renderer, camera, setVehicle, fastTravel, input,
   get obstacles() { return obstacles; }, get scene() { return scene; }, Vec3: THREE.Vector3, get puddles() { return puddles; }, get mapUI() { return mapUI; }, get snow() { return snow; },
   nearestRoad: (x, z, r) => nearestRoad(x, z, r), coastAt, roadDistAt, shoreDistAt, groundAt, solidTopAt, get wildlife() { return wildlife; },
-  roadPaths: () => roadPaths,
+  roadPaths: () => roadPaths, fuel, putCar, get stations() { return stations; },
   heightAt: (x, z) => heightAt(x, z),
   snowAt: (x, z) => snowAt(x, z),
   waterLevelAt: (x, z) => waterLevelAt(x, z),

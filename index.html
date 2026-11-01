@@ -56,7 +56,7 @@
         <p class="challenge-line" id="intro-challenge"></p>
         <p class="loading" id="loading" role="status"></p>
       </div>
-      <p class="keys-hint"><span><kbd>WASD</kbd>drive</span><span><kbd>S</kbd>hold to reverse</span><span><kbd>Space</kbd>nitro</span><span><kbd>C</kbd>view</span><span><kbd>E</kbd>step out</span><span><kbd>X</kbd>sit</span><span><kbd>V</kbd>car</span><span><kbd>M</kbd>map</span><span><kbd>H</kbd>learn</span></p>
+      <p class="keys-hint"><span><kbd>WASD</kbd>drive</span><span><kbd>S</kbd>hold to reverse</span><span><kbd>Space</kbd>nitro</span><span><kbd>F</kbd>refuel</span><span><kbd>C</kbd>view</span><span><kbd>E</kbd>step out</span><span><kbd>X</kbd>sit</span><span><kbd>V</kbd>car</span><span><kbd>M</kbd>map</span><span><kbd>H</kbd>learn</span></p>
     </div>
   </section>
 
@@ -76,6 +76,7 @@
       <div class="readout glass">
         <div class="speed"><span id="speed">0</span><small>km/h</small></div>
         <div class="nitro" aria-label="Nitro"><span id="nitro-bar"></span></div>
+        <div class="fuel" id="fuel" role="meter" aria-label="Fuel" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 20V5.5a1.5 1.5 0 0 1 1.5-1.5h6a1.5 1.5 0 0 1 1.5 1.5V20M4 20h12M7.5 7.5h5v3.5h-5zM14.5 9l2.6 1.6v6.2a1.2 1.2 0 0 0 2.4 0V9.5l-2-2.5"/></svg><span class="fuel-track"><span id="fuel-bar"></span></span></div>
         <div class="where" id="where">Hveragerði</div>
         <div class="clock" id="clock">16:15</div>
       </div>
@@ -99,6 +100,8 @@
     <div id="flash" class="flash" aria-hidden="true"></div>
 
     <div id="toast" class="toast glass" role="status" aria-live="polite"></div>
+
+    <button id="fuel-act" class="fuel-act glass" hidden><i class="fuel-act-fill" aria-hidden="true"></i><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 20V5.5a1.5 1.5 0 0 1 1.5-1.5h6a1.5 1.5 0 0 1 1.5 1.5V20M4 20h12M7.5 7.5h5v3.5h-5zM14.5 9l2.6 1.6v6.2a1.2 1.2 0 0 0 2.4 0V9.5l-2-2.5"/></svg><span id="fuel-act-text">Refuel</span><kbd class="hide-touch">F</kbd></button>
 
     <button id="sky-hint" class="sky-hint glass" hidden aria-live="polite"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg><span>Aurora overhead. Look up!</span></button>
 
@@ -242,6 +245,8 @@
         <select id="set-speed"><option value="1">Normal</option><option value="2">2x</option><option value="4">4x</option></select>
         <label for="set-nitro">Nitro</label>
         <select id="set-nitro"><option value="on">On</option><option value="off">Off</option></select>
+        <label for="set-fuel">Fuel</label>
+        <select id="set-fuel"><option value="on">On</option><option value="off">Off</option></select>
         <label for="set-haptics">Haptics</label>
         <select id="set-haptics"><option value="on">On</option><option value="off">Off</option></select>
         <label for="set-steering" class="touch-only">Steering</label>

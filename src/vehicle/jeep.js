@@ -55,6 +55,7 @@ export class Jeep {
     this.steerVis = 0;
     this.roll = 0; this.pitch = 0;
     this.nitro = 1;
+    this.power = 1; // engine power from the fuel tank: 1 normal, 0 out of fuel
     this.boosting = false;
     this.depth = 0;
     this.impact = 0;
@@ -153,7 +154,7 @@ export class Jeep {
 
     // Nitro: hold to boost while the gauge lasts; it refills when you let go. It works on the
     // road and as a boat (it digs the jet in), but not while wading or changing over.
-    this.boosting = active && !!input.nitro && this.nitro > 0.02 && throttle > 0 && (afloat || (!wet && this.depth < 0.3));
+    this.boosting = active && !!input.nitro && this.nitro > 0.02 && this.power > 0.5 && throttle > 0 && (afloat || (!wet && this.depth < 0.3));
     if (this.boosting) this.nitro = Math.max(0, this.nitro - dt * 0.22);
     else this.nitro = Math.min(1, this.nitro + dt * 0.09);
 
@@ -169,10 +170,10 @@ export class Jeep {
     this.braking = 0;
     if (air) { /* coasting */ } else if (throttle > 0) {
       if (this.vF < -0.5) { this.vF += S.brake * dt; this.braking = 1; }
-      else this.vF += accel * throttle * dt * clamp(1.05 - this.vF / (maxV + 0.01), 0, 1);
+      else this.vF += accel * throttle * this.power * dt * clamp(1.05 - this.vF / (maxV + 0.01), 0, 1);
     } else if (throttle < 0) {
       if (this.vF > 0.5) { this.vF -= S.brake * dt; this.braking = 1; }
-      else this.vF = Math.max(this.vF - S.accel * 0.6 * dt, -S.reverseMax);
+      else this.vF = Math.max(this.vF - S.accel * 0.6 * this.power * dt, -S.reverseMax);
     }
     // Rolling resistance: small on tarmac, more off-road for cars that are bad at it.
     const off = S.offroad[this.surface] ?? 1;
