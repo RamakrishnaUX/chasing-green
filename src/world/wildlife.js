@@ -3,6 +3,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { heightAt, waterLevelAt, roadDistAt, shoreDistAt } from './terrain.js';
 import { toWorld } from './geo.js';
 import { mulberry32, clamp, lerp } from './noise.js';
+import * as Models from './animalModels.js';
 
 // Wildlife, each where and when it really lives. On land: sheep roaming free in summer and
 // autumn, Icelandic horses, reindeer only in the east, an arctic fox whose eyes catch the
@@ -11,13 +12,16 @@ import { mulberry32, clamp, lerp } from './noise.js';
 // off Snæfellsnes in winter, and white-beaked dolphins that come to ride a boat's bow wave.
 //
 // Land animals are spawned in cells around the player from a seed, so the same flock is in the
-// same field when you come back. Herd animals share one instanced body mesh and one instanced
-// leg mesh per species, so a whole valley of sheep costs two draw calls.
+// same field when you come back. The models (animalModels.js) are rigged in parts: a torso, a
+// head on its neck pivot (it lowers to graze and turns to watch you), and legs in two jointed
+// segments walking a four-beat gait. Each part is one instanced mesh per species, with coat and
+// hair colours per animal, and fur shells on the nearest few.
 
-const M4 = new THREE.Matrix4(), Q = new THREE.Quaternion(), E = new THREE.Euler(0, 0, 0, 'YXZ'), S = new THREE.Vector3(), P = new THREE.Vector3(), C = new THREE.Color(), V = new THREE.Vector3();
+const M4 = new THREE.Matrix4(), MB = new THREE.Matrix4(), MH = new THREE.Matrix4(), ML = new THREE.Matrix4(), MT = new THREE.Matrix4();
+const Q = new THREE.Quaternion(), E = new THREE.Euler(0, 0, 0, 'YXZ'), S = new THREE.Vector3(), P = new THREE.Vector3(), C = new THREE.Color(), V = new THREE.Vector3();
 const HIDE = new THREE.Matrix4().makeScale(0, 0, 0);
 
-// ---------- Shapes, built from primitives and painted with vertex colours ----------
+// Puffins stay simple: on the cliffs they are specks against the sky.
 function piece(geo, color, at = [0, 0, 0], scale = [1, 1, 1], rot = [0, 0, 0]) {
   const g = geo.index ? geo.toNonIndexed() : geo;
   g.deleteAttribute('uv');
@@ -27,113 +31,32 @@ function piece(geo, color, at = [0, 0, 0], scale = [1, 1, 1], rot = [0, 0, 0]) {
   g.setAttribute('color', new THREE.BufferAttribute(a, 3));
   return g;
 }
-const ball = () => new THREE.SphereGeometry(1, 12, 9);
-const box = (x, y, z) => new THREE.BoxGeometry(x, y, z);
-const cyl = (r0, r1, h, s = 7) => new THREE.CylinderGeometry(r0, r1, h, s);
-const cone = (r, h, s = 8) => new THREE.ConeGeometry(r, h, s);
-const merge = (...parts) => mergeGeometries(parts);
+const puffinShape = () => mergeGeometries([
+  piece(new THREE.SphereGeometry(1, 12, 9), 0x15171a, [0, 0, 0], [0.12, 0.13, 0.19]),
+  piece(new THREE.SphereGeometry(1, 12, 9), 0xf2f2ee, [0, -0.02, 0.08], [0.09, 0.1, 0.12]),
+  piece(new THREE.ConeGeometry(0.05, 0.1, 6), 0xe8642a, [0, 0.03, 0.24], [1, 0.8, 1], [Math.PI / 2, 0, 0]),
+  piece(new THREE.BoxGeometry(0.46, 0.02, 0.11), 0x15171a, [0, 0.04, 0])]);
 
-// A humpback's fluke: two swept-back lobes with a notch, dark above and pale below. Laid flat,
-// trailing back from the tail stock at the origin.
-function fluke(span) {
-  const half = [[0.6, 0.05], [1.4, 0.32], [2.2, 0.92], [1.75, 1.02], [1.2, 0.94], [0.6, 1.06], [0.16, 1.05]];
-  const sh = new THREE.Shape(); sh.moveTo(0, -0.1);
-  for (const [x, y] of half) sh.lineTo(x * span / 4.4, y);
-  sh.lineTo(0, 0.82);
-  for (const [x, y] of [...half].reverse()) sh.lineTo(-x * span / 4.4, y);
-  sh.closePath();
-  const geo = (d) => { const g = new THREE.ExtrudeGeometry(sh, { depth: d, bevelEnabled: false }); g.rotateX(-Math.PI / 2); return g; };
-  return [piece(geo(0.07), 0x2b3036, [0, 0.0, 0]), piece(geo(0.05), 0xd9dcdc, [0, -0.07, 0])];
-}
-
-// Legs hang from the hip: the origin is at the top.
-const legGeo = (r, color) => piece(cyl(r, r * 0.8, 1, 6), color, [0, -0.5, 0]);
-
-const SHAPES = {
-  sheep: () => merge(
-    piece(ball(), 0xf2efe6, [0, 0.74, 0], [0.43, 0.41, 0.63]),
-    piece(ball(), 0xf2efe6, [0.16, 0.98, 0.2], [0.2, 0.16, 0.22]), piece(ball(), 0xf2efe6, [-0.16, 0.98, -0.18], [0.2, 0.16, 0.22]),
-    piece(ball(), 0x2d2723, [0, 0.9, 0.66], [0.14, 0.16, 0.22]),
-    piece(box(0.17, 0.04, 0.07), 0x2d2723, [0, 0.97, 0.6]),
-    piece(ball(), 0xf2efe6, [0, 0.8, -0.63], [0.08, 0.08, 0.08])),
-  horse: () => merge(
-    piece(ball(), 0xffffff, [0, 1.05, 0], [0.42, 0.46, 0.86]),
-    piece(ball(), 0xffffff, [0, 1.08, 0.52], [0.38, 0.42, 0.4]),
-    // Arched neck, head angled down, a dark muzzle, ears, and a thick mane down the neck.
-    piece(cyl(0.15, 0.25, 0.82), 0xffffff, [0, 1.44, 0.8], [1, 1, 1], [0.55, 0, 0]),
-    piece(ball(), 0xffffff, [0, 1.74, 1.08], [0.13, 0.14, 0.2]),
-    piece(box(0.19, 0.2, 0.46), 0xffffff, [0, 1.62, 1.2], [1, 1, 1], [1.0, 0, 0]),
-    piece(ball(), 0x3a2e27, [0, 1.46, 1.32], [0.1, 0.1, 0.12]),
-    piece(cone(0.04, 0.12, 5), 0xffffff, [0.06, 1.9, 1.02]), piece(cone(0.04, 0.12, 5), 0xffffff, [-0.06, 1.9, 1.02]),
-    piece(box(0.08, 0.8, 0.15), 0x2a201a, [0, 1.53, 0.67], [1, 1, 1], [0.55, 0, 0]),
-    piece(cyl(0.05, 0.13, 0.78), 0x2a201a, [0, 0.82, -0.92], [1, 1, 1], [-0.35, 0, 0])),
-  reindeer: () => merge(
-    piece(ball(), 0x6e6253, [0, 1.04, 0], [0.38, 0.43, 0.78]),
-    piece(cyl(0.15, 0.24, 0.55), 0xd8d2c4, [0, 1.3, 0.62], [1, 1, 1], [0.9, 0, 0]),
-    piece(box(0.18, 0.2, 0.44), 0x584d41, [0, 1.52, 0.9], [1, 1, 1], [0.5, 0, 0]),
-    piece(ball(), 0xe2ddd0, [0, 1.0, -0.66], [0.24, 0.26, 0.16]),
-    ...[-1, 1].flatMap((s) => [
-      piece(cyl(0.022, 0.035, 0.75), 0xb6a487, [s * 0.14, 1.95, 0.8], [1, 1, 1], [-0.35, 0, -s * 0.45]),
-      piece(cyl(0.018, 0.026, 0.35), 0xb6a487, [s * 0.26, 2.12, 0.95], [1, 1, 1], [0.6, 0, -s * 0.2]),
-      piece(cyl(0.018, 0.026, 0.3), 0xb6a487, [s * 0.32, 2.25, 0.72], [1, 1, 1], [-0.7, 0, -s * 0.6]),
-    ])),
-  fox: () => merge(
-    piece(ball(), 0xffffff, [0, 0.33, 0], [0.17, 0.18, 0.36]),
-    piece(ball(), 0xffffff, [0, 0.43, 0.38], [0.13, 0.12, 0.15]),
-    piece(cone(0.055, 0.15), 0xffffff, [0, 0.41, 0.55], [1, 1, 1], [Math.PI / 2, 0, 0]),
-    piece(cone(0.05, 0.11), 0xffffff, [0.07, 0.56, 0.35]), piece(cone(0.05, 0.11), 0xffffff, [-0.07, 0.56, 0.35]),
-    piece(ball(), 0xffffff, [0, 0.3, -0.45], [0.1, 0.1, 0.3], [0.3, 0, 0])),
-  // A harbour seal lying on the shore: a long mottled body, a rounded head with a dark muzzle,
-  // fore flippers at its sides and the hind flippers held together behind.
-  seal: () => merge(
-    piece(ball(), 0x46494b, [0, 0.24, 0], [0.31, 0.24, 0.92]),
-    piece(ball(), 0x6a6c6b, [0, 0.14, 0.05], [0.27, 0.13, 0.8]),
-    piece(ball(), 0x3f4244, [0, 0.33, 0.86], [0.15, 0.14, 0.18]),
-    piece(ball(), 0x34383a, [0, 0.3, 1.0], [0.07, 0.06, 0.07]),
-    piece(ball(), 0x26292b, [0.15, 0.36, 0.25], [0.07, 0.03, 0.09]), piece(ball(), 0x26292b, [-0.12, 0.37, -0.25], [0.08, 0.03, 0.1]), piece(ball(), 0x26292b, [0.05, 0.38, -0.5], [0.05, 0.03, 0.06]),
-    piece(ball(), 0x383b3d, [0.3, 0.08, 0.38], [0.05, 0.03, 0.16], [0, -0.5, 0]), piece(ball(), 0x383b3d, [-0.3, 0.08, 0.38], [0.05, 0.03, 0.16], [0, 0.5, 0]),
-    piece(ball(), 0x323537, [0.08, 0.18, -1.0], [0.06, 0.04, 0.22], [0, 0.2, 0]), piece(ball(), 0x323537, [-0.08, 0.18, -1.0], [0.06, 0.04, 0.22], [0, -0.2, 0])),
-  puffin: () => merge(
-    piece(ball(), 0x15171a, [0, 0, 0], [0.12, 0.13, 0.19]),
-    piece(ball(), 0xf2f2ee, [0, -0.02, 0.08], [0.09, 0.1, 0.12]),
-    piece(cone(0.05, 0.1, 6), 0xe8642a, [0, 0.03, 0.24], [1, 0.8, 1], [Math.PI / 2, 0, 0]),
-    piece(box(0.46, 0.02, 0.11), 0x15171a, [0, 0.04, 0])),
-  humpback: () => merge(
-    piece(ball(), 0x2b3036, [0, 0, 0], [1.35, 1.25, 6.2]),
-    piece(ball(), 0x3a4048, [0, 0.35, 4.2], [1.15, 0.6, 2.0]),
-    piece(box(3.6, 0.16, 0.85), 0xd5d9da, [1.9, -0.55, 2.4], [1, 1, 1], [0, 0.45, -0.35]),
-    piece(box(3.6, 0.16, 0.85), 0xd5d9da, [-1.9, -0.55, 2.4], [1, 1, 1], [0, -0.45, 0.35]),
-    piece(cone(0.35, 0.6, 6), 0x2b3036, [0, 1.25, -2.4]),
-    piece(cyl(0.72, 0.28, 1.8, 8), 0x2b3036, [0, 0, -6.0], [1, 1, 0.7], [Math.PI / 2, 0, 0]),
-    ...fluke(4.4).map((g) => g.translate(0, 0, -6.9))),
-  orca: () => merge(
-    piece(ball(), 0x101215, [0, 0, 0], [0.92, 1.0, 3.5]),
-    piece(ball(), 0xf0f0ec, [0, -0.45, 0.6], [0.62, 0.45, 2.3]),
-    piece(ball(), 0xf0f0ec, [0.55, 0.38, 2.1], [0.22, 0.14, 0.42]), piece(ball(), 0xf0f0ec, [-0.55, 0.38, 2.1], [0.22, 0.14, 0.42]),
-    piece(box(0.14, 1.7, 0.75), 0x101215, [0, 1.65, -0.1], [1, 1, 1], [-0.22, 0, 0]),
-    piece(box(2.1, 0.1, 0.65), 0x101215, [0, 0, -3.6])),
-  dolphin: () => merge(
-    piece(ball(), 0x3b4046, [0, 0, 0], [0.32, 0.36, 1.35]),
-    piece(ball(), 0xcfd4d6, [0, -0.04, -0.25], [0.31, 0.25, 0.62]),
-    piece(cone(0.1, 0.32, 7), 0x3b4046, [0, -0.05, 1.45], [1, 1, 1], [Math.PI / 2, 0, 0]),
-    piece(box(0.06, 0.42, 0.32), 0x2e3236, [0, 0.42, -0.1], [1, 1, 1], [-0.35, 0, 0]),
-    piece(box(0.72, 0.05, 0.26), 0x2e3236, [0, 0, -1.4])),
-};
-
-// Herd animals: size, legs, habits. flee: how close a car or a walker gets before they move off.
+// Herd animals: model, colours [coat, hair, lower legs] (hair: mane, tail, face; the lower legs
+// default to the hair colour, but a horse has dark legs only if bay, dun or black), and habits. flee: how close a car or a walker gets before they move off.
 const HERD = {
-  sheep: { cap: 140, leg: [0.045, 0x2d2723], hip: 0.52, legs: [[0.19, 0.33], [-0.19, 0.33], [0.19, -0.33], [-0.19, -0.33]], walk: 0.8, run: 3.2, flee: 14, graze: 0.14, colors: [0xf4f1e8, 0xf4f1e8, 0xf4f1e8, 0xe9e2d2, 0x8a6a4e, 0x3a312b] },
-  horse: { cap: 60, leg: [0.07, 0x2a201a], hip: 0.86, legs: [[0.22, 0.6], [-0.22, 0.6], [0.22, -0.55], [-0.22, -0.55]], walk: 1.1, run: 5, flee: 9, graze: 0.2, colors: [0x8a4b2a, 0x5b3a26, 0xb9b6b0, 0x2b2420, 0xd2ae78, 0xe6e1d8, 0x6e4a33] },
-  reindeer: { cap: 60, leg: [0.05, 0x4a4035], hip: 0.86, legs: [[0.19, 0.55], [-0.19, 0.55], [0.19, -0.5], [-0.19, -0.5]], walk: 1.0, run: 7, flee: 38, graze: 0.18, colors: [0xffffff] },
-  fox: { cap: 14, leg: [0.03, 0x3a3430], hip: 0.25, legs: [[0.08, 0.2], [-0.08, 0.2], [0.08, -0.2], [-0.08, -0.2]], walk: 1.4, run: 6, flee: 26, graze: 0.08, colors: [0xefefea] },
-  seal: { cap: 30, leg: null, hip: 0, legs: [], walk: 0.5, run: 1.6, flee: 22, graze: 0, colors: [0xffffff, 0xd8cdbd, 0xaeb0ae] },
+  sheep: { cap: 140, model: Models.sheep, walk: 0.8, run: 3.2, flee: 14, stride: 0.75, horns: 0.45,
+    looks: [[0xf1ece0, 0xe9e4d9], [0xf1ece0, 0xe9e4d9], [0xf1ece0, 0xe9e4d9], [0xf1ece0, 0x2e2824], [0x2a2522, 0x1e1a18], [0x6d4c33, 0x4b3322], [0x9a948b, 0x3b3633]] },
+  horse: { cap: 60, model: Models.horse, walk: 1.1, run: 5, flee: 9, stride: 1.6,
+    looks: [[0x6b3f24, 0x15100d], [0x8a4a25, 0x6e3519, 0x8a4a25], [0x8a4a25, 0xdcc79e, 0x8a4a25], [0x1f1a17, 0x141110], [0xb9b5ae, 0x8c8882, 0xa9a59e], [0xcfa86c, 0xefe6cf, 0xcfa86c], [0xae8e64, 0x2a211b], [0xe4e0d6, 0xdcd8ce, 0xe4e0d6]] },
+  reindeer: { cap: 60, model: Models.reindeer, walk: 1.0, run: 7, flee: 38, stride: 1.5, looks: [[0x6c5d4c, 0x3a3029], [0x7a6b59, 0x40362d], [0x5f5446, 0x332b25]] },
+  fox: { cap: 14, model: Models.fox, walk: 1.4, run: 6, flee: 26, stride: 0.6, looks: [[0xf2f1ec, 0xe2dfd8]] },
+  seal: { cap: 30, model: Models.seal, walk: 0.5, run: 1.6, flee: 22, stride: 1, looks: [[0x5f6466, 0], [0x6b6359, 0], [0x7c8183, 0]] },
 };
+const FOX_SUMMER = [[0x5e4634, 0x3a2a1f], [0x5e4634, 0x3a2a1f], [0x4a4b52, 0x34353b]];
+// Each leg's place in a four-beat walk: front-left, front-right, hind-left, hind-right.
+const GAIT = [0.25, 0.75, 0, 0.5];
 
 const EAST_X = toWorld(65, -15.8).x; // reindeer live east of about here
 const CELL = 220;
 
 export class Wildlife {
-  constructor(scene, { low = false } = {}) {
+  constructor(scene, { low = false, fur = !low } = {}) {
     this.scene = scene;
     this.low = low;
     this.cells = new Map();
@@ -142,22 +65,39 @@ export class Wildlife {
     this.seen = new Set();
     this.events = [];
     this.manageClock = 0;
-    const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, metalness: 0 });
-    // Instanced herd meshes: a body and a leg per species.
+    this.mats = {
+      base: Models.animalMaterial({}),
+      // Wet skin: a little gloss, but dark skin must stay dark rather than mirror the sky.
+      seal: Models.animalMaterial({ rough: 0.55, sheen: 0.1, clear: 0.12, spots: 0.6, grain: 14, env: 0.5 }),
+      whale: Models.animalMaterial({ rough: 0.55, sheen: 0, clear: 0.2, grain: 5, env: 0.28 }),
+    };
     this.herd = {};
     for (const [sp, H] of Object.entries(HERD)) {
-      const cap = Math.round(H.cap * (low ? 0.5 : 1));
-      const body = new THREE.InstancedMesh(SHAPES[sp](), mat, cap);
-      body.castShadow = true; body.frustumCulled = false; body.count = 0;
-      body.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(cap * 3).fill(1), 3);
-      scene.add(body);
-      let legs = null;
-      if (H.leg) {
-        legs = new THREE.InstancedMesh(legGeo(...H.leg), mat, cap * 4);
-        legs.castShadow = true; legs.frustumCulled = false; legs.count = 0;
-        scene.add(legs);
+      const cap = Math.round(H.cap * (low ? 0.5 : 1)), R = H.model();
+      const mat = sp === 'seal' ? this.mats.seal : this.mats.base;
+      const attr = (n) => new THREE.InstancedBufferAttribute(new Float32Array(n * 3).fill(1), 3);
+      const G = { R, cap, list: [], coat: attr(cap), hair: attr(cap), legCoat: attr(cap * 4), legHair: attr(cap * 4), shells: [] };
+      const part = (geo, n, coat, hair) => {
+        geo.setAttribute('iCoat', coat); geo.setAttribute('iHair', hair);
+        const m = new THREE.InstancedMesh(geo, mat, n);
+        m.castShadow = true; m.receiveShadow = true; m.frustumCulled = false; m.count = 0;
+        scene.add(m); return m;
+      };
+      G.torso = part(R.torso, cap, G.coat, G.hair);
+      G.head = part(R.head, cap, G.coat, G.hair);
+      if (R.horns) G.horns = part(R.horns, cap, G.coat, G.hair);
+      if (R.legU) { G.legU = part(R.legU, cap * 4, G.legCoat, G.legHair); G.legL = part(R.legL, cap * 4, G.legCoat, G.legHair); }
+      // Fur shells over the body and head of the nearest animals: layers of strands, each sharing
+      // the part's geometry and instance matrices.
+      if (R.fur && fur) for (let k = 1; k <= R.fur.shells; k++) {
+        const sm = Models.animalMaterial({ shell: k / R.fur.shells, density: R.fur.density });
+        for (const base of [G.torso, G.head]) {
+          const sh = new THREE.InstancedMesh(base.geometry, sm, cap);
+          sh.instanceMatrix = base.instanceMatrix; sh.frustumCulled = false; sh.count = 0; sh.receiveShadow = true; sh.userData.noAO = true;
+          scene.add(sh); G.shells.push(sh);
+        }
       }
-      this.herd[sp] = { body, legs, cap, list: [] };
+      this.herd[sp] = G;
     }
     // Fox eyes: two glints each, lit when the headlights fall on them. Drawn as points of a fixed
     // size on screen, so they show as bright pinpoints from far down the road, as eyeshine does.
@@ -173,7 +113,7 @@ export class Wildlife {
       scene.add(this.eyes);
     }
     // Puffins: one instanced flock.
-    this.puffins = new THREE.InstancedMesh(SHAPES.puffin(), mat, 40);
+    this.puffins = new THREE.InstancedMesh(puffinShape(), this.mats.base, 40);
     this.puffins.frustumCulled = false; this.puffins.count = 0;
     scene.add(this.puffins);
     // Over the sea cliffs of the Dyrhólaey headland, where its arch stands (south of the landmark).
@@ -181,12 +121,10 @@ export class Wildlife {
     // Sea animals: a few single meshes each.
     this.whales = [];
     this.dolphins = [];
-    const dGeo = SHAPES.dolphin();
-    for (let i = 0; i < 4; i++) { const m = new THREE.Mesh(dGeo, mat); m.visible = false; m.castShadow = true; scene.add(m); this.dolphins.push({ mesh: m, phase: i * 1.7, active: false, off: [[-2.2, 4], [2.2, 5.5], [-1.2, 8], [1.4, 10.5]][i], lx: 0, lz: 0, leap: 0 }); }
+    const dGeo = Models.dolphin();
+    for (let i = 0; i < 4; i++) { const m = new THREE.Mesh(dGeo, this.mats.whale); m.visible = false; m.castShadow = true; scene.add(m); this.dolphins.push({ mesh: m, phase: i * 1.7, active: false, off: [[-2.2, 4], [2.2, 5.5], [-1.2, 8], [1.4, 10.5]][i], lx: 0, lz: 0, leap: 0 }); }
     this.dolphinPod = { on: false, slow: 0, cooldown: 0 };
-    this.whaleGeo = { humpback: SHAPES.humpback(), orca: SHAPES.orca() };
-    this.mat = mat;
-    this.seals = [];
+    this.whaleGeo = { humpback: Models.humpback(), orca: Models.orca() };
     this.blow = this.makeBlow();
   }
 
@@ -236,7 +174,7 @@ export class Wildlife {
           for (let u = 0; u < 6; u++) {
             const ax = x + (r() - 0.5) * 26, az = z + (r() - 0.5) * 26;
             if (!this.landOK(ax, az, roadMin * 0.5)) continue;
-            out.push({ sp, x: ax, z: az, hx: ax, hz: az, heading: r() * Math.PI * 2, state: 'graze', timer: r() * 6, color: H.colors[Math.floor(r() * H.colors.length)], step: r() * 10, roam: sp === 'sheep' ? 18 : 12 });
+            out.push({ sp, x: ax, z: az, hx: ax, hz: az, heading: r() * Math.PI * 2, state: 'graze', timer: r() * 6, look: H.looks[Math.floor(r() * H.looks.length)], horned: r() < (H.horns || 0), step: r() * 10, roam: sp === 'sheep' ? 18 : 12 });
             break;
           }
         }
@@ -250,7 +188,7 @@ export class Wildlife {
     if (r() < 0.12) {
       const before = out.length;
       tryHerd('fox', 1, 1, 1, 8, 220);
-      for (let k = before; k < out.length; k++) out[k].color = winter ? 0xf0f0ec : (r() < 0.7 ? 0x6e5641 : 0x4a4a50);
+      for (let k = before; k < out.length; k++) out[k].look = winter ? HERD.fox.looks[0] : FOX_SUMMER[Math.floor(r() * FOX_SUMMER.length)];
     }
     return out;
   }
@@ -267,7 +205,7 @@ export class Wildlife {
         const x = c.x + (r() - 0.5) * 160, z = c.z + (r() - 0.5) * 160;
         const s = shoreDistAt(x, z), h = heightAt(x, z), wl = waterLevelAt(x, z);
         if (s < 1.5 || s > 6 || h < wl + 0.15 || h > wl + 2.5) continue;
-        list.push({ sp: 'seal', x, z, hx: x, hz: z, heading: r() * Math.PI * 2, state: 'rest', timer: r() * 10, color: HERD.seal.colors[Math.floor(r() * 3)], step: r() * 10, inWater: false, away: 0 });
+        list.push({ sp: 'seal', x, z, hx: x, hz: z, heading: r() * Math.PI * 2, state: 'rest', timer: r() * 10, look: HERD.seal.looks[Math.floor(r() * 3)], step: r() * 10, inWater: false, away: 0 });
         placed++;
       }
     });
@@ -293,7 +231,7 @@ export class Wildlife {
     const add = (sp, ground, n) => {
       if (!ground) return;
       for (let i = 0; i < n; i++) {
-        const mesh = new THREE.Mesh(this.whaleGeo[sp], this.mat); mesh.visible = false; mesh.castShadow = true; this.scene.add(mesh);
+        const mesh = new THREE.Mesh(this.whaleGeo[sp], this.mats.whale); mesh.visible = false; mesh.castShadow = true; this.scene.add(mesh);
         this.whales.push({ sp, mesh, g: ground, ang: i * 2.1, rad: (sp === 'orca' ? 45 : 80) + i * 18, cycle: (sp === 'orca' ? 26 : 50) + i * 7, t: i * 13, blew: false });
       }
     };
@@ -367,11 +305,21 @@ export class Wildlife {
         a.heading += clamp(t, -dt * 3, dt * 3);
         const step = Math.min(e, sp * dt * Math.max(0.2, Math.cos(t)));
         a.x += Math.sin(a.heading) * step; a.z += Math.cos(a.heading) * step;
-        a.step += step * (a.sp === 'horse' || a.sp === 'reindeer' ? 2.4 : 3.6);
+        // One full gait cycle per stride, longer when running, so hooves do not skate.
+        a.step += (step * Math.PI * 2) / (H.stride * (a.state === 'flee' ? 1.8 : 1));
         a.moving = true;
       }
     }
     a.y = heightAt(a.x, a.z);
+    // Head: down to graze with a little chewing nod, up to walk, raised and turned to watch
+    // something close.
+    const R = this.herd[a.sp].R, alert = d < H.flee * 2.4 && a.state !== 'flee';
+    let hp = 0.05, hy = 0;
+    if (a.state === 'graze') hp = alert ? R.alert : R.graze + Math.sin(this.time * 3.1 + a.step) * 0.05;
+    if (alert && !a.moving) { let t = Math.atan2(threat.x - a.x, threat.z - a.z) - a.heading; t = Math.atan2(Math.sin(t), Math.cos(t)); hy = clamp(t, -0.85, 0.85); }
+    if (a.moving) hp = a.state === 'flee' ? -0.05 : 0.18 + Math.sin(a.step * 2) * 0.05;
+    const k = Math.min(1, dt * 2.5);
+    a.hp = lerp(a.hp ?? hp, hp, k); a.hy = lerp(a.hy ?? 0, hy, k);
   }
 
   behaveSeal(s, dt, threat) {
@@ -391,60 +339,75 @@ export class Wildlife {
       if (s.away > 25 && d > 70) { s.x = s.hx; s.z = s.hz; s.inWater = false; s.state = 'rest'; }
     }
     const wl = waterLevelAt(s.x, s.z);
-    s.y = s.inWater ? wl - 0.32 + Math.max(0, Math.sin(this.time * 0.7 + s.step)) * 0.12 : Math.max(heightAt(s.x, s.z), wl);
+    s.y = s.inWater ? wl - 0.3 + Math.max(0, Math.sin(this.time * 0.7 + s.step)) * 0.12 : Math.max(heightAt(s.x, s.z), wl);
+    // On land a seal lies with its head down, lifting it now and then to look round.
+    const lift = s.inWater ? -0.35 : -0.05 - Math.max(0, Math.sin(this.time * 0.35 + s.step)) * 0.55;
+    s.hp = lerp(s.hp ?? lift, lift, Math.min(1, dt * 2)); s.hy = Math.sin(this.time * 0.2 + s.step * 3) * 0.35;
   }
 
   draw(ctx) {
     const { pos, car, dark } = ctx;
-    for (const H of Object.values(this.herd)) H.list.length = 0;
-    for (const a of this.animals) {
-      const dd = Math.hypot(a.x - pos.x, a.z - pos.z);
-      if (dd < 420) this.herd[a.sp].list.push(a);
-    }
-    for (const s of this.sealSpots()) if (Math.hypot(s.x - pos.x, s.z - pos.z) < 420) this.herd.seal.list.push(s);
+    for (const G of Object.values(this.herd)) G.list.length = 0;
+    const near = (a) => (a.dist = Math.hypot(a.x - pos.x, a.z - pos.z)) < 420;
+    for (const a of this.animals) if (near(a)) this.herd[a.sp].list.push(a);
+    for (const s of this.sealSpots()) if (near(s)) this.herd.seal.list.push(s);
     let eye = 0;
-    // Headlights: the car's facing and whether its lights are on.
+    // Headlights: the car's facing, for the fox's eyeshine.
     const hx = car ? Math.sin(car.heading) : 0, hz = car ? Math.cos(car.heading) : 1;
     for (const [sp, G] of Object.entries(this.herd)) {
-      const H = HERD[sp], n = Math.min(G.list.length, G.cap);
-      G.body.count = n; if (G.legs) G.legs.count = n * 4;
+      const R = G.R;
+      G.list.sort((p, q) => p.dist - q.dist); // nearest first, so fur shells go to the closest
+      const n = Math.min(G.list.length, G.cap);
+      let close = 0;
       for (let k = 0; k < n; k++) {
         const a = G.list[k];
-        const grazing = a.state === 'graze' && sp !== 'seal' ? H.graze * (0.6 + 0.4 * Math.sin(this.time * 0.6 + a.step)) : 0;
-        const bob = a.moving ? Math.abs(Math.sin(a.step)) * 0.04 : 0;
-        // A seal in the water shows only its head; on land it lies along the shore, lifting its head.
-        const sealLift = sp === 'seal' && !a.inWater ? -0.08 + Math.max(0, Math.sin(this.time * 0.35 + a.step)) * 0.18 : 0;
-        E.set(grazing - sealLift, a.heading, 0);
-        Q.setFromEuler(E); P.set(a.x, a.y + bob, a.z); S.set(1, 1, 1);
-        if (sp === 'seal' && a.inWater) S.set(0.7, 0.7, 0.7);
-        M4.compose(P, Q, S); G.body.setMatrixAt(k, M4);
-        C.set(a.color); G.body.setColorAt(k, C);
-        if (G.legs) {
-          H.legs.forEach(([lx, lz], li) => {
-            const swing = a.moving ? Math.sin(a.step + (li === 0 || li === 3 ? 0 : Math.PI)) * (a.state === 'flee' ? 0.5 : 0.32) : 0;
-            const ch = Math.cos(a.heading), sh = Math.sin(a.heading);
-            P.set(a.x + lx * ch + lz * sh, a.y + bob + H.hip, a.z - lx * sh + lz * ch);
-            E.set(swing, a.heading, 0); Q.setFromEuler(E); S.set(1, H.hip, 1);
-            M4.compose(P, Q, S); G.legs.setMatrixAt(k * 4 + li, M4);
-          });
-        }
+        if (a.dist < 30 && k < 6) close = k + 1; // fur on the closest few
+        // Torso.
+        const bob = a.moving ? Math.abs(Math.sin(a.step * 2)) * (a.state === 'flee' ? 0.06 : 0.022) : 0;
+        const sc = sp === 'seal' && a.inWater ? 0.85 : 1;
+        E.set(0, a.heading, 0); Q.setFromEuler(E); P.set(a.x, a.y + bob, a.z); S.set(sc, sc, sc);
+        MB.compose(P, Q, S); G.torso.setMatrixAt(k, MB);
+        // Head on its neck pivot.
+        MH.makeRotationFromEuler(E.set(a.hp || 0, a.hy || 0, 0)); MH.setPosition(R.neckPivot[0], R.neckPivot[1], R.neckPivot[2]);
+        M4.multiplyMatrices(MB, MH); G.head.setMatrixAt(k, M4);
+        if (G.horns) G.horns.setMatrixAt(k, a.horned ? M4 : HIDE);
+        C.set(a.look[0]); G.coat.setXYZ(k, C.r, C.g, C.b);
+        C.set(a.look[1]); G.hair.setXYZ(k, C.r, C.g, C.b);
         // Eyeshine: a fox caught in the headlights looks back with two bright green-gold eyes.
         if (sp === 'fox' && eye < 26) {
           const fx = a.x - pos.x, fz = a.z - pos.z, fd = Math.hypot(fx, fz) || 1;
           const inBeam = car ? clamp(((fx * hx + fz * hz) / fd - 0.85) / 0.12, 0, 1) * (1 - clamp((fd - 25) / 60, 0, 1)) : 0;
-          const look = Math.max(0, Math.cos(Math.atan2(-fx, -fz) - a.heading));
+          const look = Math.max(0, Math.cos(Math.atan2(-fx, -fz) - a.heading - (a.hy || 0)));
           const glow = Math.min(1.5, inBeam * look * dark * 3);
-          const ch = Math.cos(a.heading), sh = Math.sin(a.heading);
           const ep = this.eyes.geometry.attributes.position, ec = this.eyes.geometry.attributes.color;
           for (const s of [-1, 1]) {
-            ep.setXYZ(eye, a.x + s * 0.05 * ch + 0.57 * sh, a.y + 0.46, a.z - s * 0.05 * sh + 0.57 * ch);
-            ec.setXYZ(eye, 0.55 * glow, 1.1 * glow, 0.3 * glow); eye++;
+            V.set(s * 0.048, 0.14, 0.215).applyMatrix4(M4);
+            ep.setXYZ(eye, V.x, V.y, V.z); ec.setXYZ(eye, 0.55 * glow, 1.1 * glow, 0.3 * glow); eye++;
+          }
+        }
+        // Legs: the upper segment swings from the hip or shoulder; the lower one folds at the knee
+        // (forward legs) or hock (hind legs) while it is lifted.
+        if (G.legU) {
+          const run = a.state === 'flee', amp = a.moving ? (run ? 0.62 : 0.32) : 0, fold = a.moving ? (run ? 1.1 : 0.7) : 0;
+          for (let li = 0; li < 4; li++) {
+            const ph = a.step + GAIT[li] * Math.PI * 2, swing = Math.sin(ph) * amp, lift = Math.max(0, Math.cos(ph)) * fold;
+            const hip = R.hips[li], j = k * 4 + li;
+            ML.makeRotationX(swing); ML.setPosition(hip[0], hip[1], hip[2]);
+            M4.multiplyMatrices(MB, ML); G.legU.setMatrixAt(j, M4);
+            MT.makeRotationX(li < 2 ? lift : -lift * 0.7); MT.setPosition(0, -R.Lu, 0);
+            M4.multiply(MT); G.legL.setMatrixAt(j, M4);
+            C.set(a.look[0]); G.legCoat.setXYZ(j, C.r, C.g, C.b);
+            C.set(a.look[2] ?? a.look[1]); G.legHair.setXYZ(j, C.r, C.g, C.b);
           }
         }
         this.noticed(sp, a.x, a.y + 0.6, a.z, ctx, 90);
       }
-      G.body.instanceMatrix.needsUpdate = true; if (G.body.instanceColor) G.body.instanceColor.needsUpdate = true;
-      if (G.legs) G.legs.instanceMatrix.needsUpdate = true;
+      G.torso.count = G.head.count = n;
+      if (G.horns) G.horns.count = n;
+      if (G.legU) G.legU.count = G.legL.count = n * 4;
+      for (const sh of G.shells) sh.count = close;
+      for (const m of [G.torso, G.head, G.horns, G.legU, G.legL]) if (m) m.instanceMatrix.needsUpdate = true;
+      G.coat.needsUpdate = G.hair.needsUpdate = G.legCoat.needsUpdate = G.legHair.needsUpdate = true;
     }
     const eg = this.eyes.geometry;
     eg.setDrawRange(0, eye);
