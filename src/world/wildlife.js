@@ -1,6 +1,5 @@
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { heightAt, waterLevelAt, roadDistAt, shoreDistAt } from './terrain.js';
+import { heightAt, waterLevelAt, roadDistAt, shoreDistAt, groundAt } from './terrain.js';
 import { toWorld } from './geo.js';
 import { mulberry32, clamp, lerp } from './noise.js';
 import { AnimalRigs } from './animalRigs.js';
@@ -16,25 +15,8 @@ import { AnimalRigs } from './animalRigs.js';
 // of each species animated (grazing, watching you, walking, trotting, running) and the rest as
 // instances in baked poses, each with its own coat colour.
 
-const M4 = new THREE.Matrix4();
-const Q = new THREE.Quaternion(), E = new THREE.Euler(0, 0, 0, 'YXZ'), S = new THREE.Vector3(), P = new THREE.Vector3(), V = new THREE.Vector3();
+const V = new THREE.Vector3();
 const EYES = [new THREE.Vector3(), new THREE.Vector3()];
-
-// Puffins stay simple: on the cliffs they are specks against the sky.
-function piece(geo, color, at = [0, 0, 0], scale = [1, 1, 1], rot = [0, 0, 0]) {
-  const g = geo.index ? geo.toNonIndexed() : geo;
-  g.deleteAttribute('uv');
-  g.applyMatrix4(new THREE.Matrix4().compose(new THREE.Vector3(...at), new THREE.Quaternion().setFromEuler(new THREE.Euler(...rot)), new THREE.Vector3(...scale)));
-  const c = new THREE.Color(color), n = g.attributes.position.count, a = new Float32Array(n * 3);
-  for (let i = 0; i < n; i++) a.set([c.r, c.g, c.b], i * 3);
-  g.setAttribute('color', new THREE.BufferAttribute(a, 3));
-  return g;
-}
-const puffinShape = () => mergeGeometries([
-  piece(new THREE.SphereGeometry(1, 12, 9), 0x15171a, [0, 0, 0], [0.12, 0.13, 0.19]),
-  piece(new THREE.SphereGeometry(1, 12, 9), 0xf2f2ee, [0, -0.02, 0.08], [0.09, 0.1, 0.12]),
-  piece(new THREE.ConeGeometry(0.05, 0.1, 6), 0xe8642a, [0, 0.03, 0.24], [1, 0.8, 1], [Math.PI / 2, 0, 0]),
-  piece(new THREE.BoxGeometry(0.46, 0.02, 0.11), 0x15171a, [0, 0.04, 0])]);
 
 // Herd animals: colours [coat, hair, points] (a horse's hair is its mane and tail, and its lower
 // legs take the points colour, dark only if bay, dun or black; a sheep's face and legs take its
@@ -79,10 +61,9 @@ export class Wildlife {
       this.eyes.frustumCulled = false;
       scene.add(this.eyes);
     }
-    // Puffins: one instanced flock.
-    this.puffins = new THREE.InstancedMesh(puffinShape(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8 }), 40);
-    this.puffins.frustumCulled = false; this.puffins.count = 0;
-    scene.add(this.puffins);
+    // Puffins: a colony standing along the clifftops, found the first time you come near, and a flock.
+    this.colony = null; this.colonyScan = null; this.flock = [];
+    this.puffinCap = { stand: low ? 20 : 40, fly: low ? 18 : 36 };
     // Over the sea cliffs of the Dyrhólaey headland, where its arch stands (south of the landmark).
     { const d = toWorld(63.392, -19.13); this.puffinSpot = { x: d.x - 12, z: d.z + 70 }; }
     // Sea animals: a rig each, made once its model is in.
@@ -429,23 +410,83 @@ export class Wildlife {
     }
   }
 
-  // Puffins nest on the cliffs at Dyrhólaey from May to August: a flock wheels off the edge.
+  // Puffins nest on the cliffs at Dyrhólaey from May to August: they stand about in little groups
+  // along the clifftops, turning their heads, and a flock wheels round the arch and the stacks.
   birds(dt, ctx) {
     const { pos, clock } = ctx, m = clock.month, spot = this.puffinSpot;
     const near = Math.hypot(spot.x - pos.x, spot.z - pos.z) < 600;
-    if (!(m >= 4 && m <= 7) || !near) { this.puffins.count = 0; return; }
-    const n = this.low ? 18 : 36, base = Math.max(heightAt(spot.x, spot.z), 0) + 14; // about the clifftop
-    this.puffins.count = n;
-    for (let i = 0; i < n; i++) {
-      const r = 18 + (i % 6) * 6, sp = 0.35 + (i % 5) * 0.06, a = this.time * sp + i * 2.4;
-      const x = spot.x + Math.cos(a) * r, z = spot.z + Math.sin(a) * r * 0.7, y = base + 6 + Math.sin(a * 2 + i) * 3 + (i % 4) * 2;
-      const flap = 0.55 + 0.45 * Math.abs(Math.sin(this.time * 18 + i));
-      E.set(0, Math.atan2(-Math.sin(a), Math.cos(a) * 0.7), Math.sin(a) * 0.3); Q.setFromEuler(E);
-      P.set(x, y, z); S.set(0.7 * flap + 0.4, 1.1, 1.1);
-      M4.compose(P, Q, S); this.puffins.setMatrixAt(i, M4);
+    if (!(m >= 4 && m <= 7) || !near) { this.rigs.hidePuffins(); return; }
+    if (!this.colony) { this.scanColony(spot); return; }
+    for (const b of this.colony) {
+      // A bird's head snaps from one look to the next, now and then down at the grass.
+      b.next -= dt;
+      if (b.next <= 0) {
+        b.next = 0.5 + Math.random() * 3.5;
+        b.tHy = (Math.random() - 0.5) * 2.6; b.tNod = Math.random() < 0.15 ? 0.55 : (Math.random() - 0.5) * 0.25;
+        if (Math.random() < 0.06) b.tHead = b.base + (Math.random() - 0.5) * 1.8; // shuffles round
+      }
+      const k = Math.min(1, dt * 14);
+      b.hy += (b.tHy - b.hy) * k; b.nod += (b.tNod - b.nod) * k; b.heading += (b.tHead - b.heading) * Math.min(1, dt * 3);
     }
-    this.puffins.instanceMatrix.needsUpdate = true;
-    this.noticed('puffin', spot.x, base + 8, spot.z, ctx, 160);
+    // Fast and low over the sea, then up past the clifftops; never into the rock.
+    const cx = spot.x + 10, cz = spot.z + 2;
+    if (!this.flock.length) for (let i = 0; i < this.puffinCap.fly; i++) {
+      const r = 50 + (i % 7) * 6, v = 15 + (i % 5) * 1.5, a = i * 2.4;
+      this.flock.push({ a, r, rz: r * 0.75, w: v / r, ph: i * 1.7, x: cx + Math.cos(a) * r, y: 40, z: cz + Math.sin(a) * r * 0.75, heading: 0, pitch: 0, bank: 0, flap: 0, ahead: 0, look: (i % 8) * 0.03 });
+    }
+    for (const b of this.flock) {
+      b.a += b.w * dt;
+      const x = cx + Math.cos(b.a) * b.r, z = cz + Math.sin(b.a) * b.rz;
+      // The highest ground over the next few seconds of its path (every 2 m), so it climbs before a cliff.
+      if ((b.look -= dt) <= 0) {
+        b.look = 0.25; b.ahead = -Infinity;
+        for (let t = 0, st = 2 / (b.w * b.r); t <= 5; t += st) { const a = b.a + b.w * t; b.ahead = Math.max(b.ahead, groundAt(cx + Math.cos(a) * b.r, cz + Math.sin(a) * b.rz)); }
+      }
+      const want = Math.max(7 + 17 * (0.5 + 0.5 * Math.sin(b.a * 1.3 + b.ph)) + (b.ph % 4) * 3, b.ahead + 4);
+      const y = Math.max(b.y + clamp((want - b.y) * 1.2, -9, 12) * dt, groundAt(x, z) + 2);
+      const dx = x - b.x, dz = z - b.z, d = Math.hypot(dx, dz);
+      if (d > 1e-4 && dt > 0) {
+        const hd = Math.atan2(dx, dz), turn = Math.atan2(Math.sin(hd - b.heading), Math.cos(hd - b.heading)) / dt, v = d / dt;
+        b.heading = hd;
+        b.bank += (clamp(-Math.atan(v * turn / 9.8), -0.8, 0.8) - b.bank) * Math.min(1, dt * 3);
+        b.pitch += (clamp(-Math.atan2(y - b.y, d), -0.5, 0.5) - b.pitch) * Math.min(1, dt * 4);
+      }
+      b.x = x; b.y = y; b.z = z;
+      b.flap = 0.2 + 0.85 * Math.sin(this.time * 31 + b.ph); // about five beats a second
+    }
+    if (this.rigs.drawPuffins(this.colony, this.flock, this.puffinCap.stand, this.puffinCap.fly)) this.noticed('puffin', spot.x, 30, spot.z, ctx, 160);
+  }
+
+  // Where puffins stand: high ground (the arch's grassy top, the sea stacks) with a drop of more than
+  // 5 m within 3 m, and flat behind. Searched once, some rows a frame; then the colony is placed
+  // there in little groups, facing the sea.
+  scanColony(spot) {
+    const R = 110, s = (this.colonyScan ||= { dz: -R, rims: [] });
+    for (let k = 0; k < 10 && s.dz <= R; k++, s.dz += 2) for (let dx = -R; dx <= R; dx += 2) {
+      const x = spot.x + dx, z = spot.z + s.dz, h = groundAt(x, z);
+      if (h < waterLevelAt(x, z) + 6) continue;
+      let drop = 0, dir = 0;
+      for (let j = 0; j < 8; j++) { const a = (j * Math.PI) / 4, d = h - groundAt(x + Math.cos(a) * 3, z + Math.sin(a) * 3); if (d > drop) { drop = d; dir = a; } }
+      if (drop > 5 && Math.abs(groundAt(x - Math.cos(dir) * 2.5, z - Math.sin(dir) * 2.5) - h) < 1) s.rims.push({ x, z, h, dir });
+    }
+    if (s.dz <= R) return;
+    const rnd = mulberry32(1874), rims = s.rims, colony = [], centres = [];
+    for (let i = rims.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [rims[i], rims[j]] = [rims[j], rims[i]]; }
+    for (const r of rims) {
+      if (colony.length >= this.puffinCap.stand) break;
+      if (centres.some((c) => Math.hypot(c.x - r.x, c.z - r.z) < 12)) continue;
+      centres.push(r);
+      const n = 3 + Math.floor(rnd() * 5), tx = -Math.sin(r.dir), tz = Math.cos(r.dir);
+      for (let i = 0; i < n * 3 && colony.length < this.puffinCap.stand; i++) {
+        const along = (rnd() - 0.5) * 4, back = rnd() * 1.5;
+        const x = r.x + tx * along - Math.cos(r.dir) * back, z = r.z + tz * along - Math.sin(r.dir) * back, y = groundAt(x, z);
+        if (Math.abs(y - r.h) > 0.6 || colony.some((b) => Math.hypot(b.x - x, b.z - z) < 0.45)) continue;
+        const heading = Math.atan2(Math.cos(r.dir), Math.sin(r.dir)) + (rnd() - 0.5) * 1.6;
+        colony.push({ x, y, z, heading, base: heading, tHead: heading, hy: 0, tHy: 0, nod: 0, tNod: 0, next: rnd() * 3 });
+        if (colony.filter((b) => Math.hypot(b.x - r.x, b.z - r.z) < 4).length >= n) break;
+      }
+    }
+    this.colony = colony;
   }
 
   stepBlow(dt) {

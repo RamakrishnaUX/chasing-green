@@ -16,7 +16,8 @@ import { clamp, lerp } from './noise.js';
 // copies of the low-poly mesh baked in a few poses (standing, grazing, four steps of the walk).
 // Coats are the model's own texture recoloured per animal by its brightness, so a bay, a grey and a
 // palomino horse keep the same shading and hair. Seals are a scan, bent in the vertex shader to lift
-// and turn the head; whales and dolphins play their swim cycle.
+// and turn the head; puffins are a scan too, standing or laid flat with wings added to fly; whales and
+// dolphins play their swim cycle.
 
 const SPECS = {
   // speed: ground speed of each clip at normal rate, in model units a second (measured from the
@@ -30,6 +31,7 @@ const SPECS = {
   fox: { scale: 0.62, speed: { walk: 1.3 }, neck: ['Neck1', 'Neck2', 'Neck3'], head: 'Head', tint: { '*': 'coat' }, eyes: ['EyeL', 'EyeR'], near: 3 },
   reindeer: { scale: 0.8, speed: { walk: 1.68, trot: 7.84, run: 12.6 }, root: 'RigRoot', neck: ['RigNeck1', 'RigNeck2', 'RigNeck3'], head: 'RigHead', tint: { Head: 'coat', Body: 'coat' }, gain: 1.35, near: 8 },
   seal: { scale: 0.84, yaw: -Math.PI / 2 },
+  puffin: { scale: 0.12 }, // a scan of a standing bird, about 29 cm tall
   humpback: { scale: 0.47, yaw: -Math.PI / 2, center: true, shade: 0.5 }, // its texture is pale for a humpback
   orca: { scale: 0.113, center: true },
   dolphin: { scale: 0.52, center: true },
@@ -80,6 +82,18 @@ varying vec3 vCoat; varying vec3 vHair; varying vec3 vPtsC;
 }
 
 // Typical brightness of a texture (median luminance of its painted pixels, in linear light).
+// A mesh's geometry in plain floats (the models come quantised), in the template's frame.
+function plainGeo(m) {
+  const src = m.geometry, g = new THREE.BufferGeometry();
+  for (const [k, a] of Object.entries(src.attributes)) {
+    const out = new Float32Array(a.count * a.itemSize);
+    for (let i = 0; i < a.count; i++) for (let c = 0; c < a.itemSize; c++) out[i * a.itemSize + c] = a.getComponent(i, c);
+    g.setAttribute(k, new THREE.BufferAttribute(out, a.itemSize));
+  }
+  if (src.index) g.setIndex(src.index.clone());
+  return g.applyMatrix4(m.matrixWorld);
+}
+
 function medianLum(tex) {
   const img = tex.image, c = document.createElement('canvas'); c.width = c.height = 64;
   const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(img, 0, 0, 64, 64);
@@ -482,6 +496,130 @@ mat3 rotY(float a) { float c = cos(a), s = sin(a); return mat3(c, 0.0, -s, 0.0, 
     im.count = 0; im.frustumCulled = false; im.castShadow = true; im.receiveShadow = true;
     this.scene.add(im);
     return im;
+  }
+
+  // Puffins: the scanned bird as instances. Standing ones turn and dip the head (vertex shader);
+  // flying ones are the low-poly copy laid flat with its head straight, and short dark wings that
+  // whirr, as a puffin's do (they hardly glide).
+  // stand: [{ x, y, z, heading, hy, nod }], fly: [{ x, y, z, heading, pitch, bank, flap }].
+  drawPuffins(stand, fly, capStand, capFly) {
+    this.want('puffin');
+    const K = this.kinds.puffin;
+    if (!K) return false;
+    if (!this.puffins) this.puffins = this.makePuffins(K, capStand, capFly);
+    const { sit, air } = this.puffins, pose = sit.geometry.attributes.iPose, flap = air.geometry.attributes.iFlap;
+    const n = Math.min(stand.length, capStand);
+    for (let j = 0; j < n; j++) {
+      const b = stand[j];
+      E.set(0, b.heading, 0); Q.setFromEuler(E); P.set(b.x, b.y, b.z);
+      sit.setMatrixAt(j, M.compose(P, Q, S.set(1, 1, 1)));
+      pose.setXY(j, b.nod, b.hy);
+    }
+    sit.count = n; sit.visible = n > 0;
+    const m = Math.min(fly.length, capFly);
+    for (let j = 0; j < m; j++) {
+      const b = fly[j];
+      E.set(b.pitch, b.heading, b.bank); Q.setFromEuler(E); P.set(b.x, b.y, b.z);
+      air.setMatrixAt(j, M.compose(P, Q, S.set(1, 1, 1)));
+      flap.setX(j, b.flap);
+    }
+    air.count = m; air.visible = m > 0;
+    sit.instanceMatrix.needsUpdate = pose.needsUpdate = air.instanceMatrix.needsUpdate = flap.needsUpdate = true;
+    return true;
+  }
+  hidePuffins() { if (this.puffins) this.puffins.sit.visible = this.puffins.air.visible = false; }
+  makePuffins(K, capStand, capFly) {
+    let body = null, lod = null;
+    K.template.traverse((o) => { if (o.isMesh) { if (/_lod$/.test(o.name)) lod = o; else body = o; } });
+    K.template.updateMatrixWorld(true);
+    const H = K.box.max.y;
+    // The neck, where the head turns, and which way the scan's head looks (it is turned aside): the
+    // beak tip is the point of the head farthest out from the neck.
+    const sitGeo = plainGeo(body), p = sitGeo.attributes.position;
+    const neck = new THREE.Vector3(); let nn = 0, far = 0, look = 0;
+    for (let i = 0; i < p.count; i++) { const y = p.getY(i); if (y > 0.64 * H && y < 0.7 * H) { neck.x += p.getX(i); neck.z += p.getZ(i); nn++; } }
+    neck.set(neck.x / nn, 0.68 * H, neck.z / nn);
+    for (let i = 0; i < p.count; i++) if (p.getY(i) > 0.7 * H) {
+      const dx = p.getX(i) - neck.x, dz = p.getZ(i) - neck.z;
+      if (dx * dx + dz * dz > far) { far = dx * dx + dz * dz; look = Math.atan2(dx, dz); }
+    }
+    const h0 = (0.6 * H).toFixed(4), h1 = (0.74 * H).toFixed(4), fix = (-look).toFixed(4);
+    const piv = `vec3(${neck.x.toFixed(4)}, ${neck.y.toFixed(4)}, ${neck.z.toFixed(4)})`;
+    const ROT = `mat3 rotX(float a) { float c = cos(a), s = sin(a); return mat3(1.0, 0.0, 0.0, 0.0, c, s, 0.0, -s, c); }
+mat3 rotY(float a) { float c = cos(a), s = sin(a); return mat3(c, 0.0, -s, 0.0, 1.0, 0.0, s, 0.0, c); }
+mat3 rotZ(float a) { float c = cos(a), s = sin(a); return mat3(c, s, 0.0, -s, c, 0.0, 0.0, 0.0, 1.0); }
+`;
+    const base = body.material;
+    base.roughness = 0.8; base.envMapIntensity = 0.3;
+
+    // Standing: the head straightened, then dipped (iPose.x) and turned (iPose.y) about the neck.
+    sitGeo.setAttribute('iPose', new THREE.InstancedBufferAttribute(new Float32Array(capStand * 2), 2));
+    const sitMat = base.clone();
+    sitMat.onBeforeCompile = (s) => {
+      s.vertexShader = 'attribute vec2 iPose;\n' + ROT + s.vertexShader
+        .replace('#include <beginnormal_vertex>', `#include <beginnormal_vertex>
+  float wHead = smoothstep(${h0}, ${h1}, position.y);
+  mat3 headR = rotY(iPose.y * wHead) * rotX(iPose.x * wHead) * rotY(${fix} * wHead);
+  objectNormal = headR * objectNormal;`)
+        .replace('#include <begin_vertex>', `#include <begin_vertex>
+  transformed = headR * (transformed - ${piv}) + ${piv};`);
+    };
+    sitMat.customProgramCacheKey = () => 'puffin-sit';
+    const sit = new THREE.InstancedMesh(sitGeo, sitMat, capStand);
+    sit.count = 0; sit.frustumCulled = false; sit.castShadow = true; sit.receiveShadow = true;
+
+    // Flying: the low-poly copy with its head straightened and raised in line with the body, tipped
+    // forward to lie flat (head first, belly down, feet trailing), centred, with a pair of wings.
+    const g = plainGeo(lod), gp = g.attributes.position, gn = g.attributes.normal;
+    const Rh = new THREE.Matrix3(), m4 = new THREE.Matrix4(), m2 = new THREE.Matrix4(), TILT = 1.45;
+    for (let i = 0; i < gp.count; i++) {
+      const w = THREE.MathUtils.smoothstep(gp.getY(i), 0.6 * H, 0.74 * H);
+      if (!w) continue;
+      Rh.setFromMatrix4(m4.makeRotationX(-TILT * w).multiply(m2.makeRotationY(-look * w)));
+      V.fromBufferAttribute(gp, i).sub(neck).applyMatrix3(Rh).add(neck); gp.setXYZ(i, V.x, V.y, V.z);
+      V.fromBufferAttribute(gn, i).applyMatrix3(Rh); gn.setXYZ(i, V.x, V.y, V.z);
+    }
+    g.translate(0, -0.45 * H, -neck.z).applyMatrix4(m4.makeRotationX(TILT));
+    g.computeBoundingBox();
+    const fb = g.boundingBox, len = fb.max.z - fb.min.z, half = (fb.max.x - fb.min.x) / 2;
+    g.translate(0, -(fb.max.y + fb.min.y) / 2, -(fb.max.z + fb.min.z) / 2);
+    g.setAttribute('aWing', new THREE.BufferAttribute(new Float32Array(gp.count), 1));
+    // Wings: narrow and pointed, swept back from the shoulder; aWing is the side times how far out.
+    const zs = len * 0.12, ys = (fb.max.y - fb.min.y) * 0.18, x0 = half * 0.55, span = 0.22, wp = [], wn = [], wa = [];
+    const st = [0, 0.35, 0.7, 1].map((t) => { const le = zs + 0.02 - t * 0.045, ch = 0.075 * (1 - 0.78 * t); return [x0 + t * span, le, le - ch, t]; });
+    for (const side of [1, -1]) for (const up of [1, -1]) for (let k = 0; k < 3; k++) {
+      const [xa, la, ta, sa] = st[k], [xb, lb, tb, sb] = st[k + 1];
+      let quad = [[xa, la, sa], [xb, lb, sb], [xb, tb, sb], [xa, la, sa], [xb, tb, sb], [xa, ta, sa]];
+      if (side * up < 0) quad = [quad[0], quad[2], quad[1], quad[3], quad[5], quad[4]];
+      for (const [x, z, t] of quad) { wp.push(side * x, ys, z); wn.push(0, up, 0); wa.push(side * (0.001 + t)); }
+    }
+    const wg = new THREE.BufferGeometry();
+    wg.setAttribute('position', new THREE.Float32BufferAttribute(wp, 3));
+    wg.setAttribute('normal', new THREE.Float32BufferAttribute(wn, 3));
+    wg.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(wp.length / 3 * 2), 2));
+    wg.setAttribute('aWing', new THREE.Float32BufferAttribute(wa, 1));
+    const airGeo = mergeGeometries([g.index ? g.toNonIndexed() : g, wg]);
+    airGeo.setAttribute('iFlap', new THREE.InstancedBufferAttribute(new Float32Array(capFly), 1));
+    const airMat = base.clone();
+    airMat.onBeforeCompile = (s) => {
+      s.vertexShader = 'attribute float aWing; attribute float iFlap; varying float vWing;\n' + ROT + s.vertexShader
+        .replace('#include <beginnormal_vertex>', `#include <beginnormal_vertex>
+  // Each wing swings about the body's long axis at its root, the tip a little more.
+  float side = sign(aWing), wOut = abs(aWing);
+  mat3 wingR = rotZ(side * iFlap * (0.85 + 0.3 * wOut) * step(0.0005, wOut));
+  objectNormal = wingR * objectNormal;`)
+        .replace('#include <begin_vertex>', `#include <begin_vertex>
+  vec3 root = vec3(side * ${x0.toFixed(4)}, ${ys.toFixed(4)}, transformed.z);
+  transformed = wingR * (transformed - root) + root;
+  vWing = wOut;`);
+      s.fragmentShader = 'varying float vWing;\n' + s.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>
+  if (vWing > 0.0005) diffuseColor.rgb = vec3(0.008, 0.008, 0.009);`);
+    };
+    airMat.customProgramCacheKey = () => 'puffin-fly';
+    const air = new THREE.InstancedMesh(airGeo, airMat, capFly);
+    air.count = 0; air.frustumCulled = false; air.receiveShadow = true;
+    this.scene.add(sit, air);
+    return { sit, air };
   }
 
   // Whales and dolphins: a rig playing its swim cycle. Returns null until the model is in.
