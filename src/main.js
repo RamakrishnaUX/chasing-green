@@ -694,7 +694,9 @@ $('info-share').addEventListener('click', async () => {
 });
 
 function updateLandmarks(p) {
-  const { lm, dist } = landmarks.nearest(p.x, p.z);
+  const near = landmarks.nearest(p.x, p.z), lm = near.lm;
+  // From the helicopter a place counts once you come down to it, not while flying high over it.
+  const dist = mode === 'fly' ? Math.hypot(near.dist, Math.max(0, heli.agl - 60)) : near.dist;
   const reach = lm.reach || CONFIG.landmarkRadius;
   // Whether this place was new to you, judged before a stamp can land in this same step.
   const unstamped = !store.data.stamps[lm.id];
