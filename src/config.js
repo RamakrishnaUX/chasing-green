@@ -117,7 +117,7 @@ export const CONFIG = {
     shoreBand: 200, // off-road you can always head for the water, and roam freely this close to it
     boatRange: 400, // how far out from the shore it can go as a boat
     walkSpeed: 4.2,
-    walkRadius: 60,
+    walkRadius: 120, // room to sprint on nitro and climb what is nearby
   },
 
   // ---------- Rendering ----------

@@ -406,11 +406,15 @@ function updateCamera(dt) {
     } else {
       if (!l.dx) look.walkYaw *= 1 - Math.min(1, dt * 0.6);
       const h = walker.heading + look.walkYaw;
-      const desired = new THREE.Vector3(walker.pos.x - Math.sin(h) * 6, walker.pos.y + 2.8, walker.pos.z - Math.cos(h) * 6);
+      // Nitro on foot: the camera drops back and the view widens, as it does for the car.
+      const cd = 6 + (walker.boosting ? 1.6 : 0);
+      const desired = new THREE.Vector3(walker.pos.x - Math.sin(h) * cd, walker.pos.y + 2.8, walker.pos.z - Math.cos(h) * cd);
       desired.y = Math.max(desired.y, groundAt(desired.x, desired.z) + 1);
       camera.position.lerp(desired, Math.min(1, dt * 5));
       camTarget.set(walker.pos.x, walker.pos.y + 1.6, walker.pos.z);
       camera.lookAt(camTarget);
+      const fov = 52 + (walker.boosting ? 9 : 0);
+      if (Math.abs(camera.fov - fov) > 0.05) { camera.fov += (fov - camera.fov) * Math.min(1, dt * 3); camera.updateProjectionMatrix(); }
     }
   }
 }
@@ -434,7 +438,7 @@ function stepOut() {
   if (jeep.boatOn || jeep.boat > 0) { hud.toast('You are on the water. Head back to the shore to step out.', { seconds: 2.5 }); return; }
   if (jeep.speed > 2.5) { hud.toast('Slow down to step out.', { seconds: 2.5 }); return; }
   mode = 'walk'; walkTilt = false; walker.enter(jeep); track('step_out'); look.walkYaw = 0;
-  hud.toast('On foot. Walk with the same keys. Press L to look up, E to get back in.', { seconds: 3.5 });
+  hud.toast(isTouch ? 'On foot. Go walks; slide up from Go to sprint on nitro. Walk into a rock to climb it.' : 'On foot. Walk with the same keys, hold Space to sprint on nitro, and walk into a rock to climb it. Press E to get back in.', { seconds: 4.5 });
   syncLookButton();
 }
 function getIn() { mode = 'chase'; walker.exit(); syncLookButton(); }
@@ -1146,7 +1150,14 @@ function boatEffects(dt) {
 // Feel the drive: a kick when nitro fires and a soft pulse while it burns, an ABS-style
 // flutter under hard braking, a tick each time the speed climbs past another 20 km/h,
 // and a light grumble on rough ground.
-let wasBoosting = false, hapticClock = 0, lastSpeedStep = 0;
+let wasBoosting = false, hapticClock = 0, lastSpeedStep = 0, thudded = false;
+// On foot: the same kick when nitro fires, and a thud on landing from a drop.
+function walkHaptics() {
+  if (walker.boosting && !wasBoosting) haptics.play('heavy');
+  wasBoosting = walker.boosting;
+  if (walker.landed > 0.4 && !thudded) { haptics.play('medium'); thudded = true; }
+  if (!walker.landed) thudded = false;
+}
 function drivingHaptics(dt) {
   hapticClock -= dt;
   const kmh = jeep.kmh;
@@ -1211,8 +1222,9 @@ function frame(now) {
   $('t-sit').hidden = mode !== 'walk';
   if (mode === 'walk') {
     jeep.update(dt, input, w, false);
-    walker.update(dt, input, jeep.pos);
-    obstacles.resolve(walker.pos, 0.4);
+    walker.update(dt, input, jeep, obstacles);
+    obstacles.resolve(walker.pos, 0.4, true);
+    walkHaptics();
   } else {
     if (!paused) jeep.power = fuel.burn(dt, jeep, input.throttle);
     jeep.update(paused ? 0 : dt, input, w, !paused);
@@ -1306,7 +1318,7 @@ function frame(now) {
     }
     void near;
   }
-  audio.update(dt, { speed: mode === 'walk' ? 0 : jeep.speed, wind: w.strength, exposure: exposureAt(p.x, p.z), waterProx, iceProx, inCar: mode !== 'walk' && started, wade: mode === 'walk' ? 0 : jeep.wadeLevel || 0, nitro: jeep.boosting });
+  audio.update(dt, { speed: mode === 'walk' ? 0 : jeep.speed, wind: w.strength, exposure: exposureAt(p.x, p.z), waterProx, iceProx, inCar: mode !== 'walk' && started, wade: mode === 'walk' ? 0 : jeep.wadeLevel || 0, nitro: mode === 'walk' ? walker.boosting : jeep.boosting });
 
   if (started) {
     if (jeep.warning && mode !== 'walk') hud.toast(jeep.warning, { seconds: 2.5, priority: 1 });
@@ -1314,10 +1326,11 @@ function frame(now) {
     const fwd = new THREE.Vector3(); camera.getWorldDirection(fwd);
     const bearing = Math.atan2(fwd.x, -fwd.z);
     if (Math.floor(clock.realSeconds * 2) !== lastWhere) { lastWhere = Math.floor(clock.realSeconds * 2); hud.whereText = describePlace(p.x, p.z).label; hud.nextWindowText = nextWindowLabel(); }
-    $('nitro-bar').style.transform = `scaleX(${jeep.nitro.toFixed(3)})`;
-    $('nitro-bar').parentElement.classList.toggle('is-on', jeep.boosting);
-    $('t-gas').style.setProperty('--tank', jeep.nitro.toFixed(3));
-    $('t-gas').classList.toggle('is-boosting', jeep.boosting);
+    const tank = mode === 'walk' ? walker : jeep; // on foot the gauge is the backpack's
+    $('nitro-bar').style.transform = `scaleX(${tank.nitro.toFixed(3)})`;
+    $('nitro-bar').parentElement.classList.toggle('is-on', tank.boosting);
+    $('t-gas').style.setProperty('--tank', tank.nitro.toFixed(3));
+    $('t-gas').classList.toggle('is-boosting', tank.boosting);
     if (!paused) fuelTick(dt);
     nav.update(dt, activePos(), mode === 'walk' ? walker.heading : jeep.heading, t);
     mapUI.route = nav.route?.pts || null; mapUI.dest = nav.dest;

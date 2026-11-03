@@ -514,7 +514,10 @@ export class HDRocks {
       const pool = big.length && s.s > 1.6 && rand() < 0.5 ? big : small;
       q.setFromEuler(e.set((rand() - 0.5) * 0.3, rand() * Math.PI * 2, (rand() - 0.5) * 0.3));
       m.compose(p.set(s.x, s.y - s.s * 0.18, s.z), q, sc.set(s.s, s.s * (0.75 + rand() * 0.35), s.s * (0.85 + rand() * 0.3)));
-      return { x: s.x, z: s.z, v: pool[Math.floor(rand() * pool.length)], m: m.clone() };
+      // The scan stands taller or lower than the plain boulder: climb the one you see.
+      const v = pool[Math.floor(rand() * pool.length)];
+      if (s.obs) { v.mesh.geometry.boundingBox || v.mesh.geometry.computeBoundingBox(); s.obs.top = p.y + v.mesh.geometry.boundingBox.max.y * sc.y; }
+      return { x: s.x, z: s.z, v, m: m.clone() };
     });
     this.timer = 0;
     this.near = 90;

@@ -302,6 +302,10 @@ body.has-touch .radio-kp { font-size: 1.1rem; }
 body.has-touch .radio-status { font-size: 0.78rem; }
 body.has-touch .minimap { width: 92px; height: 92px; border-radius: 18px; }
 body.has-touch .toast { font-size: 0.84rem; padding: 0.5rem 0.8rem; }
+/* Tablets upright: a centred two-line toast reaches under the radio chip, so it drops below it. */
+@media (min-width: 601px) and (max-width: 1000px) and (min-height: 521px) {
+  body.has-touch .toast, body.has-touch.sky-on .toast { top: calc(110px + var(--safe-t)); }
+}
 body.has-touch .infocard { padding: 0.6rem 0.75rem; }
 body.has-touch .infocard h2 { font-size: 1.02rem; margin: 0; padding-right: 40px; }
 body.has-touch .infocard .info-desc, body.has-touch .infocard .info-legend, body.has-touch .infocard .info-fact { display: none; }
@@ -656,6 +660,11 @@ body.has-touch .touch-left { align-items: flex-end; }
   body.has-touch .pad-gas svg { width: 30px; height: 30px; }
   body.has-touch .infocard { bottom: calc(110px + var(--safe-b)); }
   body.has-touch .sky-hint { top: calc(258px + var(--safe-t)); }
+  /* On foot, Sit stacks above Look, as it does in landscape: in the row it pushed Go off the
+     screen. The landmark card lifts clear of it. */
+  body.has-touch .touch-right { position: relative; }
+  body.has-touch #t-sit { position: absolute; left: 0; bottom: calc(var(--btn) + 12px); }
+  body.has-touch:has(#t-sit:not([hidden])) .infocard { bottom: calc(178px + var(--safe-b)); }
 }
 @media (max-height: 520px) {
   body.has-touch .touch-right { --pedal-gap: 16px; }

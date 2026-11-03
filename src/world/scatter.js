@@ -148,9 +148,15 @@ export class Scatter {
       m.compose(v.set(x, h + s * 0.2, z), q, sc.set(s, s * (0.5 + this.rand() * 0.4), s * (0.8 + this.rand() * 0.4)));
       mesh.setMatrixAt(n, m);
       mesh.setColorAt(n, tones[Math.floor(this.rand() * tones.length)]);
-      spots.push({ x, y: h, z, s });
-      // Anything bigger than a pebble is solid: you hit it rather than float over it.
-      if (s > 0.45) this.obstacles?.addCircle(x, z, s * 0.95, 'rock');
+      // Anything bigger than a pebble is solid: the car hits it rather than floats over it, and on
+      // foot you climb it. Its top is the highest point of the rock as drawn.
+      let obs = null;
+      if (s > 0.45) {
+        let top = -Infinity;
+        for (let k = 0; k < p.count; k++) top = Math.max(top, v.fromBufferAttribute(p, k).applyMatrix4(m).y);
+        obs = this.obstacles?.addCircle(x, z, s * 0.95, 'rock', { top, base: h, dome: true });
+      }
+      spots.push({ x, y: h, z, s, obs });
       n++;
     }
     // Desktop's realistic look draws the same spots with scanned rocks instead.

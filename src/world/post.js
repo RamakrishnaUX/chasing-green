@@ -69,10 +69,12 @@ export class Post {
       this.ao.updateGtaoMaterial({ radius: 1.2, distanceExponent: 1, thickness: 1, scale: 1, samples: aoSamples, distanceFallOff: 1, screenSpaceRadius: false });
       this.composer.addPass(this.ao);
       // The occlusion pass draws the scene again for its normals and depth. Grass blades and far
-      // boulders add little shading there and a lot of triangles, so they sit that pass out.
+      // boulders add little shading there and a lot of triangles, so they sit that pass out. So do
+      // glows deeper in the scene, listed in scene.userData.noAO: drawn solid, they leave a dark square.
       const aoRender = this.ao.render.bind(this.ao);
       this.ao.render = (...args) => {
         const out = scene.children.filter((o) => o.userData.noAO && o.visible);
+        for (const o of scene.userData.noAO || []) if (o.visible) out.push(o);
         for (const o of out) o.visible = false;
         aoRender(...args);
         for (const o of out) o.visible = true;

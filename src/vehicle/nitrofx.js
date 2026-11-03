@@ -23,9 +23,13 @@ function glowTexture() {
 const add = { transparent: true, depthWrite: false, blending: THREE.AdditiveBlending };
 
 export class NitroFX {
-  constructor(scene, root) {
+  // light: a light that tints the ground; trailWidth: half the width of each streak, in metres;
+  // spark and glow: sizes of the sparks and of the glow around each pipe.
+  constructor(scene, root, { light = true, trailWidth = 0.2, spark = 0.24, glow = 1 } = {}) {
     this.scene = scene;
     this.root = root;
+    this.trailWidth = trailWidth;
+    this.glowSize = glow;
     this.level = 0; // eases toward 1 while boosting
     const tex = glowTexture();
     this.coreMat = new THREE.MeshBasicMaterial({ color: 0xeafff7, opacity: 0, ...add });
@@ -43,10 +47,13 @@ export class NitroFX {
       s.scale.setScalar(2);
       g.add(f, c, s);
       root.add(g);
+      (scene.userData.noAO ||= []).push(g); // see post.js
       return { g, core: c, flame: f, glow: s, trail: [] };
     });
-    this.light = new THREE.PointLight(0x3fe6c0, 0, 9, 1.6);
-    root.add(this.light);
+    if (light) {
+      this.light = new THREE.PointLight(0x3fe6c0, 0, 9, 1.6);
+      root.add(this.light);
+    }
 
     // Streak ribbons live in the world, so the car leaves them behind.
     this.trailMat = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide, ...add });
@@ -59,6 +66,7 @@ export class NitroFX {
       geo.setIndex(idx);
       const m = new THREE.Mesh(geo, this.trailMat);
       m.frustumCulled = false;
+      m.userData.noAO = true;
       scene.add(m);
       return m;
     });
@@ -69,8 +77,9 @@ export class NitroFX {
     for (let i = 0; i < n; i++) this.spark.pos[i * 3 + 1] = -9999;
     const sg = new THREE.BufferGeometry();
     sg.setAttribute('position', new THREE.BufferAttribute(this.spark.pos, 3));
-    this.sparkPts = new THREE.Points(sg, new THREE.PointsMaterial({ color: 0x8ff5d8, size: 0.24, map: tex, sizeAttenuation: true, ...add }));
+    this.sparkPts = new THREE.Points(sg, new THREE.PointsMaterial({ color: 0x8ff5d8, size: spark, map: tex, sizeAttenuation: true, ...add }));
     this.sparkPts.frustumCulled = false;
+    this.sparkPts.userData.noAO = true;
     scene.add(this.sparkPts);
     this.tmp = new THREE.Vector3();
   }
@@ -81,7 +90,7 @@ export class NitroFX {
     const off = Math.abs(x) > 0.2 ? Math.abs(x) : 0.32;
     this.pipes[0].g.position.set(-off, y, z);
     this.pipes[1].g.position.set(off, y, z);
-    this.light.position.set(0, y + 0.2, z - 1.2);
+    this.light?.position.set(0, y + 0.2, z - 1.2);
     for (const p of this.pipes) p.trail.length = 0;
   }
 
@@ -93,13 +102,13 @@ export class NitroFX {
     this.coreMat.opacity = L * 0.95;
     this.flameMat.opacity = L * 0.9;
     this.glowMat.opacity = L * 0.9;
-    this.light.intensity = L * (5 + Math.random() * 2);
+    if (this.light) this.light.intensity = L * (5 + Math.random() * 2);
     const stretch = 0.8 + Math.min(1, speed / 40) * 0.9;
     for (const p of this.pipes) {
       p.g.visible = on;
       p.core.scale.set(1, 1, stretch * flick());
       p.flame.scale.set(0.9 + Math.random() * 0.25, 0.9 + Math.random() * 0.25, stretch * flick());
-      p.glow.scale.setScalar(1.6 + L * 0.9 + Math.random() * 0.35);
+      p.glow.scale.setScalar((1.6 + L * 0.9 + Math.random() * 0.35) * this.glowSize);
     }
     // Streak points and sparks, in world space.
     const s = this.spark;
@@ -139,7 +148,7 @@ export class NitroFX {
       const a = trail[Math.max(0, i - 1)], b = trail[Math.min(n - 1, i + 1)];
       let dx = b.x - a.x, dz = b.z - a.z; const d = Math.hypot(dx, dz) || 1; dx /= d; dz /= d;
       const q = trail[i], t = q.age / TRAIL_LIFE, fade = Math.max(0, 1 - t) * q.w;
-      const w = 0.2 * (1 - t * 0.7);
+      const w = this.trailWidth * (1 - t * 0.7);
       pos[o] = q.x - dz * w; pos[o + 1] = q.y; pos[o + 2] = q.z + dx * w;
       pos[o + 3] = q.x + dz * w; pos[o + 4] = q.y; pos[o + 5] = q.z - dx * w;
       const r = (0.25 - t * 0.15) * fade, g = (0.95 - t * 0.3) * fade, bl = (0.75 + t * 0.25) * fade;

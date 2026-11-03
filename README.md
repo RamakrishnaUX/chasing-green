@@ -42,6 +42,8 @@ Push the repo to GitHub and import it in Vercel. Vercel detects Vite on its own,
 | Record a 15 second clip | R | Menu, Settings, Record |
 | Mute | U | Menu, Settings, Sound |
 | Nitro boost (on by default, can be turned off in Settings) | Space | Slide up from Go; the ring around Go shows the tank |
+| Sprint on foot (nitro from the backpack) | Hold Space while walking | Slide up from Go while walking |
+| Climb a rock or cliff (on foot) | Walk into it and keep going; back off to let go | Hold Go against it; Brake to let go |
 | Refuel, or a tow when the tank is dry (fuel is on by default, can be turned off in Settings) | F, or the Refuel button | The Refuel button |
 
 There is no race and no timer. Nitro is a speed boost that is on by default; you can switch it off in Settings.
@@ -196,7 +198,7 @@ Everything is generated in code. There are no image or model files.
 - **Waterfalls.** Curved, streaked water sheets that arc off the lip, a churning foam boil in the pool, wet dark rock and moss around them, and lit mist that drifts with the wind.
 - **Cloud shadows** drift over the land and grass, and each car has a soft contact shadow.
 - **Details.** Farms with red roofs, barns, fences and birch groves, weathered boulders, and glacier ice built as faceted crystals with hard edges. Farm windows light up after dark.
-- **The character** on foot is an articulated figure: hooded jacket, backpack, arms and legs with elbows and knees, a proper walk cycle and a sitting pose.
+- **The character** on foot is an articulated figure: hooded jacket, backpack, arms and legs with elbows and knees, a proper walk cycle and a sitting pose. On nitro the backpack burns like the car's exhausts (twin teal flames, streaks and sparks, no light of its own) and he breaks into a leaning sprint at about 38 km/h, with the camera dropping back and the view widening; the pack has its own tank, about four seconds full, refilling in ten. He climbs anything too steep to walk up, boulders, cliffs, sea stacks and basalt columns, hand over hand at 1.4 m/s (2.5 times that on nitro), pulls himself over the top, drops off ledges with arms out (a burning pack slows the fall to a glide) and lands with a crouch. The car is solid: he walks round it. He can roam 120 m from it.
 - **Post-processing** (medium and high quality). Subtle bloom for the sun, headlights and aurora, then a light colour grade, vignette and film grain.
 
 ### Realistic look (desktop)
@@ -366,7 +368,7 @@ Drive into water deeper than that and the car turns into a boat (`src/vehicle/bo
 
 Nothing should float. Before any built landmark (buildings, churches, pools, waterfalls, geysers, caves, bridges) is placed, the land under it is levelled into a pad that fades out at the edge and stays clear of roads. Houses sit on their highest corner with a foundation down to the lowest. A parked car holds still: below walking pace with no throttle, wind and slopes no longer creep it along.
 
-Nothing can be driven into, either. Landmark landforms (Kirkjufell, sea stacks, cliffs, lava pillars and hummocks, crater rims, ice) are traced into a height map when the world is built (`src/world/solids.js`), and the ground under wheels and boots is the land or the landform on top, whichever is higher. Slopes up to about 50 degrees are driven or walked up like any hill; anything steeper is a wall. A sample under the middle of the car keeps small lumps between the wheels from poking through the floor. Buildings, caves, pools, bridges and the plane wreck keep their walls instead, and no landform sits on a road.
+Nothing can be driven into, either. Landmark landforms (Kirkjufell, sea stacks, cliffs, lava pillars and hummocks, crater rims, ice) are traced into a height map when the world is built (`src/world/solids.js`), and the ground under wheels and boots is the land or the landform on top, whichever is higher. Slopes up to about 50 degrees are driven or walked up like any hill; anything steeper is a wall to the car and a climb on foot. Boulders and landmark rock (cliff blocks, basalt columns, the glacier tongue) carry their height in the obstacle set too, so on foot they are ground to climb rather than walls; hidden walls and hit boxes stay walls. A sample under the middle of the car keeps small lumps between the wheels from poking through the floor. Buildings, caves, pools, bridges and the plane wreck keep their walls instead, and no landform sits on a road.
 
 ## Performance
 

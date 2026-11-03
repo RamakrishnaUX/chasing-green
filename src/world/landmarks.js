@@ -782,19 +782,25 @@ export class Landmarks {
 
   collectColliders(obj) {
     obj.updateMatrixWorld(true);
-    const p = new THREE.Vector3(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), e = new THREE.Euler();
+    const p = new THREE.Vector3(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), e = new THREE.Euler(), wb = new THREE.Box3();
     obj.traverse((m) => {
       if (!m.isMesh) return;
+      // Rock you can see can be climbed on foot; hidden walls and hit boxes stay walls.
+      let climb = null;
+      if ((m.userData.collideCircle || m.userData.collide) && m.visible && m.material.visible !== false) {
+        wb.setFromObject(m);
+        climb = { top: wb.max.y, base: wb.min.y, dome: m.userData.collideCircle > 2 };
+      }
       if (m.userData.collideCircle) {
         m.getWorldPosition(p);
-        this.colliders.push({ circle: true, x: p.x, z: p.z, r: m.userData.collideCircle });
+        this.colliders.push({ circle: true, x: p.x, z: p.z, r: m.userData.collideCircle, climb });
       } else if (m.userData.collide) {
         m.geometry.computeBoundingBox();
         const bb = m.geometry.boundingBox;
         m.matrixWorld.decompose(p, q, sc);
         e.setFromQuaternion(q, 'YXZ');
         const c = new THREE.Vector3().addVectors(bb.min, bb.max).multiplyScalar(0.5).applyMatrix4(m.matrixWorld);
-        this.colliders.push({ x: c.x, z: c.z, rot: e.y, hx: ((bb.max.x - bb.min.x) / 2) * sc.x, hz: ((bb.max.z - bb.min.z) / 2) * sc.z });
+        this.colliders.push({ x: c.x, z: c.z, rot: e.y, hx: ((bb.max.x - bb.min.x) / 2) * sc.x, hz: ((bb.max.z - bb.min.z) / 2) * sc.z, climb });
       }
     });
   }
@@ -802,8 +808,8 @@ export class Landmarks {
   // Hand every landmark collider to the shared obstacle set.
   registerObstacles(obs) {
     for (const c of this.colliders) {
-      if (c.circle) obs.addCircle(c.x, c.z, c.r, 'cliff');
-      else obs.addBox(c.x, c.z, c.rot, c.hx, c.hz, 'cliff');
+      if (c.circle) obs.addCircle(c.x, c.z, c.r, 'cliff', c.climb);
+      else obs.addBox(c.x, c.z, c.rot, c.hx, c.hz, 'cliff', c.climb);
     }
   }
 

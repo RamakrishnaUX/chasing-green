@@ -1,5 +1,8 @@
 // Solid things the vehicle and walker bump into: rocks, landmark cliffs, buildings and trees.
 // Circles and yaw-rotated boxes in a spatial hash, so a query only checks nearby shapes.
+//
+// Rocks and cliffs can carry a height (climb): the car still hits them, but on foot they are
+// ground to climb, read with topAt, rather than walls.
 
 const CELL = 32;
 const key = (cx, cz) => cx * 73856093 ^ cz * 19349663;
@@ -16,10 +19,35 @@ export class Obstacles {
       }
     this.count++;
   }
-  addCircle(x, z, r, kind = 'rock') { this.insert({ circle: true, x, z, r, kind }, x - r, x + r, z - r, z + r); }
-  addBox(x, z, rot, hx, hz, kind = 'wall') {
+  // climb: { top, base, dome } for rock you can stand on. A dome rises from base at the rim to
+  // top in the middle; otherwise the top is flat.
+  addCircle(x, z, r, kind = 'rock', climb = null) {
+    const o = { circle: true, x, z, r, kind, ...climb };
+    this.insert(o, x - r, x + r, z - r, z + r);
+    return o;
+  }
+  addBox(x, z, rot, hx, hz, kind = 'wall', climb = null) {
     const e = Math.hypot(hx, hz);
-    this.insert({ x, z, rot, hx, hz, kind }, x - e, x + e, z - e, z + e);
+    this.insert({ x, z, rot, hx, hz, kind, ...climb }, x - e, x + e, z - e, z + e);
+  }
+
+  // The highest climbable rock surface at (x, z), or -Infinity where there is none.
+  topAt(x, z) {
+    const list = this.cells.get(key(Math.floor(x / CELL), Math.floor(z / CELL)));
+    let best = -Infinity;
+    if (!list) return best;
+    for (const c of list) {
+      if (c.top == null || c.top <= best) continue;
+      if (c.circle) {
+        const d = Math.hypot(x - c.x, z - c.z);
+        if (d >= c.r) continue;
+        best = c.dome ? Math.max(best, c.base + (c.top - c.base) * Math.sqrt(1 - (d / c.r) ** 2)) : c.top;
+      } else {
+        const cs = Math.cos(c.rot), sn = Math.sin(c.rot), dx = x - c.x, dz = z - c.z;
+        if (Math.abs(dx * cs - dz * sn) < c.hx && Math.abs(dx * sn + dz * cs) < c.hz) best = c.top;
+      }
+    }
+    return best;
   }
 
   // Add every mesh under obj flagged userData.solid (box) or userData.solidCircle (radius).
@@ -43,8 +71,8 @@ export class Obstacles {
   }
 
   // Push a circle of radius r out of anything it overlaps. Returns the strongest contact
-  // { nx, nz, depth, kind } or null.
-  resolve(pos, r) {
+  // { nx, nz, depth, kind } or null. A climber passes rock it can stand on (see topAt).
+  resolve(pos, r, climber = false) {
     const cx = Math.floor(pos.x / CELL), cz = Math.floor(pos.z / CELL);
     let hit = null;
     const seen = new Set();
@@ -52,7 +80,7 @@ export class Obstacles {
       const list = this.cells.get(key(ix, iz));
       if (!list) continue;
       for (const c of list) {
-        if (seen.has(c)) continue;
+        if (seen.has(c) || (climber && c.top != null)) continue;
         seen.add(c);
         let nx = 0, nz = 0, depth = 0;
         if (c.circle) {
