@@ -74,7 +74,7 @@
     <div class="hud-tl">
       <div class="compass glass" aria-label="Compass"><svg viewBox="0 0 64 64" aria-hidden="true"><g id="compass-rose"><path d="M32 9 L37 32 L32 28 L27 32 Z" class="c-n"/><path d="M32 55 L27 32 L32 36 L37 32 Z" class="c-s"/><text x="32" y="8" class="c-label">N</text></g><g id="wind-arrow"><path d="M32 46 L32 20 M26 26 L32 20 L38 26" class="c-wind"/></g></svg></div>
       <div class="readout glass">
-        <div class="speed"><span id="speed">0</span><small>km/h</small></div>
+        <div class="speed"><span id="speed">0</span><small>km/h</small><small class="alt" id="alt" hidden></small></div>
         <div class="nitro" aria-label="Nitro"><span id="nitro-bar"></span></div>
         <div class="fuel" id="fuel" role="meter" aria-label="Fuel" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.5 20V5.5a1.5 1.5 0 0 1 1.5-1.5h6a1.5 1.5 0 0 1 1.5 1.5V20M4 20h12M7.5 7.5h5v3.5h-5zM14.5 9l2.6 1.6v6.2a1.2 1.2 0 0 0 2.4 0V9.5l-2-2.5"/></svg><span class="fuel-track"><span id="fuel-bar"></span></span></div>
         <div class="where" id="where">Hveragerði</div>
@@ -137,6 +137,8 @@
 
     <div id="touch" class="touch" hidden>
       <div class="touch-left">
+        <button class="pad pad-small pad-lift" id="t-up" aria-label="Climb" hidden><svg viewBox="0 0 24 24"><path d="M6 14l6-6 6 6"/><path d="M6 19l6-6 6 6" opacity="0.45"/></svg><span>Up</span></button>
+        <button class="pad pad-small pad-lift" id="t-down" aria-label="Descend" hidden><svg viewBox="0 0 24 24"><path d="M6 10l6 6 6-6"/><path d="M6 5l6 6 6-6" opacity="0.45"/></svg><span>Down</span></button>
         <button class="pad pad-steer" id="t-left" aria-label="Steer left"><svg viewBox="0 0 24 24"><path d="M14.5 5.5L8 12l6.5 6.5"/></svg></button>
         <button class="pad pad-steer" id="t-right" aria-label="Steer right"><svg viewBox="0 0 24 24"><path d="M9.5 5.5L16 12l-6.5 6.5"/></svg></button>
       </div>
@@ -261,7 +263,7 @@
         <select id="set-touch" class="desk-only"><option value="auto">Auto</option><option value="on">Show</option><option value="off">Hide</option></select>
       </div>
       <div class="month-card settings-month"></div>
-      <p class="credits">Animals from Sketchfab, changed for the game: horse, arctic fox and reindeer (an elk) by WildMesh 3D, sheep by Nyilonelycompany, orca by neurodolphin (CC BY-NC 4.0, the elk CC BY 4.0); harbour seal by c4rn4g3, puffin by Troels, humpback by Connlan_Immure, dolphin by Alex_Pfe (CC BY 4.0).</p>
+      <p class="credits">Animals from Sketchfab, changed for the game: horse, arctic fox and reindeer (an elk) by WildMesh 3D, sheep by Nyilonelycompany, orca by neurodolphin (CC BY-NC 4.0, the elk CC BY 4.0); harbour seal by c4rn4g3, puffin by Troels, humpback by Connlan_Immure, dolphin by Alex_Pfe (CC BY 4.0). Helicopter: "Elicopter SMURD Romania" by solid3DDD (CC BY 4.0), repainted without its markings.</p>
       <p class="credits desk-only">Realistic look: elevation from Copernicus DEM GLO-90, © DLR e.V. 2010–2014 and © Airbus Defence and Space GmbH 2014–2018, provided under COPERNICUS by the European Union and ESA. Ground textures and rocks from Poly Haven (CC0).</p>
       <div class="panel-actions">
         <button class="btn btn-danger" id="set-reset">Clear notebook</button>

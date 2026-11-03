@@ -855,8 +855,9 @@ export async function buildTerrain(scene, res, season, onProgress) {
   writeMasks();
   paintTerrain(season);
 
-  // Sea and lakes share one water plane at y = 0.
-  const waterGeo = new THREE.PlaneGeometry(6000, 6000, 1, 1);
+  // Sea and lakes share one water plane at y = 0, reaching past the horizon even from the
+  // helicopter's ceiling.
+  const waterGeo = new THREE.PlaneGeometry(60000, 60000, 1, 1);
   waterGeo.rotateX(-Math.PI / 2);
   // Share the height grid with water shaders so they can work out their depth.
   const hTex = new THREE.DataTexture(grid.heights, grid.nx, grid.nz, THREE.RedFormat, THREE.FloatType);

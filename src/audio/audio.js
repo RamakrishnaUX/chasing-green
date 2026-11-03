@@ -85,6 +85,30 @@ export class AudioEngine {
     loop(this.white).connect(this.nitroBand).connect(this.nitroGain).connect(car);
     this.engine = { base: 38, perSpeed: 2.2, rumble: 1 };
 
+    // Helicopter. The rotor: low noise chopped into a beat at the blade-passing rate (four
+    // blades at about 6.6 turns a second), the deep "whop" of each blade's wake. The turbines: a
+    // high whine that rises as they spool up. The Fenestron: a band of hiss near 900 Hz.
+    this.rotorLP = ctx.createBiquadFilter(); this.rotorLP.type = 'lowpass'; this.rotorLP.frequency.value = 260; this.rotorLP.Q.value = 1.2;
+    this.rotorAM = ctx.createGain(); this.rotorAM.gain.value = 0;
+    this.rotorGain = ctx.createGain(); this.rotorGain.gain.value = 0;
+    loop(this.brown).connect(this.rotorLP).connect(this.rotorAM).connect(this.rotorGain);
+    this.rotorBeat = ctx.createOscillator(); this.rotorBeat.type = 'sawtooth'; this.rotorBeat.frequency.value = 26;
+    const beatShape = ctx.createWaveShaper();
+    const curve = new Float32Array(256);
+    for (let i = 0; i < 256; i++) { const x = i / 127.5 - 1; curve[i] = Math.pow(Math.max(0, -x), 3) * 1.6; } // a sharp thump at the start of each beat, fading
+    beatShape.curve = curve;
+    this.rotorBeat.connect(beatShape).connect(this.rotorAM.gain); this.rotorBeat.start();
+    this.turbine = ctx.createOscillator(); this.turbine.type = 'triangle'; this.turbine.frequency.value = 400;
+    this.turbineGain = ctx.createGain(); this.turbineGain.gain.value = 0;
+    this.turbine.connect(this.turbineGain); this.turbine.start();
+    this.fanBand = ctx.createBiquadFilter(); this.fanBand.type = 'bandpass'; this.fanBand.frequency.value = 900; this.fanBand.Q.value = 2;
+    this.fanGain = ctx.createGain(); this.fanGain.gain.value = 0;
+    loop(this.white).connect(this.fanBand).connect(this.fanGain);
+    // In the cabin the headset and the airframe take the edge off everything.
+    this.heliLP = ctx.createBiquadFilter(); this.heliLP.type = 'lowpass'; this.heliLP.frequency.value = 8000;
+    for (const n of [this.rotorGain, this.turbineGain, this.fanGain]) n.connect(this.heliLP);
+    this.heliLP.connect(car);
+
     this.ready = true;
     if (this.levels.music > 0) this.playMusic();
   }
@@ -168,9 +192,20 @@ export class AudioEngine {
     s.start(t, Math.random() * 1.5, dur + 0.05);
   }
 
-  update(dt, { speed, wind, exposure, waterProx, iceProx, inCar, wade = 0, nitro = false }) {
+  update(dt, { speed, wind, exposure, waterProx, iceProx, inCar, wade = 0, nitro = false, heli = null }) {
     if (!this.ready) return;
     const t = this.ctx.currentTime;
+    // The helicopter replaces the car engine: rotor, turbines and fan, louder under load and
+    // fading with distance once you have walked away from it.
+    const hr = heli ? heli.rpm : 0, far = heli ? 1 / (1 + Math.max(0, heli.near - 6) / 25) : 0;
+    const load = heli ? Math.min(1.6, Math.max(0.5, heli.load)) : 0;
+    this.rotorBeat.frequency.setTargetAtTime(Math.max(1, 26.4 * hr), t, 0.1);
+    this.rotorGain.gain.setTargetAtTime(0.5 * hr * hr * (0.6 + 0.4 * load) * far, t, 0.15);
+    this.turbine.frequency.setTargetAtTime(380 + 1650 * Math.min(1, hr * 1.15), t, 0.3);
+    this.turbineGain.gain.setTargetAtTime(heli ? 0.022 * Math.min(1, hr * 2.5) * far : 0, t, 0.3);
+    this.fanGain.gain.setTargetAtTime(0.09 * hr * hr * far, t, 0.2);
+    this.heliLP.frequency.setTargetAtTime(heli?.inside ? 1400 : 8000, t, 0.3);
+    if (heli) { inCar = heli.near === 0; speed = speed || 0; }
     const ease = 0.25;
     const windLevel = Math.min(1, 0.1 + wind * exposure * 0.08 + speed * 0.012);
     this.windGain.gain.setTargetAtTime(0.32 * windLevel, t, ease);
@@ -178,7 +213,7 @@ export class AudioEngine {
     this.windHissGain.gain.setTargetAtTime(0.02 * windLevel * windLevel, t, ease);
     this.waterGain.gain.setTargetAtTime(0.45 * waterProx, t, 0.3);
     const E = this.engine;
-    const eng = inCar ? (0.05 + Math.min(1, speed / 40) * 0.07 + (nitro ? 0.03 : 0)) * (CONFIG.engineVolume ?? 1) : 0;
+    const eng = inCar && !heli ? (0.05 + Math.min(1, speed / 40) * 0.07 + (nitro ? 0.03 : 0)) * (CONFIG.engineVolume ?? 1) : 0;
     this.engGain.gain.setTargetAtTime(eng, t, 0.2);
     // A few "gears": revs climb, drop back, climb again.
     const rev = speed < 1 ? 0 : ((speed * 0.9) % 14) / 14 + Math.min(3, Math.floor(speed * 0.9 / 14)) * 0.15;

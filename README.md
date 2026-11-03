@@ -82,6 +82,27 @@ The interiors and the eye position for each view are built in `src/vehicle/inter
 
 Handling lives in `src/vehicle/specs.js` (including suspension stiffness), and the models are built in code in `src/vehicle/models.js`. There are no brand logos; the 4x4 wears a plain "Trail" badge.
 
+## Helicopter
+
+Pick **Helicopter** at the end of the Cars tab. It stands where your car was, rotor spooling up, and the car comes back (on the spot, or on the nearest road if that is too far out) when you pick a car again after landing. V takes you back to your last car.
+
+| Action | Keyboard | Touch |
+| --- | --- | --- |
+| Climb / come down | Space / Shift | Up / Down (above the turn arrows; beside them with the phone sideways) |
+| Fly forward / slow down and back | W / S | Go / Brake |
+| Turn | A / D | Left and right arrows |
+| Chase or cockpit view | C | Steering-wheel button |
+| Look at the sky from above the rotor | L | Look |
+| Step out (once landed) | E | Menu, Step out |
+| Pull the chase camera back | Mouse wheel | |
+
+- **The model** is a Eurocopter EC135 ("Elicopter SMURD Romania" by [solid3DDD](https://sketchfab.com/solid3ddd), [Sketchfab](https://sketchfab.com/3d-models/d505c4eba9ef46c1b8725d1977bd0263), CC BY 4.0), with the Romanian rescue service's names, emblems, flags and numbers painted out of the body texture (`tools/heli/livery.mjs`) and the model slimmed to 101,000 triangles and 1.6 MB (`tools/heli/process.mjs`). Main rotor, Fenestron fan, doors and cabin are separate parts.
+- **Flight** (`src/vehicle/heli.js`) works as a light helicopter does, with the stabilisation a modern one has. The rotor spools up over about five seconds, and lift is its thrust along the mast, growing with the square of its speed. The collective sets a climb or descent rate (10 m/s up, 7 down) and holds height when let go. The cyclic tilts the disc up to 20 degrees, so the tilted thrust pulls it along. Drag grows with the square of airspeed, giving a top speed of about 225 km/h (0 to 100 in about 10 s). Let go and it trims itself back to a hover. Turning banks it (bank from speed and turn rate, up to 30 degrees) and the flight path follows the nose round. The tail fin weathervanes it into the airflow, the wind drifts it, turbulence grows near the ground and in gusts, and the airframe shudders through translational lift. Ground effect adds lift within a rotor's width of the ground. Moving over rising ground it looks ahead and climbs to keep clear; a face too tall to clear stops it.
+- **Landing** happens only where the ground under all four skid corners is within about 11 degrees of level, not on water (it hovers 2.5 m above it), and at walking pace. Near the ground the descent slows on its own for a gentle touchdown. Rocks, cliff tops and basalt columns count as ground, and the HUD and the second flight display say why it will not settle.
+- **The cockpit**: both cyclic sticks and both collective levers move with your inputs (dual controls, swung in the shader about their pivots since they are part of the cabin mesh). The four flight displays are live: horizon with pitch ladder and bank pointer, speed and altitude tapes and heading on one; rotor speed, torque, height above the ground, climb rate and a compass on the other.
+- **Seeing the whole island**: the view reaches out to 16 km as you climb, the haze thins with height, the sea plane reaches past the horizon, and the chase camera tilts down and hangs back so the land fills the view. From the 3,600 m ceiling all of Iceland fits on screen. Ambient occlusion rests above 150 m, where it shows nothing and would draw the island twice, so flying high costs less than driving.
+- **Details**: the rotor blades fade into a blurred disc as they speed up, with a faint ring from the painted tips; red, green and white navigation lights, a flashing red beacon and a white strobe; the car's headlamps become a landing light under the nose at night (moved, not added, so no shader rebuilds); downwash kicks up dust or spray when low; and the sound is a rotor beat at the blade-passing rate, turbine whine and fan hiss, muffled in the cockpit and fading as you walk away.
+
 ## Fuel
 
 Each car has its own tank, saved between visits, shown as a pump and a bar under the speed: white, amber below a fifth, red and blinking when empty. Turn it off in Settings, Fuel.
@@ -309,6 +330,7 @@ src/
   vehicle/
     jeep.js          jeep model and driving physics
     walker.js        step-out character
+    heli.js          the helicopter: model, flight, landing, cockpit controls and displays
     models.js        the three car models, built in code
     interiors.js     dashboards, wheels and dials for the cockpit view, plus each car's hood and cockpit eye
     specs.js         handling, wading depth and nitro for each car

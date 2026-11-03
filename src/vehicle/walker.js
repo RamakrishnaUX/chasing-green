@@ -275,7 +275,7 @@ function carBox(car) {
   _inv.copy(car.root.matrixWorld).invert();
   const b = new THREE.Box3();
   car.body.traverseVisible((m) => {
-    if (!m.isMesh || !m.geometry || m.material?.blending === THREE.AdditiveBlending) return;
+    if (!m.isMesh || !m.geometry || m.userData.noBox || m.material?.blending === THREE.AdditiveBlending) return;
     m.geometry.boundingBox || m.geometry.computeBoundingBox();
     b.union(_box.copy(m.geometry.boundingBox).applyMatrix4(_m.multiplyMatrices(_inv, m.matrixWorld)));
   });

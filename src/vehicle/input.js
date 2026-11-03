@@ -3,7 +3,7 @@
 export class Input {
   constructor(canvas) {
     this.keys = new Set();
-    this.touch = { left: false, right: false, gas: false, brake: false, nitroSlide: false };
+    this.touch = { left: false, right: false, gas: false, brake: false, nitroSlide: false, up: false, down: false };
     this.look = { dx: 0, dy: 0 };
     this.pressed = new Set(); // one-shot keys for this frame
     this.enabled = true;
@@ -152,6 +152,12 @@ export class Input {
     return s;
   }
   get handbrake() { return this.enabled && this.keys.has('shift'); }
+  // Helicopter collective: Space (or Up) climbs, Shift (or Down) descends.
+  get lift() {
+    if (!this.enabled) return 0;
+    const k = this.keys;
+    return (k.has(' ') || this.touch.up ? 1 : 0) - (k.has('shift') || this.touch.down ? 1 : 0);
+  }
   get nitro() { return this.enabled && this.nitroAllowed && (this.keys.has(' ') || this.touch.nitroSlide); }
 
   consumeLook() { const l = { ...this.look }; this.look.dx = 0; this.look.dy = 0; return l; }

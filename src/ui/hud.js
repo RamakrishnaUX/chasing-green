@@ -6,7 +6,7 @@ const $ = (id) => document.getElementById(id);
 export class Hud {
   constructor() {
     this.el = {
-      hud: $('hud'), speed: $('speed'), where: $('where'), clock: $('clock'), kp: $('kp'), kpWrap: $('kp').parentElement,
+      hud: $('hud'), speed: $('speed'), alt: $('alt'), where: $('where'), clock: $('clock'), kp: $('kp'), kpWrap: $('kp').parentElement,
       status: $('radio-status'), graph: $('radio-graph'), cloud: $('stat-cloud'), activity: $('stat-activity'), dark: $('stat-dark'), glow: $('stat-glow'),
       rose: $('compass-rose'), wind: $('wind-arrow'), toast: $('toast'),
       radio: $('radio'), radioToggle: $('radio-toggle'), kpLevel: $('kp-level'), skyHint: $('sky-hint'), look: $('t-look'),
@@ -59,6 +59,9 @@ export class Hud {
     }
     e.speed.textContent = s.walking ? 'On foot' : String(s.kmh);
     e.speed.nextElementSibling.hidden = s.walking;
+    // Flying: height above the sea beside the speed.
+    const alt = s.altitude != null && !s.walking ? `${Math.max(0, Math.round(s.altitude))} m` : '';
+    if (e.alt.textContent !== alt) { e.alt.textContent = alt; e.alt.hidden = !alt; }
     e.where.textContent = s.where;
     e.clock.textContent = `${s.clockLabel}, ${s.monthName || s.season.toLowerCase()}`;
     e.kp.textContent = s.aurora.kp.toFixed(1);

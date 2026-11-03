@@ -31,6 +31,7 @@ import { Aurora } from './aurora/aurora.js';
 import { Jeep } from './vehicle/jeep.js';
 import { updateInterior, trackTitle } from './vehicle/interiors.js';
 import { Walker } from './vehicle/walker.js';
+import { Heli } from './vehicle/heli.js';
 import { solidTopAt } from './world/solids.js';
 import { BoatWater } from './vehicle/boat.js';
 import { Wildlife, WILDLIFE_NOTES } from './world/wildlife.js';
@@ -101,15 +102,17 @@ audio.muted = !!settings.muted;
 const volumes = settings.volumes || (settings.volumes = { master: 1, music: settings.music === 'off' ? 0 : 1, car: 1, ambience: 1 });
 audio.setLevels(volumes);
 
-let world = null, sky, aurora, landmarks, jeep, walker, scatter, grass, props, post = null;
+let world = null, sky, aurora, landmarks, jeep, walker, heli, scatter, grass, props, post = null;
 let obstacles, puddles, spray, boatWater, wildlife, dust, powder, powderCloud, mapUI, towns, snow, nav, stations, stationSites = [];
 let lastPostState = { aurora: 0, dark: 0 };
 const snowNoise = createNoise2D(4040);
 let wasInPuddle = false, wasInWater = false, shake = 0, sitting = false, sitSpeedBefore = 1, camHeading = null;
 let started = false;
-let mode = 'chase'; // chase | lookup | walk
+let mode = 'chase'; // chase | lookup | walk | fly (at the helicopter's controls)
+let ride = 'car'; // what you travel in: the car, or the helicopter that takes its place
+let flySky = false; // in the helicopter: looking at the sky from above the rotor head
 let walkTilt = false;
-const look = { yaw: 0, pitch: 0.95, orbit: 0, walkYaw: 0, cabYaw: 0, cabPitch: 0 };
+const look = { yaw: 0, pitch: 0.95, orbit: 0, walkYaw: 0, cabYaw: 0, cabPitch: 0, flyPitch: 0.3, flyDist: 19 };
 // How you see the road while driving: from behind the car, from the bonnet, or from the seat.
 const VIEWS = ['chase', 'hood', 'cockpit'];
 let driveView = VIEWS.includes(settings.view) ? settings.view : 'chase';
@@ -238,10 +241,12 @@ async function buildWorld(progress) {
   powderCloud = new Particles(scene, { count: qualityName === 'low' ? 120 : 260, color: 0xdfe8f2, size: 2.6, opacity: 0.42, gravity: 0.6, drag: 2.2 });
   scatter.setSeason(clock.season);
   await stage('Parking your car', 0.93, 60);
-  jeep = new Jeep(scene, settings.vehicle || 'jeep');
+  jeep = new Jeep(scene, settings.vehicle === 'heli' ? settings.car || 'jeep' : settings.vehicle || 'jeep');
   jeep.setView(driveView);
   jeep.obstacles = obstacles;
   walker = new Walker(scene);
+  heli = new Heli(scene);
+  heli.obstacles = obstacles;
   const sp = nearestRoadAnywhere(START.x, START.z);
   jeep.place(sp.x, sp.z, sp.heading);
   await stage('Drawing the map', 0.95, 180);
@@ -302,8 +307,12 @@ function describePlace(x, z) {
   return { label, nearId: n.lm.id, nearDist: n.dist };
 }
 
-function activePos() { return mode === 'walk' ? walker.pos : jeep.pos; }
-function lookingUp() { return mode === 'lookup' ? look.pitch > 0.35 : mode === 'walk' && (walkTilt || (sitting && look.pitch > 0.35)); }
+function activePos() { return mode === 'walk' ? walker.pos : ride === 'heli' ? heli.pos : jeep.pos; }
+function activeHeading() { return mode === 'walk' ? walker.heading : ride === 'heli' ? heli.heading : jeep.heading; }
+function lookingUp() {
+  if (mode === 'fly') return flySky && look.pitch > 0.35;
+  return mode === 'lookup' ? look.pitch > 0.35 : mode === 'walk' && (walkTilt || (sitting && look.pitch > 0.35));
+}
 // True when the view actually holds the aurora: facing roughly north, or looking close to straight up.
 const _fwd = new THREE.Vector3();
 function facingLights() {
@@ -357,6 +366,8 @@ function insideCamera(dt, l) {
 function updateCamera(dt) {
   const l = input.consumeLook();
   if (mode === 'photo') return; // camera placed by hand from the console
+  if (mode === 'fly') { flyCamera(dt, l); return; }
+  if (camera.far !== (Q.far || 3000)) { camera.far = Q.far || 3000; camera.updateProjectionMatrix(); }
   // Inside the car things are centimetres from the eye, so the near clip comes in close.
   const inside = mode === 'chase' && driveView !== 'chase';
   const near = inside ? 0.05 : 0.4;
@@ -419,10 +430,74 @@ function updateCamera(dt) {
   }
 }
 
+// Flying: from behind and above, swinging round smoothly with the heading (drag to orbit and
+// tilt, wheel to pull back), or from the pilot's seat. The view reaches further as you climb, so
+// from a few thousand metres the whole island fits, and the near plane moves out with it.
+const camOff = new THREE.Vector3(), flyTarget = new THREE.Vector3(), _ft = new THREE.Vector3();
+let flyHeading = null;
+function flyCamera(dt, l) {
+  const agl = camera.position.y - Math.max(0, heightAt(camera.position.x, camera.position.z));
+  const far = Math.min(16000, Math.max(Q.far || 3000, 2600 + Math.max(0, agl) * 3.6));
+  const inside = driveView === 'cockpit';
+  const near = inside && !flySky ? 0.1 : clamp(look.flyDist * 0.12 + agl * 0.002, 0.4, 6);
+  if (camera.far !== far || camera.near !== near) { camera.far = far; camera.near = near; camera.updateProjectionMatrix(); }
+  const shakeNow = Math.max(shake, heli.shake);
+  heli.cockpitOn = inside && !flySky;
+  if (flySky) {
+    // Sky view: a camera just above the rotor head, free to look round and up for the lights.
+    look.yaw -= l.dx * 0.005;
+    look.pitch = clamp(look.pitch - l.dy * 0.005, -0.6, 1.5);
+    const h = heli.heading + look.yaw;
+    camera.position.set(heli.pos.x, heli.pos.y + heli.mastTop + 1.4, heli.pos.z);
+    camTarget.set(camera.position.x + Math.sin(h) * Math.cos(look.pitch), camera.position.y + Math.sin(look.pitch), camera.position.z + Math.cos(h) * Math.cos(look.pitch));
+    camera.lookAt(camTarget);
+    if (camera.near !== 0.4) { camera.near = 0.4; camera.updateProjectionMatrix(); }
+    if (Math.abs(camera.fov - 60) > 0.05) { camera.fov += (60 - camera.fov) * Math.min(1, dt * 3); camera.updateProjectionMatrix(); }
+    return;
+  }
+  if (inside) {
+    look.cabYaw = clamp(look.cabYaw - l.dx * 0.005, -2.3, 2.3);
+    look.cabPitch = clamp(look.cabPitch - l.dy * 0.004, -0.95, 0.95);
+    if (!l.dx && !l.dy && heli.speed > 4) { const k = 1 - Math.min(1, dt * 0.8); look.cabYaw *= k; look.cabPitch *= k; }
+    heli.body.updateWorldMatrix(true, false);
+    camera.position.copy(eyeV.copy(heli.eye).applyMatrix4(heli.body.matrixWorld));
+    heli.body.getWorldQuaternion(qBody);
+    camera.quaternion.copy(qBody).multiply(qLook.setFromEuler(eLook.set(look.cabPitch - 0.17, Math.PI + look.cabYaw, 0)));
+    const narrow = camera.aspect < 1 ? Math.min(100, THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(Math.PI / 6) / camera.aspect))) : 0;
+    const fov = Math.max(62, narrow);
+    if (Math.abs(camera.fov - fov) > 0.05) { camera.fov += (fov - camera.fov) * Math.min(1, dt * 3); camera.updateProjectionMatrix(); }
+  } else {
+    look.orbit -= l.dx * 0.006;
+    look.flyPitch = clamp(look.flyPitch + l.dy * 0.004, -0.1, 1.35);
+    if (!l.dx && heli.speed > 4) look.orbit *= 1 - Math.min(1, dt * 0.6);
+    flyHeading = flyHeading == null ? heli.heading : flyHeading + wrapAngle(heli.heading - flyHeading) * Math.min(1, dt * 1.8);
+    // Higher up the camera looks further down and hangs further back, so the land fills the view.
+    const high = clamp((heli.agl - 150) / 2200, 0, 1);
+    const h = flyHeading + look.orbit, el = Math.min(1.4, look.flyPitch + high * 0.8), d = look.flyDist + Math.min(14, heli.speed * 0.16) + high * 30;
+    _ft.set(-Math.sin(h) * Math.cos(el) * d, 2.6 + Math.sin(el) * d, -Math.cos(h) * Math.cos(el) * d);
+    // The offset eases, not the position, so the camera never trails behind at speed.
+    camOff.lerp(_ft, Math.min(1, dt * 3.5));
+    camera.position.copy(heli.pos).add(camOff);
+    camera.position.y = Math.max(camera.position.y, groundAt(camera.position.x, camera.position.z) + 1.5);
+    flyTarget.set(heli.pos.x + Math.sin(heli.heading) * 3, heli.pos.y + 2.2, heli.pos.z + Math.cos(heli.heading) * 3);
+    camera.lookAt(flyTarget);
+    const fov = 55 + Math.min(1, heli.speed / 60) * 7;
+    if (Math.abs(camera.fov - fov) > 0.05) { camera.fov += (fov - camera.fov) * Math.min(1, dt * 3); camera.updateProjectionMatrix(); }
+  }
+  if (shakeNow > 0.01) { camera.position.x += (Math.random() - 0.5) * shakeNow * 0.25; camera.position.y += (Math.random() - 0.5) * shakeNow * 0.25; }
+  camHeading = heli.heading;
+}
+canvas.addEventListener('wheel', (e) => {
+  if (mode !== 'fly' || driveView === 'cockpit') return;
+  e.preventDefault();
+  look.flyDist = clamp(look.flyDist * Math.exp(e.deltaY * 0.0015), 12, 220);
+}, { passive: false });
+
 // C or the view button: Chase, Hood, Cockpit in turn. On foot it gets you back in the car.
 const VIEW_TOASTS = { chase: 'Chase view.', hood: 'Hood view.', cockpit: 'Cockpit view. Drag to look around.' };
 function cycleView() {
   if (mode === 'walk') { getIn(); return; }
+  if (mode === 'fly') { if (flySky) flySky = false; else setView(driveView === 'cockpit' ? 'chase' : 'cockpit'); look.cabPitch = 0; look.cabYaw = 0; syncLookButton(); return; }
   if (mode === 'lookup') { mode = 'chase'; syncLookButton(); }
   setView(VIEWS[(VIEWS.indexOf(driveView) + 1) % VIEWS.length]);
 }
@@ -435,18 +510,38 @@ function setView(v) {
 }
 // E (or Step out in the menu): leave the car, or get back in.
 function stepOut() {
+  if (ride === 'heli') {
+    if (!heli.landed) { hud.toast('Land first, then step out.', { seconds: 2.5 }); return; }
+    mode = 'walk'; walkTilt = false; heli.engineOn = false; walker.enter(heli); track('step_out'); look.walkYaw = 0;
+    hud.toast('On foot. The rotor winds down. Press E to climb back in and fly.', { seconds: 3.5, priority: 2 });
+    syncLookButton();
+    return;
+  }
   if (jeep.boatOn || jeep.boat > 0) { hud.toast('You are on the water. Head back to the shore to step out.', { seconds: 2.5 }); return; }
   if (jeep.speed > 2.5) { hud.toast('Slow down to step out.', { seconds: 2.5 }); return; }
   mode = 'walk'; walkTilt = false; walker.enter(jeep); track('step_out'); look.walkYaw = 0;
   hud.toast(isTouch ? 'On foot. Go walks; slide up from Go to sprint on nitro. Walk into a rock to climb it.' : 'On foot. Walk with the same keys, hold Space to sprint on nitro, and walk into a rock to climb it. Press E to get back in.', { seconds: 4.5 });
   syncLookButton();
 }
-function getIn() { mode = 'chase'; walker.exit(); syncLookButton(); }
+function getIn() {
+  mode = ride === 'heli' ? 'fly' : 'chase';
+  flySky = false;
+  if (ride === 'heli') heli.engineOn = true;
+  walker.exit(); syncLookButton();
+}
 function toggleWalk() { if (mode === 'walk') getIn(); else stepOut(); }
 // The lights usually sit to the north, so looking up turns you that way, the way a person would.
 function wrapAngle(a) { return Math.atan2(Math.sin(a), Math.cos(a)); }
 function enterLookUp() { track('look_up'); mode = 'lookup'; look.yaw = wrapAngle(Math.PI - jeep.heading); look.pitch = 0.75; }
 function toggleLookUp() {
+  // In the helicopter: a view of the sky from above the rotor head, turned to the north (where the
+  // lights usually are), and back.
+  if (mode === 'fly') {
+    flySky = !flySky;
+    if (flySky) { track('look_up'); look.yaw = wrapAngle(Math.PI - heli.heading); look.pitch = 0.75; }
+    syncLookButton();
+    return;
+  }
   if (mode === 'walk') { walkTilt = !walkTilt; look.pitch = 0.75; if (walkTilt) look.walkYaw = wrapAngle(Math.PI - walker.heading); }
   else if (mode === 'lookup') mode = 'chase';
   else enterLookUp();
@@ -836,6 +931,8 @@ function syncTouch() {
 input.bindSteerPair($('t-left'), $('t-right'), () => haptics.play('select', 0));
 input.bindGasButton($('t-gas'), (up) => { if (up) nitroHint(); });
 input.bindTouchButton($('t-brake'), 'brake');
+input.bindTouchButton($('t-up'), 'up');
+input.bindTouchButton($('t-down'), 'down');
 
 // ---------- Brake doubles as reverse ----------
 // The pedal says so ("Brake & reverse"), switches to "Reverse" with a back arrow while the car
@@ -844,7 +941,7 @@ const brakeBtn = $('t-brake');
 const tips = settings.tips || (settings.tips = {});
 let reverseShown = false;
 function syncBrakePedal() {
-  const rev = mode !== 'walk' && (jeep.vF < -0.3 || (input.throttle < 0 && Math.abs(jeep.vF) < 0.6));
+  const rev = mode !== 'walk' && mode !== 'fly' && (jeep.vF < -0.3 || (input.throttle < 0 && Math.abs(jeep.vF) < 0.6));
   if (rev === reverseShown) return;
   reverseShown = rev;
   brakeBtn.classList.toggle('is-reverse', rev);
@@ -985,7 +1082,7 @@ function towToStation() {
   hud.toast(`Towed to the fuel station at ${n.station.name}. ${isTouch ? 'Tap' : 'Press F or click'} Refuel to fill up.`, { seconds: 5, priority: 3 });
 }
 function fuelTick(dt) {
-  const kind = jeep.kind, driving = mode !== 'walk';
+  const kind = jeep.kind, driving = mode !== 'walk' && ride === 'car';
   let lvl = fuel.level(kind);
   // Pumping: stop if the car moves off, finish when the tank is full.
   const here = driving && fuel.on && Math.abs(jeep.vF) < 1.2 && !jeep.boatOn ? stations?.at(jeep.pos.x, jeep.pos.z) : null;
@@ -1031,8 +1128,10 @@ function fuelTick(dt) {
 
 // ---------- Vehicles ----------
 function setVehicle(kind, announce = true) {
+  if (kind === 'heli') { boardHeli(announce); return; }
   if (!VEHICLES[kind]) return;
-  settings.vehicle = kind; store.save();
+  if (ride === 'heli' && jeep && !leaveHeli()) return;
+  settings.vehicle = kind; settings.car = kind; store.save();
   if (jeep) {
     jeep.setType(kind);
     audio.setEngine(VEHICLES[kind].engine);
@@ -1042,7 +1141,58 @@ function setVehicle(kind, announce = true) {
   $('intro-car').innerHTML = `Driving the <strong>${VEHICLES[kind].name}</strong>. Tap or click your car any time to switch.`;
   renderGarage();
 }
+// The helicopter takes the car's place, standing where the car was with its rotor starting up.
+// The car's headlamps move to its nose as landing lights (moved, not added: a new light would
+// make every material rebuild its shader).
+const LAMP_HOME = { head: null, spread: null };
+function boardHeli(announce = true) {
+  settings.vehicle = 'heli'; store.save();
+  $('intro-car').innerHTML = 'Flying the <strong>Helicopter</strong>. Choose a car again in Menu, Cars.';
+  renderGarage();
+  if (!jeep || !heli) return;
+  if (!heli.model) { heli.ready.then(() => boardHeli(announce)).catch(() => hud.toast('The helicopter could not load. Try again in a moment.', { seconds: 3 })); return; }
+  if (ride === 'heli') return;
+  if (mode === 'walk') walker.exit();
+  ride = 'heli';
+  heli.place(jeep.pos.x, jeep.pos.z, jeep.heading);
+  heli.root.visible = true; heli.engineOn = true; heli.rpm = 0;
+  jeep.vF = 0; jeep.body.visible = false; jeep.blob.visible = false;
+  LAMP_HOME.head = jeep.headlight.position.clone(); LAMP_HOME.spread = jeep.spread.position.clone();
+  heli.body.add(jeep.headlight, jeep.headlight.target, jeep.spread, jeep.spread.target);
+  jeep.headlight.position.set(0, 0.5, heli.nose - 0.6); jeep.headlight.target.position.set(0, -40, heli.nose + 70);
+  jeep.spread.position.set(0, 0.4, heli.nose - 1); jeep.spread.target.position.set(0, -14, heli.nose + 9);
+  mode = 'fly'; flyHeading = null; camOff.set(0, 0, 0); flySky = false;
+  if (driveView === 'hood') driveView = 'chase';
+  look.cabYaw = 0; look.cabPitch = 0; look.orbit = 0;
+  audio.setEngine({ base: 30, perSpeed: 0, type: 'sawtooth', rumble: 0.5 });
+  document.body.classList.add('is-flying');
+  syncLookButton();
+  if (announce) {
+    hud.toast(isTouch ? 'Helicopter. The rotor is spooling up. Hold Up to lift off, Go to fly forward, arrows to turn, Down to land on flat ground.' : 'Helicopter. The rotor is spooling up. Space to lift off, W and S to fly forward and back, A and D to turn, Shift to come down. Land on flat ground.', { seconds: 7, priority: 2 });
+    track('vehicle_change', { vehicle: 'heli' });
+  }
+}
+// Back to a car: only once landed. The car stands where the helicopter was, or on the nearest
+// road if that is too far out for it.
+function leaveHeli() {
+  if (!heli.landed) { hud.toast('Land first, then switch.', { seconds: 2.5, priority: 2 }); return false; }
+  if (mode === 'walk') walker.exit();
+  ride = 'car';
+  heli.root.visible = false; heli.engineOn = false; heli.rpm = 0;
+  jeep.root.add(jeep.headlight, jeep.headlight.target, jeep.spread, jeep.spread.target);
+  if (LAMP_HOME.head) { jeep.headlight.position.copy(LAMP_HOME.head); jeep.spread.position.copy(LAMP_HOME.spread); }
+  jeep.headlight.target.position.set(0, -2.6, 60); jeep.spread.target.position.set(0, -1.6, 16);
+  jeep.body.visible = true; jeep.blob.visible = true;
+  const r = nearestRoadAnywhere(heli.pos.x, heli.pos.z);
+  const far = !r || Math.hypot(r.x - heli.pos.x, r.z - heli.pos.z) > CONFIG.vehicle.offRoadLimit * 0.8;
+  if (far && r) jeep.place(r.x, r.z, r.heading); else jeep.place(heli.pos.x, heli.pos.z, heli.heading);
+  mode = 'chase'; camHeading = jeep.heading;
+  document.body.classList.remove('is-flying');
+  syncLookButton();
+  return true;
+}
 function cycleVehicle() {
+  if (ride === 'heli') { setVehicle(settings.car || 'jeep'); return; }
   const i = VEHICLE_ORDER.indexOf(jeep.kind);
   setVehicle(VEHICLE_ORDER[(i + 1) % VEHICLE_ORDER.length]);
 }
@@ -1059,6 +1209,10 @@ function renderGarage() {
     return `<button class="car-card ${on ? 'is-on' : ''}" data-pick="${k}" aria-pressed="${on}">${img}<span class="car-info"><h3>${v.name}</h3><p class="car-tag">${v.tagline}</p><p class="car-blurb">${v.blurb}</p>
       <span class="car-stats"><span>Top speed</span>${bar(v.maxSpeed, 66)}<span>Off-road</span>${bar(off, 1)}<span>Water</span>${bar(v.wade, 1.9)}</span></span></button>`;
   }).join('');
+  // The helicopter, after the cars.
+  const hs = $('garage').open || list.dataset.wantThumbs ? heli?.thumb() : null, onH = settings.vehicle === 'heli';
+  list.insertAdjacentHTML('beforeend', `<button class="car-card ${onH ? 'is-on' : ''}" data-pick="heli" aria-pressed="${onH}">${hs ? `<img class="car-pic" src="${hs}" alt="" />` : ''}<span class="car-info"><h3>Helicopter</h3><p class="car-tag">Fly anywhere and see the whole island.</p><p class="car-blurb">A twin-engine Eurocopter EC135 in red and white. Follow the coast, climb over the glaciers, and land on any flat ground.</p>
+      <span class="car-stats"><span>Top speed</span>${bar(62, 66)}<span>Reach</span>${bar(1, 1)}<span>Altitude</span>${bar(1, 1)}</span></span></button>`);
   list.querySelectorAll('[data-pick]').forEach((b) => b.addEventListener('click', () => { haptics.play('medium'); setVehicle(b.dataset.pick); $('garage').close(); }));
 }
 function openGarage() { $('garage-list').dataset.wantThumbs = '1'; renderGarage(); $('garage').showModal(); }
@@ -1071,7 +1225,7 @@ let tapStart = null;
 canvas.addEventListener('pointerdown', (e) => { tapStart = { x: e.clientX, y: e.clientY, t: performance.now() }; });
 canvas.addEventListener('pointerup', (e) => {
   const s = tapStart; tapStart = null;
-  if (!s || !jeep || !started || mode === 'walk') return;
+  if (!s || !jeep || !started || mode === 'walk' || ride === 'heli') return;
   if (Math.hypot(e.clientX - s.x, e.clientY - s.y) > 8 || performance.now() - s.t > 400) return;
   const r = canvas.getBoundingClientRect();
   carTap.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
@@ -1079,6 +1233,34 @@ canvas.addEventListener('pointerup', (e) => {
   if (carRay.intersectObject(jeep.body, true).length) { haptics.play('medium', 0); cycleVehicle(); }
 });
 setVehicle(settings.vehicle || 'jeep', false);
+
+// Flying: say why it will not land, jolt on a hard touchdown, and blow dust or spray from the
+// ground under the rotor when low. Each message waits a few seconds before it repeats.
+const HELI_SAYS = {
+  steep: 'Too steep to land here. Find flatter ground.', water: 'You cannot land on water. Find flat ground.',
+  fast: 'Too fast to land. Slow down first.', hard: 'Hard landing! Ease down more gently.',
+  wall: 'Rock ahead. Climb to clear it.', edge: 'That is the edge of the map. Turn back toward Iceland.',
+  spooling: 'The rotor is still spooling up. Lift off in a moment.',
+};
+const heliSaid = {};
+let wasLanded = true;
+function flyFeedback(dt) {
+  const wmsg = heli.warning;
+  if (wmsg && HELI_SAYS[wmsg] && !(clock.realSeconds - (heliSaid[wmsg] ?? -99) < 5)) { heliSaid[wmsg] = clock.realSeconds; hud.toast(HELI_SAYS[wmsg], { seconds: 2.5, priority: 1 }); }
+  if (heli.touchdown) { heli.touchdown = false; haptics.play(heli.impact > 0.25 ? 'heavy' : 'medium'); if (heli.impact <= 0.25 && !wasLanded) hud.toast('Landed. Press E to step out.', { seconds: 2.2, priority: 1 }); audio.thud?.(2 + heli.impact * 8); }
+  if (wasLanded && !heli.landed) haptics.play('light');
+  wasLanded = heli.landed;
+  // Downwash: the ground under the rotor kicks up dust or spray within about two rotor widths.
+  if (!heli.landed && heli.rpm > 0.8 && heli.agl < 22) {
+    const k = 1 - heli.agl / 22, wet = heli.floor(heli.pos.x, heli.pos.z).water;
+    const fx = heli.floor(heli.pos.x, heli.pos.z).y;
+    const n = Math.round(k * (wet ? 3 : 2));
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2, r = 3 + Math.random() * 6;
+      (wet ? spray : dust).emit(heli.pos.x + Math.cos(a) * r, fx + 0.3, heli.pos.z + Math.sin(a) * r, Math.cos(a) * 9 * k, 1.5 + Math.random() * 2, Math.sin(a) * 9 * k, 1, 0.6, wet ? 0.9 : 1.6);
+    }
+  }
+}
 
 // Spray, dust, splashes and knocks.
 function vehicleEffects(dt) {
@@ -1183,8 +1365,9 @@ function driveTo(x, z, label) {
 // Put the car down somewhere new, back in it, with the camera behind.
 function putCar(x, z, heading) {
   if (mode === 'walk') walker.exit();
-  mode = 'chase';
   jeep.place(x, z, heading);
+  if (ride === 'heli') { heli.place(x, z, heading); mode = 'fly'; flyHeading = null; camOff.set(0, 0, 0); infoDismissed = null; return; }
+  mode = 'chase';
   camHeading = heading;
   camera.position.set(x - Math.sin(heading) * jeep.model.camDist, heightAt(x, z) + jeep.model.camHeight, z - Math.cos(heading) * jeep.model.camDist);
   camera.lookAt(x, heightAt(x, z) + 1.5, z);
@@ -1220,11 +1403,15 @@ function frame(now) {
 
   if (sitting && (mode !== 'walk' || input.throttle || input.steer)) toggleSit(false);
   $('t-sit').hidden = mode !== 'walk';
+  $('t-up').hidden = $('t-down').hidden = mode !== 'fly';
   if (mode === 'walk') {
-    jeep.update(dt, input, w, false);
-    walker.update(dt, input, jeep, obstacles);
+    if (ride === 'heli') heli.update(paused ? 0 : dt, null, w); else jeep.update(dt, input, w, false);
+    walker.update(dt, input, ride === 'heli' ? heli : jeep, obstacles);
     obstacles.resolve(walker.pos, 0.4, true);
     walkHaptics();
+  } else if (mode === 'fly') {
+    heli.update(paused ? 0 : dt, { throttle: input.throttle, steer: input.steer, lift: input.lift }, w);
+    if (!paused) flyFeedback(dt);
   } else {
     if (!paused) jeep.power = fuel.burn(dt, jeep, input.throttle);
     jeep.update(paused ? 0 : dt, input, w, !paused);
@@ -1258,7 +1445,7 @@ function frame(now) {
 
   landmarks.update(dt, t, { wind: w, dark, auroraTint: aurora.tint, auroraVis: auroraVisSmoothed, player: p });
   // Wildlife, and a word about each species the first time you see it.
-  for (const sp of wildlife.update(paused ? 0 : dt, { pos: p, car: jeep, camera, clock, dark, walking: mode === 'walk' })) {
+  for (const sp of wildlife.update(paused ? 0 : dt, { pos: p, car: ride === 'heli' ? null : jeep, camera, clock, dark, walking: mode === 'walk' })) {
     const seen = store.data.wildlife || (store.data.wildlife = {});
     if (seen[sp]) continue;
     seen[sp] = new Date().toISOString(); store.save();
@@ -1273,12 +1460,19 @@ function frame(now) {
   const inside = mode === 'chase' && driveView === 'cockpit';
   snow.update(dt, camera, snowTarget, w, inside ? jeep.interior.views.cockpit.snowFade ?? 0.6 : 0.4);
   if (snow.intensity > 0.02) { sky.fog.density += snow.intensity * 0.0012; sky.fog.color.lerp(new THREE.Color(0xd9dfe4), snow.intensity * 0.5); }
+  // Up in the helicopter the air between you and the land thins out: the haze is in the lowest
+  // few hundred metres, so the farther coast stays in view.
+  if (mode === 'fly') sky.fog.density /= 1 + Math.max(0, camera.position.y - Math.max(0, heightAt(camera.position.x, camera.position.z)) - 60) / 220;
+  // Ambient occlusion shades corners a few metres across: from a few hundred metres up it shows
+  // nothing, and it would draw the whole island a second time, so it rests while you fly high.
+  if (post?.ao) post.ao.enabled = !(mode === 'fly' && heli.agl > 150 && driveView !== 'cockpit');
   grass?.update(camera, w);
   scatter?.hdRocks?.update(dt, camera.position);
   props?.setNight(dark);
   towns?.setNight(dark);
   stations?.setNight(dark);
   jeep.setLights(dark);
+  if (heli) heli.dark = dark;
   waterUniforms.uLight.value = 1 - dark * 0.82;
   if (boatWater) boatWater.light = 1 - dark * 0.85;
   waterUniforms.uTint.value.copy(aurora.tint).multiplyScalar(auroraVisSmoothed * 0.25 * dark);
@@ -1318,7 +1512,7 @@ function frame(now) {
     }
     void near;
   }
-  audio.update(dt, { speed: mode === 'walk' ? 0 : jeep.speed, wind: w.strength, exposure: exposureAt(p.x, p.z), waterProx, iceProx, inCar: mode !== 'walk' && started, wade: mode === 'walk' ? 0 : jeep.wadeLevel || 0, nitro: mode === 'walk' ? walker.boosting : jeep.boosting });
+  audio.update(dt, { heli: ride === 'heli' ? { rpm: heli.rpm, load: heli.thrust / 9.81, inside: mode === 'fly' && driveView === 'cockpit', near: mode === 'walk' ? Math.hypot(walker.pos.x - heli.pos.x, walker.pos.z - heli.pos.z) : 0 } : null, speed: mode === 'walk' ? 0 : ride === 'heli' ? heli.speed * 0.5 : jeep.speed, wind: w.strength, exposure: exposureAt(p.x, p.z), waterProx, iceProx, inCar: mode !== 'walk' && started, wade: mode === 'walk' ? 0 : jeep.wadeLevel || 0, nitro: mode === 'walk' ? walker.boosting : jeep.boosting });
 
   if (started) {
     if (jeep.warning && mode !== 'walk') hud.toast(jeep.warning, { seconds: 2.5, priority: 1 });
@@ -1332,11 +1526,11 @@ function frame(now) {
     $('t-gas').style.setProperty('--tank', tank.nitro.toFixed(3));
     $('t-gas').classList.toggle('is-boosting', tank.boosting);
     if (!paused) fuelTick(dt);
-    nav.update(dt, activePos(), mode === 'walk' ? walker.heading : jeep.heading, t);
+    nav.update(dt, activePos(), activeHeading(), t);
     mapUI.route = nav.route?.pts || null; mapUI.dest = nav.dest;
-    mapUI.update(dt, activePos(), mode === 'walk' ? walker.heading : jeep.heading);
+    mapUI.update(dt, activePos(), activeHeading());
     hud.update(dt, {
-      kmh: jeep.kmh, walking: mode === 'walk', where: hud.whereText || '', clockLabel: clock.label(), season: clock.season, monthName: clock.m.name, aurora: a,
+      kmh: ride === 'heli' ? heli.kmh : jeep.kmh, walking: mode === 'walk', altitude: mode === 'fly' ? heli.pos.y : null, where: hud.whereText || '', clockLabel: clock.label(), season: clock.season, monthName: clock.m.name, aurora: a,
       bearingDeg: THREE.MathUtils.radToDeg(bearing), windBearingDeg: THREE.MathUtils.radToDeg(Math.atan2(w.x, -w.z)), windStrength: w.strength,
       lookingUp: up, lookingUpWrongWay: upAnyDir && !up, lookTimer, loggedThisWindow,
       now: clock.gameHours, nightStart: clock.nightIndex * 24 + 12 + 4, history: forecast.history.get(clock.nightIndex),
@@ -1347,7 +1541,7 @@ function frame(now) {
   if (post) post.render(t, (lastPostState = { aurora: auroraVisSmoothed, dark }));
   else renderer.render(scene, camera);
   if (captureRequest) { const cb = captureRequest; captureRequest = null; cb(renderer.domElement.toDataURL('image/jpeg', 0.88)); }
-  tickPlay(dt, { playing: !paused, driving: mode !== 'walk', metresPerSecond: jeep.vF, kmh: jeep.kmh, boosting: jeep.boosting });
+  tickPlay(dt, { playing: !paused, driving: mode !== 'walk' && ride === 'car', metresPerSecond: jeep.vF, kmh: jeep.kmh, boosting: jeep.boosting });
   if (started) syncBrakePedal();
   if (started) {
     const inside = mode === 'chase' && driveView !== 'chase';
@@ -1403,6 +1597,8 @@ const bootStart = performance.now();
 requestAnimationFrame(() => setTimeout(async () => {
   try {
     await buildWorld(startProgress);
+    // Back in the helicopter if that is what you last flew.
+    if (settings.vehicle === 'heli') await heli.ready.then(() => boardHeli(false)).catch(() => {});
     // Park the camera behind the jeep for the intro view.
     camera.position.set(jeep.pos.x - Math.sin(jeep.heading) * 12, jeep.pos.y + 5, jeep.pos.z - Math.cos(jeep.heading) * 12);
     camera.lookAt(jeep.pos.x, jeep.pos.y + 2, jeep.pos.z);
@@ -1464,7 +1660,7 @@ window.chasingGreen = {
     camera.lookAt(r.x + Math.sin(hd) * 50, camera.position.y + pitch * 50, r.z + Math.cos(hd) * 50);
     return [r.x, r.z];
   },
-  get jeep() { return jeep; }, get walker() { return walker; }, get audio() { return audio; }, get sitting() { return sitting; }, get canyon() { return CANYONS[0]; }, get landmarks() { return landmarks; }, get aurora() { return aurora; }, get mode() { return mode; },
+  get jeep() { return jeep; }, get heli() { return heli; }, get ride() { return ride; }, get walker() { return walker; }, get audio() { return audio; }, get sitting() { return sitting; }, get canyon() { return CANYONS[0]; }, get landmarks() { return landmarks; }, get aurora() { return aurora; }, get mode() { return mode; },
   setMode: (m) => { mode = m; },
   // Render one still with a forced aurora, from a given camera, at any size. Used to make the
   // share image and, frame by frame with a rising t, the share video. Returns a PNG data URL,

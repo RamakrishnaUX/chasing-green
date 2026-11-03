@@ -112,7 +112,8 @@ float cDens(vec3 q, float cov, bool fine){
   return clamp(dd, 0.0, 1.0) * prof;
 }
 vec4 volClouds(vec3 d, float cov, vec3 sunCol, vec3 ambCol){
-  if (cov < 0.03 || d.y < 0.015) return vec4(0.0);
+  // Above the deck (in the helicopter) there is nothing overhead to march through.
+  if (cov < 0.03 || d.y < 0.015 || uCam.y > 790.0) return vec4(0.0);
   float t0 = (420.0 - uCam.y) / d.y, t1 = min((800.0 - uCam.y) / d.y, t0 + 1300.0);
   if (t0 < 0.0) t0 = 0.0;
 #ifdef PANO

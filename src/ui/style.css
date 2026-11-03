@@ -930,3 +930,22 @@ body.has-touch.tilt-steer .touch-left { visibility: hidden; }
   body.has-touch.fuel-prompt .infocard { bottom: calc(170px + var(--safe-b)); }
   body.has-touch .fuel-act svg { width: 28px; height: 28px; padding: 5px; }
 }
+
+/* ---------- Helicopter ----------
+   Up and Down sit above the turn arrows, so the left thumb has height and heading (as on a
+   model helicopter's left stick) and the right thumb flies forward and back. Nitro and fuel are
+   the car's, so their gauges step aside. */
+.speed .alt { margin-left: 10px; font-size: 0.86rem; color: var(--ink-2); }
+.touch-left { position: relative; }
+.pad-lift { position: absolute; bottom: calc(100% + 12px); flex-direction: column; gap: 2px; }
+#t-up { left: 0; }
+#t-down { right: 0; }
+.pad-lift span { font-size: 0.56rem; letter-spacing: 0.06em; text-transform: uppercase; }
+body.is-flying .nitro, body.is-flying .fuel, body.is-flying .go-ring, body.is-flying .go-hint { display: none; }
+body.is-flying .pad-brake .pad-sub { display: none; }
+/* Phones held sideways keep the minimap above the arrows, so Up and Down join the bottom row. */
+@media (max-height: 520px) {
+  .pad-lift { position: static; }
+  #t-up { order: 3; margin-left: 10px; }
+  #t-down { order: 4; }
+}
