@@ -8,6 +8,8 @@ import { buildVehicleModel } from '../vehicle/models.js';
 const FILL_X = 0.86, FILL_Y = 0.78;
 
 let cache = null;
+// Forget the pictures, for when a car's model arrives after they were drawn.
+export function resetCarThumbs() { cache = null; }
 export function carThumbs(kinds, w = 960, h = 600) {
   if (cache) return cache;
   cache = {};

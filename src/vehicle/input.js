@@ -152,6 +152,9 @@ export class Input {
     return s;
   }
   get handbrake() { return this.enabled && this.keys.has('shift'); }
+  // On foot: Space (or a slide up from Go) jumps; Shift walks instead of running.
+  get jump() { return this.enabled && (this.keys.has(' ') || this.touch.nitroSlide); }
+  get walk() { return this.enabled && this.keys.has('shift'); }
   // Helicopter collective: Space (or Up) climbs, Shift (or Down) descends.
   get lift() {
     if (!this.enabled) return 0;

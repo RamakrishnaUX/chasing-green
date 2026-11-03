@@ -1,8 +1,12 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 
-// Four vehicles, all built in code. Units are metres, +z is forward, the ground is y = 0.
+// Four vehicles. The 4x4 is built in code; the supercar, roadster and camper are models from
+// Sketchfab (see the end of this file), with code-built stand-ins while they load. Units are
+// metres, +z is forward, the ground is y = 0.
 
 const rbox = (w, h, d, r = 0.06, seg = 3) => new RoundedBoxGeometry(w, h, d, seg, Math.min(r, w / 2 - 1e-3, h / 2 - 1e-3, d / 2 - 1e-3));
 
@@ -663,7 +667,83 @@ function buildRace() {
   return { group: g, wheels, lightMat, tailMat, R, headlight: [0, 0.65, 2.2], exhaust: [0, 0.42, -2.42], camDist: 8.5, camHeight: 2.4, eye: 1.25 };
 }
 
+// ---------- Cars from Sketchfab ----------
+// The supercar ("Fictional supercar - V12 Goblin" by ollitei), the roadster ("Retro Car" by
+// pisarenok, after a 1930s Lincoln) and the camper ("Volkswagen Kombi Micro Bus" by winterborn),
+// all CC BY 4.0, prepared by tools/cars: facing +z, ground at y = 0, wheels as wheel_FL/FR/RL/RR
+// centred on their axles, lamps in materials named "lamp" and "tail". They load in the
+// background; until one arrives that car is the one built in code above.
+const GLB = {
+  // The supercar has no cabin of its own: it keeps the one built in code, moved to sit in this body.
+  race: { camDist: 8.5, camHeight: 2.4, eye: 1.25, rims: 0x2a2c30, cabinShift: 0.42 }, // painted body, dark wheels
+  vintage: { camDist: 10.5, camHeight: 3.3, eye: 2.0, cockpit: [0.38, 1.6, -0.15], hood: [0, 1.75, 1.0] },
+  camper: { camDist: 10.5, camHeight: 3.5, eye: 2.4, cockpit: [0.42, 1.42, 1.35], hood: [0, 1.95, 1.05] },
+};
+const loaded = {};
+// Plain float attributes: the files are packed (quantised), and merging and baking expect floats.
+function plain(g) {
+  for (const [k, a] of Object.entries(g.attributes)) {
+    if (a.array instanceof Float32Array && !a.isInterleavedBufferAttribute && !a.normalized) continue;
+    const out = new Float32Array(a.count * a.itemSize);
+    for (let i = 0; i < a.count; i++) for (let c = 0; c < a.itemSize; c++) out[i * a.itemSize + c] = a.getComponent(i, c);
+    g.setAttribute(k, new THREE.BufferAttribute(out, a.itemSize));
+  }
+  return g;
+}
+// Load every car; onLoad(kind) runs as each arrives, so the one in use can be rebuilt.
+export function loadCarModels(onLoad) {
+  const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
+  return Promise.all(Object.keys(GLB).map((kind) => loader.loadAsync(`${import.meta.env.BASE_URL}models/car_${kind}.glb`).then((g) => {
+    g.scene.updateMatrixWorld(true);
+    g.scene.traverse((o) => { if (!o.isMesh) return; o.geometry = plain(o.geometry.clone()); });
+    loaded[kind] = g.scene;
+    onLoad?.(kind);
+  }).catch((e) => console.warn('Car model did not load:', kind, e))));
+}
+
+function buildFromFile(kind) {
+  const C = GLB[kind], src = loaded[kind];
+  const g = new THREE.Group();
+  const lightMat = new THREE.MeshStandardMaterial({ color: 0xfff6e6, emissive: 0xfff2dc, emissiveIntensity: 0.6, roughness: 0.1 });
+  const tailMat = new THREE.MeshStandardMaterial({ color: 0x5a0c0c, emissive: 0xff1010, emissiveIntensity: 0.7, roughness: 0.2 });
+  const wheels = [];
+  let R = 0;
+  for (const part of src.children) {
+    const copy = part.clone(true);
+    copy.traverse((o) => {
+      if (!o.isMesh) return;
+      o.castShadow = true; o.receiveShadow = true;
+      const n = o.material.name;
+      if (n === 'lamp') o.material = lightMat;
+      else if (n === 'tail') o.material = tailMat;
+      else if (o.material.transparent) { o.material = o.material.clone(); o.material.depthWrite = false; o.material.userData.glass = true; }
+    });
+    const w = /^wheel_/.test(part.name);
+    if (!w) { g.add(copy); continue; }
+    if (C.rims) copy.traverse((o) => { if (o.isMesh && o.material.name === 'car_body') { o.material = o.material.clone(); o.material.color.set(C.rims); } });
+    // A wheel: a pivot on the axle (it steers) holding a spinning part.
+    const box = new THREE.Box3().setFromObject(copy);
+    const r = (box.max.y - box.min.y) / 2;
+    R += r / 4;
+    const pivot = new THREE.Group(); pivot.position.copy(part.position);
+    const spin = new THREE.Group();
+    copy.position.set(0, 0, 0);
+    spin.add(copy); pivot.add(spin); g.add(pivot);
+    wheels.push({ pivot, spin, front: part.position.z > 0, x: part.position.x, z: part.position.z });
+  }
+  // The order the car code expects: left front, right front, left rear, right rear.
+  wheels.sort((a, b) => (b.front - a.front) || (b.x - a.x));
+  for (const w of wheels) w.pivot.position.y = R;
+  const box = new THREE.Box3().setFromObject(g);
+  return {
+    group: g, wheels, lightMat, tailMat, R, glb: true, cockpit: C.cockpit, hood: C.hood, cabinShift: C.cabinShift || 0,
+    headlight: [0, (box.max.y - box.min.y) * 0.42, box.max.z - 0.15], exhaust: [0.42, 0.32, box.min.z + 0.05],
+    camDist: C.camDist, camHeight: C.camHeight, eye: C.eye,
+  };
+}
+
 export function buildVehicleModel(kind) {
+  if (loaded[kind]) return buildFromFile(kind);
   if (kind === 'vintage') return buildVintage();
   if (kind === 'race') return buildRace();
   if (kind === 'camper') return buildCamper();

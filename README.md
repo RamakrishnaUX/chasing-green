@@ -42,8 +42,9 @@ Push the repo to GitHub and import it in Vercel. Vercel detects Vite on its own,
 | Record a 15 second clip | R | Menu, Settings, Record |
 | Mute | U | Menu, Settings, Sound |
 | Nitro boost (on by default, can be turned off in Settings) | Space | Slide up from Go; the ring around Go shows the tank |
-| Sprint on foot (nitro from the backpack) | Hold Space while walking | Slide up from Go while walking |
-| Climb a rock or cliff (on foot) | Walk into it and keep going; back off to let go | Hold Go against it; Brake to let go |
+| Run on foot | WASD or arrow keys (he runs by default); hold Shift to walk | Go |
+| Jump on foot | Space | Slide up from Go |
+| Climb a rock or cliff (on foot) | Run into it and keep going; back off to let go | Hold Go against it; Brake to let go |
 | Refuel, or a tow when the tank is dry (fuel is on by default, can be turned off in Settings) | F, or the Refuel button | The Refuel button |
 
 There is no race and no timer. Nitro is a speed boost that is on by default; you can switch it off in Settings.
@@ -76,11 +77,19 @@ The interiors and the eye position for each view are built in `src/vehicle/inter
 | Car | Looks | Handling | Deepest water |
 | --- | --- | --- | --- |
 | Trail 4x4 | Four-door off-roader in lime green: seven-slot grille, round LED lamps, roll bar, tube doors, snorkel, winch with red strap, beadlock wheels on mud-terrain tyres | Balanced, best on gravel, mud and fords | 1.9 m |
-| Vintage roadster | 1930s two-seater in maroon and cream: long fenders, finned chrome radiator, spotlamps, side exhausts, wire wheels with whitewalls, cream leather, wood wheel | Slow and soft, with lots of body roll | 0.6 m |
-| Supercar | Low orange hypercar: carbon splitter and intake, side intakes, wide haunches, wraparound light strips, black multi-spoke wheels, tinted cabin | Fast and stiff, poor off-road | 0.3 m |
-| Camper van | Split-window camper, white over mint and 1.4 times the size of the other cars: wide raked windscreen, round lamps, louvred side window, white bumpers, mint wheels with white caps, and an AURORA graffiti piece in yellow, orange and pink over a violet burst down both sides, tagged "chasing green" | Slow and steady, fine on gravel | 1.0 m |
+| Vintage roadster | 1930s coupe in deep maroon and black: long wings with a spare on each, wire wheels, round lamps on stalks at the back, a wooden dash | Slow and soft, with lots of body roll | 0.6 m |
+| Supercar | Low orange hypercar with dark wheels, slashed lamps front and back, vents over the engine | Fast and stiff, poor off-road | 0.3 m |
+| Camper van | 1960s split-window bus in sky blue and white, seats for nine | Slow and steady, fine on gravel | 1.0 m |
 
-Handling lives in `src/vehicle/specs.js` (including suspension stiffness), and the models are built in code in `src/vehicle/models.js`. There are no brand logos; the 4x4 wears a plain "Trail" badge.
+Handling lives in `src/vehicle/specs.js` (including suspension stiffness). The 4x4 is built in code in `src/vehicle/models.js`; the other three are models from Sketchfab, loaded in the background (`public/models/car_*.glb`, 1.2 to 2.3 MB), with the old built-in models standing in until they arrive. There are no brand logos; the 4x4 wears a plain "Trail" badge, and the camper's maker's badge is cut off its nose.
+
+| Car | Model | By | Licence |
+| --- | --- | --- | --- |
+| Supercar | [Fictional supercar - V12 Goblin](https://sketchfab.com/3d-models/fictional-supercar-v12-goblin-0a20e49ad5774d778567cb5c3f345786), repainted orange | [ollitei](https://sketchfab.com/ollitei) | CC BY 4.0 |
+| Vintage roadster | [Retro Car](https://sketchfab.com/3d-models/retro-car-2836e72f327f4d6f9fe836d646496927) | [pisarenok](https://sketchfab.com/pisarenok) | CC BY 4.0 |
+| Camper van | [Volkswagen Kombi Micro Bus](https://sketchfab.com/3d-models/volkswagen-kombi-micro-bus-d34fd744db1c4f84ad40c854ddbff9e9), badge removed | [winterborn](https://sketchfab.com/winterborn) | CC BY 4.0 |
+
+`tools/cars/process.mjs <kind>` turns a download in `downloads/` into the game's file: it bakes every part into one car facing +z with the ground at y = 0, scales it to length, splits out the four wheels (by name, or cut out of the chassis around each axle where they are merged into it) so they spin and steer, moves the lamp lenses to "lamp" and "tail" materials the game lights at night, takes off badges, turns spec-gloss materials into metal-rough ones (the supercar's paint comes out of its specular map), and compresses it. The vintage car and camper bring their own cabins for the cockpit view; the supercar keeps the built-in one.
 
 ## Helicopter
 
@@ -219,7 +228,7 @@ Everything is generated in code. There are no image or model files.
 - **Waterfalls.** Curved, streaked water sheets that arc off the lip, a churning foam boil in the pool, wet dark rock and moss around them, and lit mist that drifts with the wind.
 - **Cloud shadows** drift over the land and grass, and each car has a soft contact shadow.
 - **Details.** Farms with red roofs, barns, fences and birch groves, weathered boulders, and glacier ice built as faceted crystals with hard edges. Farm windows light up after dark.
-- **The character** on foot is an articulated figure: hooded jacket, backpack, arms and legs with elbows and knees, a proper walk cycle and a sitting pose. On nitro the backpack burns like the car's exhausts (twin teal flames, streaks and sparks, no light of its own) and he breaks into a leaning sprint at about 38 km/h, with the camera dropping back and the view widening; the pack has its own tank, about four seconds full, refilling in ten. He climbs anything too steep to walk up, boulders, cliffs, sea stacks and basalt columns, hand over hand at 1.4 m/s (2.5 times that on nitro), pulls himself over the top, drops off ledges with arms out (a burning pack slows the fall to a glide) and lands with a crouch. The car is solid: he walks round it. He can roam 120 m from it.
+- **The character** on foot is a rigged man in a long dark coat ("Man In Coat - Human Rigged Model" by [Saitam](https://sketchfab.com/saitam_ha), [Sketchfab](https://sketchfab.com/3d-models/man-in-coat-human-rigged-model-cd71038373d5427099a7970f1a1af2df), CC BY 4.0), moving with motion-captured Mixamo clips: idle, walk, run, jump and kneel, taken from "ETB Animated" by [Royaleyourdad](https://sketchfab.com/royaleyourdad) ([Sketchfab](https://sketchfab.com/3d-models/etb-animated-use-animation-dropdown-to-see-all-6795caee22124716bab954326306d3e3), CC BY 4.0). Both rigs are Mixamo's, so `tools/person/process.mjs` points the clips at his bones by name, scales the hips to his height and holds them in place (`public/models/person.glb`, 1.1 MB). He runs by default at about 20 km/h, walks with Shift held, and Space is a small standing hop; the walk and run blend by speed and play at his pace, and the camera drops back a little as he runs. He climbs anything too steep to walk up, boulders, cliffs, sea stacks and basalt columns, at 1.4 m/s, reaching hand over hand, pulls himself over the top, drops off ledges and lands with a crouch. The car is solid: he runs round it. He can roam 120 m from it.
 - **Post-processing** (medium and high quality). Subtle bloom for the sun, headlights and aurora, then a light colour grade, vignette and film grain.
 
 ### Realistic look (desktop)
@@ -329,9 +338,9 @@ src/
     aurora.js        raymarched curtain shader on a sky dome
   vehicle/
     jeep.js          jeep model and driving physics
-    walker.js        step-out character
+    walker.js        step-out character: moving, climbing and mixing his clips
     heli.js          the helicopter: model, flight, landing, cockpit controls and displays
-    models.js        the three car models, built in code
+    models.js        the 4x4 built in code, the other cars loaded from their files (with built-in stand-ins)
     interiors.js     dashboards, wheels and dials for the cockpit view, plus each car's hood and cockpit eye
     specs.js         handling, wading depth and nitro for each car
     fuel.js          each car's tank and how fast it burns

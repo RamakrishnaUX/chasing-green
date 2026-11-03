@@ -145,8 +145,17 @@ function race() {
     views: { cockpit: { eye: [0.3, 0.99, -0.32], fov: 72, pitch: -0.04 }, hood: { eye: [0, 1.2, 0.82], fov: 66, pitch: -0.06 } } };
 }
 
+// A car from a model file with a cabin of its own needs nothing built: just where the eye sits.
+function modelCabin(model) {
+  return { group: new THREE.Group(), steer: null, needles: { speed: new THREE.Object3D(), rev: new THREE.Object3D() }, draw: () => {}, closed: true,
+    views: { cockpit: { eye: model.cockpit, fov: 72, pitch: -0.1 }, hood: { eye: model.hood, fov: 66, pitch: -0.08 } } };
+}
+
 export function buildInterior(kind, model) {
+  if (model.glb && model.cockpit) return modelCabin(model);
   const i = kind === 'vintage' ? vintage(model) : kind === 'camper' ? camper() : kind === 'race' ? race() : jeep();
+  // A model body with the built cabin moved along to fit it.
+  if (model.cabinShift) { i.group.position.z += model.cabinShift; for (const v of Object.values(i.views)) v.eye = [v.eye[0], v.eye[1], v.eye[2] + model.cabinShift]; }
   i.group.traverse((o) => { if (o.isMesh) o.castShadow = false; });
   return i;
 }
