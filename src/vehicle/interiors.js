@@ -133,7 +133,10 @@ function race() {
   dash(g, carbon, 0.42, 0.08, 0.16, 0.3, 0.86, 0.35);
   const needles = dials(g, { x: 0.3, y: 0.86, z: 0.26, r: 0.05, gap: 0.13 });
   const draw = radio(g, { x: -0.05, y: 0.82, z: 0.32, tilt: -0.3, w: 0.16, h: 0.055 });
-  const steer = wheel(g, { x: 0.3, y: 0.8, z: 0.05, tilt: 0.25, r: 0.15, spokes: 3, rim: alcantara, hub: orange });
+  // The wheel shows from outside as well (the rest of this cabin only from inside), so the
+  // driver seen through the glass has something in his hands.
+  const outside = new THREE.Group();
+  const steer = wheel(outside, { x: 0.3, y: 0.8, z: 0.05, tilt: 0.25, r: 0.15, spokes: 3, rim: alcantara, hub: orange });
   // Low roof, door cards and a bulkhead behind the seats.
   dash(g, alcantara, 1.3, 0.03, 0.7, 0, 1.12, -0.3);
   for (const sx of [-1, 1]) {
@@ -141,8 +144,7 @@ function race() {
     const pil = dash(g, carbon, 0.06, 0.05, 0.7, sx * 0.62, 0.97, 0.45, 0.62); pil.rotation.z = sx * 0.12; // A pillar along the windscreen
   }
   dash(g, alcantara, 1.4, 0.6, 0.05, 0, 0.88, -0.62);
-  // The driver lies well back under the low roof, legs out straight.
-  return { group: g, steer, needles, draw, closed: true, seat: { up: 0.1, back: 0.36, lean: 0.6, legDown: 0.12, legOut: 0.85 },
+  return { group: g, outside, steer, needles, draw, closed: true,
     views: { cockpit: { eye: [0.3, 0.99, -0.32], fov: 72, pitch: -0.04 }, hood: { eye: [0, 1.2, 0.82], fov: 66, pitch: -0.06 } } };
 }
 
@@ -157,8 +159,8 @@ export function buildInterior(kind, model) {
   if (model.glb && model.cockpit) return modelCabin(model);
   const i = kind === 'vintage' ? vintage(model) : kind === 'camper' ? camper() : kind === 'race' ? race() : jeep();
   // A model body with the built cabin moved along to fit it.
-  if (model.cabinShift) { i.group.position.z += model.cabinShift; for (const v of Object.values(i.views)) v.eye = [v.eye[0], v.eye[1], v.eye[2] + model.cabinShift]; }
-  i.group.traverse((o) => { if (o.isMesh) o.castShadow = false; });
+  if (model.cabinShift) { i.group.position.z += model.cabinShift; if (i.outside) i.outside.position.z += model.cabinShift; for (const v of Object.values(i.views)) v.eye = [v.eye[0], v.eye[1], v.eye[2] + model.cabinShift]; }
+  for (const grp of [i.group, i.outside]) grp?.traverse((o) => { if (o.isMesh) o.castShadow = false; });
   return i;
 }
 

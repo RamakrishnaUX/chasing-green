@@ -685,12 +685,12 @@ function buildRace() {
 // mirrors: boxes around the glass of the left wing mirror (the right one is found by symmetry)
 // and, with centre, of a rear-view mirror; see cutMirrors.
 const GLB = {
-  jeep: { scale: 1.19, camDist: 9.2, camHeight: 3.1, eye: 1.9, cockpit: [0.3, 1.62, -0.55], hood: [0, 1.62, 0.5], seat: { up: 0.3, back: 0.3 }, mirrors: [{ min: [0.64, 1.23, 0.16], max: [0.81, 1.4, 0.22] }] }, // open-topped: a wide sky from the seat
+  jeep: { scale: 1.25, camDist: 9.5, camHeight: 3.2, eye: 2.0, cockpit: [0.3, 1.62, -0.55], hood: [0, 1.62, 0.5], mirrors: [{ min: [0.64, 1.23, 0.16], max: [0.81, 1.4, 0.22] }] }, // open-topped: a wide sky from the seat
   // The supercar has no cabin of its own: it keeps the one built in code, moved to sit in this body.
   race: { camDist: 8.5, camHeight: 2.4, eye: 1.25, rims: 0x2a2c30, cabinShift: 0.42 }, // painted body, dark wheels
-  vintage: { scale: 0.84, camDist: 8.8, camHeight: 2.9, eye: 1.7, cockpit: [0.38, 1.6, -0.15], hood: [0, 1.75, 1.0], seat: { up: 0.22, back: 0.3, lean: 0.18 }, mirrors: [{ min: [0.62, 1.33, 0.63], max: [0.78, 1.49, 0.7] }] },
+  vintage: { scale: 1, camDist: 9.6, camHeight: 3.2, eye: 2.0, cockpit: [0.38, 1.6, -0.15], pitch: -0.26, hood: [0, 1.75, 1.0], mirrors: [{ min: [0.62, 1.33, 0.63], max: [0.78, 1.49, 0.7] }] },
   // Its cab is mirrored to left-hand drive (tools/cars); the seat is behind the wheel, looking down a little to show it.
-  camper: { scale: 1.4, camDist: 8.8, camHeight: 3.7, eye: 3.2, cockpit: [0.28, 1.46, 1.18], pitch: -0.14, hood: [0, 1.95, 1.05], seat: { up: 0.4, back: 0.26, chest: 0.25, lap: 0.12 },
+  camper: { scale: 1.4, camDist: 8.8, camHeight: 3.7, eye: 3.2, cockpit: [0.28, 1.46, 1.18], pitch: -0.14, hood: [0, 1.95, 1.05], seat: { chest: 0.25 },
     mirrors: [{ min: [0.74, 1.19, 1.63], max: [0.9, 1.34, 1.7] }, { min: [-0.07, 1.48, 1.52], max: [0.07, 1.57, 1.56], centre: true }] },
 };
 const loaded = {};

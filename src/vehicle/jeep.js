@@ -87,6 +87,7 @@ export class Jeep {
     if (this.interior.steer) this.interior.steer.userData.dynamic = true;
     bakeStatic(this.interior.group);
     this.body.add(this.interior.group);
+    if (this.interior.outside) this.body.add(this.interior.outside); // parts seen from outside too
     this.glass = [];
     this.body.traverse((o) => { const m = o.material; if (m?.userData?.glass && !this.glass.includes(m)) { m.userData.opacity ??= m.opacity; this.glass.push(m); } });
     this.setView(this.view || 'chase');
