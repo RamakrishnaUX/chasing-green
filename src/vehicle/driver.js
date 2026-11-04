@@ -9,6 +9,9 @@
 //   on from the forearm; the fingers then close round the rim. The twist from forearm to hand
 //   is mostly taken by the forearm, as a real one does, so the wrist does not wring.
 // - The hands turn with the wheel and, past about 70 degrees, slide on it rather than cross.
+// He is drawn at the scale of the car he drives (the cars are scaled up from their models'
+// own, roughly true, sizes to set them against each other; he grows with them, so he keeps
+// his proportions to the car). All the distances below follow his size.
 // He is seen from outside the car; from the driver's seat (the camera is where his eyes are)
 // he is not drawn.
 import * as THREE from 'three';
@@ -106,7 +109,7 @@ export class Driver {
 
   // Where he sits in this car (in the car's frame): found once per car by casting rays from
   // behind the wheel down onto the cushion, back onto the backrest and down to the floor.
-  seatOf(car, hub) {
+  seatOf(car, hub, size) {
     const body = car.body, meshes = [];
     body.traverse((o) => {
       if (!o.isMesh || this.group.getObjectById(o.id) || car.interior.steer.getObjectById(o.id)) return;
@@ -157,9 +160,11 @@ export class Driver {
       const r = cast(new THREE.Vector3(hub.x, cushion.y + 0.3, z), new THREE.Vector3(0, 1, 0), (p) => p.y > cushion.y + 0.45);
       roof.push([z, r ? r.y : Infinity]);
     }
+    // The front of the footwell: the first wall ahead at ankle height.
+    const front = cast(new THREE.Vector3(hub.x, floorY + 0.12 * size, (cushion ? cushion.z : hub.z - 0.5)), new THREE.Vector3(0, 0, 1), (p, n) => n.z < -0.3);
     return {
-      cushion, back, roof,
-      hip: cushion ? new THREE.Vector3(hub.x, cushion.y + 0.03, back ? Math.min(back.z + 0.15, hub.z - 0.32) : cushion.z) : null,
+      cushion, back, roof, front: front ? front.z : Infinity,
+      hip: cushion ? new THREE.Vector3(hub.x, cushion.y + 0.03 * size, back ? Math.min(back.z + 0.15 * size, hub.z - 0.32 * size) : cushion.z) : null,
       floor: floorY,
     };
   }
@@ -174,6 +179,9 @@ export class Driver {
     if (!show) return;
     const bone = this.bone, body = car.body, mount = steer.parent;
     const cfg = { lean: null, ...(i.seat || {}) };
+    // His size: the car's own scale (see the top).
+    const size = (car.model.size ?? car.model.scale ?? 1) * (cfg.size ?? 1);
+    this.group.scale.setScalar(size);
     for (const [o, q] of this.rest) o.quaternion.copy(q);
     body.updateWorldMatrix(true, false);
     const hubL = body.worldToLocal(wpos(mount));
@@ -183,7 +191,7 @@ export class Driver {
       const z = steer.rotation.z; steer.rotation.z = 0; steer.updateMatrixWorld(true);
       this.rimR = Math.max(0.12, new THREE.Box3().setFromObject(steer, true).getSize(V()).x * 0.45);
       steer.rotation.z = z; steer.updateMatrixWorld(true);
-      this.seat = this.seatOf(car, hubL);
+      this.seat = this.seatOf(car, hubL, size);
     }
     const toW = (x, y, z) => new THREE.Vector3(x, y, z).transformDirection(body.matrixWorld);
     const R = this.rimR, hub = wpos(mount), col = new THREE.Vector3(0, 0, 1).applyQuaternion(wquat(mount));
@@ -197,13 +205,13 @@ export class Driver {
     // then leans in.
     const hip0 = this.seat.hip || new THREE.Vector3(hubL.x, hubL.y - 0.35, hubL.z - 0.5), hipL = hip0.clone();
     const place = (lean, fwd = 0) => {
-      hipL.copy(hip0).z += fwd;
+      hipL.copy(hip0).z += fwd * size;
       for (const o of [bone.Hips, bone.Neck]) o.quaternion.copy(this.rest.get(o));
       this.group.position.set(0, 0, 0); this.group.updateMatrixWorld(true);
       bone.Hips.quaternion.premultiply(_q.setFromAxisAngle(X, -lean));
       bone.Neck.quaternion.premultiply(_q.setFromAxisAngle(X, lean * 0.8));
       this.group.updateMatrixWorld(true);
-      const h = this.group.worldToLocal(wpos(bone.Hips));
+      const h = this.group.worldToLocal(wpos(bone.Hips)).multiplyScalar(size);
       this.group.position.set(hipL.x - h.x, hipL.y - h.y, hipL.z - h.z);
       this.group.updateMatrixWorld(true);
     };
@@ -211,7 +219,7 @@ export class Driver {
     // headroom (the top of his cap under the roof).
     const short = () => {
       let m = 0;
-      for (const s of ['Left', 'Right']) m += Math.max(0, wpos(bone[s + 'Arm']).distanceTo(rimPoint(grips0[s])) - this.armLen * 1.04);
+      for (const s of ['Left', 'Right']) m += Math.max(0, wpos(bone[s + 'Arm']).distanceTo(rimPoint(grips0[s])) - this.armLen * size * 1.04);
       // The roof over his head (his cap is about 10 cm across).
       const top = body.worldToLocal(wpos(bone.HeadTop_End));
       let over = Infinity;
@@ -236,10 +244,10 @@ export class Driver {
     place(...this.pose);
     this.lean = this.pose[0];
 
-    // Legs: thighs along the seat, feet on the floor in front.
+    // Legs: thighs along the seat, feet on the floor in front (short of the footwell's front).
     for (const s of ['Left', 'Right']) {
       const hip = body.worldToLocal(wpos(bone[s + 'UpLeg']));
-      const foot = body.localToWorld(new THREE.Vector3(hip.x, this.seat.floor + 0.09, hip.z + 0.62));
+      const foot = body.localToWorld(new THREE.Vector3(hip.x, this.seat.floor + 0.09 * size, Math.min(hip.z + 0.62 * size, this.seat.front - 0.29 * size)));
       reach(bone[s + 'UpLeg'], bone[s + 'Leg'], bone[s + 'Foot'], foot, toW(0, 1, 0.5));
       aim(bone[s + 'Foot'], bone[s + 'ToeBase'], toW(0, -0.25, 1));
     }
@@ -262,7 +270,7 @@ export class Driver {
         P.crossVectors(tangent, F); P.addScaledVector(F, -P.dot(F)).normalize();
         const thumb = s === 'Left' ? V().crossVectors(P, F) : V().crossVectors(F, P);
         if (thumb.dot(up) < 0) P.negate();
-        wrist.copy(G).addScaledVector(F, -0.075).addScaledVector(P, -0.032);
+        wrist.copy(G).addScaledVector(F, -0.075 * size).addScaledVector(P, -0.032 * size);
         this.miss[s] = +reach(bone[s + 'Arm'], bone[s + 'ForeArm'], bone[s + 'Hand'], wrist, toW(out * 0.8, -1, -0.3)).toFixed(3);
         d = wpos(bone[s + 'Hand']).sub(wpos(bone[s + 'ForeArm'])).normalize();
       }

@@ -819,7 +819,7 @@ function buildFromFile(kind) {
   for (const w of wheels) w.pivot.position.y = R;
   const box = new THREE.Box3().setFromObject(g);
   return {
-    group: g, wheels, lightMat, tailMat, R, glb: true, steer, seat: C.seat, mirrors: !!C.mirrors, cockpit: C.cockpit?.map((v) => v * (C.scale || 1)), cockpitPitch: C.pitch, hood: C.hood?.map((v) => v * (C.scale || 1)), cabinShift: C.cabinShift || 0,
+    group: g, wheels, lightMat, tailMat, R, glb: true, steer, seat: C.seat, size: C.scale || 1, mirrors: !!C.mirrors, cockpit: C.cockpit?.map((v) => v * (C.scale || 1)), cockpitPitch: C.pitch, hood: C.hood?.map((v) => v * (C.scale || 1)), cabinShift: C.cabinShift || 0,
     headlight: [0, (box.max.y - box.min.y) * 0.42, box.max.z - 0.15], exhaust: [0.42, 0.32, box.min.z + 0.05],
     camDist: C.camDist, camHeight: C.camHeight, eye: C.eye,
   };
