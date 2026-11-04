@@ -66,7 +66,7 @@ On both maps you are a blue arrow with a white rim and a pulsing halo (and a "Yo
 
 - **Chase**: the camera behind the car.
 - **Hood**: low on the bonnet.
-- **Cockpit**: the driver's seat, with a modelled interior for each car. The steering wheel turns with your steering, the speed and rev needles move, the radio shows the track that is playing, and the screen edges glow when you boost. Drag to look around the cabin; the view drifts back to the road as you drive. The windscreen clears in this view.
+- **Cockpit**: the driver's seat, with a modelled interior for each car. The steering wheel turns with your steering, the speed and rev needles move, the radio shows the track that is playing, and the screen edges glow when you boost. Drag to look around the cabin; the view drifts back to the road as you drive. The windscreen clears in this view. The wing mirrors (and the camper's rear-view mirror) show the road behind, live: a small camera looks back from your seat, and each pixel of the glass looks up where a ray from your eye bounces to, so the left mirror shows behind-left, the right one behind-right, the right way round as you look around. The glass is aimed at the driver's eye like real mirrors and the wing mirrors are slightly convex. Phones draw it smaller, every other frame and without grass.
 
 The interiors and the eye position for each view are built in `src/vehicle/interiors.js`.
 
@@ -90,7 +90,7 @@ Handling lives in `src/vehicle/specs.js` (including suspension stiffness). All f
 | Vintage roadster | [Retro Car](https://sketchfab.com/3d-models/retro-car-2836e72f327f4d6f9fe836d646496927) | [pisarenok](https://sketchfab.com/pisarenok) | CC BY 4.0 |
 | Camper van | [Volkswagen Kombi Micro Bus](https://sketchfab.com/3d-models/volkswagen-kombi-micro-bus-d34fd744db1c4f84ad40c854ddbff9e9), badge removed, cab mirrored to left-hand drive | [winterborn](https://sketchfab.com/winterborn) | CC BY 4.0 |
 
-`tools/cars/process.mjs <kind>` turns a download in `downloads/` into the game's file: it bakes every part into one car facing +z with the ground at y = 0, scales it to length, splits out the four wheels (by name, or, where they are merged into the chassis, cut out of it around each axle, taking only pieces wholly inside a wheel so the arches stay on the body) so they spin and steer, moves the lamp lenses to "lamp" and "tail" materials the game lights at night, takes off badges, mirrors a right-hand-drive cab (the camper's) so the wheel sits in front of the left-hand seat the game drives from, cuts the steering wheel out as a part of its own (its rim fitted with a plane to find the centre and the column's line) so it turns with the steering, thins dense models, makes part-metal paint matte and recolours it (the 4x4's brown, rusty olive becomes a flat olive drab, its muddy tyres dark rubber), turns spec-gloss materials into metal-rough ones (the supercar's paint comes out of its specular map), and compresses it. The 4x4, vintage car and camper bring their own cabins for the cockpit view; the supercar keeps the built-in one. Every steering wheel turns with the steering, in every view (the open 4x4's shows from outside too).
+`tools/cars/process.mjs <kind>` turns a download in `downloads/` into the game's file: it bakes every part into one car facing +z with the ground at y = 0, scales it to length, splits out the four wheels (by name, or, where they are merged into the chassis, cut out of it around each axle, taking only pieces wholly inside a wheel so the arches stay on the body) so they spin and steer, moves the lamp lenses to "lamp" and "tail" materials the game lights at night, takes off badges, mirrors a right-hand-drive cab (the camper's) so the wheel sits in front of the left-hand seat the game drives from, cuts the steering wheel out as a part of its own (its rim fitted with a plane to find the centre and the column's line) so it turns with the steering, thins dense models, makes part-metal paint matte and recolours it (the 4x4's brown, rusty olive becomes a flat olive drab, its muddy tyres dark rubber), turns spec-gloss materials into metal-rough ones (the supercar's paint comes out of its specular map), and compresses it. The 4x4, vintage car and camper bring their own cabins for the cockpit view; the supercar keeps the built-in one. Every steering wheel turns with the steering, in every view (the open 4x4's shows from outside too). The mirror glass is cut out when a car loads (`mirrors` boxes in `models.js`: the backward-facing triangles inside them).
 
 ## Helicopter
 
@@ -343,6 +343,7 @@ src/
     heli.js          the helicopter: model, flight, landing, cockpit controls and displays
     models.js        the cars, loaded from their files, with stand-ins built in code
     interiors.js     dashboards, wheels and dials for the cockpit view, plus each car's hood and cockpit eye
+    mirrors.js       live wing and rear-view mirrors for the cockpit view
     specs.js         handling, wading depth and nitro for each car
     fuel.js          each car's tank and how fast it burns
     input.js         keyboard, touch buttons, drag to look

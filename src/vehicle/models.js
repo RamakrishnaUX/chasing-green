@@ -3,6 +3,7 @@ import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeom
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+import { mirrorMaterial } from './mirrors.js';
 
 // Four vehicles, all models from Sketchfab (see the end of this file), with code-built stand-ins
 // while they load. Units are metres, +z is forward, the ground is y = 0.
@@ -673,13 +674,17 @@ function buildRace() {
 // centred on their axles, lamps in materials named "lamp" and "tail", and (where the car brings
 // its own cabin) the steering wheel as "steer", +z along its column. They load in the
 // background; until one arrives that car is the one built in code above.
+//
+// mirrors: boxes around the glass of the left wing mirror (the right one is found by symmetry)
+// and, with centre, of a rear-view mirror; see cutMirrors.
 const GLB = {
-  jeep: { camDist: 8, camHeight: 2.7, eye: 1.6, cockpit: [0.3, 1.62, -0.55], hood: [0, 1.62, 0.5] }, // open-topped: a wide sky from the seat
+  jeep: { camDist: 8, camHeight: 2.7, eye: 1.6, cockpit: [0.3, 1.62, -0.55], hood: [0, 1.62, 0.5], mirrors: [{ min: [0.64, 1.23, 0.16], max: [0.81, 1.4, 0.22] }] }, // open-topped: a wide sky from the seat
   // The supercar has no cabin of its own: it keeps the one built in code, moved to sit in this body.
   race: { camDist: 8.5, camHeight: 2.4, eye: 1.25, rims: 0x2a2c30, cabinShift: 0.42 }, // painted body, dark wheels
-  vintage: { camDist: 10.5, camHeight: 3.3, eye: 2.0, cockpit: [0.38, 1.6, -0.15], hood: [0, 1.75, 1.0] },
+  vintage: { camDist: 10.5, camHeight: 3.3, eye: 2.0, cockpit: [0.38, 1.6, -0.15], hood: [0, 1.75, 1.0], mirrors: [{ min: [0.62, 1.33, 0.63], max: [0.78, 1.49, 0.7] }] },
   // Its cab is mirrored to left-hand drive (tools/cars); the seat is behind the wheel, looking down a little to show it.
-  camper: { camDist: 10.5, camHeight: 3.5, eye: 2.4, cockpit: [0.28, 1.46, 1.18], pitch: -0.14, hood: [0, 1.95, 1.05] },
+  camper: { camDist: 10.5, camHeight: 3.5, eye: 2.4, cockpit: [0.28, 1.46, 1.18], pitch: -0.14, hood: [0, 1.95, 1.05],
+    mirrors: [{ min: [0.74, 1.19, 1.63], max: [0.9, 1.34, 1.7] }, { min: [-0.07, 1.48, 1.52], max: [0.07, 1.57, 1.56], centre: true }] },
 };
 const loaded = {};
 // Plain float attributes: the files are packed (quantised), and merging and baking expect floats.
@@ -692,12 +697,61 @@ function plain(g) {
   }
   return g;
 }
+// Cut the mirror glass out of a loaded car: the triangles in each box that face backwards move
+// into one mesh named "mirror", in the car's own frame, drawn with the mirror material. Each
+// mirror's normals are aimed from the driver's eye to just outside straight back (straight back
+// for the rear-view mirror) and spread from its middle, so the wing mirrors are a little convex.
+const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3(), _n = new THREE.Vector3(), _e = new THREE.Vector3();
+function cutMirrors(root, C) {
+  if (!C.mirrors) return;
+  const boxes = [];
+  for (const m of C.mirrors) {
+    boxes.push({ box: new THREE.Box3(new THREE.Vector3(...m.min), new THREE.Vector3(...m.max)), side: m.centre ? 0 : 1, pts: [] });
+    if (!m.centre) boxes.push({ box: new THREE.Box3(new THREE.Vector3(-m.max[0], m.min[1], m.min[2]), new THREE.Vector3(-m.min[0], m.max[1], m.max[2])), side: -1, pts: [] });
+  }
+  root.traverse((o) => {
+    if (!o.isMesh) return;
+    const g = o.geometry, P = g.attributes.position, idx = g.index?.array, count = idx ? idx.length : P.count;
+    const flip = o.matrixWorld.determinant() < 0, keep = [];
+    let cut = 0;
+    for (let t = 0; t < count; t += 3) {
+      const i0 = idx ? idx[t] : t, i1 = idx ? idx[t + 1] : t + 1, i2 = idx ? idx[t + 2] : t + 2;
+      _a.fromBufferAttribute(P, i0).applyMatrix4(o.matrixWorld);
+      _b.fromBufferAttribute(P, flip ? i2 : i1).applyMatrix4(o.matrixWorld);
+      _c.fromBufferAttribute(P, flip ? i1 : i2).applyMatrix4(o.matrixWorld);
+      _e.copy(_a).add(_b).add(_c).divideScalar(3);
+      const b = boxes.find((x) => x.box.containsPoint(_e));
+      _n.subVectors(_b, _a).cross(_e.subVectors(_c, _a));
+      if (!b || _n.lengthSq() === 0 || _n.normalize().z > -0.5) { keep.push(i0, i1, i2); continue; }
+      b.pts.push(_a.clone(), _b.clone(), _c.clone());
+      cut++;
+    }
+    if (cut) g.setIndex(keep);
+  });
+  const pos = [], nor = [], eye = new THREE.Vector3(...C.cockpit), mid = new THREE.Vector3(), aim = new THREE.Vector3(), d = new THREE.Vector3();
+  for (const b of boxes) {
+    if (!b.pts.length) continue;
+    mid.set(0, 0, 0); for (const p of b.pts) mid.add(p); mid.divideScalar(b.pts.length);
+    // The half-way normal between "towards the eye" and "where it should look" bounces one into the other.
+    aim.set(b.side * 0.2, -0.05, -1).normalize().add(_e.subVectors(eye, mid).normalize()).normalize();
+    const spread = b.side ? 1.5 : 0.6;
+    for (const p of b.pts) { pos.push(p.x, p.y, p.z); d.subVectors(p, mid).multiplyScalar(spread).add(aim).normalize(); nor.push(d.x, d.y, d.z); }
+  }
+  if (!pos.length) return;
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  const mesh = new THREE.Mesh(geo, mirrorMaterial());
+  mesh.name = 'mirror'; mesh.userData.mirror = true;
+  root.add(mesh);
+}
 // Load every car; onLoad(kind) runs as each arrives, so the one in use can be rebuilt.
 export function loadCarModels(onLoad) {
   const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
   return Promise.all(Object.keys(GLB).map((kind) => loader.loadAsync(`${import.meta.env.BASE_URL}models/car_${kind}.glb`).then((g) => {
     g.scene.updateMatrixWorld(true);
     g.scene.traverse((o) => { if (!o.isMesh) return; o.geometry = plain(o.geometry.clone()); });
+    cutMirrors(g.scene, GLB[kind]);
     loaded[kind] = g.scene;
     onLoad?.(kind);
   }).catch((e) => console.warn('Car model did not load:', kind, e))));
@@ -714,6 +768,7 @@ function buildFromFile(kind) {
     const copy = part.clone(true);
     copy.traverse((o) => {
       if (!o.isMesh) return;
+      if (o.userData.mirror) { o.castShadow = o.receiveShadow = false; return; }
       o.castShadow = true; o.receiveShadow = true;
       const n = o.material.name;
       if (n === 'lamp') o.material = lightMat;
@@ -747,7 +802,7 @@ function buildFromFile(kind) {
   for (const w of wheels) w.pivot.position.y = R;
   const box = new THREE.Box3().setFromObject(g);
   return {
-    group: g, wheels, lightMat, tailMat, R, glb: true, steer, cockpit: C.cockpit, cockpitPitch: C.pitch, hood: C.hood, cabinShift: C.cabinShift || 0,
+    group: g, wheels, lightMat, tailMat, R, glb: true, steer, mirrors: !!C.mirrors, cockpit: C.cockpit, cockpitPitch: C.pitch, hood: C.hood, cabinShift: C.cabinShift || 0,
     headlight: [0, (box.max.y - box.min.y) * 0.42, box.max.z - 0.15], exhaust: [0.42, 0.32, box.min.z + 0.05],
     camDist: C.camDist, camHeight: C.camHeight, eye: C.eye,
   };

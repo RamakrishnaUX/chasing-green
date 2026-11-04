@@ -33,6 +33,7 @@ import { updateInterior, turnWheel, trackTitle } from './vehicle/interiors.js';
 import { Walker } from './vehicle/walker.js';
 import { Heli } from './vehicle/heli.js';
 import { loadCarModels } from './vehicle/models.js';
+import { Mirrors } from './vehicle/mirrors.js';
 import { solidTopAt } from './world/solids.js';
 import { BoatWater } from './vehicle/boat.js';
 import { Wildlife, WILDLIFE_NOTES } from './world/wildlife.js';
@@ -80,6 +81,8 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = CONFIG.exposure ?? 0.95;
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(52, innerWidth / innerHeight, 0.4, Q.far || 3200);
+// The wing and rear-view mirrors, live from the driver's seat (a smaller, slower picture on phones).
+const mirrors = new Mirrors({ small: isTouch });
 addEventListener('resize', () => {
   renderer.setSize(innerWidth, innerHeight, false);
   camera.aspect = innerWidth / innerHeight;
@@ -1545,6 +1548,7 @@ function frame(now) {
     });
   }
 
+  mirrors.update(renderer, scene, camera, jeep.body, started && mode === 'chase' && driveView === 'cockpit' && !!jeep.model.mirrors);
   if (post) post.render(t, (lastPostState = { aurora: auroraVisSmoothed, dark }));
   else renderer.render(scene, camera);
   if (captureRequest) { const cb = captureRequest; captureRequest = null; cb(renderer.domElement.toDataURL('image/jpeg', 0.88)); }
@@ -1640,7 +1644,7 @@ requestAnimationFrame(() => setTimeout(async () => {
 
 // Handy for tuning from the browser console.
 window.chasingGreen = {
-  clock, forecast, CONFIG, store, linkFor, scene, renderer, camera, setVehicle, fastTravel, input,
+  clock, forecast, CONFIG, store, linkFor, scene, renderer, camera, mirrors, setVehicle, fastTravel, input,
   get obstacles() { return obstacles; }, get scene() { return scene; }, Vec3: THREE.Vector3, get puddles() { return puddles; }, get mapUI() { return mapUI; }, get snow() { return snow; },
   nearestRoad: (x, z, r) => nearestRoad(x, z, r), coastAt, roadDistAt, shoreDistAt, groundAt, solidTopAt, get wildlife() { return wildlife; },
   roadPaths: () => roadPaths, fuel, putCar, get stations() { return stations; },
