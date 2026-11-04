@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
-import { heightAt as terrainAt, deckAt, surfaceAt, roadDistAt, shoreDistAt, exposureAt, waterLevelAt, bridgeGuard, BOUNDS } from '../world/terrain.js';
+import { surfaceHeightAt, surfaceAt, roadDistAt, shoreDistAt, exposureAt, waterLevelAt, bridgeGuard, BOUNDS } from '../world/terrain.js';
 import { clamp, lerp } from '../world/noise.js';
 import { buildVehicleModel } from './models.js';
 import { VEHICLES, SURFACE_DRAG } from './specs.js';
@@ -17,7 +17,7 @@ import { buildBoatKit, stages } from './boat.js';
 // arch's opening does not lift the car onto the arch.
 let clearTop = null;
 function heightAt(x, z) {
-  const base = Math.max(deckAt(x, z) ?? -Infinity, terrainAt(x, z)), rock = solidTopAt(x, z, clearTop);
+  const base = surfaceHeightAt(x, z), rock = solidTopAt(x, z, clearTop);
   return rock > base && (clearTop == null || rock < clearTop - 1.2) ? rock : base;
 }
 
@@ -75,7 +75,7 @@ export class Jeep {
     this.kind = kind;
     this.spec = VEHICLES[kind];
     this.model = buildVehicleModel(kind);
-    if (HD.on) weatherCar(this.model.group);
+    if (HD.on && !this.model.glb) weatherCar(this.model.group); // the Sketchfab cars carry their own wear in their textures
     this.kit = buildBoatKit(this.model);
     // Wheels turn and steer; the rest of the body is merged into a few meshes.
     for (const w of this.model.wheels) w.pivot.userData.dynamic = true;

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { CONFIG } from '../config.js';
-import { groundAt as heightAt, waterLevelAt } from '../world/terrain.js';
+import { groundAt as heightAt, surfaceHeightAt, waterLevelAt } from '../world/terrain.js';
 import { clamp, lerp } from '../world/noise.js';
 
 // The person on foot: a man in a winter coat ("Man In Coat" by Saitam, CC BY 4.0, an Adobe Fuse
@@ -71,7 +71,7 @@ export class Walker {
   setSitting(on) { this.sitting = !!on; }
 
   // The ground on foot: terrain, landforms, and any rock or cliff there to stand on.
-  groundAt(x, z) { return Math.max(heightAt(x, z), this.obstacles ? this.obstacles.topAt(x, z) : -Infinity); }
+  groundAt(x, z) { return Math.max(heightAt(x, z), surfaceHeightAt(x, z), this.obstacles ? this.obstacles.topAt(x, z) : -Infinity); } // on a road, the tarmac drawn over the land
 
   update(dt, input, car, obstacles) {
     const radius = CONFIG.vehicle.walkRadius;

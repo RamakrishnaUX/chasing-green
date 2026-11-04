@@ -16,7 +16,10 @@ import fs from 'fs';
 
 const CARS = {
   // "Willy Jeep" by AnilG (CC BY 4.0), a 1940s Willys in olive drab. Its wheels are parts of their own.
+  // Its olive-brown, heavily rusted paint and part-metal finish read as tan in the game's light:
+  // repainted a flat olive drab.
   jeep: { src: 'downloads/willys/scene.glb', length: 3.6, lamps: /^Headlight$/, simplify: 0.4,
+    matte: /^(Jeep|Wheel|SpareTyre|Panel)$/, repaint: { re: /^(Jeep|Wheel|SpareTyre)$/, hue: 66, sat: 0.32 }, rubber: /^Tyre$/,
     wheels: { FL: /Front_LH/, FR: /Front_RH/, RL: /Rear_LH/, RR: /Rear_RH/ },
     // The two round lamps at the back corners.
     split: [{ mat: /^Jeep$/, box: { min: [0.54, 0.59, -1.74], max: [0.7, 0.73, -1.69] }, whole: true, to: 'tail' }, { mat: /^Jeep$/, box: { min: [-0.7, 0.59, -1.74], max: [-0.54, 0.73, -1.69] }, whole: true, to: 'tail' }] },
@@ -65,6 +68,17 @@ for (const node of root.listNodes()) {
   }
 }
 
+// The pieces of a primitive: runs of triangles joined at their corners (matched by position, as
+// a model's seams split its vertices). Gives each vertex's piece.
+const piecesOf = (p) => {
+  const pos = p.getAttribute('POSITION'), arr = p.getIndices().getArray(), v = [0, 0, 0];
+  const key = [], up = new Map();
+  for (let i = 0; i < pos.getCount(); i++) { pos.getElement(i, v); const k = v.map((x) => x.toFixed(4)).join(); key.push(k); up.set(k, k); }
+  const find = (a) => { while (up.get(a) !== a) { up.set(a, up.get(up.get(a))); a = up.get(a); } return a; };
+  for (let t = 0; t < arr.length; t += 3) { const a = find(key[arr[t]]); up.set(find(key[arr[t + 1]]), a); up.set(find(key[arr[t + 2]]), a); }
+  return (i) => find(key[i]);
+};
+
 // Wheels: by name, or cut out of the chassis around each axle.
 const wheelOf = {};
 if (C.wheels) {
@@ -76,14 +90,17 @@ if (C.wheels) {
     const p = part.prim, pos = p.getAttribute('POSITION'), idx = p.getIndices();
     if (!idx) continue;
     const arr = idx.getArray(), keep = [], into = Object.fromEntries(Object.keys(centres).map((k) => [k, []]));
-    const v = [0, 0, 0], c = [0, 0, 0];
-    for (let t = 0; t < arr.length; t += 3) {
-      c[0] = c[1] = c[2] = 0;
-      for (let j = 0; j < 3; j++) { pos.getElement(arr[t + j], v); c[0] += v[0] / 3; c[1] += v[1] / 3; c[2] += v[2] / 3; }
+    // A piece goes with a wheel only if all of it is inside that wheel's cylinder, so a wheel
+    // arch or mudguard reaching in round the tyre stays on the body instead of spinning.
+    const v = [0, 0, 0], piece = piecesOf(p), where = new Map();
+    for (let i = 0; i < pos.getCount(); i++) {
+      pos.getElement(i, v);
       let hit = null;
-      for (const [k, [x, z]] of Object.entries(centres)) if (Math.abs(c[0] - x) < width / 2 && Math.hypot(c[1] - (y0 + radius), c[2] - z) < radius * 1.08) hit = k;
-      (hit ? into[hit] : keep).push(arr[t], arr[t + 1], arr[t + 2]);
+      for (const [k, [x, z]] of Object.entries(centres)) if (Math.abs(v[0] - x) < width / 2 && Math.hypot(v[1] - (y0 + radius), v[2] - z) < radius * 1.1) hit = k;
+      const r = piece(i);
+      where.set(r, where.has(r) && where.get(r) !== hit ? null : hit);
     }
+    for (let t = 0; t < arr.length; t += 3) { const hit = where.get(piece(arr[t])); (hit ? into[hit] : keep).push(arr[t], arr[t + 1], arr[t + 2]); }
     if (keep.length === arr.length) continue;
     for (const [k, list] of Object.entries(into)) {
       if (!list.length) continue;
@@ -123,14 +140,9 @@ const inBox = (c, b) => c.every((v, i) => v >= b.min[i] && v <= b.max[i]);
 // Whether each triangle belongs to a piece (a run of triangles joined at their corners) lying
 // wholly inside a box.
 const wholly = (p, b) => {
-  const pos = p.getAttribute('POSITION'), arr = p.getIndices().getArray(), v = [0, 0, 0];
-  const key = [], up = new Map();
-  for (let i = 0; i < pos.getCount(); i++) { pos.getElement(i, v); const k = v.map((x) => x.toFixed(4)).join(); key.push(k); up.set(k, k); }
-  const find = (a) => { while (up.get(a) !== a) { up.set(a, up.get(up.get(a))); a = up.get(a); } return a; };
-  for (let t = 0; t < arr.length; t += 3) { const a = find(key[arr[t]]); up.set(find(key[arr[t + 1]]), a); up.set(find(key[arr[t + 2]]), a); }
-  const outside = new Set();
-  for (let i = 0; i < pos.getCount(); i++) { pos.getElement(i, v); if (!inBox(v, b)) outside.add(find(key[i])); }
-  return (t) => !outside.has(find(key[arr[t]]));
+  const pos = p.getAttribute('POSITION'), arr = p.getIndices().getArray(), v = [0, 0, 0], piece = piecesOf(p), outside = new Set();
+  for (let i = 0; i < pos.getCount(); i++) { pos.getElement(i, v); if (!inBox(v, b)) outside.add(piece(i)); }
+  return (t) => !outside.has(piece(arr[t]));
 };
 // Lamp lenses that share a material with something else (glass, or the front and rear lamps
 // together) move to a "lamp" or "tail" material of their own, chosen by where they sit: each
@@ -202,6 +214,38 @@ for (const m of root.listMaterials()) {
   m.getBaseColorTexture().setImage(await png(base)).setMimeType('image/png');
   m.setBaseColorFactor([1, 1, 1, 1]).setMetallicFactor(1).setRoughnessFactor(1);
   m.setMetallicRoughnessTexture(doc.createTexture('paint_mr').setImage(await png(mr)).setMimeType('image/png'));
+}
+// Matte: painted steel that a model makes part metal mirrors the game's bright sky and snow and
+// reads as bare tan metal; it becomes flat paint, keeping its roughness map.
+for (const m of root.listMaterials()) if (C.matte?.test(m.getName())) m.setMetallicFactor(0).setRoughnessFactor(Math.max(m.getRoughnessFactor(), 0.8));
+// Repaint: the browns in a texture (paint, mud and rust) turned to one paint colour, keeping its
+// light and wear; rust is mostly painted over and darkened, a little left showing. Greys, the
+// white star and lettering, and black are left alone.
+const hsl = (r, g, b) => { const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2, d = mx - mn; if (!d) return [0, 0, l]; let h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; h *= 60; return [h < 0 ? h + 360 : h, d / (1 - Math.abs(2 * l - 1)), l]; };
+const rgb = (h, s, l) => { const c = (1 - Math.abs(2 * l - 1)) * s, x = c * (1 - Math.abs(((h / 60) % 2) - 1)), m = l - c / 2, [r, g, b] = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : [0, c, x]; return [r + m, g + m, b + m]; };
+const step = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+const repainted = new Set();
+for (const m of root.listMaterials()) {
+  const t = C.repaint?.re.test(m.getName()) && m.getBaseColorTexture();
+  if (!t || repainted.has(t)) continue;
+  repainted.add(t);
+  const { data, info } = await sharp(t.getImage()).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  const { hue, sat } = C.repaint;
+  for (let i = 0; i < data.length; i += 4) {
+    const [h, s, l] = hsl(data[i] / 255, data[i + 1] / 255, data[i + 2] / 255);
+    if (s < 0.12 || l < 0.04 || l > 0.85 || h > 100 || h < 5) continue;
+    const rust = 1 - step(28, 42, h), k = step(0.12, 0.25, s) * (1 - rust * 0.25);
+    const [r, g, b] = rgb(h + (hue - h) * k, s + (Math.min(sat, s * 0.8) - s) * k, l * (1 - rust * 0.3 * k));
+    data[i] = r * 255; data[i + 1] = g * 255; data[i + 2] = b * 255;
+  }
+  t.setImage(await sharp(data, { raw: info }).png().toBuffer()).setMimeType('image/png');
+}
+// Rubber caked in orange mud: most of the colour taken out, a little darker.
+for (const m of root.listMaterials()) {
+  const t = C.rubber?.test(m.getName()) && m.getBaseColorTexture();
+  if (!t || repainted.has(t)) continue;
+  repainted.add(t);
+  t.setImage(await sharp(t.getImage()).modulate({ saturation: 0.3, brightness: 0.85 }).png().toBuffer()).setMimeType('image/png');
 }
 
 await doc.transform(prune(), dedup(), weld(),

@@ -345,6 +345,19 @@ function nearBridge(x, z, pad = 0) {
 // What wheels and boots stand on: the land, a bridge deck, or a landmark landform on top.
 // clear: the top of whatever is asking, so it can pass beneath an arch (see solidTopAt).
 export function groundAt(x, z, clear = null) { const d = deckAt(x, z); return Math.max(d ?? -Infinity, heightAt(x, z), solidTopAt(x, z, clear)); }
+// How far the drawn road sits above the ground under it, so wheels and feet stand on the tarmac
+// rather than in it: the ribbon's own lift (see buildRoadRibbons), 13 cm over the lanes, easing
+// to 8 cm across the shoulder, 17 cm on a junction patch, and nothing off the road.
+export function roadLiftAt(x, z) {
+  const r = nearestRoad(x, z, 12);
+  if (!r) return 0;
+  const hw = roadHalfWidth(r.type), W = hw + SHOULDER;
+  if (r.dist > W + 0.25) return 0;
+  if (junctionDist(x, z) < 0) return 0.17;
+  return r.dist <= hw ? 0.13 : r.dist <= W ? lerp(0.13, 0.08, (r.dist - hw) / (W - hw)) : 0.08;
+}
+// The ground a wheel or a boot stands on: the land or a bridge deck, plus the road drawn on it.
+export function surfaceHeightAt(x, z) { return Math.max(deckAt(x, z) ?? -Infinity, heightAt(x, z)) + roadLiftAt(x, z); }
 
 let keridBusy = false;
 function rawHeight(x, z, cd, noLakes = false, noBridge = false) {
