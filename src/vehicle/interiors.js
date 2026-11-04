@@ -145,9 +145,10 @@ function race() {
     views: { cockpit: { eye: [0.3, 0.99, -0.32], fov: 72, pitch: -0.04 }, hood: { eye: [0, 1.2, 0.82], fov: 66, pitch: -0.06 } } };
 }
 
-// A car from a model file with a cabin of its own needs nothing built: just where the eye sits.
+// A car from a model file with a cabin of its own needs nothing built: just where the eye sits,
+// and its own steering wheel, cut out of the model to turn.
 function modelCabin(model) {
-  return { group: new THREE.Group(), steer: null, needles: { speed: new THREE.Object3D(), rev: new THREE.Object3D() }, draw: () => {}, closed: true,
+  return { group: new THREE.Group(), steer: model.steer || null, needles: { speed: new THREE.Object3D(), rev: new THREE.Object3D() }, draw: () => {}, closed: true,
     views: { cockpit: { eye: model.cockpit, fov: 72, pitch: model.cockpitPitch ?? -0.1 }, hood: { eye: model.hood, fov: 66, pitch: -0.08 } } };
 }
 
@@ -167,8 +168,11 @@ export function updateInterior(i, { kmh, steer, music }) {
   i.needles.speed.rotation.z = 2.1 - Math.min(1, kmh / 200) * sweep;
   const v = kmh / 3.6, rev = v < 0.5 ? 0.12 : 0.18 + ((v * 0.9) % 14) / 14 * 0.6 + Math.min(3, Math.floor(v * 0.9 / 14)) * 0.05;
   i.needles.rev.rotation.z = 2.1 - Math.min(1, rev) * sweep;
-  if (i.steer) i.steer.rotation.z = -steer * 2.2;
   i.draw(music ? `♪ ${music}` : 'FM 98.1');
+}
+// The steering wheel turns with the steering, in every view (it shows from outside too).
+export function turnWheel(i, steer) {
+  if (i?.steer) i.steer.rotation.z = -steer * 2.2;
 }
 
 export const trackTitle = (n) => CONFIG.music.titles?.[n] ?? null;

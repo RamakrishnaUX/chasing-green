@@ -18,7 +18,7 @@ const CARS = {
   // "Willy Jeep" by AnilG (CC BY 4.0), a 1940s Willys in olive drab. Its wheels are parts of their own.
   // Its olive-brown, heavily rusted paint and part-metal finish read as tan in the game's light:
   // repainted a flat olive drab.
-  jeep: { src: 'downloads/willys/scene.glb', length: 3.6, lamps: /^Headlight$/, simplify: 0.4,
+  jeep: { src: 'downloads/willys/scene.glb', length: 3.6, steer: { box: { min: [0.08, 1.03, -0.3], max: [0.54, 1.4, 0.06] }, centre: [0.31, 1.22, -0.12], r: 0.26 }, lamps: /^Headlight$/, simplify: 0.4,
     matte: /^(Jeep|Wheel|SpareTyre|Panel)$/, repaint: { re: /^(Jeep|Wheel|SpareTyre)$/, hue: 66, sat: 0.32 }, rubber: /^Tyre$/,
     wheels: { FL: /Front_LH/, FR: /Front_RH/, RL: /Rear_LH/, RR: /Rear_RH/ },
     // The two round lamps at the back corners.
@@ -30,7 +30,7 @@ const CARS = {
     // Its lamp lenses are part of the glass.
     split: [{ mat: /car_glass/, box: { min: [-1.2, 0, 1.7], max: [1.2, 0.75, 3] }, to: 'lamp' }, { mat: /car_glass/, box: { min: [-1.2, 0, -3], max: [1.2, 0.95, -1.6] }, to: 'tail' }] },
   // "Retro Car" by pisarenok (CC BY 4.0), after a 1930s Lincoln. The two spares on the wings stay put.
-  vintage: { src: 'downloads/retro/scene.glb', length: 5.0, lamps: /^Fars/,
+  vintage: { src: 'downloads/retro/scene.glb', length: 5.0, steer: { box: { min: [0, 1.13, -0.11], max: [0.525, 1.51, 0.34] }, centre: [0.265, 1.32, 0.115], r: 0.3 }, lamps: /^Fars/,
     wheels: { FL: /Wheel(_Center)?_1_low/, FR: /Wheel(_Center)?_6_low/, RL: /Wheel(_Center)?_3_low/, RR: /Wheel(_Center)?_4_low/ },
     // The lenses of the two round lamps on stalks at the back.
     split: [{ mat: /Lincoln1/, box: { min: [0.46, 0.77, -2.34], max: [0.64, 0.94, -2.27] }, to: 'tail' }, { mat: /Lincoln1/, box: { min: [-0.64, 0.77, -2.34], max: [-0.46, 0.94, -2.27] }, to: 'tail' }] },
@@ -41,7 +41,8 @@ const CARS = {
     split: [{ mat: /^lamp$/, box: { min: [-2, -1, -3], max: [2, 3, 0] }, to: 'tail' }],
     strip: [{ min: [-0.16, 0.76, 1.9], max: [0.16, 1.08, 2.06] }],
     // It is right-hand drive; the cab is mirrored so the wheel sits in front of the driver.
-    mirror: [{ min: [-0.77, 0.25, 0.6], max: [0.77, 1.3, 1.88] }] },
+    mirror: [{ min: [-0.77, 0.25, 0.6], max: [0.77, 1.3, 1.88] }],
+    steer: { box: { min: [0.08, 0.37, 1.28], max: [0.48, 1.25, 1.73] }, not: [{ min: [0.18, 0.94, 1.49], max: [0.38, 1.19, 1.72] }], centre: [0.28, 1.06, 1.52], r: 0.22 } },
 };
 const kind = process.argv[2];
 const C = CARS[kind];
@@ -187,13 +188,56 @@ for (const b of C.mirror || []) for (const part of parts) {
   p.getIndices().setArray(arr);
   console.log('  mirrored', flip.size, 'vertices');
 }
+// Steering wheel: the pieces wholly inside a box (less any in the `not` boxes, such as gauges
+// behind it) move to a part of their own, which the game turns with the steering.
+if (C.steer) for (const part of [...parts]) {
+  const p = part.prim;
+  if (part.wheel || part.steer || !p.getIndices()) continue;
+  const arr = p.getIndices().getArray(), inside = wholly(p, C.steer.box), outs = (C.steer.not || []).map((b) => wholly(p, b)), keep = [], moved = [];
+  for (let t = 0; t < arr.length; t += 3) (inside(t) && !outs.some((o) => o(t)) ? moved : keep).push(arr[t], arr[t + 1], arr[t + 2]);
+  if (!moved.length) continue;
+  const q = p.clone();
+  for (const sem of q.listSemantics()) q.setAttribute(sem, p.getAttribute(sem).clone());
+  setTris(q, moved); setTris(p, keep); compactPrimitive(p); compactPrimitive(q);
+  parts.push({ prim: q, names: part.names, steer: true });
+}
 
-// The new car: one body, four wheels.
+// The new car: one body, four wheels (and a steering wheel).
 const scene = root.listScenes()[0];
 for (const n of scene.listChildren()) scene.removeChild(n);
 const body = doc.createMesh('body');
-for (const p of parts) if (!p.wheel) body.addPrimitive(p.prim);
+for (const p of parts) if (!p.wheel && !p.steer) body.addPrimitive(p.prim);
 scene.addChild(doc.createNode('body').setMesh(body));
+if (C.steer) {
+  // Where it turns: the rim's centre and the column's line, from the rim itself. Its vertices
+  // near the given centre are fitted with a plane (dropping any off it, such as the column),
+  // whose normal is the column; the node sits at the centre with its +z along the column,
+  // pointing forward, so a turn about z is the wheel turning.
+  const ps = parts.filter((p) => p.steer).map((p) => p.prim), pts = [];
+  for (const p of ps) { const a = p.getAttribute('POSITION'), v = [0, 0, 0]; for (let i = 0; i < a.getCount(); i++) pts.push(a.getElement(i, v).slice()); }
+  let c = C.steer.centre.slice(), n = [0, 0, 1], use = pts;
+  for (let it = 0; it < 6; it++) {
+    use = pts.filter((v) => Math.hypot(v[0] - c[0], v[1] - c[1], v[2] - c[2]) < C.steer.r && (it < 2 || Math.abs((v[0] - c[0]) * n[0] + (v[1] - c[1]) * n[1] + (v[2] - c[2]) * n[2]) < 0.035));
+    c = [0, 1, 2].map((k) => use.reduce((s2, v) => s2 + v[k], 0) / use.length);
+    const M3 = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+    for (const v of use) for (let a = 0; a < 3; a++) for (let b = 0; b < 3; b++) M3[a][b] += (v[a] - c[a]) * (v[b] - c[b]);
+    // The least-spread direction: power iteration on (trace - M).
+    const tr = M3[0][0] + M3[1][1] + M3[2][2]; let e = [0.1, 0.3, 1];
+    for (let k = 0; k < 200; k++) { const m = [0, 1, 2].map((a) => tr * e[a] - (M3[a][0] * e[0] + M3[a][1] * e[1] + M3[a][2] * e[2])); const l = Math.hypot(...m); e = m.map((x) => x / l); }
+    n = e[2] < 0 ? e.map((x) => -x) : e;
+  }
+  // Rotation taking +z to n (the shortest turn), as a quaternion and as the inverse matrix.
+  const ax = [-n[1], n[0], 0], sn = Math.hypot(...ax), cs = n[2], ang = Math.atan2(sn, cs), u = sn > 1e-6 ? ax.map((x) => x / sn) : [1, 0, 0];
+  const q = [...u.map((x) => x * Math.sin(ang / 2)), Math.cos(ang / 2)];
+  const [x, y, z, w] = q, R = [[1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)], [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)], [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)]];
+  // v' = R^T (v - c), column-major.
+  const t = [0, 1, 2].map((a) => -(R[0][a] * c[0] + R[1][a] * c[1] + R[2][a] * c[2]));
+  const Mx = [R[0][0], R[0][1], R[0][2], 0, R[1][0], R[1][1], R[1][2], 0, R[2][0], R[2][1], R[2][2], 0, t[0], t[1], t[2], 1];
+  const mesh = doc.createMesh('steer');
+  for (const p of ps) { transformPrimitive(p, Mx); mesh.addPrimitive(p); }
+  scene.addChild(doc.createNode('steer').setMesh(mesh).setTranslation(c).setRotation(q));
+  console.log('  steer', c.map((v) => +v.toFixed(3)), 'axis', n.map((v) => +v.toFixed(3)), use.length, 'rim points of', pts.length);
+}
 for (const [k, ps] of Object.entries(wheelOf)) {
   const b = bounds(ps), c = centre(b);
   const mesh = doc.createMesh('wheel_' + k);

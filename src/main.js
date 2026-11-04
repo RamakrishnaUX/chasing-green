@@ -29,7 +29,7 @@ import { Landmarks, waterUniforms } from './world/landmarks.js';
 import { Forecast, AURORA_TYPES } from './aurora/forecast.js';
 import { Aurora } from './aurora/aurora.js';
 import { Jeep } from './vehicle/jeep.js';
-import { updateInterior, trackTitle } from './vehicle/interiors.js';
+import { updateInterior, turnWheel, trackTitle } from './vehicle/interiors.js';
 import { Walker } from './vehicle/walker.js';
 import { Heli } from './vehicle/heli.js';
 import { loadCarModels } from './vehicle/models.js';
@@ -1552,6 +1552,7 @@ function frame(now) {
   if (started) syncBrakePedal();
   if (started) {
     const inside = mode === 'chase' && driveView !== 'chase';
+    turnWheel(jeep.interior, jeep.steerVis);
     if (inside && driveView === 'cockpit') updateInterior(jeep.interior, { kmh: jeep.kmh, steer: jeep.steerVis, music: audio.music && volumes.music > 0 && !audio.muted ? trackTitle(audio.music.i) : null });
     // Nitro from inside: the exhaust flames are behind you, so the screen edges glow instead.
     const glow = inside && jeep.boosting;

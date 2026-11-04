@@ -670,7 +670,8 @@ function buildRace() {
 // The supercar ("Fictional supercar - V12 Goblin" by ollitei), the roadster ("Retro Car" by
 // pisarenok, after a 1930s Lincoln) and the camper ("Volkswagen Kombi Micro Bus" by winterborn),
 // all CC BY 4.0, prepared by tools/cars: facing +z, ground at y = 0, wheels as wheel_FL/FR/RL/RR
-// centred on their axles, lamps in materials named "lamp" and "tail". They load in the
+// centred on their axles, lamps in materials named "lamp" and "tail", and (where the car brings
+// its own cabin) the steering wheel as "steer", +z along its column. They load in the
 // background; until one arrives that car is the one built in code above.
 const GLB = {
   jeep: { camDist: 8, camHeight: 2.7, eye: 1.6, cockpit: [0.3, 1.62, -0.55], hood: [0, 1.62, 0.5] }, // open-topped: a wide sky from the seat
@@ -708,7 +709,7 @@ function buildFromFile(kind) {
   const lightMat = new THREE.MeshStandardMaterial({ color: 0xfff6e6, emissive: 0xfff2dc, emissiveIntensity: 0.6, roughness: 0.1 });
   const tailMat = new THREE.MeshStandardMaterial({ color: 0x5a0c0c, emissive: 0xff1010, emissiveIntensity: 0.7, roughness: 0.2 });
   const wheels = [];
-  let R = 0;
+  let R = 0, steer = null;
   for (const part of src.children) {
     const copy = part.clone(true);
     copy.traverse((o) => {
@@ -719,6 +720,15 @@ function buildFromFile(kind) {
       else if (n === 'tail') o.material = tailMat;
       else if (o.material.transparent) { o.material = o.material.clone(); o.material.depthWrite = false; o.material.userData.glass = true; }
     });
+    // The steering wheel: a mount on its column (the node's own place and turn) holding the
+    // part that turns about the column.
+    if (part.name === 'steer') {
+      const mount = new THREE.Group(); mount.position.copy(part.position); mount.quaternion.copy(part.quaternion);
+      steer = new THREE.Group(); steer.userData.dynamic = true;
+      copy.position.set(0, 0, 0); copy.quaternion.identity();
+      steer.add(copy); mount.add(steer); g.add(mount);
+      continue;
+    }
     const w = /^wheel_/.test(part.name);
     if (!w) { g.add(copy); continue; }
     if (C.rims) copy.traverse((o) => { if (o.isMesh && o.material.name === 'car_body') { o.material = o.material.clone(); o.material.color.set(C.rims); } });
@@ -737,7 +747,7 @@ function buildFromFile(kind) {
   for (const w of wheels) w.pivot.position.y = R;
   const box = new THREE.Box3().setFromObject(g);
   return {
-    group: g, wheels, lightMat, tailMat, R, glb: true, cockpit: C.cockpit, cockpitPitch: C.pitch, hood: C.hood, cabinShift: C.cabinShift || 0,
+    group: g, wheels, lightMat, tailMat, R, glb: true, steer, cockpit: C.cockpit, cockpitPitch: C.pitch, hood: C.hood, cabinShift: C.cabinShift || 0,
     headlight: [0, (box.max.y - box.min.y) * 0.42, box.max.z - 0.15], exhaust: [0.42, 0.32, box.min.z + 0.05],
     camDist: C.camDist, camHeight: C.camHeight, eye: C.eye,
   };
