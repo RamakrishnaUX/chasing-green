@@ -679,8 +679,8 @@ function buildRace() {
 // (the old roadster smallest, then the 4x4, the camper van much the biggest). Everything else
 // here (cockpit, hood, mirrors) is in the file's units, before scaling.
 //
-// seat: where the driver sits against the wheel (see driver.js): head height above the wheel's
-// centre, how far behind it, and how far he leans back.
+// seat: optional settings for the driver (see driver.js), such as a fixed lean; he otherwise
+// finds his own seat in the model.
 //
 // mirrors: boxes around the glass of the left wing mirror (the right one is found by symmetry)
 // and, with centre, of a rear-view mirror; see cutMirrors.
@@ -688,9 +688,9 @@ const GLB = {
   jeep: { scale: 1.25, camDist: 9.5, camHeight: 3.2, eye: 2.0, cockpit: [0.3, 1.62, -0.55], hood: [0, 1.62, 0.5], mirrors: [{ min: [0.64, 1.23, 0.16], max: [0.81, 1.4, 0.22] }] }, // open-topped: a wide sky from the seat
   // The supercar has no cabin of its own: it keeps the one built in code, moved to sit in this body.
   race: { camDist: 8.5, camHeight: 2.4, eye: 1.25, rims: 0x2a2c30, cabinShift: 0.42 }, // painted body, dark wheels
-  vintage: { scale: 1, camDist: 9.6, camHeight: 3.2, eye: 2.0, cockpit: [0.38, 1.6, -0.15], pitch: -0.26, hood: [0, 1.75, 1.0], mirrors: [{ min: [0.62, 1.33, 0.63], max: [0.78, 1.49, 0.7] }] },
+  vintage: { scale: 1, camDist: 9.6, camHeight: 3.2, eye: 2.0, cockpit: [0.38, 1.6, -0.15], hood: [0, 1.75, 1.0], mirrors: [{ min: [0.62, 1.33, 0.63], max: [0.78, 1.49, 0.7] }] },
   // Its cab is mirrored to left-hand drive (tools/cars); the seat is behind the wheel, looking down a little to show it.
-  camper: { scale: 1.4, camDist: 8.8, camHeight: 3.7, eye: 3.2, cockpit: [0.28, 1.46, 1.18], pitch: -0.14, hood: [0, 1.95, 1.05], seat: { chest: 0.25 },
+  camper: { scale: 1.4, camDist: 8.8, camHeight: 3.7, eye: 3.2, cockpit: [0.28, 1.46, 1.18], pitch: -0.14, hood: [0, 1.95, 1.05],
     mirrors: [{ min: [0.74, 1.19, 1.63], max: [0.9, 1.34, 1.7] }, { min: [-0.07, 1.48, 1.52], max: [0.07, 1.57, 1.56], centre: true }] },
 };
 const loaded = {};

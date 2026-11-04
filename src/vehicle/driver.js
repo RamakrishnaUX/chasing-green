@@ -9,9 +9,8 @@
 //   on from the forearm; the fingers then close round the rim. The twist from forearm to hand
 //   is mostly taken by the forearm, as a real one does, so the wrist does not wring.
 // - The hands turn with the wheel and, past about 70 degrees, slide on it rather than cross.
-// From the driver's seat you see your own forearms and hands on the wheel: his head and legs
-// fold away, and everything behind a plane just in front of his chest, or below the wheel, is
-// cut off (the camera is where his eyes are).
+// He is seen from outside the car; from the driver's seat (the camera is where his eyes are)
+// he is not drawn.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
@@ -84,9 +83,7 @@ export class Driver {
     this.group.visible = false;
     this.ready = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).loadAsync(`${import.meta.env.BASE_URL}models/person.glb`).then((g) => {
       const man = g.scene;
-      // The cuts for the driver's own view (far away, cutting nothing, otherwise).
-      this.clip = new THREE.Plane(new THREE.Vector3(0, 1, 0), 1e6); this.lap = this.clip.clone();
-      man.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false; o.material = o.material.clone(); o.material.clippingPlanes = [this.clip, this.lap]; } });
+      man.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false; } });
       this.group.add(man);
       const bone = {};
       man.traverse((o) => { if (o.isBone) bone[o.name.replace(/_\d+$/, '').replace(/^mixamorig:?/, '')] = o; });
@@ -154,7 +151,6 @@ export class Driver {
     }
     // The backrest: facing forward, just behind the cushion (not the seats further back).
     const back = cushion && cast(new THREE.Vector3(hub.x, cushion.y + 0.3, cushion.z + 0.1), new THREE.Vector3(0, 0, -1), (p, n) => p.z < cushion.z + 0.05 && p.z > cushion.z - 0.6 && n.z > 0.3);
-    // The roof over the seat, if there is one.
     // The roof over the seat, as a height every 5 cm along the car (none: open above).
     const roof = [];
     if (cushion) for (let z = cushion.z - 0.3; z < hub.z + 0.1; z += 0.05) {
@@ -168,17 +164,17 @@ export class Driver {
     };
   }
 
-  // Each frame. car: the Jeep; on: whether he is in it; inside: the view is from his seat.
+  // Each frame. car: the Jeep; on: whether he is in it; inside: the view is from his seat (where
+  // he is not drawn).
   update(car, on, inside) {
     const i = car.interior, steer = i?.steer;
-    const show = !!(on && this.bone && steer && steer.parent);
+    const show = !!(on && !inside && this.bone && steer && steer.parent);
     if (this.group.parent !== car.body) car.body.add(this.group);
     this.group.visible = show;
     if (!show) return;
     const bone = this.bone, body = car.body, mount = steer.parent;
-    const cfg = { lean: null, chest: 0.17, lap: 0.22, ...(i.seat || {}) };
+    const cfg = { lean: null, ...(i.seat || {}) };
     for (const [o, q] of this.rest) o.quaternion.copy(q);
-    for (const b of [bone.Head, bone.LeftUpLeg, bone.RightUpLeg]) b.scale.setScalar(1);
     body.updateWorldMatrix(true, false);
     const hubL = body.worldToLocal(wpos(mount));
     // The wheel's size and the seat, once per car.
@@ -239,10 +235,9 @@ export class Driver {
     }
     place(...this.pose);
     this.lean = this.pose[0];
-    if (inside) { for (const b of [bone.Head, bone.LeftUpLeg, bone.RightUpLeg]) b.scale.setScalar(1e-3); this.group.updateMatrixWorld(true); }
 
     // Legs: thighs along the seat, feet on the floor in front.
-    if (!inside) for (const s of ['Left', 'Right']) {
+    for (const s of ['Left', 'Right']) {
       const hip = body.worldToLocal(wpos(bone[s + 'UpLeg']));
       const foot = body.localToWorld(new THREE.Vector3(hip.x, this.seat.floor + 0.09, hip.z + 0.62));
       reach(bone[s + 'UpLeg'], bone[s + 'Leg'], bone[s + 'Foot'], foot, toW(0, 1, 0.5));
@@ -292,14 +287,5 @@ export class Driver {
       }
     }
 
-    // From his own seat: everything behind a plane just in front of his chest, or below the
-    // wheel, is cut away.
-    if (inside) {
-      const sh = wpos(bone.LeftArm).add(wpos(bone.RightArm)).multiplyScalar(0.5), n = toW(0, 0, 1), up = toW(0, 1, 0);
-      // (never past his forearms, where the wheel sits close to his chest)
-      const wrists = Math.min(n.dot(wpos(bone.LeftHand)), n.dot(wpos(bone.RightHand))) - 0.18;
-      this.clip.normal.copy(n); this.clip.constant = -Math.min(n.dot(sh) + cfg.chest, wrists);
-      this.lap.normal.copy(up); this.lap.constant = -up.dot(hub) + cfg.lap;
-    } else { this.clip.set(new THREE.Vector3(0, 1, 0), 1e6); this.lap.set(new THREE.Vector3(0, 1, 0), 1e6); }
   }
 }

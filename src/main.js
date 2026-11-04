@@ -86,7 +86,6 @@ const camera = new THREE.PerspectiveCamera(52, innerWidth / innerHeight, 0.4, Q.
 const mirrors = new Mirrors({ small: isTouch });
 // You, at the wheel while you drive (out of the car once you step out).
 const driver = new Driver();
-renderer.localClippingEnabled = true; // for the driver's own view of his hands on the wheel
 addEventListener('resize', () => {
   renderer.setSize(innerWidth, innerHeight, false);
   camera.aspect = innerWidth / innerHeight;
