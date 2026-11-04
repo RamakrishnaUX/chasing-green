@@ -7,7 +7,7 @@ import { clamp, lerp, smoothstep } from '../world/noise.js';
 
 // The person on foot: a man in a winter coat ("Man In Coat" by Saitam, CC BY 4.0, an Adobe Fuse
 // character on a Mixamo rig) moved by Mixamo clips ("ETB Animated" by Royaleyourdad, CC BY 4.0;
-// see tools/person): idle, walk, run, a standing jump and kneeling.
+// see tools/person): idle, walk, a walk backwards, run, a standing jump and kneeling.
 //
 // Forward walks; held on, he breaks into a run, and pressed again quickly (tapping it) he picks
 // up the pace sooner. Shift keeps him walking. Space hops like a person does, he climbs any rock face
@@ -19,16 +19,19 @@ const REACH = 0.35; // hands and toes to the rock, from the body's centre
 const BODY = 0.3; // radius kept clear of the car
 const CLIMB = 1.4; // metres a second up a face
 const GRAVITY = 18;
-const RUN = 5.6, WALK = 1.6, BACK = 1.4; // metres a second
-// The clips' own paces, where the feet do not slide: a stride of the run and of the walk.
-const RUN_PACE = 5.6, WALK_PACE = 1.45;
+// Close to the clips' own paces, so the legs are sped up only a little.
+const RUN = 4.2, WALK = 1.3, BACK = 1.0; // metres a second
+// The clips' own paces, measured off the planted foot, where the feet do not slide; and where in
+// each the left foot is furthest forward (a share of the clip), so walk and run keep step.
+const RUN_PACE = 3.0, WALK_PACE = 1.06, BACK_PACE = 0.73;
+const STEP_AT = { walk: 0.183, run: 0.2 };
 // Forward held this long is a walk; then he speeds up to a run over the next RUN_BUILD seconds.
 // Pressed again within TAP of letting go, the hold carries on and counts TAP_BOOST more.
 const RUN_AFTER = 0.7, RUN_BUILD = 0.8, TAP = 0.4, TAP_BOOST = 0.45;
 // The jump clip: a crouch, take-off at about a third of the way in, the top halfway, landing at
 // about 0.62, then standing again. A hop plays from the end of the crouch to just after landing.
 const JUMP = { from: 0.31, to: 0.74, speed: 1.3 };
-const CLIPS = ['idle', 'walk', 'run', 'jump', 'kneel'];
+const CLIPS = ['idle', 'walk', 'back', 'run', 'jump', 'kneel'];
 
 export class Walker {
   constructor(scene) {
@@ -39,6 +42,7 @@ export class Walker {
     this.heading = 0;
     this.climbPhase = 0;
     this.speedSmooth = 0;
+    this.stride = 0; // where in a stride the walk and run are, from 0 to 1
     this.time = 0; this.held = 0; this.pushing = false; this.letGo = -1; this.fwd = 0; // the forward key's hold, and the pace it has built
     this.sitting = false;
     this.state = 'walk'; // walk, climb, mantle (pulling up over the top) or fall
@@ -182,7 +186,7 @@ export class Walker {
   // airborne part for a hop, and is held or rocked for a fall, a climb and a pull-up.
   animate(dt, dir) {
     if (!this.mixer) return;
-    const want = { idle: 0, walk: 0, run: 0, jump: 0, kneel: 0 };
+    const want = { idle: 0, walk: 0, back: 0, run: 0, jump: 0, kneel: 0 };
     const A = this.actions, J = A.jump, len = this.jumpLen;
     J.paused = true;
     if (this.sitting) want.kneel = 1;
@@ -195,14 +199,21 @@ export class Walker {
     else if (this.jumpT >= 0) { want.jump = 1; J.time = len * JUMP.from + this.jumpT * JUMP.speed; }
     else {
       const v = this.speedSmooth;
-      if (v >= 2.2) { want.run = clamp((v - 2.2) / 1.6, 0, 1); want.walk = 1 - want.run; }
-      else if (v >= 0.15) want.walk = clamp(v / 0.6, 0, 1);
+      if (dir < 0) want.back = clamp(v / 0.4, 0, 1);
+      else if (v >= 1.9) { want.run = clamp((v - 1.9) / 1.5, 0, 1); want.walk = 1 - want.run; }
+      else if (v >= 0.1) want.walk = clamp(v / 0.5, 0, 1);
       // Standing: the pack's idle is a nervous crouch, so it is mostly the relaxed stance from
       // the jump's first frame, with a little of the idle for breathing and shifting weight.
       const rest = 1 - want.walk - want.run;
       want.idle = rest * 0.2; want.jump = rest * 0.8; J.time = len * 0.04;
-      A.walk.timeScale = dir * clamp(v / WALK_PACE, 0.5, 2.2);
-      A.run.timeScale = dir * clamp(v / RUN_PACE, 0.6, 1.6);
+      // Walk and run share one stride, as far along as the ground covered, so their feet agree
+      // while they blend and never slide.
+      const wd = A.walk.getClip().duration, rd = A.run.getClip().duration;
+      if (dir > 0) this.stride = (this.stride + v * dt / lerp(WALK_PACE * wd, RUN_PACE * rd, want.run)) % 1;
+      A.walk.timeScale = 0; A.run.timeScale = 0;
+      A.walk.time = ((this.stride + STEP_AT.walk) % 1) * wd;
+      A.run.time = ((this.stride + STEP_AT.run) % 1) * rd;
+      if (A.back) A.back.timeScale = v / BACK_PACE;
     }
     const k = Math.min(1, dt * (this.jumpT >= 0 ? 14 : 8));
     for (const name of CLIPS) {

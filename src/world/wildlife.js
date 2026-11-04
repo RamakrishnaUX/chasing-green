@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { heightAt, waterLevelAt, roadDistAt, shoreDistAt, groundAt } from './terrain.js';
 import { toWorld } from './geo.js';
 import { mulberry32, clamp, lerp } from './noise.js';
-import { AnimalRigs } from './animalRigs.js';
+import { AnimalRigs, sheepGait } from './animalRigs.js';
 
 // Wildlife, each where and when it really lives. On land: sheep roaming free in summer and
 // autumn, Icelandic horses, reindeer only in the east, an arctic fox whose eyes catch the
@@ -20,16 +20,18 @@ const EYES = [new THREE.Vector3(), new THREE.Vector3()];
 
 // Herd animals: colours [coat, hair, points] (a horse's hair is its mane and tail, and its lower
 // legs take the points colour, dark only if bay, dun or black; a sheep's face and legs take its
-// hair colour), and habits. flee: how close a car or a walker gets before they move off. stride:
-// ground covered in one walk cycle, so far-off ones step in time. A horse flees in a fast tölt.
+// hair colour), and habits. flee: how close a car (or someone running) gets before they run off;
+// shy: how close someone walking gets before they amble a few steps away. stride: ground covered in
+// one walk cycle, so far-off ones step in time. body: half its length and its girth, in metres,
+// which nobody on foot walks through. A horse flees in a fast tölt.
 const HERD = {
-  sheep: { cap: 140, walk: 0.8, run: 3.2, flee: 14, stride: 0.42,
+  sheep: { cap: 140, walk: 0.8, run: 3.2, flee: 14, shy: 5, stride: 0.42, body: [0.55, 0.32],
     looks: [[0xf1ece0, 0xe9e4d9], [0xf1ece0, 0xe9e4d9], [0xf1ece0, 0xe9e4d9], [0xf1ece0, 0x2e2824], [0x2a2522, 0x1e1a18], [0x6d4c33, 0x4b3322], [0x9a948b, 0x3b3633]] },
-  horse: { cap: 60, walk: 1.1, run: 2.8, flee: 9, stride: 1.55,
+  horse: { cap: 60, walk: 1.1, run: 2.8, flee: 9, shy: 3.5, stride: 1.55, body: [0.95, 0.42],
     looks: [[0x6b3f24, 0x15100d], [0x8a4a25, 0x6e3519, 0x8a4a25], [0x8a4a25, 0xdcc79e, 0x8a4a25], [0x1f1a17, 0x141110], [0x8f8b85, 0x5f5b57, 0x77736d], [0xcfa86c, 0xefe6cf, 0xcfa86c], [0xae8e64, 0x2a211b], [0xe4e0d6, 0xdcd8ce, 0xe4e0d6]] },
-  reindeer: { cap: 60, walk: 1.0, run: 7, flee: 38, stride: 1.34, looks: [[0x6c5d4c, 0x3a3029], [0x7a6b59, 0x40362d], [0x5f5446, 0x332b25]] },
-  fox: { cap: 14, walk: 1.2, run: 2.4, flee: 26, stride: 0.74, looks: [[0xf2f1ec, 0xe2dfd8]] },
-  seal: { cap: 30, walk: 0.5, run: 1.6, flee: 22, stride: 1, looks: [[0xb4b4b4], [0xbcb0a4], [0x9ea4a8]] }, // tints over the real coat
+  reindeer: { cap: 60, walk: 1.0, run: 7, flee: 38, shy: 20, stride: 1.34, body: [0.8, 0.38], looks: [[0x6c5d4c, 0x3a3029], [0x7a6b59, 0x40362d], [0x5f5446, 0x332b25]] },
+  fox: { cap: 14, walk: 1.2, run: 2.4, flee: 26, shy: 12, stride: 0.74, body: [0.38, 0.16], looks: [[0xf2f1ec, 0xe2dfd8]] },
+  seal: { cap: 30, walk: 0.5, run: 1.6, flee: 22, shy: 22, stride: 1, body: [0.75, 0.32], looks: [[0xb4b4b4], [0xbcb0a4], [0x9ea4a8]] }, // tints over the real coat
 };
 const FOX_SUMMER = [[0x5e4634, 0x3a2a1f], [0x5e4634, 0x3a2a1f], [0x4a4b52, 0x34353b]];
 const EAST_X = toWorld(65, -15.8).x; // reindeer live east of about here
@@ -69,7 +71,7 @@ export class Wildlife {
     // Sea animals: a rig each, made once its model is in.
     this.whales = [];
     this.dolphins = [];
-    for (let i = 0; i < 4; i++) this.dolphins.push({ sw: null, phase: i * 1.7, active: false, off: [[-2.2, 4], [2.2, 5.5], [-1.2, 8], [1.4, 10.5]][i], lx: 0, lz: 0, leap: 0 });
+    for (let i = 0; i < 4; i++) this.dolphins.push({ sw: null, phase: i * 1.7, active: false, off: [[-6, 10], [6.5, 13], [-9, 17], [8.5, 21]][i], lx: 0, lz: 0, leap: 0 });
     this.dolphinPod = { on: false, slow: 0, cooldown: 0 };
     this.blow = this.makeBlow();
   }
@@ -200,7 +202,9 @@ export class Wildlife {
     this.manageClock -= dt;
     if (this.manageClock <= 0) { this.manage(pos, month); this.manageClock = 1; }
     this.ensureWhales(month, pos);
-    const threat = { x: pos.x, z: pos.z, moving: car ? Math.abs(car.vF) > 1 || ctx.walking : true };
+    // What is coming: a car on the move, someone running, or someone walking (or standing about).
+    const kind = ctx.walking ? ((ctx.walkSpeed || 0) > 2.4 ? 'run' : 'walk') : 'car';
+    const threat = { x: pos.x, z: pos.z, kind, moving: car ? Math.abs(car.vF) > 1 || ctx.walking : true };
     for (const a of this.animals) this.behave(a, dt, threat);
     for (const s of this.sealSpots()) if (Math.abs(s.x - pos.x) < 700 && Math.abs(s.z - pos.z) < 700) this.behaveSeal(s, dt, threat);
     this.draw(dt, ctx);
@@ -226,12 +230,18 @@ export class Wildlife {
   behave(a, dt, threat) {
     const H = HERD[a.sp];
     const dx = a.x - threat.x, dz = a.z - threat.z, d = Math.hypot(dx, dz);
-    if (d < H.flee && threat.moving && a.state !== 'flee') {
-      // Move off, away from whatever is coming, to somewhere they can stand.
-      let ang = Math.atan2(dx, dz);
-      for (const off of [0, 0.6, -0.6, 1.2, -1.2]) {
-        const tx = a.x + Math.sin(ang + off) * (H.flee + 12), tz = a.z + Math.cos(ang + off) * (H.flee + 12);
-        if (this.landOK(tx, tz, 0)) { a.tx = tx; a.tz = tz; a.state = 'flee'; break; }
+    // A car or a runner sends them off at a run; someone walking up, a few unhurried steps aside.
+    const calm = threat.kind === 'walk', near = calm ? H.shy : threat.kind === 'run' ? H.flee * 0.75 : H.flee;
+    a.retarget = (a.retarget || 0) - dt;
+    // Already moving off but still being closed on (say, followed): off again, away from them.
+    const chased = a.state === 'flee' && d < near * 0.6 && a.retarget <= 0;
+    if (d < near && threat.moving && (a.state !== 'flee' || chased)) {
+      // Away from whatever is coming, to somewhere they can stand.
+      const ang = Math.atan2(dx, dz), far = calm ? H.shy + 4 : H.flee + 12;
+      const pace = calm ? H.walk * 1.6 : H.run;
+      pick: for (const off of [0, 0.6, -0.6, 1.2, -1.2, 1.8, -1.8]) for (const k of [1, 0.5]) {
+        const tx = a.x + Math.sin(ang + off) * far * k, tz = a.z + Math.cos(ang + off) * far * k;
+        if (this.landOK(tx, tz, 0)) { a.tx = tx; a.tz = tz; a.state = 'flee'; a.pace = chased ? Math.max(a.pace || 0, pace) : pace; a.retarget = 0.6; break pick; }
       }
     }
     a.timer -= dt;
@@ -244,7 +254,7 @@ export class Wildlife {
     }
     a.moving = false;
     if (a.state === 'walk' || a.state === 'flee') {
-      const sp = a.state === 'flee' ? H.run : H.walk, ex = a.tx - a.x, ez = a.tz - a.z, e = Math.hypot(ex, ez);
+      const sp = a.state === 'flee' ? a.pace || H.run : H.walk, ex = a.tx - a.x, ez = a.tz - a.z, e = Math.hypot(ex, ez);
       if (e < 0.4) {
         // After running off they settle where they stopped.
         if (a.state === 'flee') { a.hx = a.x; a.hz = a.z; }
@@ -255,8 +265,8 @@ export class Wildlife {
         a.heading += clamp(t, -dt * 3, dt * 3);
         const step = Math.min(e, sp * dt * Math.max(0.2, Math.cos(t)));
         a.x += Math.sin(a.heading) * step; a.z += Math.cos(a.heading) * step;
-        // One full gait cycle per stride, so far-off ones step in time.
-        a.step += (step * Math.PI * 2) / H.stride;
+        // One full gait cycle per stride, so far-off ones step in time (a sheep's lengthens with speed).
+        a.step += (step * Math.PI * 2) / (a.sp === 'sheep' ? sheepGait(step / Math.max(dt, 1e-3), H.stride).stride : H.stride);
         a.v = step / Math.max(dt, 1e-3);
         a.moving = true;
       }
@@ -267,6 +277,21 @@ export class Wildlife {
     let hy = 0;
     if (a.alert && !a.moving) { let t = Math.atan2(threat.x - a.x, threat.z - a.z) - a.heading; t = Math.atan2(Math.sin(t), Math.cos(t)); hy = clamp(t, -0.85, 0.85); }
     a.hy = lerp(a.hy ?? 0, hy, Math.min(1, dt * 2.5));
+  }
+
+  // Someone on foot at pos (radius r) is kept out of every animal's body: a capsule along it.
+  pushOut(pos, r) {
+    const push = (a) => {
+      const B = HERD[a.sp].body, dx = pos.x - a.x, dz = pos.z - a.z;
+      if (Math.abs(dx) > 3 || Math.abs(dz) > 3 || pos.y > (a.y ?? pos.y) + 1.6) return;
+      const fx = Math.sin(a.heading), fz = Math.cos(a.heading), along = clamp(dx * fx + dz * fz, -B[0], B[0]);
+      const cx = a.x + fx * along, cz = a.z + fz * along, ox = pos.x - cx, oz = pos.z - cz, o = Math.hypot(ox, oz), need = B[1] + r;
+      if (o >= need) return;
+      const nx = o > 1e-4 ? ox / o : -fz, nz = o > 1e-4 ? oz / o : fx;
+      pos.x = cx + nx * need; pos.z = cz + nz * need;
+    };
+    for (const a of this.animals) push(a);
+    for (const s of this.sealList || []) push(s);
   }
 
   behaveSeal(s, dt, threat) {
@@ -342,10 +367,20 @@ export class Wildlife {
       const far = Math.hypot(w.g.x - pos.x, w.g.z - pos.z) > 1500;
       w.t += dt;
       w.ang += dt * (w.sp === 'orca' ? 0.06 : 0.03);
-      const x = w.g.x + Math.cos(w.ang) * w.rad, z = w.g.z + Math.sin(w.ang) * w.rad;
+      let x = w.g.x + Math.cos(w.ang) * w.rad, z = w.g.z + Math.sin(w.ang) * w.rad;
+      // They give a boat (or the car on the shore) a wide berth: a whale whose path comes close
+      // swings out round it, smoothly, so it never surfaces alongside.
+      const keep = w.sp === 'orca' ? 35 : 55;
+      let px = 0, pz = 0;
+      if (car) { const ex = x - car.pos.x, ez = z - car.pos.z, e = Math.hypot(ex, ez) || 1; if (e < keep) { px = (ex / e) * (keep - e); pz = (ez / e) * (keep - e); } }
+      const kk = Math.min(1, dt * 2);
+      w.ox = lerp(w.ox || 0, px, kk); w.oz = lerp(w.oz || 0, pz, kk);
+      x += w.ox; z += w.oz;
+      // A boat coming on faster than it can swing out: it stays down until the boat has passed.
+      const tooClose = car && Math.hypot(x - car.pos.x, z - car.pos.z) < keep * 0.7;
       const heading = Math.atan2(-Math.sin(w.ang), Math.cos(w.ang)); // along the loop
       const wl = waterLevelAt(x, z), u = (w.t % w.cycle) / w.cycle, surf = 0.22; // the last 22% of each cycle is at the surface
-      if (far || u < 1 - surf) { w.mesh.visible = false; w.blew = false; continue; }
+      if (far || u < 1 - surf || (tooClose && !w.mesh.visible)) { w.mesh.visible = false; w.blew = false; continue; }
       const s = (u - (1 - surf)) / surf; // 0..1 through the surfacing
       // The blowhole is about a third of the body ahead of the middle.
       if (!w.blew && s > 0.08) { w.blew = true; this.spout(x + Math.sin(heading) * w.len * 0.33, wl + 0.5, z + Math.cos(heading) * w.len * 0.33, w.sp === 'humpback'); }
@@ -366,7 +401,8 @@ export class Wildlife {
       w.mesh.rotation.set(pitch, heading, 0, 'YXZ');
       this.noticed(w.sp, x, wl + 1, z, ctx, 450);
     }
-    // Dolphins: a pod joins a boat out at sea once it is going properly, rides the bow wave,
+    // Dolphins: a pod joins a boat out at sea once it is going properly, swims alongside a few
+    // boat-lengths off (close enough to see, not under the hull),
     // porpoising and now and then leaping, and drifts off when the boat slows or nears land.
     const P2 = this.dolphinPod;
     P2.cooldown -= dt;
@@ -377,7 +413,8 @@ export class Wildlife {
       for (const d of this.dolphins) if (!d.sw) d.sw = this.rigs.swimmer('dolphin');
       P2.on = true; P2.slow = 0;
       const fx = Math.sin(car.heading), fz = Math.cos(car.heading);
-      for (const d of this.dolphins) { d.active = true; d.lx = car.pos.x - fx * 25 + (Math.random() - 0.5) * 10; d.lz = car.pos.z - fz * 25; d.leap = 0; }
+      // They come up from behind, each on its own side of the wake.
+      for (const d of this.dolphins) { d.active = true; d.lx = car.pos.x - fx * 25 + fz * d.off[0] * 1.3; d.lz = car.pos.z - fz * 25 - fx * d.off[0] * 1.3; d.leap = 0; }
     }
     if (P2.on) {
       P2.slow = (!afloat || sp < 4 || offshore < 15) ? P2.slow + dt : 0;

@@ -422,7 +422,7 @@ function updateCamera(dt) {
       if (!l.dx) look.walkYaw *= 1 - Math.min(1, dt * 0.6);
       const h = walker.heading + look.walkYaw;
       // Running, the camera hangs back a little more and the view widens a touch.
-      const run = clamp(walker.speedSmooth / 5.6, 0, 1);
+      const run = clamp(walker.speedSmooth / 4.2, 0, 1);
       const cd = 6 + run * 0.8;
       const desired = new THREE.Vector3(walker.pos.x - Math.sin(h) * cd, walker.pos.y + 2.8, walker.pos.z - Math.cos(h) * cd);
       desired.y = Math.max(desired.y, groundAt(desired.x, desired.z) + 1);
@@ -1415,6 +1415,7 @@ function frame(now) {
     if (ride === 'heli') heli.update(paused ? 0 : dt, null, w); else jeep.update(dt, input, w, false);
     walker.update(dt, input, ride === 'heli' ? heli : jeep, obstacles);
     obstacles.resolve(walker.pos, 0.4, true);
+    wildlife.pushOut(walker.pos, 0.3); // nor through the animals
     walkHaptics();
   } else if (mode === 'fly') {
     heli.update(paused ? 0 : dt, { throttle: input.throttle, steer: input.steer, lift: input.lift }, w);
@@ -1452,7 +1453,7 @@ function frame(now) {
 
   landmarks.update(dt, t, { wind: w, dark, auroraTint: aurora.tint, auroraVis: auroraVisSmoothed, player: p });
   // Wildlife, and a word about each species the first time you see it.
-  for (const sp of wildlife.update(paused ? 0 : dt, { pos: p, car: ride === 'heli' ? null : jeep, camera, clock, dark, walking: mode === 'walk' })) {
+  for (const sp of wildlife.update(paused ? 0 : dt, { pos: p, car: ride === 'heli' ? null : jeep, camera, clock, dark, walking: mode === 'walk', walkSpeed: walker.speedSmooth })) {
     const seen = store.data.wildlife || (store.data.wildlife = {});
     if (seen[sp]) continue;
     seen[sp] = new Date().toISOString(); store.save();

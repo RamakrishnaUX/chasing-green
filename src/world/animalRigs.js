@@ -36,7 +36,32 @@ const SPECS = {
   orca: { scale: 0.113, center: true },
   dolphin: { scale: 0.52, center: true },
 };
-const GAIT = [0.25, 0.75, 0, 0.5]; // front-left, front-right, hind-left, hind-right
+// Sheep legs, swung by code. Each leg's place in the stride: a four-beat walk, and a trot with the
+// diagonal pairs together (front-left, front-right, hind-left, hind-right).
+const GAIT = { walk: [0.25, 0.75, 0, 0.5], trot: [0, 0.5, 0.5, 0] };
+// One leg at phase u (0 to 1) of its stride: planted and pushed back for the first share (duty),
+// then lifted, folded and swung forward quickly. Returns [swing, fold] in radians.
+function legAt(u, amp, duty, fold) {
+  if (u < duty) return [amp * (1 - (2 * u) / duty), 0];
+  const w = (u - duty) / (1 - duty), e = w * w * (3 - 2 * w);
+  return [amp * (2 * e - 1), Math.sin(Math.PI * w) * fold];
+}
+// The sheep's gait at ground speed v: how far a stride, how much a trot, and how wide the swing.
+// The stride lengthens with speed, so a running sheep reaches out rather than pattering.
+export function sheepGait(v, stride) {
+  const trot = clamp((v - 1.2) / 1.0, 0, 1);
+  return { stride: stride * (1 + 0.55 * Math.max(0, v - 0.8)), trot, amp: lerp(0.3, 0.58, trot), duty: lerp(0.62, 0.48, trot), fold: lerp(0.55, 0.95, trot) };
+}
+// Bend a sheep's legs (bones at rest) to stride phase p (0 to 1), blending walk and trot.
+function sheepLegs(K, bones, p, g, amount = 1) {
+  for (let i = 0; i < 4; i++) {
+    const U = K.legUp[i], L = K.legLow[i];
+    const w = legAt((p + GAIT.walk[i]) % 1, g.amp, g.duty, g.fold), t = legAt((p + GAIT.trot[i]) % 1, g.amp, g.duty, g.fold);
+    const sw = lerp(w[0], t[0], g.trot) * amount, fo = lerp(w[1], t[1], g.trot) * amount;
+    bones[U.name].quaternion.multiply(Q2.setFromAxisAngle(U.pitch, sw * U.sign));
+    bones[L.name].quaternion.multiply(Q2.setFromAxisAngle(L.pitch, fo * L.sign));
+  }
+}
 const NEAR = 70;
 const Y = new THREE.Vector3(0, 1, 0), X = new THREE.Vector3(1, 0, 0);
 const V = new THREE.Vector3(), V2 = new THREE.Vector3(), Q = new THREE.Quaternion(), Q2 = new THREE.Quaternion(), M = new THREE.Matrix4(), C = new THREE.Color();
@@ -276,10 +301,11 @@ class Kind {
     const lods = []; rig.traverse((o) => { if (o.isMesh && /_lod$/.test(o.name)) lods.push(o); });
     if (!lods.length) rig.traverse((o) => { if (o.isMesh && o.material.userData.tint) lods.push(o); });
     const bones = {}; rig.traverse((o) => { if (o.isBone) bones[o.name] = o; });
-    const pose = (clip, t, graze) => {
+    const pose = (clip, t, graze, legs = -1) => {
       mixer.stopAllAction();
       for (const B of this.bent) bones[B.name].quaternion.copy(B.rest);
       if (clip) { const a = mixer.clipAction(clip); a.play(); mixer.setTime(t); }
+      if (legs >= 0 && this.legUp) sheepLegs(this, bones, legs, sheepGait(this.S.walkSpeed || 0.8, this.S.stride));
       if (graze && this.graze) {
         for (const n of this.neck) { const b = bones[n.name]; b.quaternion.multiply(Q2.setFromAxisAngle(n.pitch, n === this.neck[0] ? this.graze.a : this.graze.b)); }
         if (this.head) { const b = bones[this.head.name]; b.quaternion.multiply(Q2.setFromAxisAngle(this.head.pitch, this.graze.q)); }
@@ -301,7 +327,8 @@ class Kind {
     const idle = this.clips.idle, walk = this.clips.walk;
     poses.push(pose(idle, 0, false)); // standing
     poses.push(this.clips.graze ? pose(this.clips.graze, this.clips.graze.duration * 0.3, false) : pose(idle, 0, true)); // grazing
-    for (let k = 0; k < 4; k++) poses.push(walk ? pose(walk, (walk.duration * k) / 4, false) : pose(idle, 0, false));
+    // Four steps of the walk (for the sheep, its legs swung by code).
+    for (let k = 0; k < 4; k++) poses.push(walk ? pose(walk, (walk.duration * k) / 4, false) : pose(idle, 0, false, k / 4));
     const inst = (n) => new THREE.InstancedBufferAttribute(new Float32Array(n * 3).fill(1), 3);
     this.far = poses.map(({ geo, mats }) => {
       geo.setAttribute('iCoat', inst(cap)); geo.setAttribute('iHair', inst(cap)); geo.setAttribute('iPts', inst(cap));
@@ -416,18 +443,14 @@ export class AnimalRigs {
     if (K.head) {
       A.bones[K.head.name].quaternion.multiply(Q2.setFromAxisAngle(K.head.pitch, G.q * A.pitch * chew));
     }
-    // Sheep legs: a four-beat walk, the upper leg swinging and the lower one folding as it lifts.
+    // Sheep legs: each hoof planted and pushed back, then lifted and swung forward; a walk that
+    // turns into a trot as it speeds up, the body rising and dipping a little with each step.
     if (K.legUp) {
-      const moving = a.moving && v > 0.05;
-      A.gait += moving ? (v * step * Math.PI * 2) / S.stride : 0;
-      const amp = moving ? clamp(v / 1.2, 0.35, 0.75) * 0.5 : 0;
-      A.legAmp = lerp(A.legAmp || 0, amp, Math.min(1, step * 6));
-      for (let i = 0; i < 4; i++) {
-        const ph = A.gait + GAIT[i] * Math.PI * 2, U = K.legUp[i], L = K.legLow[i];
-        const bu = A.bones[U.name], bl = A.bones[L.name];
-        bu.quaternion.multiply(Q2.setFromAxisAngle(U.pitch, Math.sin(ph) * A.legAmp * U.sign));
-        bl.quaternion.multiply(Q2.setFromAxisAngle(L.pitch, Math.max(0, Math.cos(ph)) * A.legAmp * 1.4 * L.sign));
-      }
+      const moving = a.moving && v > 0.05, g = sheepGait(v, S.stride);
+      A.gait = (A.gait + (moving ? (v * step) / g.stride : 0)) % 1;
+      A.legAmp = lerp(A.legAmp || 0, moving ? 1 : 0, Math.min(1, step * 6));
+      sheepLegs(K, A.bones, A.gait, g, A.legAmp);
+      A.root.position.y += (lerp(0.012, 0.035, g.trot) * (0.5 + 0.5 * Math.cos(A.gait * Math.PI * 4)) - lerp(0.012, 0.035, g.trot)) * A.legAmp;
     }
   }
   hideHerd(sp) {

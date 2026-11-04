@@ -3,8 +3,12 @@
 // Mixamo rig, downloaded to downloads/coat. Motion: the Mixamo clips in "ETB Animated" by
 // Royaleyourdad (CC BY 4.0), downloaded to downloads/etb. Both rigs are Mixamo's, so a clip moves
 // the coat man once its tracks are pointed at his bones by name (Sketchfab adds a different
-// number to each bone name in each file, which is dropped to match them). The hips' track is
-// scaled to his height and held in place, so the game moves him, not the clip.
+// number to each bone name in each file, which is dropped to match them). The two skeletons'
+// rest poses differ by a few degrees a bone (more at the feet, shoulders and hands), and copying
+// each bone's turn straight across adds those errors up along every limb: he leaned back on bent
+// knees and his limbs looked rubbery. So the clips are retargeted: each bone keeps the same turn
+// in the world, away from its own rest pose, as the clip's bone makes away from the clip's. The
+// hips' track is scaled to his height and held in place, so the game moves him, not the clip.
 // Needs, not saved to package.json:
 // npm i --no-save @gltf-transform/core@4 @gltf-transform/functions@4 @gltf-transform/extensions@4 meshoptimizer@0.22 sharp@0.33
 import { NodeIO } from '@gltf-transform/core';
@@ -16,7 +20,8 @@ import fs from 'fs';
 
 // The clips, by their place in the pack (the pack holds eight copies of the character, each
 // with the same eight clips; the first copy's are used), and the names the game knows them by.
-const CLIPS = JSON.parse(process.env.CLIPS || '{"7":"idle","6":"walk","1":"run","2":"jump","3":"kneel"}');
+// (Clip 6 is a walk backwards: the planted foot slides forward. It is the step back.)
+const CLIPS = JSON.parse(process.env.CLIPS || '{"7":"idle","5":"walk","6":"back","1":"run","2":"jump","3":"kneel"}');
 
 await MeshoptEncoder.ready;
 const io = new NodeIO().registerExtensions(ALL_EXTENSIONS).registerDependencies({ 'meshopt.encoder': MeshoptEncoder });
@@ -47,31 +52,92 @@ const srcHips = srcRoot.listNodes().filter((n) => /mixamorig:Hips_/.test(n.getNa
 const scale = hipsY(root.listNodes()) / hipsY(srcHips);
 console.log('hips scale', scale.toFixed(3));
 
+// Quaternions [x, y, z, w].
+const qmul = (a, b) => [a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1], a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0], a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3], a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2]];
+const qinv = (a) => [-a[0], -a[1], -a[2], a[3]];
+const qnorm = (a) => { const l = Math.hypot(...a); return a.map((v) => v / l); };
+const slerp = (a, b, t) => { let d = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3]; const bb = d < 0 ? b.map((v) => -v) : b; return qnorm(a.map((v, i) => v + (bb[i] - v) * t)); };
+// The rotation of a 4x4 (column-major) matrix, scale taken out.
+const rotOf = (m) => {
+  const c = [0, 1, 2].map((k) => { const l = Math.hypot(m[k * 4], m[k * 4 + 1], m[k * 4 + 2]); return [m[k * 4] / l, m[k * 4 + 1] / l, m[k * 4 + 2] / l]; });
+  const [m00, m10, m20] = c[0], [m01, m11, m21] = c[1], [m02, m12, m22] = c[2], tr = m00 + m11 + m22;
+  let q;
+  if (tr > 0) { const k = 0.5 / Math.sqrt(tr + 1); q = [(m21 - m12) * k, (m02 - m20) * k, (m10 - m01) * k, 0.25 / k]; }
+  else if (m00 > m11 && m00 > m22) { const k = 2 * Math.sqrt(1 + m00 - m11 - m22); q = [0.25 * k, (m01 + m10) / k, (m02 + m20) / k, (m21 - m12) / k]; }
+  else if (m11 > m22) { const k = 2 * Math.sqrt(1 + m11 - m00 - m22); q = [(m01 + m10) / k, 0.25 * k, (m12 + m21) / k, (m02 - m20) / k]; }
+  else { const k = 2 * Math.sqrt(1 + m22 - m00 - m11); q = [(m02 + m20) / k, (m12 + m21) / k, 0.25 * k, (m10 - m01) / k]; }
+  return qnorm(q);
+};
+// Each joint's rest (bind) turn in the world: the skinned mesh's, then the inverse bind matrix's.
+const bindOf = (rootOf, skin) => {
+  const mesh = rootOf.listNodes().find((n) => n.getSkin() === skin), M = rotOf(mesh.getWorldMatrix()), ibm = skin.getInverseBindMatrices(), out = new Map();
+  skin.listJoints().forEach((j, i) => out.set(j, qmul(M, qinv(rotOf(ibm.getElement(i, []))))));
+  return out;
+};
+// The value of a channel at time t (linear keys; rotations slerped).
+const sample = (ch, t) => {
+  const s = ch.getSampler(), T = s.getInput().getArray(), V = s.getOutput().getArray(), n = ch.getTargetPath() === 'rotation' ? 4 : 3;
+  const at = (i) => Array.from(V.slice(i * n, i * n + n));
+  if (t <= T[0] || T.length === 1) return at(0);
+  if (t >= T[T.length - 1]) return at(T.length - 1);
+  let i = 1; while (T[i] < t) i++;
+  const u = (t - T[i - 1]) / (T[i] - T[i - 1]), a = at(i - 1), b = at(i);
+  return n === 4 ? slerp(a, b, u) : a.map((v, k) => v + (b[k] - v) * u);
+};
+
 const first = srcRoot.listAnimations().filter((a) => a.getName().startsWith('Armature|'));
 first.sort((a, b) => a.getName().localeCompare(b.getName()));
 const buffer = root.listBuffers()[0];
+const tgtHips = [...bones.values()].find((n) => /Hips/.test(n.getName()));
+const tgtBind = bindOf(root, root.listSkins().find((k) => k.listJoints().includes(tgtHips)));
+const kids = (n) => n.listChildren();
 for (const [i, name] of Object.entries(CLIPS)) {
   const a = first[+i];
   if (!a) continue;
-  const anim = doc.createAnimation(name);
-  for (const ch of a.listChannels()) {
-    const target = bones.get(base(ch.getTargetNode().getName()));
-    const path = ch.getTargetPath();
-    if (!target || path === 'scale') continue;
-    const s = ch.getSampler();
-    const input = doc.createAccessor().setType('SCALAR').setArray(s.getInput().getArray().slice()).setBuffer(buffer);
-    let out = s.getOutput().getArray().slice();
-    if (path === 'translation') {
-      if (!/Hips/.test(target.getName())) continue; // only the hips move; the other bones keep their own lengths
-      // In place: hold the first frame's position across the ground, keep the bounce, scaled.
-      const x0 = out[0], z0 = out[2];
-      for (let k = 0; k < out.length; k += 3) { out[k] = x0 * scale; out[k + 1] *= scale; out[k + 2] = z0 * scale; }
-    }
-    const output = doc.createAccessor().setType(path === 'rotation' ? 'VEC4' : 'VEC3').setArray(out).setBuffer(buffer);
-    const sampler = doc.createAnimationSampler().setInput(input).setOutput(output).setInterpolation(s.getInterpolation());
-    anim.addSampler(sampler).addChannel(doc.createAnimationChannel().setTargetNode(target).setTargetPath(path).setSampler(sampler));
+  // The clip's own skeleton (the pack has eight) and its rest turns.
+  const chans = new Map(), srcBones = new Map();
+  for (const ch of a.listChannels()) { const n = ch.getTargetNode(); srcBones.set(base(n.getName()), n); chans.set(n.getName() + '|' + ch.getTargetPath(), ch); }
+  const srcHips = [...srcBones.values()].find((n) => /Hips/.test(n.getName()));
+  const srcBind = bindOf(srcRoot, srcRoot.listSkins().find((k) => k.listJoints().includes(srcHips)));
+  const times = [...new Set(a.listChannels().flatMap((ch) => [...ch.getSampler().getInput().getArray()]))].sort((x, y) => x - y);
+  const out = new Map(); // target bone -> rotations, flat
+  const hipsT = [];
+  const srcUp = rotOf(srcHips.getParentNode().getWorldMatrix()), tgtUp = rotOf(tgtHips.getParentNode().getWorldMatrix());
+  for (const t of times) {
+    // The clip's bones' turns in the world.
+    const sw = new Map();
+    const walkSrc = (n, parent) => { const ch = chans.get(n.getName() + '|rotation'); const w = qmul(parent, ch ? qnorm(sample(ch, t)) : n.getRotation()); sw.set(base(n.getName()), w); for (const c of kids(n)) walkSrc(c, w); };
+    walkSrc(srcHips, srcUp);
+    // His: the same turn away from rest, then each back into its parent's frame.
+    const walkTgt = (n, parent) => {
+      const k = base(n.getName()), sb = srcBones.get(k) || [...srcBind.keys()].find((j) => base(j.getName()) === k);
+      let w;
+      if (sw.has(k) && sb && srcBind.has(sb) && tgtBind.has(n)) w = qmul(qmul(sw.get(k), qinv(srcBind.get(sb))), tgtBind.get(n));
+      else w = qmul(parent, n.getRotation());
+      const local = qnorm(qmul(qinv(parent), w));
+      if (!out.has(n)) out.set(n, []);
+      out.get(n).push(...local);
+      for (const c of kids(n)) walkTgt(c, w);
+    };
+    walkTgt(tgtHips, tgtUp);
+    const ht = chans.get(srcHips.getName() + '|translation');
+    if (ht) hipsT.push(...sample(ht, t));
   }
-  console.log(' ', name, '<-', a.getName(), anim.listChannels().length, 'channels');
+  const anim = doc.createAnimation(name);
+  const input = doc.createAccessor().setType('SCALAR').setArray(new Float32Array(times)).setBuffer(buffer);
+  const add = (node, path, arr) => {
+    const output = doc.createAccessor().setType(path === 'rotation' ? 'VEC4' : 'VEC3').setArray(new Float32Array(arr)).setBuffer(buffer);
+    const sampler = doc.createAnimationSampler().setInput(input).setOutput(output).setInterpolation('LINEAR');
+    anim.addSampler(sampler).addChannel(doc.createAnimationChannel().setTargetNode(node).setTargetPath(path).setSampler(sampler));
+  };
+  for (const [node, arr] of out) if (/mixamorig/.test(node.getName())) add(node, 'rotation', arr);
+  if (hipsT.length) {
+    // In place: hold the first frame's position across the ground, keep the bounce, scaled.
+    const x0 = hipsT[0], z0 = hipsT[2];
+    for (let k = 0; k < hipsT.length; k += 3) { hipsT[k] = x0 * scale; hipsT[k + 1] *= scale; hipsT[k + 2] = z0 * scale; }
+    add(tgtHips, 'translation', hipsT);
+  }
+  console.log(' ', name, '<-', a.getName(), anim.listChannels().length, 'channels,', times.length, 'keys');
 }
 
 await doc.transform(
