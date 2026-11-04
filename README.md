@@ -76,20 +76,21 @@ The interiors and the eye position for each view are built in `src/vehicle/inter
 
 | Car | Looks | Handling | Deepest water |
 | --- | --- | --- | --- |
-| Trail 4x4 | Four-door off-roader in lime green: seven-slot grille, round LED lamps, roll bar, tube doors, snorkel, winch with red strap, beadlock wheels on mud-terrain tyres | Balanced, best on gravel, mud and fords | 1.9 m |
+| Trail 4x4 | 1940s open-topped field car in olive drab: slotted grille, white star on the bonnet, fold-down windscreen, jerry can and spare on the back, canvas seats, no roof between you and the sky | Balanced, best on gravel, mud and fords | 1.9 m |
 | Vintage roadster | 1930s coupe in deep maroon and black: long wings with a spare on each, wire wheels, round lamps on stalks at the back, a wooden dash | Slow and soft, with lots of body roll | 0.6 m |
 | Supercar | Low orange hypercar with dark wheels, slashed lamps front and back, vents over the engine | Fast and stiff, poor off-road | 0.3 m |
 | Camper van | 1960s split-window bus in sky blue and white, seats for nine | Slow and steady, fine on gravel | 1.0 m |
 
-Handling lives in `src/vehicle/specs.js` (including suspension stiffness). The 4x4 is built in code in `src/vehicle/models.js`; the other three are models from Sketchfab, loaded in the background (`public/models/car_*.glb`, 1.2 to 2.3 MB), with the old built-in models standing in until they arrive. There are no brand logos; the 4x4 wears a plain "Trail" badge, and the camper's maker's badge is cut off its nose.
+Handling lives in `src/vehicle/specs.js` (including suspension stiffness). All four are models from Sketchfab, loaded in the background (`public/models/car_*.glb`, 1.2 to 2.7 MB), with the old models built in code (`src/vehicle/models.js`) standing in until they arrive. There are no brand logos: the 4x4 carries only army markings, and the camper's maker's badge is cut off its nose.
 
 | Car | Model | By | Licence |
 | --- | --- | --- | --- |
+| Trail 4x4 | [Willy Jeep](https://sketchfab.com/3d-models/willy-jeep-b635f6d5a7a045cf9bae3cc71952cd23), thinned from 297,000 triangles to 122,000 | [AnilG](https://sketchfab.com/AnilkumarG) | CC BY 4.0 |
 | Supercar | [Fictional supercar - V12 Goblin](https://sketchfab.com/3d-models/fictional-supercar-v12-goblin-0a20e49ad5774d778567cb5c3f345786), repainted orange | [ollitei](https://sketchfab.com/ollitei) | CC BY 4.0 |
 | Vintage roadster | [Retro Car](https://sketchfab.com/3d-models/retro-car-2836e72f327f4d6f9fe836d646496927) | [pisarenok](https://sketchfab.com/pisarenok) | CC BY 4.0 |
 | Camper van | [Volkswagen Kombi Micro Bus](https://sketchfab.com/3d-models/volkswagen-kombi-micro-bus-d34fd744db1c4f84ad40c854ddbff9e9), badge removed | [winterborn](https://sketchfab.com/winterborn) | CC BY 4.0 |
 
-`tools/cars/process.mjs <kind>` turns a download in `downloads/` into the game's file: it bakes every part into one car facing +z with the ground at y = 0, scales it to length, splits out the four wheels (by name, or cut out of the chassis around each axle where they are merged into it) so they spin and steer, moves the lamp lenses to "lamp" and "tail" materials the game lights at night, takes off badges, turns spec-gloss materials into metal-rough ones (the supercar's paint comes out of its specular map), and compresses it. The vintage car and camper bring their own cabins for the cockpit view; the supercar keeps the built-in one.
+`tools/cars/process.mjs <kind>` turns a download in `downloads/` into the game's file: it bakes every part into one car facing +z with the ground at y = 0, scales it to length, splits out the four wheels (by name, or cut out of the chassis around each axle where they are merged into it) so they spin and steer, moves the lamp lenses to "lamp" and "tail" materials the game lights at night, takes off badges, thins dense models, turns spec-gloss materials into metal-rough ones (the supercar's paint comes out of its specular map), and compresses it. The 4x4, vintage car and camper bring their own cabins for the cockpit view; the supercar keeps the built-in one.
 
 ## Helicopter
 
@@ -340,7 +341,7 @@ src/
     jeep.js          jeep model and driving physics
     walker.js        step-out character: moving, climbing and mixing his clips
     heli.js          the helicopter: model, flight, landing, cockpit controls and displays
-    models.js        the 4x4 built in code, the other cars loaded from their files (with built-in stand-ins)
+    models.js        the cars, loaded from their files, with stand-ins built in code
     interiors.js     dashboards, wheels and dials for the cockpit view, plus each car's hood and cockpit eye
     specs.js         handling, wading depth and nitro for each car
     fuel.js          each car's tank and how fast it burns

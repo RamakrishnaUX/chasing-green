@@ -4,9 +4,8 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 
-// Four vehicles. The 4x4 is built in code; the supercar, roadster and camper are models from
-// Sketchfab (see the end of this file), with code-built stand-ins while they load. Units are
-// metres, +z is forward, the ground is y = 0.
+// Four vehicles, all models from Sketchfab (see the end of this file), with code-built stand-ins
+// while they load. Units are metres, +z is forward, the ground is y = 0.
 
 const rbox = (w, h, d, r = 0.06, seg = 3) => new RoundedBoxGeometry(w, h, d, seg, Math.min(r, w / 2 - 1e-3, h / 2 - 1e-3, d / 2 - 1e-3));
 
@@ -674,6 +673,7 @@ function buildRace() {
 // centred on their axles, lamps in materials named "lamp" and "tail". They load in the
 // background; until one arrives that car is the one built in code above.
 const GLB = {
+  jeep: { camDist: 8, camHeight: 2.7, eye: 1.6, cockpit: [0.3, 1.62, -0.55], hood: [0, 1.62, 0.5] }, // open-topped: a wide sky from the seat
   // The supercar has no cabin of its own: it keeps the one built in code, moved to sit in this body.
   race: { camDist: 8.5, camHeight: 2.4, eye: 1.25, rims: 0x2a2c30, cabinShift: 0.42 }, // painted body, dark wheels
   vintage: { camDist: 10.5, camHeight: 3.3, eye: 2.0, cockpit: [0.38, 1.6, -0.15], hood: [0, 1.75, 1.0] },

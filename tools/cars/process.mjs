@@ -9,12 +9,17 @@
 // npm i --no-save @gltf-transform/core@4 @gltf-transform/functions@4 @gltf-transform/extensions@4 meshoptimizer@0.22 sharp@0.33
 import { NodeIO } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
-import { prune, dedup, textureCompress, meshopt, dequantize, transformPrimitive, weld, compactPrimitive } from '@gltf-transform/functions';
-import { MeshoptEncoder, MeshoptDecoder } from 'meshoptimizer';
+import { prune, dedup, textureCompress, meshopt, dequantize, transformPrimitive, weld, compactPrimitive, simplify } from '@gltf-transform/functions';
+import { MeshoptEncoder, MeshoptDecoder, MeshoptSimplifier } from 'meshoptimizer';
 import sharp from 'sharp';
 import fs from 'fs';
 
 const CARS = {
+  // "Willy Jeep" by AnilG (CC BY 4.0), a 1940s Willys in olive drab. Its wheels are parts of their own.
+  jeep: { src: 'downloads/willys/scene.glb', length: 3.6, lamps: /^Headlight$/, simplify: 0.4,
+    wheels: { FL: /Front_LH/, FR: /Front_RH/, RL: /Rear_LH/, RR: /Rear_RH/ },
+    // The two round lamps at the back corners.
+    split: [{ mat: /^Jeep$/, box: { min: [0.54, 0.59, -1.74], max: [0.7, 0.73, -1.69] }, whole: true, to: 'tail' }, { mat: /^Jeep$/, box: { min: [-0.7, 0.59, -1.74], max: [-0.54, 0.73, -1.69] }, whole: true, to: 'tail' }] },
   // "Fictional supercar - V12 Goblin" by ollitei (CC BY 4.0).
   // Its green lived in a Sketchfab-only clear-coat shell: painted orange here, as the game's supercar.
   race: { src: 'downloads/goblin/scene.gltf', length: 4.55, drop: /shadow|clearcoat/i, paint: { re: /car_body/, color: [1, 0.3, 0.02], metal: 0.55, diffuse: 'downloads/goblin/textures/car_body_diffuse.png', spec: 'downloads/goblin/textures/car_body_specularGlossiness.png' },
@@ -37,7 +42,7 @@ const kind = process.argv[2];
 const C = CARS[kind];
 if (!C) { console.log('kinds:', Object.keys(CARS).join(', ')); process.exit(1); }
 
-await MeshoptEncoder.ready; await MeshoptDecoder.ready;
+await MeshoptEncoder.ready; await MeshoptDecoder.ready; await MeshoptSimplifier.ready;
 const io = new NodeIO().registerExtensions(ALL_EXTENSIONS).registerDependencies({ 'meshopt.encoder': MeshoptEncoder, 'meshopt.decoder': MeshoptDecoder });
 const doc = await io.read(C.src);
 await doc.transform(dequantize());
@@ -115,13 +120,26 @@ for (const m of root.listMaterials()) { if (C.lamps?.test(m.getName())) m.setNam
 const eachTri = (p, fn) => { const pos = p.getAttribute('POSITION'), arr = p.getIndices().getArray(), v = [0, 0, 0], c = [0, 0, 0]; for (let t = 0; t < arr.length; t += 3) { c[0] = c[1] = c[2] = 0; for (let j = 0; j < 3; j++) { pos.getElement(arr[t + j], v); c[0] += v[0] / 3; c[1] += v[1] / 3; c[2] += v[2] / 3; } fn(t, c); } };
 const setTris = (p, list) => p.setIndices(doc.createAccessor().setType('SCALAR').setArray(new Uint32Array(list)).setBuffer(p.getIndices().getBuffer()));
 const inBox = (c, b) => c.every((v, i) => v >= b.min[i] && v <= b.max[i]);
+// Whether each triangle belongs to a piece (a run of triangles joined at their corners) lying
+// wholly inside a box.
+const wholly = (p, b) => {
+  const pos = p.getAttribute('POSITION'), arr = p.getIndices().getArray(), v = [0, 0, 0];
+  const key = [], up = new Map();
+  for (let i = 0; i < pos.getCount(); i++) { pos.getElement(i, v); const k = v.map((x) => x.toFixed(4)).join(); key.push(k); up.set(k, k); }
+  const find = (a) => { while (up.get(a) !== a) { up.set(a, up.get(up.get(a))); a = up.get(a); } return a; };
+  for (let t = 0; t < arr.length; t += 3) { const a = find(key[arr[t]]); up.set(find(key[arr[t + 1]]), a); up.set(find(key[arr[t + 2]]), a); }
+  const outside = new Set();
+  for (let i = 0; i < pos.getCount(); i++) { pos.getElement(i, v); if (!inBox(v, b)) outside.add(find(key[i])); }
+  return (t) => !outside.has(find(key[arr[t]]));
+};
 // Lamp lenses that share a material with something else (glass, or the front and rear lamps
-// together) move to a "lamp" or "tail" material of their own, chosen by where they sit.
+// together) move to a "lamp" or "tail" material of their own, chosen by where they sit: each
+// triangle whose centre is in the box, or with `whole`, each piece wholly inside it.
 for (const S of C.split || []) for (const part of [...parts]) {
   const p = part.prim;
   if (part.wheel || !p.getIndices() || !S.mat.test(p.getMaterial()?.getName() || '')) continue;
-  const arr = p.getIndices().getArray(), keep = [], moved = [];
-  eachTri(p, (t, c) => (inBox(c, S.box) ? moved : keep).push(arr[t], arr[t + 1], arr[t + 2]));
+  const arr = p.getIndices().getArray(), keep = [], moved = [], inside = S.whole && wholly(p, S.box);
+  eachTri(p, (t, c) => ((inside ? inside(t) : inBox(c, S.box)) ? moved : keep).push(arr[t], arr[t + 1], arr[t + 2]));
   if (!moved.length) continue;
   const q = p.clone();
   for (const sem of q.listSemantics()) q.setAttribute(sem, p.getAttribute(sem).clone());
@@ -130,20 +148,12 @@ for (const S of C.split || []) for (const part of [...parts]) {
   compactPrimitive(p); compactPrimitive(q);
   parts.push({ prim: q, names: part.names });
 }
-// Badges: pieces of the body (runs of triangles joined at their corners) that lie wholly inside
-// a box are taken off.
+// Badges: pieces of the body that lie wholly inside a box are taken off.
 for (const b of C.strip || []) for (const part of parts) {
   const p = part.prim;
   if (part.wheel || !p.getIndices()) continue;
-  const pos = p.getAttribute('POSITION'), arr = p.getIndices().getArray(), v = [0, 0, 0];
-  const key = [], up = new Map();
-  for (let i = 0; i < pos.getCount(); i++) { pos.getElement(i, v); const k = v.map((x) => x.toFixed(4)).join(); key.push(k); up.set(k, k); }
-  const find = (a) => { while (up.get(a) !== a) { up.set(a, up.get(up.get(a))); a = up.get(a); } return a; };
-  for (let t = 0; t < arr.length; t += 3) { const a = find(key[arr[t]]); up.set(find(key[arr[t + 1]]), a); up.set(find(key[arr[t + 2]]), a); }
-  const outside = new Set();
-  for (let i = 0; i < pos.getCount(); i++) { pos.getElement(i, v); if (!inBox(v, b)) outside.add(find(key[i])); }
-  const keep = [];
-  for (let t = 0; t < arr.length; t += 3) if (outside.has(find(key[arr[t]]))) keep.push(arr[t], arr[t + 1], arr[t + 2]);
+  const arr = p.getIndices().getArray(), inside = wholly(p, b), keep = [];
+  for (let t = 0; t < arr.length; t += 3) if (!inside(t)) keep.push(arr[t], arr[t + 1], arr[t + 2]);
   if (keep.length < arr.length) { console.log('  stripped', (arr.length - keep.length) / 3, 'triangles'); setTris(p, keep); compactPrimitive(p); }
 }
 
@@ -195,6 +205,7 @@ for (const m of root.listMaterials()) {
 }
 
 await doc.transform(prune(), dedup(), weld(),
+  ...(C.simplify ? [simplify({ simplifier: MeshoptSimplifier, ratio: C.simplify, error: 0.0006 })] : []), // dense models, thinned to about this share of their triangles
   textureCompress({ encoder: sharp, targetFormat: 'webp', resize: [1024, 1024], quality: 84 }),
   meshopt({ encoder: MeshoptEncoder, level: 'medium' }));
 const out = `public/models/car_${kind}.glb`;

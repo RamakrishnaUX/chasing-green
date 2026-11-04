@@ -6,14 +6,14 @@ export const VEHICLES = {
   jeep: {
     name: 'Trail 4x4',
     tagline: 'Goes anywhere and wades the deepest rivers.',
-    blurb: 'Four-door off-roader. Balanced on gravel, mud and fords, and wades the deepest.',
+    blurb: 'A 1940s open-topped field car in olive drab, with a fold-down windscreen and a spare on the back. Balanced on gravel, mud and fords, and wades the deepest.',
     susp: { k: 7, roll: 1 },
     maxSpeed: 42, accel: 14, brake: 26, reverseMax: 9, steerRate: 1.75, grip: 8, handbrakeGrip: 1.6,
     offroad: { paved: 1, gravel: 0.96, moss: 0.88, sand: 0.82, snow: 0.8, ford: 0.75 },
     wade: 2.8, waterDrag: 0.5,
     boat: { maxSpeed: 17, accel: 7 },
     nitro: { speed: 1.45, accel: 2.0 },
-    radius: 1.05, halfLength: 1.35,
+    radius: 0.95, halfLength: 0.9,
     engine: { base: 34, perSpeed: 1.7, type: 'sawtooth', rumble: 0.9 },
   },
   vintage: {
