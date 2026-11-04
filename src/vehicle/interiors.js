@@ -141,14 +141,15 @@ function race() {
     const pil = dash(g, carbon, 0.06, 0.05, 0.7, sx * 0.62, 0.97, 0.45, 0.62); pil.rotation.z = sx * 0.12; // A pillar along the windscreen
   }
   dash(g, alcantara, 1.4, 0.6, 0.05, 0, 0.88, -0.62);
-  return { group: g, steer, needles, draw, closed: true,
+  // The driver lies well back under the low roof, legs out straight.
+  return { group: g, steer, needles, draw, closed: true, seat: { up: 0.1, back: 0.36, lean: 0.6, legDown: 0.12, legOut: 0.85 },
     views: { cockpit: { eye: [0.3, 0.99, -0.32], fov: 72, pitch: -0.04 }, hood: { eye: [0, 1.2, 0.82], fov: 66, pitch: -0.06 } } };
 }
 
 // A car from a model file with a cabin of its own needs nothing built: just where the eye sits,
 // and its own steering wheel, cut out of the model to turn.
 function modelCabin(model) {
-  return { group: new THREE.Group(), steer: model.steer || null, needles: { speed: new THREE.Object3D(), rev: new THREE.Object3D() }, draw: () => {}, closed: true,
+  return { group: new THREE.Group(), steer: model.steer || null, seat: model.seat, needles: { speed: new THREE.Object3D(), rev: new THREE.Object3D() }, draw: () => {}, closed: true,
     views: { cockpit: { eye: model.cockpit, fov: 72, pitch: model.cockpitPitch ?? -0.1 }, hood: { eye: model.hood, fov: 66, pitch: -0.08 } } };
 }
 

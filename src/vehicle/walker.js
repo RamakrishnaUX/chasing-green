@@ -53,6 +53,7 @@ export class Walker {
       const man = g.scene;
       man.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false; } });
       this.root.add(man);
+      this.man = man; man.visible = !this.sitting;
       this.mixer = new THREE.AnimationMixer(man);
       this.actions = {}; this.weights = {};
       for (const name of CLIPS) {
@@ -78,7 +79,9 @@ export class Walker {
   }
   exit() { this.root.visible = false; this.setSitting(false); this.jumpT = -1; }
 
-  setSitting(on) { this.sitting = !!on; }
+  // Sitting is seen through his own eyes, from inside his head: his body is hidden meanwhile, or
+  // the camera would show the inside of his face.
+  setSitting(on) { this.sitting = !!on; if (this.man) this.man.visible = !this.sitting; }
 
   // The ground on foot: terrain, landforms, and any rock or cliff there to stand on.
   groundAt(x, z) { return Math.max(heightAt(x, z), surfaceHeightAt(x, z), this.obstacles ? this.obstacles.topAt(x, z) : -Infinity); } // on a road, the tarmac drawn over the land

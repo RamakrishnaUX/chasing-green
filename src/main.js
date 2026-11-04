@@ -34,6 +34,7 @@ import { Walker } from './vehicle/walker.js';
 import { Heli } from './vehicle/heli.js';
 import { loadCarModels } from './vehicle/models.js';
 import { Mirrors } from './vehicle/mirrors.js';
+import { Driver } from './vehicle/driver.js';
 import { solidTopAt } from './world/solids.js';
 import { BoatWater } from './vehicle/boat.js';
 import { Wildlife, WILDLIFE_NOTES } from './world/wildlife.js';
@@ -83,6 +84,8 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(52, innerWidth / innerHeight, 0.4, Q.far || 3200);
 // The wing and rear-view mirrors, live from the driver's seat (a smaller, slower picture on phones).
 const mirrors = new Mirrors({ small: isTouch });
+// You, at the wheel while you drive (out of the car once you step out).
+const driver = new Driver();
 addEventListener('resize', () => {
   renderer.setSize(innerWidth, innerHeight, false);
   camera.aspect = innerWidth / innerHeight;
@@ -1202,10 +1205,12 @@ function leaveHeli() {
   syncLookButton();
   return true;
 }
+// V (or a tap on the car) goes round every vehicle: the cars in order, then the helicopter, then
+// back to the first car.
 function cycleVehicle() {
-  if (ride === 'heli') { setVehicle(settings.car || 'jeep'); return; }
+  if (ride === 'heli') { setVehicle(VEHICLE_ORDER[0]); return; }
   const i = VEHICLE_ORDER.indexOf(jeep.kind);
-  setVehicle(VEHICLE_ORDER[(i + 1) % VEHICLE_ORDER.length]);
+  setVehicle(i === VEHICLE_ORDER.length - 1 ? 'heli' : VEHICLE_ORDER[i + 1]);
 }
 function renderGarage() {
   const list = $('garage-list');
@@ -1557,6 +1562,7 @@ function frame(now) {
   if (started) {
     const inside = mode === 'chase' && driveView !== 'chase';
     turnWheel(jeep.interior, jeep.steerVis);
+    driver.update(jeep, ride === 'car' && mode !== 'walk', (mode === 'chase' && driveView === 'cockpit') || mode === 'lookup');
     if (inside && driveView === 'cockpit') updateInterior(jeep.interior, { kmh: jeep.kmh, steer: jeep.steerVis, music: audio.music && volumes.music > 0 && !audio.muted ? trackTitle(audio.music.i) : null });
     // Nitro from inside: the exhaust flames are behind you, so the screen edges glow instead.
     const glow = inside && jeep.boosting;
@@ -1644,7 +1650,7 @@ requestAnimationFrame(() => setTimeout(async () => {
 
 // Handy for tuning from the browser console.
 window.chasingGreen = {
-  clock, forecast, CONFIG, store, linkFor, scene, renderer, camera, mirrors, setVehicle, fastTravel, input,
+  clock, forecast, CONFIG, store, linkFor, scene, renderer, camera, mirrors, driver, setVehicle, fastTravel, input,
   get obstacles() { return obstacles; }, get scene() { return scene; }, Vec3: THREE.Vector3, get puddles() { return puddles; }, get mapUI() { return mapUI; }, get snow() { return snow; },
   nearestRoad: (x, z, r) => nearestRoad(x, z, r), coastAt, roadDistAt, shoreDistAt, groundAt, solidTopAt, get wildlife() { return wildlife; },
   roadPaths: () => roadPaths, fuel, putCar, get stations() { return stations; },

@@ -13,7 +13,7 @@ export const VEHICLES = {
     wade: 2.8, waterDrag: 0.5,
     boat: { maxSpeed: 17, accel: 7 },
     nitro: { speed: 1.45, accel: 2.0 },
-    radius: 0.95, halfLength: 0.9,
+    radius: 1.13, halfLength: 1.07,
     engine: { base: 34, perSpeed: 1.7, type: 'sawtooth', rumble: 0.9 },
   },
   vintage: {
@@ -26,7 +26,7 @@ export const VEHICLES = {
     wade: 0.95, waterDrag: 0.9,
     boat: { maxSpeed: 13, accel: 5 },
     nitro: { speed: 1.4, accel: 1.8 },
-    radius: 1.0, halfLength: 2.1,
+    radius: 0.84, halfLength: 1.76,
     engine: { base: 26, perSpeed: 1.3, type: 'square', rumble: 1.2 },
   },
   camper: {
@@ -39,7 +39,7 @@ export const VEHICLES = {
     wade: 1.0, waterDrag: 1.0,
     boat: { maxSpeed: 13, accel: 5 },
     nitro: { speed: 1.4, accel: 1.8 },
-    radius: 1.0, halfLength: 1.75,
+    radius: 1.36, halfLength: 2.3,
     engine: { base: 30, perSpeed: 1.4, type: 'square', rumble: 1.1 },
   },
   race: {

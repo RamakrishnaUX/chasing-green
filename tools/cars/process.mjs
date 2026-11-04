@@ -40,6 +40,8 @@ const CARS = {
     // Front and rear lamps share one glass; the rear ones turn red. The maker's badge on the nose comes off.
     split: [{ mat: /^lamp$/, box: { min: [-2, -1, -3], max: [2, 3, 0] }, to: 'tail' }],
     strip: [{ min: [-0.16, 0.76, 1.9], max: [0.16, 1.08, 2.06] }],
+    // Its engine lid is modelled propped wide open; it swings down shut on its hinge.
+    hinge: [{ box: { min: [-0.45, 0.76, -2.25], max: [0.45, 0.87, -1.855] }, y: 0.81, z: -1.87, angle: -Math.PI / 2 }],
     // It is right-hand drive; the cab is mirrored so the wheel sits in front of the driver.
     mirror: [{ min: [-0.77, 0.25, 0.6], max: [0.77, 1.3, 1.88] }],
     steer: { box: { min: [0.08, 0.37, 1.28], max: [0.48, 1.25, 1.73] }, not: [{ min: [0.18, 0.94, 1.49], max: [0.38, 1.19, 1.72] }], centre: [0.28, 1.06, 1.52], r: 0.22 } },
@@ -171,6 +173,23 @@ for (const b of C.strip || []) for (const part of parts) {
   for (let t = 0; t < arr.length; t += 3) if (!inside(t)) keep.push(arr[t], arr[t + 1], arr[t + 2]);
   if (keep.length < arr.length) { console.log('  stripped', (arr.length - keep.length) / 3, 'triangles'); setTris(p, keep); compactPrimitive(p); }
 }
+// Lids and doors modelled open are shut: the pieces wholly inside a box turn about a hinge line
+// across the car (along x, through y and z) by an angle (negative swings the rear end down).
+for (const H of C.hinge || []) for (const part of parts) {
+  const p = part.prim;
+  if (part.wheel || !p.getIndices()) continue;
+  const arr = p.getIndices().getArray(), inside = wholly(p, H.box), turn = new Set();
+  for (let t = 0; t < arr.length; t += 3) if (inside(t)) { turn.add(arr[t]); turn.add(arr[t + 1]); turn.add(arr[t + 2]); }
+  if (!turn.size) continue;
+  const cs = Math.cos(H.angle), sn = Math.sin(H.angle);
+  for (const sem of ['POSITION', 'NORMAL', 'TANGENT']) {
+    const a = p.getAttribute(sem); if (!a) continue;
+    const c = a.clone(); p.setAttribute(sem, c);
+    const v = [], o = sem === 'POSITION' ? [H.y, H.z] : [0, 0];
+    for (const i of turn) { c.getElement(i, v); const y = v[1] - o[0], z = v[2] - o[1]; v[1] = o[0] + y * cs - z * sn; v[2] = o[1] + y * sn + z * cs; c.setElement(i, v); }
+  }
+  console.log('  hinged shut', turn.size, 'vertices');
+}
 // Left-hand drive: a right-hand-drive cab is mirrored side to side (steering wheel, pedals,
 // gauges and all), the pieces lying wholly inside a box swapped across the middle.
 for (const b of C.mirror || []) for (const part of parts) {
@@ -235,7 +254,8 @@ if (C.steer) {
   const Mx = [R[0][0], R[0][1], R[0][2], 0, R[1][0], R[1][1], R[1][2], 0, R[2][0], R[2][1], R[2][2], 0, t[0], t[1], t[2], 1];
   const mesh = doc.createMesh('steer');
   for (const p of ps) { transformPrimitive(p, Mx); mesh.addPrimitive(p); }
-  scene.addChild(doc.createNode('steer').setMesh(mesh).setTranslation(c).setRotation(q));
+  // The rim's centre is kept as well: compressing the file moves the node's own origin.
+  scene.addChild(doc.createNode('steer').setMesh(mesh).setTranslation(c).setRotation(q).setExtras({ pivot: c }));
   console.log('  steer', c.map((v) => +v.toFixed(3)), 'axis', n.map((v) => +v.toFixed(3)), use.length, 'rim points of', pts.length);
 }
 for (const [k, ps] of Object.entries(wheelOf)) {
