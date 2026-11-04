@@ -148,7 +148,7 @@ function race() {
 // A car from a model file with a cabin of its own needs nothing built: just where the eye sits.
 function modelCabin(model) {
   return { group: new THREE.Group(), steer: null, needles: { speed: new THREE.Object3D(), rev: new THREE.Object3D() }, draw: () => {}, closed: true,
-    views: { cockpit: { eye: model.cockpit, fov: 72, pitch: -0.1 }, hood: { eye: model.hood, fov: 66, pitch: -0.08 } } };
+    views: { cockpit: { eye: model.cockpit, fov: 72, pitch: model.cockpitPitch ?? -0.1 }, hood: { eye: model.hood, fov: 66, pitch: -0.08 } } };
 }
 
 export function buildInterior(kind, model) {

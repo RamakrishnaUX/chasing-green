@@ -3,13 +3,14 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { CONFIG } from '../config.js';
 import { groundAt as heightAt, surfaceHeightAt, waterLevelAt } from '../world/terrain.js';
-import { clamp, lerp } from '../world/noise.js';
+import { clamp, lerp, smoothstep } from '../world/noise.js';
 
 // The person on foot: a man in a winter coat ("Man In Coat" by Saitam, CC BY 4.0, an Adobe Fuse
 // character on a Mixamo rig) moved by Mixamo clips ("ETB Animated" by Royaleyourdad, CC BY 4.0;
 // see tools/person): idle, walk, run, a standing jump and kneeling.
 //
-// He runs by default (hold Shift to walk), Space hops like a person does, he climbs any rock face
+// Forward walks; held on, he breaks into a run, and pressed again quickly (tapping it) he picks
+// up the pace sooner. Shift keeps him walking. Space hops like a person does, he climbs any rock face
 // too steep to walk up (boulders, cliffs, stacks), drops off ledges, and walks round the car
 // rather than through it. The clips are blended by speed and played at the pace he moves, so
 // the feet keep up with the ground; climbing reuses the jump's reach, hand over hand.
@@ -21,6 +22,9 @@ const GRAVITY = 18;
 const RUN = 5.6, WALK = 1.6, BACK = 1.4; // metres a second
 // The clips' own paces, where the feet do not slide: a stride of the run and of the walk.
 const RUN_PACE = 5.6, WALK_PACE = 1.45;
+// Forward held this long is a walk; then he speeds up to a run over the next RUN_BUILD seconds.
+// Pressed again within TAP of letting go, the hold carries on and counts TAP_BOOST more.
+const RUN_AFTER = 0.7, RUN_BUILD = 0.8, TAP = 0.4, TAP_BOOST = 0.45;
 // The jump clip: a crouch, take-off at about a third of the way in, the top halfway, landing at
 // about 0.62, then standing again. A hop plays from the end of the crouch to just after landing.
 const JUMP = { from: 0.31, to: 0.74, speed: 1.3 };
@@ -35,6 +39,7 @@ export class Walker {
     this.heading = 0;
     this.climbPhase = 0;
     this.speedSmooth = 0;
+    this.time = 0; this.held = 0; this.pushing = false; this.letGo = -1; this.fwd = 0; // the forward key's hold, and the pace it has built
     this.sitting = false;
     this.state = 'walk'; // walk, climb, mantle (pulling up over the top) or fall
     this.vy = 0;
@@ -63,6 +68,7 @@ export class Walker {
     this.pos.y = heightAt(this.pos.x, this.pos.z);
     this.heading = fromJeep.heading;
     this.state = 'walk'; this.vy = 0; this.landed = 0;
+    this.held = 0; this.pushing = false; this.letGo = -1; this.fwd = 0;
     this.car = carBox(fromJeep);
     this.root.visible = true;
   }
@@ -84,8 +90,20 @@ export class Walker {
     // Hands on the rock: no turning until he is up or lets go.
     if (this.state !== 'climb') this.heading += s * 2.4 * dt;
     const fx = Math.sin(this.heading), fz = Math.cos(this.heading);
-    // A run by default, a walk with Shift held, and a slower step backwards.
-    let speed = t > 0 ? t * (input.walk ? WALK : RUN) : t * BACK;
+    // Forward: a walk, then a run once held a moment (sooner when tapped again quickly); a walk
+    // with Shift held, and a slower step backwards. Letting go he keeps his pace for a moment (so
+    // quick taps carry him on, building up to a run), then slows to a stop in a stride or two.
+    this.time += dt;
+    if (t > 0) {
+      if (!this.pushing) { this.held = this.letGo >= 0 && this.time - this.letGo < TAP ? this.held + TAP_BOOST : 0; this.pushing = true; }
+      this.held += dt;
+    } else if (this.pushing) { this.pushing = false; this.letGo = this.time; }
+    const run = input.walk ? 0 : smoothstep(RUN_AFTER, RUN_AFTER + RUN_BUILD, this.held);
+    const coast = t === 0 && !this.sitting && this.time - this.letGo < TAP;
+    const target = t > 0 ? t * lerp(WALK, RUN, run) : coast ? this.fwd : 0;
+    this.fwd = target > this.fwd ? Math.min(target, this.fwd + 7 * dt) : Math.max(target, this.fwd - 9 * dt);
+    let speed = t < 0 ? t * BACK : this.fwd;
+    if (t < 0 || this.state === 'climb') this.fwd = 0;
     if (this.state === 'mantle') speed = 1.8;
     this.blocked = '';
     let moved = 0;

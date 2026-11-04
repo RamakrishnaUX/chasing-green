@@ -677,7 +677,8 @@ const GLB = {
   // The supercar has no cabin of its own: it keeps the one built in code, moved to sit in this body.
   race: { camDist: 8.5, camHeight: 2.4, eye: 1.25, rims: 0x2a2c30, cabinShift: 0.42 }, // painted body, dark wheels
   vintage: { camDist: 10.5, camHeight: 3.3, eye: 2.0, cockpit: [0.38, 1.6, -0.15], hood: [0, 1.75, 1.0] },
-  camper: { camDist: 10.5, camHeight: 3.5, eye: 2.4, cockpit: [0.42, 1.42, 1.35], hood: [0, 1.95, 1.05] },
+  // Its cab is mirrored to left-hand drive (tools/cars); the seat is behind the wheel, looking down a little to show it.
+  camper: { camDist: 10.5, camHeight: 3.5, eye: 2.4, cockpit: [0.28, 1.46, 1.18], pitch: -0.14, hood: [0, 1.95, 1.05] },
 };
 const loaded = {};
 // Plain float attributes: the files are packed (quantised), and merging and baking expect floats.
@@ -736,7 +737,7 @@ function buildFromFile(kind) {
   for (const w of wheels) w.pivot.position.y = R;
   const box = new THREE.Box3().setFromObject(g);
   return {
-    group: g, wheels, lightMat, tailMat, R, glb: true, cockpit: C.cockpit, hood: C.hood, cabinShift: C.cabinShift || 0,
+    group: g, wheels, lightMat, tailMat, R, glb: true, cockpit: C.cockpit, cockpitPitch: C.pitch, hood: C.hood, cabinShift: C.cabinShift || 0,
     headlight: [0, (box.max.y - box.min.y) * 0.42, box.max.z - 0.15], exhaust: [0.42, 0.32, box.min.z + 0.05],
     camDist: C.camDist, camHeight: C.camHeight, eye: C.eye,
   };

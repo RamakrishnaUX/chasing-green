@@ -39,7 +39,9 @@ const CARS = {
     cut: { radius: 1.42, width: 1.3, centres: { FL: [2.81, 4.42], FR: [-2.81, 4.42], RL: [2.81, -5.1], RR: [-2.81, -5.1] } },
     // Front and rear lamps share one glass; the rear ones turn red. The maker's badge on the nose comes off.
     split: [{ mat: /^lamp$/, box: { min: [-2, -1, -3], max: [2, 3, 0] }, to: 'tail' }],
-    strip: [{ min: [-0.16, 0.76, 1.9], max: [0.16, 1.08, 2.06] }] },
+    strip: [{ min: [-0.16, 0.76, 1.9], max: [0.16, 1.08, 2.06] }],
+    // It is right-hand drive; the cab is mirrored so the wheel sits in front of the driver.
+    mirror: [{ min: [-0.77, 0.25, 0.6], max: [0.77, 1.3, 1.88] }] },
 };
 const kind = process.argv[2];
 const C = CARS[kind];
@@ -167,6 +169,23 @@ for (const b of C.strip || []) for (const part of parts) {
   const arr = p.getIndices().getArray(), inside = wholly(p, b), keep = [];
   for (let t = 0; t < arr.length; t += 3) if (!inside(t)) keep.push(arr[t], arr[t + 1], arr[t + 2]);
   if (keep.length < arr.length) { console.log('  stripped', (arr.length - keep.length) / 3, 'triangles'); setTris(p, keep); compactPrimitive(p); }
+}
+// Left-hand drive: a right-hand-drive cab is mirrored side to side (steering wheel, pedals,
+// gauges and all), the pieces lying wholly inside a box swapped across the middle.
+for (const b of C.mirror || []) for (const part of parts) {
+  const p = part.prim;
+  if (part.wheel || !p.getIndices()) continue;
+  const arr = p.getIndices().getArray(), inside = wholly(p, b), flip = new Set();
+  for (let t = 0; t < arr.length; t += 3) if (inside(t)) { flip.add(arr[t]); flip.add(arr[t + 1]); flip.add(arr[t + 2]); [arr[t + 1], arr[t + 2]] = [arr[t + 2], arr[t + 1]]; } // turned inside out, so wound the other way
+  if (!flip.size) continue;
+  for (const sem of ['POSITION', 'NORMAL', 'TANGENT']) {
+    const a = p.getAttribute(sem); if (!a) continue;
+    const c = a.clone(); p.setAttribute(sem, c);
+    const v = [];
+    for (const i of flip) { c.getElement(i, v); v[0] = -v[0]; if (sem === 'TANGENT') v[3] = -v[3]; c.setElement(i, v); }
+  }
+  p.getIndices().setArray(arr);
+  console.log('  mirrored', flip.size, 'vertices');
 }
 
 // The new car: one body, four wheels.

@@ -525,7 +525,7 @@ function stepOut() {
   if (jeep.boatOn || jeep.boat > 0) { hud.toast('You are on the water. Head back to the shore to step out.', { seconds: 2.5 }); return; }
   if (jeep.speed > 2.5) { hud.toast('Slow down to step out.', { seconds: 2.5 }); return; }
   mode = 'walk'; walkTilt = false; walker.enter(jeep); track('step_out'); look.walkYaw = 0;
-  hud.toast(isTouch ? 'On foot. Go runs; slide up from Go to jump. Run into a rock to climb it.' : 'On foot. Run with the same keys, hold Shift to walk, Space to jump, and run into a rock to climb it. Press E to get back in.', { seconds: 4.5 });
+  hud.toast(isTouch ? 'On foot. Hold Go to walk, then run; slide up from Go to jump. Run into a rock to climb it.' : 'On foot. Up walks; hold it or tap it again to run (Shift keeps walking). Space jumps; run into a rock to climb it. E gets back in.', { seconds: 4.5 });
   syncLookButton();
 }
 function getIn() {
