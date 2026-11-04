@@ -86,6 +86,7 @@ const camera = new THREE.PerspectiveCamera(52, innerWidth / innerHeight, 0.4, Q.
 const mirrors = new Mirrors({ small: isTouch });
 // You, at the wheel while you drive (out of the car once you step out).
 const driver = new Driver();
+renderer.localClippingEnabled = true; // for the driver's own view of his hands on the wheel
 addEventListener('resize', () => {
   renderer.setSize(innerWidth, innerHeight, false);
   camera.aspect = innerWidth / innerHeight;
@@ -257,6 +258,7 @@ async function buildWorld(progress) {
   walker = new Walker(scene);
   heli = new Heli(scene);
   heli.obstacles = obstacles;
+  heli.easy = settings.heli !== 'manual';
   const sp = nearestRoadAnywhere(START.x, START.z);
   jeep.place(sp.x, sp.z, sp.heading);
   await stage('Drawing the map', 0.95, 180);
@@ -803,6 +805,7 @@ function openSettings() {
   $('set-haptics').value = settings.haptics || 'on';
   $('set-places').value = placeCards();
   $('set-steering').value = settings.steering || 'buttons';
+  $('set-heli').value = settings.heli || 'easy';
   settingsDialog.showModal();
   settingsDialog.dispatchEvent(new Event('sync'));
 }
@@ -1064,6 +1067,13 @@ function applyNitroSetting() {
   document.body.classList.toggle('nitro-off', !on);
 }
 $('set-nitro').addEventListener('change', (e) => { settings.nitro = e.target.value; store.save(); applyNitroSetting(); });
+// Helicopter controls: easy (flown like the car, holding its height) or the full manual set.
+function heliHelp() {
+  return heli.easy
+  ? (isTouch ? 'Helicopter. Go takes off and flies forward, Brake slows to a hover, hold it when stopped to land. Arrows turn; Up and Down set the height.' : 'Helicopter. Up takes off and flies forward, Down slows to a hover; hold it when stopped to land. Left and Right turn; Space and Shift set the height.')
+  : (isTouch ? 'Helicopter. The rotor is spooling up. Hold Up to lift off, Go to fly forward, arrows to turn, Down to land on flat ground.' : 'Helicopter. The rotor is spooling up. Space to lift off, W and S to fly forward and back, A and D to turn, Shift to come down. Land on flat ground.');
+}
+$('set-heli').addEventListener('change', (e) => { settings.heli = e.target.value; store.save(); heli.easy = settings.heli !== 'manual'; if (ride === 'heli') hud.toast(heliHelp(), { seconds: 6, priority: 2 }); });
 applyNitroSetting();
 
 // ---------- Fuel ----------
@@ -1182,7 +1192,7 @@ function boardHeli(announce = true) {
   document.body.classList.add('is-flying');
   syncLookButton();
   if (announce) {
-    hud.toast(isTouch ? 'Helicopter. The rotor is spooling up. Hold Up to lift off, Go to fly forward, arrows to turn, Down to land on flat ground.' : 'Helicopter. The rotor is spooling up. Space to lift off, W and S to fly forward and back, A and D to turn, Shift to come down. Land on flat ground.', { seconds: 7, priority: 2 });
+    hud.toast(heliHelp(), { seconds: 7, priority: 2 });
     track('vehicle_change', { vehicle: 'heli' });
   }
 }
@@ -1257,6 +1267,7 @@ const HELI_SAYS = {
   fast: 'Too fast to land. Slow down first.', hard: 'Hard landing! Ease down more gently.',
   wall: 'Rock ahead. Climb to clear it.', edge: 'That is the edge of the map. Turn back toward Iceland.',
   spooling: 'The rotor is still spooling up. Lift off in a moment.',
+  landing: 'Coming down to land.',
 };
 const heliSaid = {};
 let wasLanded = true;
@@ -1562,7 +1573,7 @@ function frame(now) {
   if (started) {
     const inside = mode === 'chase' && driveView !== 'chase';
     turnWheel(jeep.interior, jeep.steerVis);
-    driver.update(jeep, ride === 'car' && mode !== 'walk', (mode === 'chase' && driveView === 'cockpit') || mode === 'lookup');
+    driver.update(jeep, ride === 'car' && mode !== 'walk' && mode !== 'lookup', mode === 'chase' && driveView === 'cockpit');
     if (inside && driveView === 'cockpit') updateInterior(jeep.interior, { kmh: jeep.kmh, steer: jeep.steerVis, music: audio.music && volumes.music > 0 && !audio.muted ? trackTitle(audio.music.i) : null });
     // Nitro from inside: the exhaust flames are behind you, so the screen edges glow instead.
     const glow = inside && jeep.boosting;

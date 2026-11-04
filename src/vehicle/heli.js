@@ -1,6 +1,13 @@
 // The helicopter: a Eurocopter EC135 ("Elicopter SMURD Romania" by solid3DDD, CC BY 4.0,
 // markings painted out; see tools/heli). Fly over the whole island and land on flat ground.
 //
+// Two ways to fly it (easy is the default; Settings, Helicopter):
+// - Easy flies it like the car: Up (W, Go) takes off and flies forward, Down (S, Brake) slows to
+//   a hover and, held once stopped, lets it down to land; Left and Right turn. It holds a cruise
+//   height above the ground by itself, following hills and the coast, and Space / Shift (or the
+//   Up and Down pads) raise or lower that height.
+// - Manual is the full set of controls below.
+//
 // Flight follows what a light helicopter does, with the stabilisation a modern one has:
 // - The rotor needs about five seconds to spool up before it can lift, and winds down when you
 //   get out. Lift is the rotor's thrust, along the mast, and grows with the square of its speed.
@@ -73,6 +80,10 @@ export class Heli {
     this.collective = 0.6; this.landed = true; this.agl = 0; this.thrust = 0;
     this.impact = 0; this.shake = 0; this.warning = ''; this.t = 0; this.dark = 0;
     this.input = { fwd: 0, turn: 0, lift: 0 }; // smoothed, for the cockpit controls
+    this.easy = true; // fly it like the car (see the top); false for the full controls
+    this.cruise = 30; // easy: height to hold above the ground, metres
+    this.gref = 0; // easy: the ground height it follows, smoothed
+    this.landing = false; // easy: coming down to land (Down held while stopped)
     this.obstacles = null;
     this.ready = this.load();
   }
@@ -277,7 +288,7 @@ mat3 rotZ(float a) { float c = cos(a), s = sin(a); return mat3(c, s, 0.0, -s, c,
     this.input.fwd = lerp(this.input.fwd, fwd, k); this.input.turn = lerp(this.input.turn, turn, k); this.input.lift = lerp(this.input.lift, lift, k);
 
     // Rotor speed: spools up with the engine on, winds down slowly with it off.
-    this.rpm = this.engineOn ? Math.min(1, this.rpm + dt * SPOOL * (0.6 + this.rpm)) : Math.max(0, this.rpm - dt * 0.07);
+    this.rpm = this.engineOn ? Math.min(1, this.rpm + dt * SPOOL * (this.easy ? 1.7 : 1) * (0.6 + this.rpm)) : Math.max(0, this.rpm - dt * 0.07);
     const power = this.rpm * this.rpm;
 
     const fx = Math.sin(this.heading), fz = Math.cos(this.heading); // forward
@@ -294,8 +305,9 @@ mat3 rotZ(float a) { float c = cos(a), s = sin(a); return mat3(c, s, 0.0, -s, c,
       this.pitch = lerp(this.pitch, slope.pitch, k); this.roll = lerp(this.roll, slope.roll, k);
       this.pitchRate = 0; this.rollRate = 0; this.yawRate = 0;
       this.thrust = power * 0.6;
-      if (lift > 0.1 && this.rpm > 0.88) { this.landed = false; this.vel.y = 0.5; }
-      else if (lift > 0.1 && this.engineOn) this.warning = 'spooling';
+      const go = lift > 0.1 || (this.easy && fwd > 0.1);
+      if (go && this.rpm > 0.88) { this.landed = false; this.vel.y = 0.5; this.landing = false; this.cruise = Math.max(this.cruise, 30); this.gref = here.y; }
+      else if (go && this.engineOn) this.warning = 'spooling';
       this.sync(dt);
       return;
     }
@@ -310,6 +322,8 @@ mat3 rotZ(float a) { float c = cos(a), s = sin(a); return mat3(c, s, 0.0, -s, c,
 
     // Cyclic targets, with the stabiliser trimming out speed and drift when you let go.
     let pitchT = fwd > 0.05 ? MAX_PITCH * fwd : fwd < -0.05 ? 0.7 * MAX_PITCH * fwd : clamp(-vF * 0.011, -0.2, 0.2);
+    // Easy: Down brakes to a hover (nose up as hard as the speed needs) and never flies backwards.
+    if (this.easy && fwd < -0.05) pitchT = clamp(-vF * 0.03, -1.2 * MAX_PITCH, 0.12);
     if (fwd > 0.05 && vF < -2) pitchT = Math.max(pitchT, 0.15); // nose down to stop going backwards
     let rollT = -Math.atan(clamp(vF, 0, 80) * this.yawRate / G) + clamp(vL * 0.035, -0.25, 0.25);
     // Turbulence: more near the ground, in gusts and in the wind.
@@ -325,6 +339,20 @@ mat3 rotZ(float a) { float c = cos(a), s = sin(a); return mat3(c, s, 0.0, -s, c,
 
     // Collective: a climb or descent rate, held by the governor; let go and it holds height.
     let vyT = lift > 0.05 ? CLIMB * lift : lift < -0.05 ? DESCEND * lift : 0;
+    if (this.easy) {
+      // Down held once nearly stopped: come down to land. Let go and it holds where it is.
+      const wasLanding = this.landing;
+      this.landing = fwd < -0.3 && sp < 4;
+      if (wasLanding && !this.landing) this.cruise = Math.max(4, this.agl);
+      if (this.landing && !wasLanding) this.warning = 'landing';
+      // The ground it follows: the highest point under and just ahead of it, rising quickly
+      // and sinking slowly so it does not dip into every gully.
+      let g = Math.max(here.y, here.water ? here.y : -Infinity);
+      for (const t of [0.6, 1.5, 3]) g = Math.max(g, this.floor(this.pos.x + this.vel.x * t, this.pos.z + this.vel.z * t).y);
+      this.gref += (g - this.gref) * Math.min(1, dt * (g > this.gref ? 3 : 0.7));
+      this.cruise = clamp(this.cruise + lift * 14 * dt, 4, 900);
+      vyT = this.landing ? -DESCEND : clamp((this.gref + this.cruise - this.pos.y) * 0.7, -DESCEND, CLIMB);
+    }
     // Close to the ground the descent eases off for a gentle touchdown; over water it will not
     // go below a safe hover.
     if (vyT < 0) vyT = Math.max(vyT, -clamp(0.8 + this.agl * 0.35, 0.8, DESCEND));
@@ -353,6 +381,8 @@ mat3 rotZ(float a) { float c = cos(a), s = sin(a); return mat3(c, s, 0.0, -s, c,
     this.vel.x += (ax - drag * rx) * dt;
     this.vel.z += (az - drag * rz) * dt;
     this.vel.y += (ay - this.vel.y * 0.3) * dt;
+    // Easy: braking also bleeds speed off directly, so it stops in a few seconds, not half a minute.
+    if (this.easy && fwd < -0.05 && !this.landed) { const k = Math.exp(-dt * 0.55); this.vel.x *= k; this.vel.z *= k; }
     // Coordinated turn: in a banked turn the rotor's sideways pull swings the flight path round
     // with the nose, so a turn keeps its speed instead of skidding wide.
     const hs = Math.hypot(this.vel.x, this.vel.z);
@@ -397,8 +427,8 @@ mat3 rotZ(float a) { float c = cos(a), s = sin(a); return mat3(c, s, 0.0, -s, c,
       if (under.water) this.warning = 'water';
       else if (slope.steep) { this.warning = 'steep'; this.vel.y = Math.max(this.vel.y, 1.2); }
       else if (this.speed > 4) { this.vel.x *= 0.9; this.vel.z *= 0.9; this.warning = 'fast'; }
-      else if (lift <= 0.05) {
-        this.landed = true;
+      else if (this.easy ? this.landing || this.cruise <= 4.5 : lift <= 0.05) {
+        this.landed = true; this.landing = false;
         this.impact = clamp((-vy - 1.5) / 5, 0, 1);
         if (this.impact > 0.25) { this.shake = Math.max(this.shake, this.impact); this.warning = 'hard'; }
         this.touchdown = true;
