@@ -98,11 +98,13 @@ export class Props {
     const r = this.rand;
     const sites = [];
     const avoid = landmarks.map((l) => ({ x: l.x, z: l.z }));
+    // Farms line the mainland roads only (and drawing from the same list keeps them where they were).
+    const mainland = roadPaths.filter((p) => !p.isle);
     let tries = 0;
     const fencePosts = [];
     while (sites.length < farms && tries < farms * 60) {
       tries++;
-      const path = roadPaths[Math.floor(r() * roadPaths.length)];
+      const path = mainland[Math.floor(r() * mainland.length)];
       if (path.type !== 'paved') continue;
       const i = Math.floor(r() * (path.pts.length - 2)) + 1;
       const a = path.pts[i], b = path.pts[i + 1];

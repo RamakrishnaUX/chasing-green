@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
-import { surfaceHeightAt, surfaceAt, roadDistAt, shoreDistAt, exposureAt, waterLevelAt, bridgeGuard, BOUNDS } from '../world/terrain.js';
+import { surfaceHeightAt, surfaceAt, roadDistAt, shoreDistAt, exposureAt, waterLevelAt, bridgeGuard, isleAt, BOUNDS } from '../world/terrain.js';
 import { clamp, lerp } from '../world/noise.js';
 import { buildVehicleModel } from './models.js';
 import { VEHICLES, SURFACE_DRAG } from './specs.js';
@@ -245,7 +245,8 @@ export class Jeep {
     const limit = wet ? V.boatRange : V.offRoadLimit;
     // Past the edge of the land map there is only open sea: count that distance as offshore too.
     const outside = (x, z) => Math.max(0, BOUNDS.minX - x, x - BOUNDS.maxX, BOUNDS.minZ - z, z - BOUNDS.maxZ);
-    const far = wet ? (x, z) => -shoreDistAt(x, z) + outside(x, z) : roadDistAt;
+    // An island is small enough to roam all over (its stadium fills much of it): no road limit.
+    const far = wet ? (x, z) => -shoreDistAt(x, z) + outside(x, z) : (x, z) => (isleAt(x, z) ? 0 : roadDistAt(x, z));
     const dNew = far(this.pos.x, this.pos.z), dOld = far(prevX, prevZ);
     const shore = wet ? 0 : shoreDistAt(this.pos.x, this.pos.z);
     const toWater = !wet && (shore < V.shoreBand || shore <= shoreDistAt(prevX, prevZ));

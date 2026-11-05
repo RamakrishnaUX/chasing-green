@@ -17,6 +17,78 @@ function lump(size, rand, flat = 0.7) {
   g.computeVertexNormals();
   return g;
 }
+// Hásteinsvöllur's pitch: mown stripes and the markings, on a canvas spanning the turf (TW across
+// by TL along, metres), the pitch (W by L) in the middle. Canvas x runs across, y along.
+function pitchTexture(TW, TL, W, L) {
+  const c = document.createElement('canvas'); c.width = 1024; c.height = 1536;
+  const g = c.getContext('2d'), sx = c.width / TW, sy = c.height / TL;
+  const x0 = (TW - W) / 2, z0 = (TL - L) / 2;
+  const X = (u) => (x0 + u) * sx, Y = (v) => (z0 + v) * sy;
+  g.fillStyle = '#4b7429'; g.fillRect(0, 0, c.width, c.height);
+  // Stripes across the pitch where the mower turned, and a fine speckle so it reads as grass.
+  const n = 14;
+  for (let i = 0; i < n; i++) { g.fillStyle = i % 2 ? '#467026' : '#578532'; g.fillRect(X(-1), Y((i * L) / n), (W + 2) * sx, (L / n) * sy + 1); }
+  let seed = 7; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  for (let i = 0; i < 14000; i++) { const l = rnd() < 0.5 ? 255 : 0; g.fillStyle = `rgba(${l},${l},${l * 0.8},0.05)`; g.fillRect(rnd() * c.width, rnd() * c.height, 2, 3); }
+  // Markings: 12 cm white lines.
+  g.strokeStyle = '#f3f5ee'; g.fillStyle = '#f3f5ee'; g.lineWidth = 0.14 * sx;
+  const rect = (u, v, w, l) => g.strokeRect(X(u), Y(v), w * sx, l * sy);
+  const arc = (u, v, r, a0, a1) => { g.beginPath(); g.ellipse(X(u), Y(v), r * sx, r * sy, 0, a0, a1); g.stroke(); };
+  const spot = (u, v) => { g.beginPath(); g.ellipse(X(u), Y(v), 0.2 * sx, 0.2 * sy, 0, 0, Math.PI * 2); g.fill(); };
+  rect(0, 0, W, L);
+  g.beginPath(); g.moveTo(X(0), Y(L / 2)); g.lineTo(X(W), Y(L / 2)); g.stroke();
+  arc(W / 2, L / 2, 9.15, 0, Math.PI * 2); spot(W / 2, L / 2);
+  const a = Math.acos(5.5 / 9.15);
+  for (const end of [0, 1]) {
+    const v = end ? L : 0, d = end ? -1 : 1;
+    rect((W - 40.32) / 2, end ? L - 16.5 : 0, 40.32, 16.5);
+    rect((W - 18.32) / 2, end ? L - 5.5 : 0, 18.32, 5.5);
+    spot(W / 2, v + d * 11);
+    // The arc of the penalty area: the part of the 9.15 m circle round the spot outside the box.
+    if (end) arc(W / 2, L - 11, 9.15, -Math.PI / 2 - a, -Math.PI / 2 + a);
+    else arc(W / 2, 11, 9.15, Math.PI / 2 - a, Math.PI / 2 + a);
+  }
+  for (const [u, v, a0] of [[0, 0, 0], [W, 0, Math.PI / 2], [W, L, Math.PI], [0, L, -Math.PI / 2]]) arc(u, v, 1, a0, a0 + Math.PI / 2);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
+  return t;
+}
+// A crag: a rounded block (between a box and a ball) roughened by noise, flat underneath, its
+// base at y = 0. sx, sy, sz: half-width, height, half-depth. In the terrain's rock and grass.
+function crag(rand, sx, sy, sz) {
+  const geo = new THREE.IcosahedronGeometry(1, 4), p = geo.attributes.position, k = Array.from({ length: 6 }, () => rand() * 6);
+  const sp = (v) => Math.sign(v) * Math.pow(Math.abs(v), 0.55);
+  for (let i = 0; i < p.count; i++) {
+    let x = sp(p.getX(i)), y = p.getY(i), z = sp(p.getZ(i));
+    const n = 1 + 0.13 * Math.sin(x * 3.1 + k[0]) * Math.sin(z * 2.7 + k[1]) + 0.08 * Math.sin(y * 6.3 + k[2]) * Math.sin(x * 4.4 + k[3]) + 0.04 * Math.sin(z * 9.1 + y * 7.7 + k[4]);
+    y = y > 0 ? sp(y) * (0.92 + 0.08 * Math.sin(x * 2.2 + z * 1.7 + k[5])) : y * 0.1;
+    p.setXYZ(i, x * n * sx, (y + 0.1) * sy, z * n * sz);
+  }
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(p.count * 3), 3));
+  geo.computeVertexNormals();
+  return geo;
+}
+// A goal net: white twine on nothing, tiled.
+function netTexture() {
+  const c = document.createElement('canvas'); c.width = c.height = 128;
+  const g = c.getContext('2d');
+  g.strokeStyle = 'rgba(245,245,240,1)'; g.lineWidth = 2;
+  for (let i = 0; i < 8; i++) { g.beginPath(); g.moveTo(i * 16 + 1, 0); g.lineTo(i * 16 + 1, 128); g.moveTo(0, i * 16 + 1); g.lineTo(128, i * 16 + 1); g.stroke(); }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+// Mirror a non-indexed geometry front to back (z to -z), keeping its faces turned outward.
+function mirrorZ(geo) {
+  const p = geo.attributes.position, uv = geo.attributes.uv;
+  for (let i = 0; i < p.count; i++) p.setZ(i, -p.getZ(i));
+  for (let i = 0; i < p.count; i += 3) {
+    for (const A of [p, uv].filter(Boolean)) for (let k = 0; k < A.itemSize; k++) { const t = A.getComponent(i + 1, k); A.setComponent(i + 1, k, A.getComponent(i + 2, k)); A.setComponent(i + 2, k, t); }
+  }
+  geo.computeVertexNormals();
+  return geo;
+}
+
 const RAINBOW = [0xe40303, 0xff8c00, 0xffed00, 0x008026, 0x24408e, 0x732982];
 
 // Weathered aluminium for the plane wreck. u runs round the fuselage (0 = the side facing the
@@ -572,6 +644,185 @@ export const EXTRA = {
     for (const [x, z] of [[-18, 34], [16, 38]]) {
       const foot = Math.min(...[[-5, -5], [5, -5], [-5, 5], [5, 5], [0, 0]].map(([a, b]) => kit.bed(x + a, z + b))) - 3, H = 7 - foot;
       const c = kit.rockBox(10, H, 10); c.position.set(x, foot + H / 2, z); g.add(c);
+    }
+    return g;
+  },
+
+  // Hásteinsvöllur, the football ground on Heimaey. Local +z runs east along the pitch, +x is
+  // north. A grass pitch of 105 by 68 m inside its run-off, the concrete south stand with the
+  // changing rooms under its seats, the larger north stand set into a grassy bank, and the rock
+  // Hásteinn behind the west goal. No floodlights or advertising: neither is the point of it.
+  stadium(kit) {
+    const g = new THREE.Group();
+    const L = 105, W = 68, RL = 7, RW = 6;          // pitch, and the run-off round it
+    const TW = W + 2 * RW, TL = L + 2 * RL;
+    const y0 = kit.ground(0, 0) + 0.12;             // the grass, a hand above the levelled pad
+    const concrete = std(0xb9b6ae, 0.9), dark = std(0x2b2e31, 0.8), white = std(0xf2f2ee, 0.55);
+
+    // Turf: a slab sunk into the pad (deep enough to count as ground to stand and drive on),
+    // mown in stripes and marked out.
+    const turf = M(new THREE.BoxGeometry(TW, 1.4, TL), new THREE.MeshStandardMaterial({ map: pitchTexture(TW, TL, W, L), roughness: 0.95 }), 0, y0 - 0.7, 0);
+    turf.userData.ground = true;
+    turf.userData.keepShape = true;
+    g.add(turf);
+    // A skirt of grass and earth round the turf, sloping away under the ground, so wherever the
+    // land dips at its edge the pitch sits on a low bank rather than a green wall.
+    {
+      const o = 5, dn = 3, hx = TW / 2, hz = TL / 2, yt = y0 - 0.02, yb = y0 - dn;
+      const P = [[-hx, -hz], [hx, -hz], [hx, hz], [-hx, hz]], O = [[-hx - o, -hz - o], [hx + o, -hz - o], [hx + o, hz + o], [-hx - o, hz + o]];
+      const v = [];
+      for (let i = 0; i < 4; i++) {
+        const j = (i + 1) % 4, a = P[i], b = P[j], c = O[j], d = O[i];
+        v.push(a[0], yt, a[1], b[0], yt, b[1], c[0], yb, c[1], a[0], yt, a[1], c[0], yb, c[1], d[0], yb, d[1]); // facing up and out
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
+      geo.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(v.length), 3));
+      geo.computeVertexNormals();
+      const skirt = M(geo, kit.rockMaterial()); skirt.userData.keepShape = true; skirt.userData.notGround = true; g.add(skirt);
+    }
+
+    // Goals: white posts and bar, a frame to the back and a net.
+    // Mesh of about 12 cm: the sloping net is a plane (its UVs span it), the sides are shapes (UVs in metres).
+    const netMat = (rx, ry) => { const t = netTexture(); t.repeat.set(rx, ry); return new THREE.MeshStandardMaterial({ map: t, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.9 }); };
+    const netTop = netMat(7.32 / 0.96, 3.15 / 0.96), net = netMat(1 / 0.96, 1 / 0.96);
+    for (const s of [-1, 1]) {
+      const gz = s * L / 2, D = 2.0, GW = 7.32, GH = 2.44;
+      for (const px of [-GW / 2, GW / 2]) {
+        g.add(M(new THREE.CylinderGeometry(0.06, 0.06, GH, 10), white, px, y0 + GH / 2, gz));
+        // Struts: from the top of each post down to the back of the frame, and along the ground.
+        const strut = M(new THREE.CylinderGeometry(0.03, 0.03, Math.hypot(D, GH), 6), white, px, y0 + GH / 2, gz + s * D / 2); strut.rotation.x = -s * Math.atan2(D, GH); g.add(strut);
+        const foot = M(new THREE.CylinderGeometry(0.03, 0.03, D, 6), white, px, y0 + 0.03, gz + s * D / 2); foot.rotation.x = Math.PI / 2; g.add(foot);
+        const post = new THREE.Mesh(new THREE.BoxGeometry(0.4, 2.4, 0.4), new THREE.MeshBasicMaterial({ visible: false }));
+        post.position.set(px, y0 + 1.2, gz); post.userData.collide = true; g.add(post);
+      }
+      const bar = M(new THREE.CylinderGeometry(0.06, 0.06, GW + 0.12, 10), white, 0, y0 + GH, gz); bar.rotation.z = Math.PI / 2; g.add(bar);
+      const back = M(new THREE.CylinderGeometry(0.03, 0.03, GW, 6), white, 0, y0 + 0.03, gz + s * D); back.rotation.z = Math.PI / 2; g.add(back);
+      // The net: sloping from the bar down to the back of the frame, and the two sides.
+      const roof = M(new THREE.PlaneGeometry(GW, Math.hypot(D, GH)), netTop, 0, y0 + GH / 2, gz + s * D / 2);
+      roof.rotation.x = -s * Math.atan2(D, GH); roof.castShadow = false; g.add(roof);
+      for (const px of [-GW / 2, GW / 2]) {
+        const side = new THREE.Shape(); side.moveTo(0, 0); side.lineTo(s * D, 0); side.lineTo(0, GH); side.lineTo(0, 0);
+        const sm = M(new THREE.ShapeGeometry(side), net, px, y0, gz); sm.rotation.y = -Math.PI / 2; sm.castShadow = false; g.add(sm);
+      }
+      // A car stops at the back of the net rather than running through the goal.
+      const hit = new THREE.Mesh(new THREE.BoxGeometry(GW + 0.6, 2.4, 0.8), new THREE.MeshBasicMaterial({ visible: false }));
+      hit.position.set(0, y0 + 1.2, gz + s * (D - 0.2)); hit.userData.collide = true; g.add(hit);
+    }
+    // Corner flags.
+    const flag = std(0xf2c230, 0.7);
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+      g.add(M(new THREE.CylinderGeometry(0.02, 0.02, 1.5, 6), white, sx * W / 2, y0 + 0.75, sz * L / 2));
+      const f = M(new THREE.PlaneGeometry(0.45, 0.32), flag, sx * W / 2, y0 + 1.32, sz * L / 2 - sz * 0.23); f.rotation.y = Math.PI / 2; f.material.side = THREE.DoubleSide; g.add(f);
+    }
+
+    // Rows of seats, merged into one mesh: from x0 (the front edge, on the pitch side) outward by
+    // dir, rows deep, each `step` back and `rise` up, along z from -len/2 to len/2.
+    const seatRows = (xFront, dir, yFront, rows, step, rise, len, color) => {
+      const parts = [];
+      // Each seat: a block to sit on and a backrest (two boxes, so some 2,500 seats stay cheap).
+      const pan = new THREE.BoxGeometry(0.4, 0.45, 0.42), backrest = new THREE.BoxGeometry(0.06, 0.4, 0.42);
+      for (let r = 0; r < rows; r++) {
+        const x = xFront + dir * (r * step + step * 0.42), y = yFront + r * rise;
+        for (let z = -len / 2 + 0.3; z < len / 2 - 0.2; z += 0.52) {
+          parts.push(pan.clone().translate(x, y + 0.225, z));
+          parts.push(backrest.clone().translate(x + dir * 0.22, y + 0.62, z));
+        }
+      }
+      const m = M(mergeGeometries(parts), std(color, 0.5)); m.castShadow = false; return m;
+    };
+    // A stepped terrace, extruded along z: rows of `step` deep and `rise` high from (xFront, yFront).
+    const terrace = (xFront, dir, yBase, yFront, rows, step, rise, len, mat) => {
+      const s = new THREE.Shape();
+      s.moveTo(xFront, yBase); s.lineTo(xFront, yFront);
+      for (let r = 0; r < rows; r++) { const xa = xFront + dir * r * step, ya = yFront + r * rise; s.lineTo(xa + dir * step, ya); s.lineTo(xa + dir * step, ya + rise); }
+      const xb = xFront + dir * rows * step; s.lineTo(xb + dir * 0.4, yFront + rows * rise); s.lineTo(xb + dir * 0.4, yBase); s.lineTo(xFront, yBase);
+      const geo = new THREE.ExtrudeGeometry(s, { depth: len, bevelEnabled: false }); geo.translate(0, 0, -len / 2);
+      return M(geo, mat);
+    };
+    const wall = (x, y, z, sx, sy, sz, mat = concrete) => g.add(M(new THREE.BoxGeometry(sx, sy, sz), mat, x, y, z));
+    const solid = (x, y, z, sx, sy, sz) => { const b = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), new THREE.MeshBasicMaterial({ visible: false })); b.position.set(x, y, z); b.userData.collide = true; g.add(b); };
+    const base = y0 - 0.12;
+
+    // South stand: a concrete block with the changing rooms at pitch level, eight rows of seats on
+    // top, a back wall and stairs up at each end.
+    {
+      const xF = -(TW / 2 + 1), len = 62, rows = 8, step = 0.85, rise = 0.42, yF = base + 3.0;
+      const block = terrace(xF, -1, base - 1, yF, rows, step, rise, len, concrete);
+      g.add(block);
+      g.add(seatRows(xF, -1, yF, rows, step, rise, len - 2, 0xf4f4f0));
+      const depth = rows * step + 0.4;
+      wall(xF - depth - 0.15, yF + rows * rise + 0.6, 0, 0.3, 1.6, len);         // back wall
+      for (const s of [-1, 1]) wall(xF - depth / 2, yF + rows * rise / 2 + 0.4, s * (len / 2 + 0.15), depth + 0.3, rows * rise + 1.2, 0.3); // end walls
+      // The changing-room front: doors, windows and the players' tunnel in the middle.
+      const glass = std(0x1d2a33, 0.25, 0.1, { emissive: 0xffd9a0, emissiveIntensity: 0 }); kit.nightLit(glass, 1.4);
+      for (let z = -len / 2 + 4; z <= len / 2 - 4; z += 6) {
+        if (Math.abs(z) < 3) continue;
+        wall(xF + 0.03, base + 1.6, z, 0.08, 1.1, 2.6, glass);
+      }
+      wall(xF + 0.03, base + 1.15, 0, 0.1, 2.3, 3.4, dark);                         // tunnel
+      // The back, facing the town: the clubhouse windows and its entrance under a canopy.
+      const xB = xF - depth - 0.03;
+      for (let z = -len / 2 + 4; z <= len / 2 - 4; z += 5) { if (Math.abs(z) > 4) { wall(xB, base + 1.7, z, 0.08, 1.1, 2.4, glass); wall(xB, base + 4.4, z, 0.08, 0.9, 2.4, glass); } }
+      wall(xB, base + 1.2, 0, 0.1, 2.4, 3.2, std(0x3f5d74, 0.6));
+      wall(xB - 1.1, base + 2.7, 0, 2.2, 0.15, 5.0, dark);
+      for (const s of [-1, 1]) wall(xF + 0.03, base + 1.1, s * 9, 0.08, 2.2, 1.0, std(0x3f5d74, 0.6)); // doors
+      // Stairs up at both ends.
+      // Stairs up at both ends, climbing toward the stand to the level of the first row.
+      for (const s of [-1, 1]) for (let k = 0; k < 10; k++) wall(xF - 1.6, base + (k + 1) * 0.15, s * (len / 2 + 0.16 + (9 - k) * 0.32), 3.0, (k + 1) * 0.3, 0.32);
+      solid(xF - depth / 2, base + 3, 0, depth + 0.6, 6, len + 1);
+      // Dugouts in front, either side of the halfway line.
+      for (const s of [-1, 1]) {
+        const dz = s * 9, dx = -(W / 2 + 2.4);
+        wall(dx - 0.9, base + 1.0, dz, 0.12, 2.0, 4.2, dark);
+        for (const e of [-1, 1]) wall(dx - 0.2, base + 1.0, dz + e * 2.05, 1.5, 2.0, 0.1, dark);
+        wall(dx - 0.2, base + 2.05, dz, 1.6, 0.1, 4.3, std(0x9fb4c0, 0.2, 0, { transparent: true, opacity: 0.55 }));
+        wall(dx - 0.55, base + 0.45, dz, 0.5, 0.12, 3.8, std(0x2f4f6e, 0.6));
+        solid(dx - 0.3, base + 1, dz, 1.6, 2, 4.3);
+      }
+    }
+
+    // North stand: the larger one, built into the slope. Twelve rows of seats on a concrete
+    // terrace, with a grass bank either side and behind running up into the hillside.
+    {
+      const xF = TW / 2 + 1, len = 70, rows = 12, step = 0.8, rise = 0.4, yF = base + 0.9;
+      g.add(terrace(xF, 1, base - 1, yF, rows, step, rise, len, concrete));
+      g.add(seatRows(xF, 1, yF, rows, step, rise, len - 2, 0xf4f4f0));
+      const depth = rows * step + 0.4, top = yF + rows * rise;
+      wall(xF - 0.15, base + 0.9, 0, 0.3, 1.8, len + 0.6);                         // low wall along the front
+      // The bank: from the ends of the terrace and behind it, grass sloping down to the ground.
+      // The bank in the landscape's own grass and rock (the terrain shader reads the vertex colours).
+      const grass = kit.rockMaterial();
+      const earth = (geo) => { geo.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(geo.attributes.position.count * 3), 3)); return geo; };
+      const bank = new THREE.Shape();
+      bank.moveTo(xF - 0.2, base - 1); bank.lineTo(xF - 0.2, base + 0.6); bank.lineTo(xF + depth, top + 0.2); bank.lineTo(xF + depth + 6, top + 0.4); bank.lineTo(xF + depth + 17, base - 1);
+      for (const s of [-1, 1]) {
+        // Each end of the terrace: a wedge of bank that tapers away along the pitch.
+        const geo = new THREE.ExtrudeGeometry(bank, { depth: 12, bevelEnabled: false });
+        const pos = geo.attributes.position;
+        for (let i = 0; i < pos.count; i++) { const z = pos.getZ(i), k = 1 - (z / 12) * 0.85; pos.setY(i, base - 1 + (pos.getY(i) - base + 1) * k); }
+        geo.computeVertexNormals();
+        earth(geo);
+        if (s < 0) mirrorZ(geo);
+        const m = M(geo, grass, 0, 0, s * len / 2);
+        m.userData.ground = true; g.add(m);
+      }
+      const behind = new THREE.Shape();
+      behind.moveTo(xF + depth, base - 1); behind.lineTo(xF + depth, top + 0.2); behind.lineTo(xF + depth + 6, top + 0.4); behind.lineTo(xF + depth + 17, base - 1);
+      const bg = earth(new THREE.ExtrudeGeometry(behind, { depth: len, bevelEnabled: false })); bg.translate(0, 0, -len / 2);
+      const bm = M(bg, grass); bm.userData.ground = true; g.add(bm);
+      wall(xF + depth + 0.15, top + 0.5, 0, 0.3, 1.0, len, white);                  // rail along the top
+      solid(xF + depth / 2, base + 2.5, 0, depth + 0.6, 5, len + 1);
+    }
+
+    // Hásteinn: the high rock behind the west goal, with a couple of boulders fallen from it.
+    for (const [x, z, sx, sy, sz, ry] of [[8, -TL / 2 - 17, 13, 17, 9, 0.35], [-6, -TL / 2 - 21, 8, 10, 7, -0.4], [21, -TL / 2 - 20, 7, 7, 6, 0.9]]) {
+      const rock = M(crag(kit.rand, sx, sy, sz), kit.rockMaterial(), x, kit.ground(x, z) - 1, z); rock.rotation.y = ry;
+      rock.userData.collide = true; g.add(rock);
+    }
+    for (const [x, z, s] of [[-12, -TL / 2 - 9, 3.2], [24, -TL / 2 - 7, 2.4]]) {
+      const b = M(lump(s, kit.rand, 0.75), kit.rockMaterial(), x, kit.ground(x, z) + s * 0.4, z);
+      b.userData.collideCircle = s * 0.9; g.add(b);
     }
     return g;
   },

@@ -201,7 +201,7 @@ async function buildWorld(progress) {
   aurora = new Aurora(scene, Q.auroraSteps);
   await stage('Placing landmarks', 0.67, 220);
   // Pads under built landmarks, by kind (radius in world units). Natural sites keep their shape.
-  const PAD = { building: 32, town: 30, sculpture: 12, pool: 26, geothermal: 24, cave: 16, bridge: 18, waterfall: 34, geyser: 18, wreck: 18 };
+  const PAD = { building: 32, town: 30, sculpture: 12, pool: 26, geothermal: 24, cave: 16, bridge: 18, waterfall: 34, geyser: 18, wreck: 18, stadium: 80 };
   landmarks = new Landmarks(scene, { quality: qualityName, beforeBake: (root, lm) => naturalize(root, lm.kind), beforeBuild: (list) => {
     const pads = list.filter((l) => PAD[l.kind] && l.id !== 'seydisfjordur').map((l) => ({ x: l.x, z: l.z, r: l.id === 'hallgrimskirkja' ? 38 : PAD[l.kind] }));
     // Fuel stations beside the Ring Road get level forecourts too.
@@ -220,7 +220,7 @@ async function buildWorld(progress) {
   // Bridge railings are solid on both sides.
   for (const B of bridges) for (const sx of [-1, 1]) obstacles.addBox(B.x - B.dz * sx * 4.65, B.z + B.dx * sx * 4.65, Math.atan2(B.dx, B.dz), 0.25, B.len / 2 + 2, 'wall');
   // No rocks or grass field on streets, churchyards and city squares.
-  const clear = landmarks.list.filter((l) => ['town', 'building', 'sculpture'].includes(l.kind)).map((l) => ({ x: l.x, z: l.z, r: l.id === 'seydisfjordur' ? 58 : l.id === 'laugavegur' ? 30 : l.id === 'hallgrimskirkja' ? 34 : 22 }))
+  const clear = landmarks.list.filter((l) => ['town', 'building', 'sculpture', 'stadium'].includes(l.kind)).map((l) => ({ x: l.x, z: l.z, r: l.kind === 'stadium' ? 78 : l.id === 'seydisfjordur' ? 58 : l.id === 'laugavegur' ? 30 : l.id === 'hallgrimskirkja' ? 34 : 22 }))
     .concat(stationSites.map((st) => ({ x: st.pad.x, z: st.pad.z, r: 30 })));
   scatter = new Scatter(scene, { grass: 0, rocks: Math.round(Q.rocks * (CONFIG.rockDensity[settings.rocks || 'normal'] || 1)), obstacles, clear });
   // The realistic look grows the field thicker and a little further out (each tuft is ten blades,
@@ -237,7 +237,7 @@ async function buildWorld(progress) {
   // Realistic look: scanned detail on landmark and prop surfaces (not town houses, cars or people).
   if (HD.on) detailScene(scene);
   stations = new Stations(scene, stationSites, { obstacles });
-  towns = new Towns(scene, { landmarks: landmarks.list, obstacles, scale: qualityName === 'low' ? 0.6 : 1, clear: stationSites.map((st) => ({ x: st.pad.x, z: st.pad.z, r: 34 })) });
+  towns = new Towns(scene, { landmarks: landmarks.list, obstacles, scale: qualityName === 'low' ? 0.6 : 1, clear: stationSites.map((st) => ({ x: st.pad.x, z: st.pad.z, r: 34 })).concat(landmarks.list.filter((l) => l.kind === 'stadium').map((l) => ({ x: l.x, z: l.z, r: 84 }))) });
   snow = new SnowFall(scene, qualityName === 'low' ? 900 : 2200);
   puddles = new Puddles(scene, qualityName === 'low' ? 100 : 180);
   spray = new Particles(scene, { count: qualityName === 'low' ? 260 : 600, color: 0xe6f0f4, size: 0.5, opacity: 0.75, gravity: 9.5, drag: 1.2 });

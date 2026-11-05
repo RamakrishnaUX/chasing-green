@@ -23,6 +23,33 @@ export const COAST = ll([
   [63.82, -21.8],
 ]);
 
+// Offshore islands, with their own coasts and hills (see terrain.js: no mainland massifs or real
+// elevation on them). In map units, scaled by WS like everything else.
+//
+// Heimaey, the one lived-on island of Vestmannaeyjar: the town by the harbour on the north
+// shore, the cliffs of Heimaklettur beside it, the 1973 cone Eldfell and old Helgafell to the
+// east, the ridge of Dalfjall to the west and Stórhöfði at the southern tip. The game draws the
+// country 125 times smaller than life but builds its stadium at full size, so the island is drawn
+// larger than true and a little further out than its 63.43 N, to keep open water to the mainland.
+const map = (pts) => pts.map(([x, z]) => ({ x: x * WS, z: z * WS }));
+export const ISLES = [
+  {
+    name: 'Heimaey',
+    coast: map([[-254.2, 493.8], [-239.6, 486.7], [-220.8, 483.3], [-200, 483.3], [-183.3, 485.4], [-168.8, 489.6], [-157.5, 493.8], [-152.1, 504.2], [-150, 518.8], [-154.2, 534.2], [-161.7, 547.9], [-175, 556.7], [-187.5, 562.5], [-191.7, 573.3], [-199.2, 575], [-205, 565], [-216.7, 557.5], [-237.5, 553.3], [-254.2, 543.8], [-264.6, 529.2], [-267.5, 512.5], [-263.3, 500]]),
+    // cone: a volcano (crater: how deep its top is hollowed); mesa: sheer sides, a flat top;
+    // ridge: a mesa drawn along a line. r and w are in world units, h in metres of game height.
+    hills: [
+      { kind: 'mesa', ...map([[-167.5, 496.7]])[0], r: 24, h: 44 }, // Heimaklettur
+      { kind: 'cone', ...map([[-160, 519.2]])[0], r: 26, h: 26, crater: 8 }, // Eldfell
+      { kind: 'cone', ...map([[-168.3, 542.5]])[0], r: 30, h: 30, crater: 3 }, // Helgafell
+      { kind: 'ridge', a: map([[-259.2, 507.5]])[0], b: map([[-256.3, 538.3]])[0], w: 22, h: 34 }, // Dalfjall
+      { kind: 'cone', ...map([[-195, 570]])[0], r: 14, h: 14 }, // Stórhöfði
+    ],
+    // Level ground for the football stadium (Hásteinsvöllur), r in world units, h its height.
+    flat: { ...map([[-210.4, 522.9]])[0], r: 92, h: 5 },
+  },
+];
+
 // Roads. type: paved or gravel.
 export const ROADS = [
   {
@@ -115,6 +142,13 @@ export const ROADS = [
     name: 'Kjölur (F35)',
     type: 'gravel',
     points: ll([[64.318, -20.13], [64.6, -19.92], [64.85, -19.6], [65.2, -19.7], [65.585, -19.72]]),
+  },
+  {
+    // Heimaey: from the harbour through the town, past the stadium, to the south of the island.
+    name: 'Heimaey',
+    type: 'paved',
+    isle: true, // on an island: no farms along it (see props.js)
+    points: map([[-180, 489.6], [-178.3, 500], [-177.5, 516.7], [-180, 533.3], [-186.7, 549.2], [-195, 560.4]]),
   },
 ];
 
@@ -221,6 +255,7 @@ export const PLACES = [
   { name: 'Siglufjörður', ...toWorld(66.15, -18.91) },
   { name: 'Ísafjörður', ...toWorld(66.07, -23.13) },
   { name: 'Flúðir', ...toWorld(64.14, -20.31) },
+  { name: 'Vestmannaeyjar', ...map([[-179.2, 502.1]])[0] },
 ];
 
 // Where a new trip begins: near Hveragerði on the Ring Road, east of the Reykjavík glow.

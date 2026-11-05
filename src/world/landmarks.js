@@ -17,7 +17,7 @@ import { addSolids } from './solids.js';
 import { HD } from './hd.js';
 
 // Built places keep their walls; everything else is a landform you can climb onto, not into.
-const NOT_GROUND = ['town', 'building', 'sculpture', 'bridge', 'wreck', 'pool', 'cave'];
+const NOT_GROUND = ['town', 'building', 'sculpture', 'bridge', 'wreck', 'pool', 'cave', 'stadium'];
 
 const DESC = {
   seljalandsfoss: 'A tall waterfall you can walk all the way behind.',
@@ -252,6 +252,11 @@ export const LANDMARKS = [
   { id: 'arnarstapi', name: 'Arnarstapi', kind: 'headland', glyph: 'arch', ll: [64.77, -23.62], away: 0, reach: 44, model: 'arch', params: { small: true },
     desc: 'A fishing hamlet above a coast of basalt arches and bird cliffs.',
     fact: 'The stone arch of Gatklettur is the best known of several arches carved by the sea here.' },
+  // On Heimaey (see ISLES in geo.js), set where the island is drawn rather than at its latitude, with
+  // the pitch running east and west as the real one does (facing: the local +z axis points east).
+  { id: 'hasteinsvollur', name: 'Hásteinsvöllur', kind: 'stadium', glyph: 'pitch', ll: [63.4394, -20.288], pos: [-210.4, 522.9], facing: Math.PI / 2, model: 'stadium',
+    desc: 'The football ground of Vestmannaeyjar on Heimaey, a grass pitch at the foot of the rock Hásteinn.',
+    fact: 'Football has been played here since 1912. The ground is named after Hásteinn, the high rock beside it, and is home to ÍBV, the islands\' club.' },
   { id: 'hvitserkur', name: 'Hvítserkur', kind: 'headland', glyph: 'arch', ll: [65.72, -20.62], away: 0, reach: 44, model: 'stack',
     desc: 'A 15 metre rock stack standing in the sea like a drinking dragon.',
     fact: 'Its base has been reinforced with concrete so the waves do not finally knock it down.' },
@@ -683,6 +688,7 @@ export class Landmarks {
       const r2 = nearestRoad(x, z, 300);
       if (r2) facing = Math.atan2(r2.px - x, r2.pz - z); // face the nearest road
       if (['lake', 'lagoon', 'beach', 'canyon', 'headland'].includes(def.kind)) facing = z < -150 * WS ? Math.PI : 0; // sea is north on the north coast
+      if (def.facing != null) facing = def.facing;
       return { ...def, desc: def.desc || DESC[def.id] || '', x, z, facing };
     });
     beforeBuild?.(this.list);

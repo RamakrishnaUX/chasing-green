@@ -11,6 +11,7 @@ const SIZE = {
   'Egilsstaðir': { houses: 5, radius: 84 }, 'Borgarnes': { houses: 4, radius: 72 }, 'Grundarfjörður': { houses: 4, radius: 68 },
   'Hella': { houses: 2, radius: 57 }, 'Blönduós': { houses: 3, radius: 63 }, 'Kirkjubæjarklaustur': { houses: 2, radius: 52 },
   'Djúpivogur': { houses: 2, radius: 57 }, 'Seyðisfjörður': { houses: 6, radius: 72 }, 'Siglufjörður': { houses: 4, radius: 68 }, 'Ísafjörður': { houses: 5, radius: 72 },
+  'Vestmannaeyjar': { houses: 7, radius: 50 },
 };
 const WALLS = [0xf1efe8, 0xe9e4d6, 0xdfe6e8, 0xe8d9c4, 0xc9d6d1, 0xe0c8b8, 0xd5d0c4, 0x9bb3be];
 const ROOFS = [0xa3281e, 0xa3281e, 0x2f6d4a, 0x35506b, 0x55595d, 0x7a2f2a, 0x2a2d30];

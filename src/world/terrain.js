@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { createNoise2D, fbm, clamp, lerp, smoothstep } from './noise.js';
-import { COAST, ROADS, FORDS, LAKES, GLACIERS, LAVA, SANDS, PITS, CANYONS, PASSES, FLATS, JUMPS, BRIDGES, KERID, keridU, keridProfile, WS } from './geo.js';
+import { COAST, ISLES, ROADS, FORDS, LAKES, GLACIERS, LAVA, SANDS, PITS, CANYONS, PASSES, FLATS, JUMPS, BRIDGES, KERID, keridU, keridProfile, WS } from './geo.js';
 import { solidTopAt } from './solids.js';
 import { bakeStatic } from './bake.js';
 import { HD } from './hd.js';
@@ -29,15 +29,60 @@ function segDist(px, pz, ax, az, bx, bz) {
   const qx = ax + dx * t, qz = az + dz * t;
   return { d: Math.hypot(px - qx, pz - qz), t, qx, qz };
 }
-export function coastSignedDist(x, z) {
+// Distance to a coast polygon's edge: positive inside it, negative outside.
+function polySigned(x, z, poly) {
   let m = Infinity;
-  for (let i = 0, j = COAST.length - 1; i < COAST.length; j = i++) {
-    const r = segDist(x, z, COAST[j].x, COAST[j].z, COAST[i].x, COAST[i].z);
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const r = segDist(x, z, poly[j].x, poly[j].z, poly[i].x, poly[i].z);
     if (r.d < m) m = r.d;
+  }
+  return pointInPoly(x, z, poly) ? m : -m;
+}
+// Each island's bounding box, so the far ones cost nothing.
+for (const I of ISLES) {
+  I.x0 = Math.min(...I.coast.map((p) => p.x)); I.x1 = Math.max(...I.coast.map((p) => p.x));
+  I.z0 = Math.min(...I.coast.map((p) => p.z)); I.z1 = Math.max(...I.coast.map((p) => p.z));
+}
+// The mainland and the islands as one coast: land inside any of them.
+export function coastSignedDist(x, z) {
+  let d = polySigned(x, z, COAST);
+  if (d < 0) {
+    for (const I of ISLES) {
+      // An island further away than the mainland's coast cannot be nearer.
+      const out = Math.hypot(Math.max(I.x0 - x, 0, x - I.x1), Math.max(I.z0 - z, 0, z - I.z1));
+      if (out < -d) d = Math.max(d, polySigned(x, z, I.coast));
+    }
   }
   // Wobble the coastline so it never looks like straight polygon edges.
   const wob = nD(x * 0.02, z * 0.02) * 6 * WS + nD(x * 0.07, z * 0.07) * 2;
-  return (pointInPoly(x, z, COAST) ? m : -m) + wob;
+  return d + wob;
+}
+
+// The island (from ISLES) whose box holds (x, z), if any.
+export function isleAt(x, z) {
+  for (const I of ISLES) if (x > I.x0 - 30 && x < I.x1 + 30 && z > I.z0 - 30 && z < I.z1 + 30) return I;
+  return null;
+}
+// An island's own hills: volcanic cones, sheer-sided rocks and ridges. They stay clear of its
+// road (rd: distance to the nearest road).
+function isleHills(I, x, z, rd) {
+  let h = 0;
+  for (const k of I.hills) {
+    let t;
+    if (k.kind === 'ridge') t = segDist(x, z, k.a.x, k.a.z, k.b.x, k.b.z).d / k.w;
+    else t = Math.hypot(x - k.x, z - k.z) / k.r;
+    if (t >= 1) continue;
+    let y;
+    if (k.kind === 'cone') {
+      y = k.h * Math.pow(1 - t, 1.25);
+      if (k.crater) y -= k.crater * (1 - smoothstep(0, 0.3, t));
+    } else {
+      // Sheer sides and a gently rounded top, ragged by noise.
+      y = k.h * (1 - smoothstep(0.62, 1, t)) * (1 - 0.12 * t * t) + nD(x * 0.08, z * 0.08) * 1.5 * (1 - t);
+    }
+    h = Math.max(h, y);
+  }
+  return h * smoothstep(8, 26, rd);
 }
 
 // ---------- Roads ----------
@@ -71,7 +116,7 @@ function cellKey(cx, cz) { return cx * 100003 + cz; }
 function buildRoads() {
   for (const road of ROADS) {
     const pts = catmullRom(road.points, !!road.loop);
-    roadPaths.push({ name: road.name, type: road.type, loop: !!road.loop, pts, profile: road.profile, summit: road.summit || 0 });
+    roadPaths.push({ name: road.name, type: road.type, loop: !!road.loop, pts, profile: road.profile, summit: road.summit || 0, isle: !!road.isle });
   }
 }
 
@@ -373,7 +418,14 @@ function rawHeight(x, z, cd, noLakes = false, noBridge = false) {
   const nP = fbm(nA, x * 0.0024, z * 0.0024, 3) * 0.5 + 0.5;
   let h = 0.8 + ramp * (1.6 + 6 * nP) + smoothstep(60, 320, d) * 14 * nP;
   let mountainH = 0;
-  if (HD.dem) {
+  const isle = isleAt(x, z);
+  if (isle) {
+    // An island keeps to its own hills: the real elevation here is open sea (the island is drawn
+    // further out than in life), and the mainland's random massifs would bury the town.
+    h = 0.8 + ramp * (1.6 + 2.5 * nP);
+    mountainH = isleHills(isle, x, z, rd) * smoothstep(1, 12, d);
+    h += mountainH;
+  } else if (HD.dem) {
     // Realistic look: the land's shape comes from real elevation (Copernicus GLO-90), squeezed
     // into the game's scale. Beside roads it eases to a blurred copy so grades stay drivable,
     // and it fades in from the game's own coastline.
@@ -431,6 +483,8 @@ function rawHeight(x, z, cd, noLakes = false, noBridge = false) {
   // Fine undulation so plains never look flat-shaded.
   // (Kept off the mountains: finer than the mesh, it only speckles steep faces.)
   h += (nD(x * 0.035, z * 0.035) * 0.35) * ramp * (1 - smoothstep(3, 20, mountainH));
+  // An island's level ground (Heimaey's stadium): flat, easing back into the island at its edge.
+  if (isle?.flat) h = lerp(isle.flat.h, h, smoothstep(0.7, 1, Math.hypot(x - isle.flat.x, z - isle.flat.z) / isle.flat.r));
   // Ice caps: smooth domes that ride over the mountains, kept off the road corridor.
   for (const g of GLACIERS) {
     const gd = Math.hypot(x - g.x, z - g.z) / g.r;
