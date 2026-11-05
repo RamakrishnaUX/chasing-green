@@ -809,7 +809,12 @@ export function buildDyrholaey(kit) {
   kit.nightLit(lamp, 3);
   g.add(M(new THREE.CylinderGeometry(1, 1, 1.6, 12), lamp, -30, 35, 72));
   g.add(M(new THREE.ConeGeometry(1.4, 1.4, 12), red, -30, 36.4, 72));
-  for (const [x, z, h] of [[24, 92, 14], [34, 98, 9]]) g.add(M(new THREE.CylinderGeometry(1.4, 3.6, h, 6, 3), rock, x, h / 2 - 3, z));
+  // Two stacks off the point. They rise from the seabed: tops where they were, and the same taper
+  // carried on down under the water, so none hangs above the sea.
+  for (const [x, z, h] of [[24, 92, 14], [34, 98, 9]]) {
+    const top = h - 3, foot = Math.min(-3, kit.bed(x, z) - 3), H = top - foot;
+    g.add(M(new THREE.CylinderGeometry(1.4, 1.4 + 2.2 * H / h, H, 6, 3), rock, x, foot + H / 2, z));
+  }
   return g;
 }
 

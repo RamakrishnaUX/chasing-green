@@ -568,7 +568,11 @@ export const EXTRA = {
     const geo = new THREE.ExtrudeGeometry(s, { depth: 7, bevelEnabled: true, bevelSize: 0.6, bevelThickness: 0.6, bevelSegments: 2 }); geo.translate(0, 0, -3.5);
     const a = M(geo, rock, 0, 0, 26); g.add(a);
     g.add(M(new THREE.BoxGeometry(22, 0.8, 7), std(0x5a6a33, 0.95), 0, 9.6, 26));
-    for (const [x, z] of [[-18, 34], [16, 38]]) { const c = kit.rockBox(10, 12, 10); c.position.set(x, 1, z); g.add(c); }
+    // Two boulders off the arch, standing on the seabed with their tops where they were.
+    for (const [x, z] of [[-18, 34], [16, 38]]) {
+      const foot = Math.min(...[[-5, -5], [5, -5], [-5, 5], [5, 5], [0, 0]].map(([a, b]) => kit.bed(x + a, z + b))) - 3, H = 7 - foot;
+      const c = kit.rockBox(10, H, 10); c.position.set(x, foot + H / 2, z); g.add(c);
+    }
     return g;
   },
 
@@ -589,8 +593,9 @@ export const EXTRA = {
     const outer = [[-11, -7], [-11, 0.5], [-10.6, 6], [-10.1, 10.5], [-9.3, 13.4], [-8.5, 12.2], [-8.1, 8.5], [-7.1, 9.4], [-6.9, 14.8], [-5.2, 17.4], [-3.4, 17.1], [-2.2, 18.6], [0.4, 18.2], [1.6, 17.4], [3.4, 17.9], [5.6, 17.1], [7.6, 15.6], [9.3, 12.4], [10.4, 6.5], [10.9, 1.2], [11, -7]];
     const inPoly = (x, y) => { let c = false; for (let i = 0, j = outer.length - 1; i < outer.length; j = i++) { const [xi, yi] = outer[i], [xj, yj] = outer[j]; if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) c = !c; } return c; };
     // Arches go all the way down to the seabed, so open water runs through them.
-    // The big one is wide and high enough for a boat to pass through.
-    const arches = [{ cx: -7.6, hw: 1.05, top: 4.8 }, { cx: 0.3, hw: 4.4, top: 4.2 }];
+    // Both are wide and high enough for any of the cars, afloat, to pass through: the narrow one
+    // beside the trunk and the big one under the body.
+    const arches = [{ cx: -7.4, hw: 2.2, top: 5.6 }, { cx: 1.2, hw: 4.4, top: 5.8 }];
     const inArch = (x, y) => arches.some((A) => { const dx = (x - A.cx) / A.hw; if (Math.abs(dx) >= 1) return false; const r = Math.min(A.hw, A.top * 0.6); const knee = A.top - r; return y < knee || dx * dx + ((y - knee) / r) ** 2 < 1; });
     const solid = (x, y) => inPoly(x, y) && !inArch(x, y);
 

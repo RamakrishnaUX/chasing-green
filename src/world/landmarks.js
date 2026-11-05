@@ -488,25 +488,27 @@ function animateMist(pts, dt) {
 }
 
 // A cliff face with a waterfall pouring off its front edge. Local +z faces the viewer.
-function makeWaterfall({ width, height, walkBehind = false, color, cliffWidth }) {
+// below: how far the cliff reaches under the foot of the falls, so it meets ground that drops away.
+function makeWaterfall({ width, height, walkBehind = false, color, cliffWidth, below = 3 }) {
   const g = new THREE.Group();
+  const ch = height + 3 + below, cy = ch / 2 - below; // the cliff: from below the foot to above the lip
   const cw = cliffWidth || width + 26;
   const depth = 14;
   if (walkBehind) {
     const side = (cw - width - 8) / 2;
-    const l = rockBox(side, height + 6, depth);
-    l.position.set(-(width + 8) / 2 - side / 2, (height + 6) / 2 - 3, -depth / 2);
-    const r = rockBox(side, height + 6, depth); r.position.copy(l.position); r.position.x *= -1;
-    const back = rockBox(width + 8, height + 6, depth - 6);
-    back.position.set(0, (height + 6) / 2 - 3, -depth / 2 - 3);
+    const l = rockBox(side, ch, depth);
+    l.position.set(-(width + 8) / 2 - side / 2, cy, -depth / 2);
+    const r = rockBox(side, ch, depth); r.position.copy(l.position); r.position.x *= -1;
+    const back = rockBox(width + 8, ch, depth - 6);
+    back.position.set(0, cy, -depth / 2 - 3);
     const lip = rockBox(width + 8, 4, 6, 0.3);
     lip.position.set(0, height + 1, -3);
     lip.userData.notGround = true; // the path runs under it
     [l, r, back].forEach((m) => (m.userData.collide = true));
     g.add(l, r, back, lip);
   } else {
-    const c = rockBox(cw, height + 6, depth);
-    c.position.set(0, (height + 6) / 2 - 3, -depth / 2);
+    const c = rockBox(cw, ch, depth);
+    c.position.set(0, cy, -depth / 2);
     c.userData.collide = true;
     g.add(c);
   }
@@ -545,7 +547,7 @@ function makeWaterfall({ width, height, walkBehind = false, color, cliffWidth })
   return { group: g, mists: [mist] };
 }
 
-function makeColumns(rand) {
+function makeColumns(rand, bed) {
   const g = new THREE.Group();
   const cols = new THREE.Group();
   cols.userData.keepShape = true; // basalt columns really are this regular
@@ -562,15 +564,18 @@ function makeColumns(rand) {
     m.userData.collideCircle = 0.9;
     cols.add(m);
   }
-  // Sea stacks offshore.
+  // Sea stacks offshore. They rise from the seabed: tops where they were, the taper carried on
+  // down under the water.
   [[-14, 40, 20], [-4, 52, 26], [8, 46, 16]].forEach(([x, z, h]) => {
-    const sg = new THREE.CylinderGeometry(1.2 + rand() * 1.2, 4.4, h, 7, 8);
+    const top = h - 4, foot = Math.min(-4, bed(x, z) - 3), H = top - foot;
+    const rt = 1.2 + rand() * 1.2;
+    const sg = new THREE.CylinderGeometry(rt, rt + (4.4 - rt) * H / h, H, 7, 8);
     const sp = sg.attributes.position;
     for (let i = 0; i < sp.count; i++) { const k = 1 + rockNoise(sp.getY(i) * 0.4 + x, i * 0.3) * 0.18; sp.setX(i, sp.getX(i) * k); sp.setZ(i, sp.getZ(i) * k); }
     sg.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(sp.count * 3), 3));
     sg.computeVertexNormals();
     const s = new THREE.Mesh(sg, rockMaterial());
-    s.position.set(x, h / 2 - 4, z);
+    s.position.set(x, foot + H / 2, z);
     s.rotation.y = rand() * 3;
     g.add(s);
   });
@@ -722,6 +727,9 @@ export class Landmarks {
     const kit = {
       rand, quality: this.quality, baseY: y, waterUniforms, cs, sn, lmX: lm.x, lmZ: lm.z, iceGeometry, makeMist, makeWaterfall, fallMaterial, rockBox, rockMaterial,
       ground: (lx, lz) => heightAt(lm.x + lx * cs + lz * sn, lm.z - lx * sn + lz * cs) - y,
+      // The bottom something standing here must reach: the ground, or under water the seabed (never
+      // above the sea surface). In local heights, like ground.
+      bed: (lx, lz) => Math.min(heightAt(lm.x + lx * cs + lz * sn, lm.z - lx * sn + lz * cs), 0) - y,
       roadDist: (lx, lz) => roadDistAt(lm.x + lx * cs + lz * sn, lm.z - lx * sn + lz * cs),
       nightLit: (mat, k, base = 0) => this.nightMats.push({ mat, k, base }),
       auroraLit: (mat, k) => this.auroraMats.push({ mat, k, base: mat.emissiveIntensity }),
@@ -750,13 +758,20 @@ export class Landmarks {
         root.add(st);
       }
     }
-    if (lm.id === 'reynisfjara') root.add(makeColumns(rand));
+    if (lm.id === 'reynisfjara') root.add(makeColumns(rand, kit.bed));
     if (lm.id === 'kirkjufell') {
       root.add(makeKirkjufell());
       // Kirkjufellsfoss: a small two-step falls between the road and the mountain.
-      const upper = makeWaterfall({ width: 6, height: 3.2, cliffWidth: 13 });
+      // The ground falls away toward the sea here: each cliff reaches down to the lowest ground
+      // under it, so none hangs above the bank.
+      const reach = (x, y, z, ry, cw) => {
+        let lo = Infinity;
+        for (const a of [-cw / 2, 0, cw / 2]) for (const b of [0, -7, -14]) lo = Math.min(lo, kit.ground(x + a * Math.cos(ry) + b * Math.sin(ry), z - a * Math.sin(ry) + b * Math.cos(ry)));
+        return Math.max(3, y - lo + 1);
+      };
+      const upper = makeWaterfall({ width: 6, height: 3.2, cliffWidth: 13, below: reach(22, -1.5, 16, 0, 13) });
       upper.group.position.set(22, -1.5, 16);
-      const lower = makeWaterfall({ width: 4, height: 2.4, cliffWidth: 9 });
+      const lower = makeWaterfall({ width: 4, height: 2.4, cliffWidth: 9, below: reach(27, -2.4, 21, -0.4, 9) });
       lower.group.position.set(27, -2.4, 21);
       lower.group.rotation.y = -0.4;
       root.add(upper.group, lower.group);

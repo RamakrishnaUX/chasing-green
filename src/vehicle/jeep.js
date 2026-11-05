@@ -114,9 +114,13 @@ export class Jeep {
   }
 
   place(x, z, heading) {
-    clearTop = null;
+    // Set down on the land, the water or rock it can stand on. Under an arch the roof is a roof,
+    // not ground (as when driving): a car put there sat up against it, tipped on its side.
+    const base = surfaceHeightAt(x, z), rock = solidTopAt(x, z, base + this.kit.height + 0.1);
+    const y = Math.max(base, rock);
+    clearTop = y + this.kit.height + 0.1;
     this.air = false; this.vy = 0; this.vyPrev = 0; this.lastGround = null; this.lastSyncY = null; this.groundVy = 0;
-    this.pos.set(x, heightAt(x, z), z);
+    this.pos.set(x, y, z);
     this.heading = heading;
     this.vF = 0; this.vL = 0;
     this.boat = 0; this.boatOn = false; this.kit.apply(0);

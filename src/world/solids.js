@@ -55,7 +55,10 @@ export function addSolids(root, floor = null) {
     x0 = Math.min(x0, tris[i]); x1 = Math.max(x1, tris[i]);
     z0 = Math.min(z0, tris[i + 2]); z1 = Math.max(z1, tris[i + 2]);
   }
-  const cell = Math.max(1, Math.max(x1 - x0, z1 - z0) / 700);
+  // Cells of about a metre; half that for something small (a sea stack, an arch), so a doorway a
+  // few metres wide keeps its width rather than losing a metre to each side.
+  const span = Math.max(x1 - x0, z1 - z0);
+  const cell = Math.max(span < 120 ? 0.5 : 1, span / 700);
   const nx = Math.ceil((x1 - x0) / cell) + 2, nz = Math.ceil((z1 - z0) / cell) + 2;
   const top = new Float32Array(nx * nz).fill(-Infinity), ceil = new Float32Array(nx * nz).fill(Infinity);
   const ox = x0 - cell, oz = z0 - cell;
@@ -110,6 +113,22 @@ export function addSolids(root, floor = null) {
     }
   }
   for (let k = 0; k < nx * nz; k++) if (lowDown[k] && inside[k] <= 0 && !wall[k]) ceil[k] = low[k];
+  // A cell at the edge of an overhang (the face of an arch above its opening) gets a top only
+  // from the allowance at a face's edge, with nothing known about what is beneath it. It was
+  // solid to the water, a wall across the doorway of an arch. Where a neighbour is open beneath,
+  // this one is too, under the lowest of their roofs; beside rock that stands on the ground (a
+  // mountain's foot), no neighbour is, and it stays solid.
+  if (floor) {
+    const rim = [];
+    for (let j = 1; j < nz - 1; j++) for (let i = 1; i < nx - 1; i++) {
+      const k = j * nx + i;
+      if (top[k] === -Infinity || ceil[k] < Infinity || low[k] < Infinity || wall[k] || inside[k] > 0) continue;
+      let c = Infinity;
+      for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) c = Math.min(c, ceil[k + dj * nx + di]);
+      if (c < Infinity) rim.push(k, c);
+    }
+    for (let r = 0; r < rim.length; r += 2) ceil[rim[r]] = rim[r + 1];
+  }
   tiles.push({ ox, oz, cell, nx, nz, top, ceil, x0: ox, x1: ox + nx * cell, z0: oz, z1: oz + nz * cell });
 }
 
