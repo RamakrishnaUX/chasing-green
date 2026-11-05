@@ -42,6 +42,21 @@ export const VEHICLES = {
     radius: 1.36, halfLength: 2.3,
     engine: { base: 30, perSpeed: 1.4, type: 'square', rumble: 1.1 },
   },
+  // Two wheels: it leans into its turns, its bars turn with the steering, and it cannot float
+  // (it stops at water deeper than it can ford).
+  bike: {
+    name: 'Cafe racer',
+    tagline: 'Light, quick, and leans into every bend.',
+    blurb: 'A red Italian V-twin cafe racer with a bullet fairing, clip-on bars and a humped seat, ridden in an open leather helmet and goggles. Quick and nimble on tarmac, fair on gravel, and it cannot swim.',
+    bike: true,
+    susp: { k: 9, roll: 1 },
+    maxSpeed: 52, accel: 21, brake: 30, reverseMax: 3, steerRate: 2.2, grip: 9, handbrakeGrip: 2.2,
+    offroad: { paved: 1, gravel: 0.74, moss: 0.52, sand: 0.42, snow: 0.38, ford: 0.4 },
+    wade: 0.45, waterDrag: 1.3,
+    nitro: { speed: 1.4, accel: 2.0 },
+    radius: 0.55, halfLength: 0.95,
+    engine: { base: 38, perSpeed: 2.3, type: 'sawtooth', rumble: 1.0 },
+  },
   race: {
     name: 'Supercar',
     tagline: 'Fastest on tarmac. Hates gravel.',
@@ -56,7 +71,7 @@ export const VEHICLES = {
     engine: { base: 60, perSpeed: 2.6, type: 'sawtooth', rumble: 0.5 },
   },
 };
-export const VEHICLE_ORDER = ['jeep', 'vintage', 'camper', 'race'];
+export const VEHICLE_ORDER = ['jeep', 'vintage', 'camper', 'race', 'bike'];
 
 // Rolling resistance per surface, before each vehicle's off-road ability is applied.
 export const SURFACE_DRAG = { paved: 0.03, gravel: 0.08, moss: 0.14, sand: 0.2, snow: 0.18, ford: 0.35 };

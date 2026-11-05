@@ -14,6 +14,10 @@
 // his proportions to the car). All the distances below follow his size.
 // He is seen from outside the car; from the driver's seat (the camera is where his eyes are)
 // he is not drawn.
+//
+// On the cafe racer he rides instead (see ride): astride the saddle, leaning forward over the
+// tank to the clip-on bars, hands round the grips (turning with the bars), feet on the pegs,
+// head up to look down the road, in an open leather helmet with goggles.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
@@ -30,6 +34,12 @@ const FOREARM_TWIST = 1; // share of the wrist's twist taken by the forearm (a r
 const POSES = [];
 for (let l = -0.3; l < 0.81; l += 0.05) for (let f = 0; f < 0.37; f += 0.03) POSES.push([l, f]);
 const poseCost = ([l, f]) => Math.abs(l - 0.2) + f * 2 + Math.max(0, -l) * 3;
+// Riding: forward lean (radians) and how far forward on the saddle (metres); the most natural is
+// a lean of about 40 degrees, well back on the seat.
+const RIDES = [];
+for (let l = 0.2; l < 1.31; l += 0.05) for (let f = -0.12; f < 0.13; f += 0.04) RIDES.push([l, f]);
+const rideCost = ([l, f]) => Math.abs(l - 0.7) + Math.abs(f) * 2;
+const PEG = [0.2, 0.34, -0.2]; // the foot pegs (x either side, height, along the bike)
 
 const V = () => new THREE.Vector3();
 const X = new THREE.Vector3(1, 0, 0);
@@ -105,6 +115,15 @@ export class Driver {
       }
       this.armLen = wpos(bone.LeftArm).distanceTo(wpos(bone.LeftForeArm)) + wpos(bone.LeftForeArm).distanceTo(wpos(bone.LeftHand));
     }).catch((e) => console.warn('Driver did not load:', e));
+    // His helmet for the bike ("moto helmet" by sayedgamal655, CC BY 4.0; tools/cars/bike.mjs):
+    // centred on its shell, facing +z.
+    this.helmet = new THREE.Group();
+    this.helmet.userData.dynamic = true;
+    this.helmet.visible = false;
+    new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).loadAsync(`${import.meta.env.BASE_URL}models/helmet.glb`).then((g) => {
+      g.scene.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+      this.helmet.add(g.scene);
+    }).catch((e) => console.warn('Helmet did not load:', e));
   }
 
   // Where he sits in this car (in the car's frame): found once per car by casting rays from
@@ -172,6 +191,8 @@ export class Driver {
   // Each frame. car: the Jeep; on: whether he is in it; inside: the view is from his seat (where
   // he is not drawn).
   update(car, on, inside) {
+    if (car.model.bike) return this.ride(car, on, inside);
+    this.helmet.visible = false;
     const i = car.interior, steer = i?.steer;
     const show = !!(on && !inside && this.bone && steer && steer.parent);
     if (this.group.parent !== car.body) car.body.add(this.group);
@@ -295,5 +316,132 @@ export class Driver {
       }
     }
 
+  }
+
+  // Riding the bike. Found once per bike: the grips (in the bars' own frame, so the hands go
+  // round with them) and the saddle (cast down onto the seat).
+  ride(car, on, inside) {
+    const steer = car.interior?.steer, body = car.body;
+    const show = !!(on && !inside && this.bone && steer);
+    if (this.group.parent !== body) body.add(this.group);
+    if (this.helmet.parent !== body) body.add(this.helmet);
+    this.group.visible = this.helmet.visible = show;
+    if (!show) return;
+    const bone = this.bone;
+    this.group.scale.setScalar(1);
+    for (const [o, q] of this.rest) o.quaternion.copy(q);
+    body.updateWorldMatrix(true, true);
+    const toW = (x, y, z) => new THREE.Vector3(x, y, z).transformDirection(body.matrixWorld);
+    if (this.bikeFor !== steer) {
+      this.bikeFor = steer; this.ridePose = null;
+      // The grips, with the bars straight: each one's middle and its line (pointing outward),
+      // in the bars' frame. (The left grip is on his left, +x.)
+      const z0 = steer.rotation.z; steer.rotation.z = 0; steer.updateMatrixWorld(true);
+      const side = { Left: [], Right: [] }, v = V(), inv = steer.matrixWorld.clone().invert(), toBody = body.matrixWorld.clone().invert();
+      steer.traverse((o) => {
+        if (!o.isMesh || !/grip/i.test(o.material?.name || '')) return;
+        const P = o.geometry.attributes.position;
+        for (let k = 0; k < P.count; k++) { v.fromBufferAttribute(P, k).applyMatrix4(o.matrixWorld); const b = v.clone().applyMatrix4(toBody); side[b.x > 0 ? 'Left' : 'Right'].push(v.clone().applyMatrix4(inv)); }
+      });
+      this.grips = {};
+      for (const [s2, pts] of Object.entries(side)) {
+        if (!pts.length) continue;
+        const c = pts.reduce((a, p) => a.add(p), V()).divideScalar(pts.length);
+        let far = pts[0]; for (const p of pts) if (p.distanceTo(c) > far.distanceTo(c)) far = p;
+        // The end further from the bike's middle is the outer one.
+        const ends = [far, pts.reduce((a, p) => (p.distanceTo(far) > a.distanceTo(far) ? p : a), far)];
+        const out = ends.map((e) => e.clone().applyMatrix4(steer.matrixWorld).applyMatrix4(toBody));
+        const axis = Math.abs(out[0].x) > Math.abs(out[1].x) ? ends[0].clone().sub(ends[1]) : ends[1].clone().sub(ends[0]);
+        // Hands grip a little in from the outer end.
+        this.grips[s2] = { c: c.clone().addScaledVector(axis.clone().normalize(), 0.015), axis: axis.normalize() };
+      }
+      steer.rotation.z = z0; steer.updateMatrixWorld(true);
+      // The saddle: the top of the seat, cast down just behind the tank.
+      const meshes = [];
+      body.traverse((o) => { if (o.isMesh && !this.group.getObjectById(o.id) && !this.helmet.getObjectById(o.id) && !steer.getObjectById(o.id) && !o.material?.transparent) meshes.push(o); });
+      const rc = new THREE.Raycaster();
+      let seat = null;
+      for (const z of [-0.3, -0.35, -0.4]) {
+        rc.set(body.localToWorld(new THREE.Vector3(0, 2, z)), toW(0, -1, 0)); rc.far = 2;
+        const h = rc.intersectObjects(meshes, false)[0];
+        if (h) { const p2 = body.worldToLocal(h.point.clone()); if (!seat || p2.y < seat.y) seat = p2; }
+      }
+      this.saddle = seat || new THREE.Vector3(0, 0.8, -0.35);
+    }
+    const G = {};
+    for (const s2 of ['Left', 'Right']) if (this.grips[s2]) G[s2] = { p: steer.localToWorld(this.grips[s2].c.clone()), axis: this.grips[s2].axis.clone().transformDirection(steer.matrixWorld) };
+
+    // Sit him: hips on the saddle, the body leaning forward over the tank, the head raised.
+    const hipL = V();
+    const place = (lean, fwd) => {
+      for (const o of [bone.Hips, bone.Neck, bone.Head]) o.quaternion.copy(this.rest.get(o));
+      this.group.position.set(0, 0, 0); this.group.updateMatrixWorld(true);
+      bone.Hips.quaternion.premultiply(_q.setFromAxisAngle(X, lean));
+      bone.Neck.quaternion.premultiply(_q.setFromAxisAngle(X, -lean * 0.55));
+      bone.Head.quaternion.premultiply(_q.setFromAxisAngle(X, -lean * 0.35));
+      this.group.updateMatrixWorld(true);
+      hipL.set(0, this.saddle.y + 0.07, this.saddle.z + fwd);
+      const h = this.group.worldToLocal(wpos(bone.Hips));
+      this.group.position.set(hipL.x - h.x, hipL.y - h.y, hipL.z - h.z);
+      this.group.updateMatrixWorld(true);
+    };
+    const short = () => { let m = 0; for (const s2 of ['Left', 'Right']) if (G[s2]) m += Math.max(0, wpos(bone[s2 + 'Arm']).distanceTo(G[s2].p) - this.armLen * 0.97); return m; };
+    if (!this.ridePose) {
+      let best = null, bc = Infinity;
+      for (const pose of RIDES) { place(...pose); const c = short() * 100 + rideCost(pose); if (c < bc) { bc = c; best = pose; } }
+      this.ridePose = best; place(...best); this.short = +short().toFixed(3);
+    }
+    place(...this.ridePose);
+    this.lean = this.ridePose[0];
+
+    // Legs: knees bent forward along the tank, feet on the pegs.
+    for (const s2 of ['Left', 'Right']) {
+      const out = s2 === 'Left' ? 1 : -1;
+      reach(bone[s2 + 'UpLeg'], bone[s2 + 'Leg'], bone[s2 + 'Foot'], body.localToWorld(new THREE.Vector3(out * PEG[0], PEG[1] + 0.08, PEG[2])), toW(out * 0.35, 0.25, 1));
+      aim(bone[s2 + 'Foot'], bone[s2 + 'ToeBase'], toW(out * 0.15, -0.3, 1));
+    }
+
+    // Hands round the grips: the palm over the top, the thumb round underneath toward the bike's
+    // middle, the hand carrying on from the forearm; then the fingers close.
+    this.miss = {};
+    for (const s2 of ['Left', 'Right']) {
+      if (!G[s2]) continue;
+      const g = G[s2], T = g.axis, inward = T.clone().negate(), F = V(), P = V(), wrist = V();
+      let d = g.p.clone().sub(wpos(bone[s2 + 'Arm'])).normalize();
+      for (let k = 0; k < 3; k++) {
+        F.copy(d).addScaledVector(T, -d.dot(T)).normalize();
+        P.crossVectors(T, F); P.addScaledVector(F, -P.dot(F)).normalize();
+        const thumb = s2 === 'Left' ? V().crossVectors(P, F) : V().crossVectors(F, P);
+        if (thumb.dot(inward) < 0) P.negate();
+        wrist.copy(g.p).addScaledVector(F, -0.07).addScaledVector(P, -0.03);
+        this.miss[s2] = +reach(bone[s2 + 'Arm'], bone[s2 + 'ForeArm'], bone[s2 + 'Hand'], wrist, toW((s2 === 'Left' ? 1 : -1) * 0.9, -0.6, -0.4)).toFixed(3);
+        d = wpos(bone[s2 + 'Hand']).sub(wpos(bone[s2 + 'ForeArm'])).normalize();
+      }
+      const hf = this.handFrame[s2], want = frameQuat(hf.f, hf.p, F, P);
+      const fa = bone[s2 + 'ForeArm'], ax = wpos(bone[s2 + 'Hand']).sub(wpos(fa)).normalize();
+      turnWorld(fa, ax, twistAbout(want.clone().multiply(wquat(bone[s2 + 'Hand']).invert()), ax));
+      setWorldQuat(bone[s2 + 'Hand'], want);
+      const palm = hf.p.clone().applyQuaternion(wquat(bone[s2 + 'Hand']));
+      const along = wpos(bone[s2 + 'HandMiddle2']).sub(wpos(bone[s2 + 'HandMiddle1'])).normalize();
+      for (const f of ['Index', 'Ring', 'Pinky']) aim(bone[s2 + 'Hand' + f + 1], bone[s2 + 'Hand' + f + 2], along.clone().lerp(wpos(bone[s2 + 'Hand' + f + 2]).sub(wpos(bone[s2 + 'Hand' + f + 1])).normalize(), 0.25));
+      aim(bone[s2 + 'HandThumb1'], bone[s2 + 'HandThumb2'], F.clone().multiplyScalar(0.55).addScaledVector(palm, 0.55).normalize());
+      for (const f of ['Index', 'Middle', 'Ring', 'Pinky', 'Thumb']) for (const j of [1, 2, 3]) {
+        const b = bone[s2 + 'Hand' + f + j], next = bone[s2 + 'Hand' + f + (j + 1)];
+        if (!b || !next || (f === 'Thumb' && j === 1)) continue;
+        const dd = wpos(next).sub(wpos(b)).normalize(), a2 = V().crossVectors(dd, palm);
+        if (a2.lengthSq() < 1e-6) continue;
+        turnWorld(b, a2.normalize(), (f === 'Thumb' ? THUMB : CURL)[j - 1] * 0.9);
+      }
+    }
+
+    // The helmet on his head: its shell centred over the crown, square to his head.
+    const head = wpos(bone.Head), top = wpos(bone.HeadTop_End), up = top.clone().sub(head), len = up.length();
+    up.normalize();
+    const fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(wquat(bone.Head)); fwd.addScaledVector(up, -fwd.dot(up)).normalize();
+    const want = frameQuat(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 1), up, fwd);
+    const at = head.clone().addScaledVector(up, len * (this.helmetUp ?? 0.62)).addScaledVector(fwd, this.helmetFwd ?? -0.01);
+    this.helmet.position.copy(body.worldToLocal(at));
+    this.helmet.quaternion.copy(wquat(body).invert().multiply(want));
+    this.helmet.scale.setScalar(this.helmetScale ?? 1);
   }
 }

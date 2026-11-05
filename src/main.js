@@ -395,7 +395,8 @@ function updateCamera(dt) {
     const desired = new THREE.Vector3(jeep.pos.x - Math.sin(h) * cd, jeep.pos.y + ch, jeep.pos.z - Math.cos(h) * cd);
     // Under a sea arch the camera follows the car through rather than jumping over the roof.
     desired.y = Math.max(desired.y, groundAt(desired.x, desired.z, jeep.pos.y + jeep.kit.height + 0.1) + 1.5);
-    camera.position.lerp(desired, Math.min(1, dt * 4));
+    // A small vehicle (the bike) is followed more closely, or at speed it shrinks into the distance.
+    camera.position.lerp(desired, Math.min(1, dt * (jeep.model.camFollow || 4)));
     if (jeep.speed < 0.3 && camera.position.distanceTo(desired) < 0.08) camera.position.copy(desired);
     camTarget.set(jeep.pos.x + Math.sin(h) * 14, jeep.pos.y + ch * 0.7, jeep.pos.z + Math.cos(h) * 14);
     camera.lookAt(camTarget);

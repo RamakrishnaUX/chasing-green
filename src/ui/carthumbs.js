@@ -54,10 +54,12 @@ export function carThumbs(kinds, w = 960, h = 600) {
     }
     return { kind, m, look, d };
   });
+  // All from the same distance, so the cars show their sizes against each other; the bike, so
+  // much smaller, comes in to 0.62 of it, or it is lost in its card.
   const far = Math.max(...shots.map((s) => s.d));
-  for (const { kind, m, look } of shots) {
+  for (const { kind, m, look, d } of shots) {
     scene.add(m.group);
-    camera.position.copy(look).addScaledVector(dir, far);
+    camera.position.copy(look).addScaledVector(dir, m.bike ? Math.min(far, Math.max(d, far * 0.62)) : far);
     camera.lookAt(look);
     renderer.render(scene, camera);
     cache[kind] = renderer.domElement.toDataURL('image/png');

@@ -692,6 +692,10 @@ const GLB = {
   // Its cab is mirrored to left-hand drive (tools/cars); the seat is behind the wheel, looking down a little to show it.
   camper: { scale: 1.4, camDist: 8.8, camHeight: 3.7, eye: 3.2, cockpit: [0.28, 1.46, 1.18], pitch: -0.14, hood: [0, 1.95, 1.05],
     mirrors: [{ min: [0.74, 1.19, 1.63], max: [0.9, 1.34, 1.7] }, { min: [-0.07, 1.48, 1.52], max: [0.07, 1.57, 1.56], centre: true }] },
+  // The cafe racer ("moto guzzi v-twin" by Yakpower, CC BY 4.0), at its true size. Two wheels and
+  // its steering (fork and bars) as "steer", turning about the steering axis (tools/cars/bike.mjs).
+  // cockpit: the rider's eyes, crouched over the tank; headlight and exhaust: where they are.
+  bike: { bike: true, camDist: 4.6, camHeight: 1.75, camFollow: 8, eye: 1.5, cockpit: [0, 1.36, -0.16], pitch: -0.2, hood: [0, 1.0, 0.85], headlight: [0, 0.88, 0.66], exhaust: [0.2, 0.3, -0.62] },
 };
 const loaded = {};
 // Plain float attributes: the files are packed (quantised), and merging and baking expect floats.
@@ -807,22 +811,59 @@ function buildFromFile(kind) {
     // A wheel: a pivot on the axle (it steers) holding a spinning part.
     const box = new THREE.Box3().setFromObject(copy);
     const r = (box.max.y - box.min.y) / 2;
-    R += r / 4;
+    R += r;
     const pivot = new THREE.Group(); pivot.position.copy(part.position);
     const spin = new THREE.Group();
     copy.position.set(0, 0, 0);
     spin.add(copy); pivot.add(spin); g.add(pivot);
     wheels.push({ pivot, spin, front: part.position.z > 0, x: part.position.x, z: part.position.z });
   }
-  // The order the car code expects: left front, right front, left rear, right rear.
+  // The order the car code expects: left front, right front, left rear, right rear (a bike: front, rear).
+  R /= Math.max(1, wheels.length);
   wheels.sort((a, b) => (b.front - a.front) || (b.x - a.x));
   for (const w of wheels) w.pivot.position.y = R;
+  // A bike's front wheel turns with its fork: it moves into the steering, keeping its place.
+  if (C.bike && steer) { g.updateMatrixWorld(true); steer.attach(wheels[0].pivot); }
   const box = new THREE.Box3().setFromObject(g);
   return {
     group: g, wheels, lightMat, tailMat, R, glb: true, steer, seat: C.seat, size: C.scale || 1, mirrors: !!C.mirrors, cockpit: C.cockpit?.map((v) => v * (C.scale || 1)), cockpitPitch: C.pitch, hood: C.hood?.map((v) => v * (C.scale || 1)), cabinShift: C.cabinShift || 0,
-    headlight: [0, (box.max.y - box.min.y) * 0.42, box.max.z - 0.15], exhaust: [0.42, 0.32, box.min.z + 0.05],
-    camDist: C.camDist, camHeight: C.camHeight, eye: C.eye,
+    headlight: C.headlight || [0, (box.max.y - box.min.y) * 0.42, box.max.z - 0.15], exhaust: C.exhaust || [0.42, 0.32, box.min.z + 0.05],
+    camDist: C.camDist, camHeight: C.camHeight, camFollow: C.camFollow, eye: C.eye, bike: !!C.bike, turn: C.bike ? 1 : undefined,
   };
+}
+
+// The cafe racer until its model arrives: two wheels, a red tank and seat on a dark frame, a
+// fork and bars that turn.
+function buildBike() {
+  const g = new THREE.Group(), C = GLB.bike;
+  const lightMat = new THREE.MeshStandardMaterial({ color: 0xfff6e6, emissive: 0xfff2dc, emissiveIntensity: 0.6, roughness: 0.1 });
+  const tailMat = new THREE.MeshStandardMaterial({ color: 0x5a0c0c, emissive: 0xff1010, emissiveIntensity: 0.7, roughness: 0.2 });
+  const red = new THREE.MeshStandardMaterial({ color: 0xc8161d, roughness: 0.35, metalness: 0.3 }), dark = new THREE.MeshStandardMaterial({ color: 0x1d1f22, roughness: 0.6, metalness: 0.4 });
+  const tyre = new THREE.MeshStandardMaterial({ color: 0x151515, roughness: 0.9 }), steel = new THREE.MeshStandardMaterial({ color: 0xb8bcc0, roughness: 0.3, metalness: 0.8 });
+  const R = 0.32, add = (geo, mat, x, y, z, parent = g) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = true; parent.add(m); return m; };
+  add(new THREE.BoxGeometry(0.3, 0.26, 0.7), red, 0, 0.84, 0.12); // tank
+  add(new THREE.BoxGeometry(0.26, 0.12, 0.5), dark, 0, 0.78, -0.38); // seat
+  add(new THREE.BoxGeometry(0.22, 0.32, 0.5), steel, 0, 0.46, 0.05); // engine
+  add(new THREE.BoxGeometry(0.06, 0.06, 1.3), dark, 0, 0.62, -0.1); // frame
+  const mount = new THREE.Group(); mount.position.set(0, 0.79, 0.41); mount.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0.872, -0.489)); g.add(mount);
+  const steer = new THREE.Group(); mount.add(steer);
+  for (const sx of [-1, 1]) add(new THREE.CylinderGeometry(0.025, 0.025, 0.6), steel, sx * 0.09, 0, 0.3, steer).rotation.x = Math.PI / 2;
+  add(new THREE.BoxGeometry(0.62, 0.03, 0.03), dark, 0, 0.03, 0.02, steer);
+  // Grips at the bar ends (named so the rider finds them, as on the model).
+  const grip = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.8, name: 'leathergrips' });
+  for (const sx of [-1, 1]) add(new THREE.CylinderGeometry(0.018, 0.018, 0.12).rotateZ(Math.PI / 2), grip, sx * 0.27, 0.03, 0.02, steer);
+  const wheels = [];
+  for (const z of [0.737, -0.737]) {
+    const pivot = new THREE.Group(); pivot.position.set(0, R, z);
+    const spin = new THREE.Group(); pivot.add(spin);
+    add(new THREE.TorusGeometry(R - 0.06, 0.06, 10, 28).rotateY(Math.PI / 2), tyre, 0, 0, 0, spin);
+    add(new THREE.CylinderGeometry(0.06, 0.06, 0.12, 12).rotateZ(Math.PI / 2), steel, 0, 0, 0, spin);
+    g.add(pivot);
+    wheels.push({ pivot, spin, front: z > 0, x: 0, z });
+  }
+  g.updateMatrixWorld(true); steer.attach(wheels[0].pivot);
+  return { group: g, wheels, lightMat, tailMat, R, steer, size: 1, cockpit: C.cockpit, cockpitPitch: C.pitch, hood: C.hood, cabinShift: 0,
+    headlight: C.headlight, exhaust: C.exhaust, camDist: C.camDist, camHeight: C.camHeight, camFollow: C.camFollow, eye: C.eye, bike: true, turn: 1 };
 }
 
 export function buildVehicleModel(kind) {
@@ -830,5 +871,6 @@ export function buildVehicleModel(kind) {
   if (kind === 'vintage') return buildVintage();
   if (kind === 'race') return buildRace();
   if (kind === 'camper') return buildCamper();
+  if (kind === 'bike') return buildBike();
   return buildJeep();
 }

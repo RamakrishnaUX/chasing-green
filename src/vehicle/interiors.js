@@ -151,12 +151,12 @@ function race() {
 // A car from a model file with a cabin of its own needs nothing built: just where the eye sits,
 // and its own steering wheel, cut out of the model to turn.
 function modelCabin(model) {
-  return { group: new THREE.Group(), steer: model.steer || null, seat: model.seat, needles: { speed: new THREE.Object3D(), rev: new THREE.Object3D() }, draw: () => {}, closed: true,
+  return { group: new THREE.Group(), steer: model.steer || null, seat: model.seat, turn: model.turn, bike: !!model.bike, needles: { speed: new THREE.Object3D(), rev: new THREE.Object3D() }, draw: () => {}, closed: true,
     views: { cockpit: { eye: model.cockpit, fov: 72, pitch: model.cockpitPitch ?? -0.1 }, hood: { eye: model.hood, fov: 66, pitch: -0.08 } } };
 }
 
 export function buildInterior(kind, model) {
-  if (model.glb && model.cockpit) return modelCabin(model);
+  if ((model.glb && model.cockpit) || model.bike) return modelCabin(model);
   const i = kind === 'vintage' ? vintage(model) : kind === 'camper' ? camper() : kind === 'race' ? race() : jeep();
   // A model body with the built cabin moved along to fit it.
   if (model.cabinShift) { i.group.position.z += model.cabinShift; if (i.outside) i.outside.position.z += model.cabinShift; for (const v of Object.values(i.views)) v.eye = [v.eye[0], v.eye[1], v.eye[2] + model.cabinShift]; }
@@ -173,9 +173,10 @@ export function updateInterior(i, { kmh, steer, music }) {
   i.needles.rev.rotation.z = 2.1 - Math.min(1, rev) * sweep;
   i.draw(music ? `♪ ${music}` : 'FM 98.1');
 }
-// The steering wheel turns with the steering, in every view (it shows from outside too).
+// The steering wheel turns with the steering, in every view (it shows from outside too); a
+// bike's bars turn about the steering axis by the angle itself (turn: 1).
 export function turnWheel(i, steer) {
-  if (i?.steer) i.steer.rotation.z = -steer * 2.2;
+  if (i?.steer) i.steer.rotation.z = -steer * (i.turn ?? 2.2);
 }
 
 export const trackTitle = (n) => CONFIG.music.titles?.[n] ?? null;

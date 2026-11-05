@@ -21,6 +21,13 @@ function heightAt(x, z) {
   return rock > base && (clearTop == null || rock < clearTop - 1.2) ? rock : base;
 }
 
+// A bike does not float: no hull, only the sizes the rest of the car code reads from a kit.
+function bikeKit(model) {
+  model.group.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(model.group);
+  return { group: new THREE.Group(), apply() {}, bucket: new THREE.Object3D(), R: model.R, MS: 1, halfW: 0.4, z0: box.min.z, z1: box.max.z, waterline: 0.3, height: box.max.y, lift: 0, inset: 0 };
+}
+
 // The player's car. Kept under the old name so the rest of the game needs no changes;
 // setType() swaps between the Jeep, the vintage roadster and the race car.
 export class Jeep {
@@ -76,7 +83,7 @@ export class Jeep {
     this.spec = VEHICLES[kind];
     this.model = buildVehicleModel(kind);
     if (HD.on && !this.model.glb) weatherCar(this.model.group); // the Sketchfab cars carry their own wear in their textures
-    this.kit = buildBoatKit(this.model);
+    this.kit = this.model.bike ? bikeKit(this.model) : buildBoatKit(this.model);
     // Wheels turn and steer; the rest of the body is merged into a few meshes.
     for (const w of this.model.wheels) w.pivot.userData.dynamic = true;
     bakeStatic(this.model.group);
@@ -149,7 +156,7 @@ export class Jeep {
     // Boat mode. Past the depth a car can wade (no deeper than 1.4 m) it floats and turns into a
     // boat; back in shallow water it turns into a car again. The gap stops it flicking between them.
     const floatAt = Math.min(S.wade, 1.4);
-    if (!this.boatOn && !this.air && this.depth > floatAt) { this.boatOn = true; this.boatEvent = 'boat'; }
+    if (!this.boatOn && !this.air && this.depth > floatAt && !S.bike) { this.boatOn = true; this.boatEvent = 'boat'; }
     else if (this.boatOn && this.depth < floatAt * 0.6) { this.boatOn = false; this.boatEvent = 'car'; }
     this.boat = clamp(this.boat + (this.boatOn ? dt : -dt) / 1.6, 0, 1);
     this.kit.apply(this.boat);
@@ -201,7 +208,9 @@ export class Jeep {
       ? steer * S.steerRate * 0.55 * clamp(this.vF / 3, -1, 1) * (1 - 0.35 * clamp(sp / B.maxSpeed, 0, 1))
       : steer * S.steerRate * 0.72 * clamp(this.vF / 6, -1, 1) * (1 - 0.62 * clamp(sp / (S.maxSpeed * 1.2), 0, 1));
     if (!air) this.heading += steerAmt * dt;
-    this.steerVis = lerp(this.steerVis, steer * 0.45, Math.min(1, dt * 8));
+    this.yawRate = air ? 0 : steerAmt;
+    // A bike's bars turn well over at walking pace and only a little at speed (it leans instead).
+    this.steerVis = lerp(this.steerVis, steer * (S.bike ? lerp(0.5, 0.06, clamp(sp / 25, 0, 1)) : 0.45), Math.min(1, dt * 8));
 
     // Wind pushes sideways; grip pulls the car back in line.
     const rx = fz, rz = -fx;
@@ -238,6 +247,14 @@ export class Jeep {
         solidStep(this.pos.x + fx * reach, this.pos.z + fz * reach, this.pos.y, 0.6 + (Math.abs(reach) + moved) * 1.2, clearTop)) {
       this.pos.x = prevX; this.pos.z = prevZ;
       this.vF *= -0.15; this.vL = 0;
+    }
+    // A bike cannot float: it stops at water deeper than it can ford, and can always back out.
+    if (S.bike) {
+      const deep = (x, z) => waterLevelAt(x, z) - heightAt(x, z);
+      if (deep(this.pos.x, this.pos.z) > S.wade + 0.15 && deep(this.pos.x, this.pos.z) > deep(prevX, prevZ)) {
+        this.pos.x = prevX; this.pos.z = prevZ; this.vF *= 0.3; this.vL = 0;
+        warn = 'Too deep for the bike. Find a way round, or take a car.';
+      }
     }
     // How far you can roam. On land: 70 m from a road, but you can always head down to the sea or
     // a lake and drive along its shore. On the water: 400 m out from the shore. Only moving further
@@ -287,6 +304,7 @@ export class Jeep {
   }
 
   sync(dt) {
+    if (this.model.bike) return this.syncBike(dt);
     const fx = Math.sin(this.heading), fz = Math.cos(this.heading);
     const rx = fz, rz = -fx;
     // Suspension: sample the ground under each wheel, fit a plane, then let each wheel
@@ -366,6 +384,52 @@ export class Jeep {
     K.bucket.rotation.y = -this.steerVis * 0.9;
     // On the water nitro shows in the jet's plume (BoatWater), not as exhaust flames and streaks.
     this.nitroFx.update(dt, this.boosting && this.boat < 0.5, Math.abs(this.vF));
+  }
+
+  // A bike on its two wheels: it follows the ground under them nose to tail, but stays upright
+  // across a slope and leans into its turns, by the angle that balances the turn at its speed
+  // (tan lean = speed x turn rate / g), upright at walking pace. It leans about the line where the
+  // tyres touch the road, as a real one does. Both wheels spin; the front one turns with the bars.
+  syncBike(dt) {
+    const fx = Math.sin(this.heading), fz = Math.cos(this.heading);
+    const [F, B] = this.wheels;
+    const gF = heightAt(this.pos.x + fx * F.z, this.pos.z + fz * F.z), gB = heightAt(this.pos.x + fx * B.z, this.pos.z + fz * B.z);
+    let y = Math.max((gF + gB) / 2, solidTopAt(this.pos.x, this.pos.z, clearTop) - 0.2);
+    const fl = this.floatY();
+    if (fl > y) y = fl;
+    const sus = this.spec.susp;
+    if (dt && this.lastSyncY != null) {
+      const gv = (y - this.lastSyncY) / dt;
+      this.groundVy = this.groundVy == null ? gv : lerp(this.groundVy, gv, 1 - Math.exp(-dt * 14));
+    } else this.groundVy = 0;
+    this.lastSyncY = y;
+    if (!this.air) {
+      if (this.landing > 0 || !dt) this.pos.y = y;
+      else {
+        this.pos.y = lerp(this.pos.y + this.groundVy * dt, y, 1 - Math.exp(-dt * sus.k * 1.6));
+        this.pos.y = clamp(this.pos.y, y - 0.08, y + 0.25);
+      }
+    }
+    const pitchT = Math.atan2(gB - gF, F.z - B.z) - this.braking * 0.03;
+    const v = this.vF, lean = Math.atan2(v * (this.yawRate || 0), 9.8);
+    const rollT = this.air ? this.roll : -clamp(lean, -0.65, 0.65) * clamp(Math.abs(v) / 4, 0, 1);
+    const k = dt ? Math.min(1, dt * 6) : 1;
+    this.pitch = this.air ? lerp(this.pitch, this.airPitch ?? 0, dt ? Math.min(1, dt * 3) : 1) : lerp(this.pitch, pitchT, k);
+    this.roll = lerp(this.roll, rollT, k);
+    this.root.position.copy(this.pos);
+    this.root.rotation.set(0, this.heading, 0);
+    if (this.blob) {
+      this.blob.position.set(this.pos.x, Math.max(this.pos.y, waterLevelAt(this.pos.x, this.pos.z)) + 0.06, this.pos.z);
+      this.blob.rotation.z = this.heading;
+      this.blob.scale.set(0.9, (F.z - B.z) + 1.4, 1);
+      this.blob.visible = this.root.visible;
+    }
+    this.body.rotation.set(this.pitch, 0, this.roll);
+    this.compress = (this.compress || 0) * Math.max(0, 1 - (dt || 0) * 5);
+    this.body.position.y = -this.compress;
+    if (this.landing > 0) this.landing -= dt || 0;
+    for (const w of this.wheels) w.spin.rotation.x += (this.vF * (dt || 0)) / this.model.R;
+    this.nitroFx.update(dt, this.boosting, Math.abs(this.vF));
   }
 
   // Vertical motion: follow the ground, take off where it drops away faster than the car can
