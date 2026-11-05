@@ -47,14 +47,14 @@ export const VEHICLES = {
   bike: {
     name: 'Cafe racer',
     tagline: 'Light, quick, and leans into every bend.',
-    blurb: 'A red Italian V-twin cafe racer with a bullet fairing, clip-on bars and a humped seat, ridden in an open leather helmet and goggles. Quick and nimble on tarmac, fair on gravel, and it cannot swim.',
+    blurb: 'A yellow-tanked cafe racer with a brown bench seat, flat bars and fat tyres, ridden in an open leather helmet and goggles. Quick and nimble on tarmac, fair on gravel, and it cannot swim.',
     bike: true,
     susp: { k: 9, roll: 1 },
     maxSpeed: 52, accel: 21, brake: 30, reverseMax: 3, steerRate: 2.2, grip: 9, handbrakeGrip: 2.2,
     offroad: { paved: 1, gravel: 0.74, moss: 0.52, sand: 0.42, snow: 0.38, ford: 0.4 },
     wade: 0.45, waterDrag: 1.3,
     nitro: { speed: 1.4, accel: 2.0 },
-    radius: 0.66, halfLength: 1.14,
+    radius: 0.62, halfLength: 1.2,
     engine: { base: 38, perSpeed: 2.3, type: 'sawtooth', rumble: 1.0 },
   },
   race: {

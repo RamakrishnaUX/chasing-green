@@ -35,11 +35,11 @@ const POSES = [];
 for (let l = -0.3; l < 0.81; l += 0.05) for (let f = 0; f < 0.37; f += 0.03) POSES.push([l, f]);
 const poseCost = ([l, f]) => Math.abs(l - 0.2) + f * 2 + Math.max(0, -l) * 3;
 // Riding: forward lean (radians) and how far forward on the saddle (metres); the most natural is
-// a lean of about 40 degrees, well back on the seat.
+// the bike's own lean (upright behind flat bars, low over clip-ons), at the seat's own place.
 const RIDES = [];
-for (let l = 0.2; l < 1.31; l += 0.05) for (let f = -0.12; f < 0.13; f += 0.04) RIDES.push([l, f]);
-const rideCost = ([l, f]) => Math.abs(l - 0.7) + Math.abs(f) * 2;
-const PEG = [0.2, 0.34, -0.2]; // the foot pegs (x either side, height, along the bike), at the model's own size
+for (let l = 0; l < 1.31; l += 0.05) for (let f = -0.12; f < 0.21; f += 0.04) RIDES.push([l, f]);
+const rideCost = ([l, f], want) => Math.abs(l - want) + Math.abs(f) * 2;
+const PEG = [0.2, 0.34, -0.2]; // foot pegs, unless the bike gives its own (see models.js)
 
 const V = () => new THREE.Vector3();
 const X = new THREE.Vector3(1, 0, 0);
@@ -355,13 +355,19 @@ export class Driver {
         // Hands grip a little in from the outer end.
         this.grips[s2] = { c: c.clone().addScaledVector(axis.clone().normalize(), 0.015), axis: axis.normalize() };
       }
+      // Or as the bike gives them (its grips part of the bars): middles and lines in its own frame.
+      for (const [s2, g] of Object.entries(steer.userData.grips || {})) {
+        if (this.grips[s2]) continue;
+        this.grips[s2] = { c: steer.worldToLocal(body.localToWorld(new THREE.Vector3(...g.c))), axis: new THREE.Vector3(...g.axis).transformDirection(body.matrixWorld).transformDirection(inv).normalize() };
+      }
       steer.rotation.z = z0; steer.updateMatrixWorld(true);
       // The saddle: the top of the seat, cast down just behind the tank.
       const meshes = [];
       body.traverse((o) => { if (o.isMesh && !this.group.getObjectById(o.id) && !this.helmet.getObjectById(o.id) && !steer.getObjectById(o.id) && !o.material?.transparent) meshes.push(o); });
       const rc = new THREE.Raycaster();
       let seat = null;
-      for (const z of [-0.3, -0.35, -0.4]) {
+      const sz = (car.model.seatZ ?? -0.35) * (car.model.size || 1);
+      for (const z of [sz + 0.05, sz, sz - 0.05]) {
         rc.set(body.localToWorld(new THREE.Vector3(0, 2, z)), toW(0, -1, 0)); rc.far = 2;
         const h = rc.intersectObjects(meshes, false)[0];
         if (h) { const p2 = body.worldToLocal(h.point.clone()); if (!seat || p2.y < seat.y) seat = p2; }
@@ -388,7 +394,7 @@ export class Driver {
     const short = () => { let m = 0; for (const s2 of ['Left', 'Right']) if (G[s2]) m += Math.max(0, wpos(bone[s2 + 'Arm']).distanceTo(G[s2].p) - this.armLen * 0.97); return m; };
     if (!this.ridePose) {
       let best = null, bc = Infinity;
-      for (const pose of RIDES) { place(...pose); const c = short() * 100 + rideCost(pose); if (c < bc) { bc = c; best = pose; } }
+      for (const pose of RIDES) { place(...pose); const c = short() * 100 + rideCost(pose, car.model.lean ?? 0.7); if (c < bc) { bc = c; best = pose; } }
       this.ridePose = best; place(...best); this.short = +short().toFixed(3);
     }
     place(...this.ridePose);
@@ -398,7 +404,8 @@ export class Driver {
     for (const s2 of ['Left', 'Right']) {
       const out = s2 === 'Left' ? 1 : -1;
       const k = car.model.size || 1; // the bike is drawn larger than its model; he is not
-      reach(bone[s2 + 'UpLeg'], bone[s2 + 'Leg'], bone[s2 + 'Foot'], body.localToWorld(new THREE.Vector3(out * PEG[0] * k, PEG[1] * k + 0.08, PEG[2] * k)), toW(out * 0.35, 0.25, 1));
+      const pg = car.model.pegs || PEG;
+      reach(bone[s2 + 'UpLeg'], bone[s2 + 'Leg'], bone[s2 + 'Foot'], body.localToWorld(new THREE.Vector3(out * pg[0] * k, pg[1] * k + 0.08, pg[2] * k)), toW(out * 0.35, 0.25, 1));
       aim(bone[s2 + 'Foot'], bone[s2 + 'ToeBase'], toW(out * 0.15, -0.3, 1));
     }
 

@@ -1,23 +1,20 @@
 // Prepare the cafe racer and its rider's helmet for the game: node tools/cars/bike.mjs
 // Needs the same packages as process.mjs (not saved to package.json).
 //
-// The bike ("moto guzzi v-twin" by Yakpower, CC BY 4.0) comes facing +x with its parts grouped
-// by material, not by part: both tyres share one, the fork, bars and spokes sit in the chrome
-// and engine ones. So it is cut up by shape:
+// The bike ("Cafe Racer" by Andrei Milin, CC BY 4.0) comes facing +x, all in one material, so it
+// is cut up by shape:
 // - turned to face +z with the tyres on y = 0 and the origin halfway between the axles;
 // - each wheel is every piece (a run of triangles joined at their corners) lying wholly inside
 //   a cylinder round its axle: tyre, rim, spokes, hub and disc;
-// - its paint, tyres and seat are given materials that sit in the game's daylight (see below);
-// - the steering is every piece lying wholly within a slab round the steering axis (found from
-//   the fork tubes): fork, clamps, clip-on bars, levers and the front mudguard. The fairing, its
-//   headlamp and screen stay on the frame, as on the real bike. It is saved as "steer", placed on
-//   the axis with its +z along it, so the game turns it about z (and hangs the front wheel on it);
-// - the maker's names and badges are painted out of the textures (filled in from the paint
-//   round them), and the tyre maker's lettering from the sidewalls.
+// - the steering is every piece lying wholly within a slab round the steering axis: fork, clamps,
+//   bars, levers, headlamp and indicators. It is saved as "steer", placed on the axis with its +z
+//   along it, so the game turns it about z (and hangs the front wheel on it); the grips (the ends
+//   of the bars) are kept on it for the rider's hands;
+// - the headlamp's lens becomes a lamp of its own, so it shines at night.
 // The helmet ("moto helmet" by sayedgamal655, CC BY 4.0), an open-face leather helmet with
 // goggles, loses its two side badges and most of its triangles, and is centred on the shell.
 import { NodeIO } from '@gltf-transform/core';
-import { ALL_EXTENSIONS, KHRMaterialsClearcoat } from '@gltf-transform/extensions';
+import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
 import { prune, dedup, textureCompress, meshopt, dequantize, transformPrimitive, weld, compactPrimitive, simplify } from '@gltf-transform/functions';
 import { MeshoptEncoder, MeshoptDecoder, MeshoptSimplifier } from 'meshoptimizer';
 import sharp from 'sharp';
@@ -99,98 +96,55 @@ function fill(data, W, H, C, [x0, y0, x1, y1], masked) {
     }
   }
 }
-// Marks, by material, as boxes in that material's base-colour texture (pixels at its own size);
-// "paint": only the pixels that are not the red paint (the tank's eagle and lettering), else the
-// whole box (name plates, embossed caps, the brake maker's name).
-const MARKS = {
-  tanknewlivery: [[700, 505, 805, 698, 'paint'], [930, 505, 1020, 675, 'paint'], [455, 957, 519, 993, 'paint']],
-  seat_fender_mat: [[1088, 876, 1280, 916], [1094, 940, 1286, 981], [1304, 908, 1409, 945], [1700, 1776, 1895, 1830]],
-  mat_cockpit: [[1690, 235, 1955, 322]],
-  engine_mat: [[545, 1395, 700, 1428], [612, 1874, 756, 1912], [878, 1000, 948, 1070]],
-};
-async function paintOut(doc) {
-  const done = new Set();
-  for (const m of doc.getRoot().listMaterials()) {
-    const marks = MARKS[m.getName()]; if (!marks) continue;
-    const base = m.getBaseColorTexture(), baseW = base.getSize()[0];
-    for (const [slot, t] of [['base', base], ['mr', m.getMetallicRoughnessTexture()], ['nrm', m.getNormalTexture()]]) {
-      if (!t || done.has(t)) continue; done.add(t);
-      const { data, info } = await sharp(t.getImage()).raw().toBuffer({ resolveWithObject: true });
-      const f = new Float32Array(data), s = info.width / baseW, C = info.channels, W = info.width;
-      for (const [a, b, c, d, mode] of marks) {
-        const box = [a, b, c, d].map((v) => Math.round(v * s));
-        // The red paint: strong red, little green or blue (read from the base colour).
-        const red = (x, y) => { const i = (y * W + x) * C; return f[i] > 110 && f[i + 1] < 0.45 * f[i] && f[i + 2] < 0.45 * f[i]; };
-        let masked = () => true;
-        if (mode === 'paint') {
-          if (slot === 'base') masked = (x, y) => !red(x, y);
-          else { const bm = m.__paintMask; masked = (x, y) => bm?.has(`${Math.floor(x / s)},${Math.floor(y / s)}`) ?? true; }
-        }
-        if (mode === 'paint' && slot === 'base') { const set = m.__paintMask || (m.__paintMask = new Set()); for (let y = box[1]; y < box[3]; y++) for (let x = box[0]; x < box[2]; x++) if (!red(x, y)) set.add(`${x},${y}`); }
-        fill(f, W, info.height, C, box, masked);
-      }
-      const outB = Buffer.from(f.map((v) => Math.max(0, Math.min(255, Math.round(v)))));
-      t.setImage(await sharp(outB, { raw: info }).png().toBuffer()).setMimeType('image/png');
-    }
-    console.log('  painted out', marks.length, 'marks on', m.getName());
-  }
-  // The tyre maker's name, the model and the size, in a ring on the sidewall: the ring is
-  // redrawn from a clean stretch of itself (the rubber's grain runs the same way all round).
-  const tyre = doc.getRoot().listMaterials().find((m) => m.getName() === 'mat_backtyre001');
-  for (const t of [tyre.getBaseColorTexture(), tyre.getNormalTexture(), tyre.getMetallicRoughnessTexture()]) {
-    if (!t) continue;
-    const { data, info } = await sharp(t.getImage()).raw().toBuffer({ resolveWithObject: true });
-    const W = info.width, H = info.height, C = info.channels, k = W / 512, cx = W / 2, cy = H / 2, src = Buffer.from(data);
-    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-      const r = Math.hypot(x - cx, y - cy) / k; if (r < 188 || r > 256) continue;
-      const th = Math.atan2(y - cy, x - cx) * 180 / Math.PI;
-      if (th > 126 && th < 154) continue; // the clean stretch, lower left
-      const ts = (140 + 12 * Math.sin(th * 0.21 + r * 0.07)) * Math.PI / 180;
-      const sx = Math.round(cx + Math.cos(ts) * r * k), sy = Math.round(cy + Math.sin(ts) * r * k);
-      for (let c = 0; c < C; c++) data[(y * W + x) * C + c] = src[(sy * W + sx) * C + c];
-    }
-    t.setImage(await sharp(data, { raw: info }).png().toBuffer()).setMimeType('image/png');
-  }
-  console.log('  tyre sidewalls cleared');
-}
-
 // ================= The bike =================
+// "Cafe Racer" by Andrei Milin (milinam2002), CC BY 4.0: a yellow-tanked cafe racer with a brown
+// bench seat, flat bars and fat tyres, all in one material, at its true size (2.2 m long).
 {
-  const doc = await io.read('downloads/guzzi/moto_guzzi_v-twin.glb');
+  const doc = await io.read('downloads/caferacer/cafe_racer.glb');
   await doc.transform(dequantize());
   const root = doc.getRoot();
   const parts = bake(doc);
-  // The side stand is modelled down, on the ground: its leg comes off (the bracket stays), so the
-  // bike is ridden with it up.
+  // Every piece's bounds, to find the tyres: the two pieces that stand on the ground.
+  const tyres = [];
   for (const part of parts) {
-    const s = take(doc, part, (v) => v[0] > -0.38 && v[0] < -0.23 && v[1] > -0.04 && v[1] < 0.185 && v[2] > -0.28 && v[2] < -0.11);
-    if (s) console.log('  side stand off:', s.prim.getIndices().getCount() / 3, 'triangles');
-  }
-  // Axles from the tyres (one primitive holding both), the ground under them.
-  const tyreV = verts(parts.filter((p) => p.mat === 'mat_backtyre001').map((p) => p.prim));
-  const fb = bounds(tyreV.filter((v) => v[0] > 0)), rb = bounds(tyreV.filter((v) => v[0] < 0));
-  const axF = [(fb.mn[0] + fb.mx[0]) / 2, (fb.mn[1] + fb.mx[1]) / 2], axR = [(rb.mn[0] + rb.mx[0]) / 2, (rb.mn[1] + rb.mx[1]) / 2];
-  const tyreR = ((fb.mx[1] - fb.mn[1]) + (rb.mx[1] - rb.mn[1])) / 4;
-  const groundY = Math.min(fb.mn[1], rb.mn[1]), midX = (axF[0] + axR[0]) / 2;
-  // The steering axis, from the two fork tubes: their joint centre line (in the side view).
-  const tubes = [];
-  for (const part of parts) {
-    if (part.mat !== 'engine_mat') continue;
     const p = part.prim, pos = p.getAttribute('POSITION'), piece = piecesOf(p), B = new Map(), v = [0, 0, 0];
     for (let i = 0; i < pos.getCount(); i++) { pos.getElement(i, v); const r = piece(i); if (!B.has(r)) B.set(r, []); B.get(r).push(v.slice()); }
-    for (const pts of B.values()) { const b = bounds(pts); if (b.mn[0] > 0.28 && b.mx[0] < 0.74 && b.mn[1] > 0.24 && b.mx[1] < 0.88 && Math.abs((b.mn[2] + b.mx[2]) / 2) > 0.03 && Math.abs((b.mn[2] + b.mx[2]) / 2) < 0.12 && Math.hypot(b.mx[0] - b.mn[0], b.mx[1] - b.mn[1]) > 0.5) tubes.push(...pts); }
+    for (const pts of B.values()) { const b = bounds(pts); if (b.mn[1] < 0.02 && b.mx[1] - b.mn[1] > 0.5) tyres.push(b); }
   }
-  const c2 = [0, 1].map((k) => tubes.reduce((s, v) => s + v[k], 0) / tubes.length);
-  let sxx = 0, sxy = 0, syy = 0; for (const v of tubes) { const a = v[0] - c2[0], b = v[1] - c2[1]; sxx += a * a; sxy += a * b; syy += b * b; }
-  const ang = 0.5 * Math.atan2(2 * sxy, sxx - syy); let dir = [Math.cos(ang), Math.sin(ang)]; if (dir[1] < 0) dir = dir.map((x) => -x);
-  console.log('  axles', axF.map((v) => +v.toFixed(3)), axR.map((v) => +v.toFixed(3)), 'tyre r', tyreR.toFixed(3), 'fork tubes', tubes.length, 'pts, rake', (Math.atan2(-dir[0], dir[1]) * 180 / Math.PI).toFixed(1), 'deg');
-
-  // Into the game's frame: x' = -z, y' = y - ground, z' = x - midX (front is +z).
-  const M = [0, 0, 1, 0, 0, 1, 0, 0, -1, 0, 0, 0, 0, -groundY, -midX, 1];
+  if (tyres.length !== 2) throw new Error('expected two tyres, found ' + tyres.length);
+  tyres.sort((a, b) => b.mx[0] - a.mx[0]);
+  const ctr = (b) => b.mn.map((v, i) => (v + b.mx[i]) / 2);
+  const [cF, cR] = tyres.map(ctr), tyreR = tyres.reduce((s, b) => s + (b.mx[1] - b.mn[1]) / 4, 0);
+  const groundY = Math.min(...tyres.map((b) => b.mn[1])), midX = (cF[0] + cR[0]) / 2, midZ = (cF[2] + cR[2]) / 2;
+  // The steering axis: through the middles of the lower and upper fork clamps (a 22 degree rake,
+  // the front axle 5 cm ahead of it, as on a real fork).
+  const A = [0.82, 0.805], Bp = [0.735, 1.015], dl = Math.hypot(Bp[0] - A[0], Bp[1] - A[1]), dir = [(Bp[0] - A[0]) / dl, (Bp[1] - A[1]) / dl];
+  console.log('  axles', [cF, cR].map((c) => c.map((v) => +v.toFixed(3))), 'tyre r', tyreR.toFixed(3), 'rake', (Math.atan2(-dir[0], dir[1]) * 180 / Math.PI).toFixed(1));
+  // Into the game's frame: x' = -(z - midZ), y' = y - ground, z' = x - midX (front is +z).
+  const M = [0, 0, 1, 0, 0, 1, 0, 0, -1, 0, 0, 0, midZ, -groundY, -midX, 1];
   for (const p of parts) transformPrimitive(p.prim, M);
-  const G = (x, y) => [x - midX, y - groundY]; // a side-view point into the game's (z, y)
-  const [fz, fy] = G(...axF), [rz, ry] = G(...axR), [az, ay] = G(...c2), ad = [dir[0], dir[1]]; // axis point and direction (z, y)
-
+  const G = (x, y) => [x - midX, y - groundY]; // a side-view point (x, y) into the game's (z, y)
+  const [fz, fy] = G(cF[0], cF[1]), [rz, ry] = G(cR[0], cR[1]), [az, ay] = G(...A), ad = [dir[0], dir[1]];
+  // The headlamp's lens: the forward-facing triangles across the front of the lamp, made a lamp of
+  // its own so it shines at night.
+  const lamp = doc.createMaterial('lamp').setBaseColorFactor([1, 0.97, 0.9, 1]);
+  for (const part of [...parts]) {
+    const p = part.prim, pos = p.getAttribute('POSITION'), arr = p.getIndices().getArray(), a = [0, 0, 0], b = [0, 0, 0], c = [0, 0, 0], keep = [], moved = [];
+    const [lz0, ly0] = G(0.94, 0.9), [lz1, ly1] = G(1.0, 1.08), lx0 = -(-0.21 - midZ), lx1 = -(-0.02 - midZ);
+    for (let t = 0; t < arr.length; t += 3) {
+      pos.getElement(arr[t], a); pos.getElement(arr[t + 1], b); pos.getElement(arr[t + 2], c);
+      const m = [0, 1, 2].map((k) => (a[k] + b[k] + c[k]) / 3);
+      const nz = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]), len = Math.hypot((b[1] - a[1]) * (c[2] - a[2]) - (b[2] - a[2]) * (c[1] - a[1]), (b[2] - a[2]) * (c[0] - a[0]) - (b[0] - a[0]) * (c[2] - a[2]), nz) || 1;
+      const front = m[2] > lz0 && m[2] < lz1 && m[1] > ly0 && m[1] < ly1 && m[0] > Math.min(lx0, lx1) && m[0] < Math.max(lx0, lx1) && Math.abs(nz / len) > 0.6;
+      (front ? moved : keep).push(arr[t], arr[t + 1], arr[t + 2]);
+    }
+    if (!moved.length) continue;
+    const q = p.clone(); for (const s of q.listSemantics()) q.setAttribute(s, p.getAttribute(s).clone());
+    q.setIndices(doc.createAccessor().setType('SCALAR').setArray(new Uint32Array(moved)).setBuffer(p.getIndices().getBuffer())).setMaterial(lamp);
+    p.setIndices(doc.createAccessor().setType('SCALAR').setArray(new Uint32Array(keep)).setBuffer(p.getIndices().getBuffer()));
+    compactPrimitive(p); compactPrimitive(q); parts.push({ prim: q, names: part.names, mat: 'lamp' });
+    console.log('  headlamp lens', moved.length / 3, 'triangles');
+  }
   // Wheels.
   const wheel = { F: [], R: [] };
   for (const [k, cz, cy] of [['F', fz, fy], ['R', rz, ry]]) for (const part of [...parts]) {
@@ -198,27 +152,31 @@ async function paintOut(doc) {
     const w = take(doc, part, (v) => Math.abs(v[0]) < 0.11 && Math.hypot(v[1] - cy, v[2] - cz) < tyreR * 1.04);
     if (w) { w.wheel = k; parts.push(w); wheel[k].push(w.prim); }
   }
-  // Steering: within 21 cm of the axis, ahead of the tank, but never the fairing, its lamp or screen.
-  const near = (v) => { const dz = v[2] - az, dy = v[1] - ay; return Math.abs(dz * ad[1] - dy * ad[0]) < 0.21 && v[2] > G(0.2, 0)[0] && v[1] > 0.12; };
+  // Steering: within 25 cm of the axis (fork, clamps, bars, levers, headlamp and indicators), ahead
+  // of the tank.
+  const near = (v) => { const dz = v[2] - az, dy = v[1] - ay; return Math.abs(dz * ad[1] - dy * ad[0]) < 0.25 && v[2] > G(0.5, 0)[0] && v[1] > 0.15; };
   const steerParts = [];
   for (const part of [...parts]) {
-    if (part.wheel || part.steer || /tanknewlivery|headlight_glass|light_mat/.test(part.mat) || /headlight_5|glass_mesh/.test(part.names)) continue;
+    if (part.wheel || part.steer) continue;
     const s = take(doc, part, near);
     if (s) { s.steer = true; parts.push(s); steerParts.push(s.prim); }
   }
-  for (const m of root.listMaterials()) if (m.getName() === 'light_mat_exp') m.setName('lamp');
-  await paintOut(doc);
-  // Materials for the game's daylight. As made, the tank's paint is very glossy, so under the open
-  // sky it mirrors the bright sky in white over the red and reads washed-out pink; it becomes a
-  // metallic red (its reflections tinted red, as metallic paint's are) under a thin clear coat. The tyres are glossy (a studio look): matte rubber. The seat
-  // and mudguards, nearly half metal in their map, are mostly leather and paint.
-  const clearcoat = doc.createExtension(KHRMaterialsClearcoat);
-  for (const m of root.listMaterials()) {
-    const n = m.getName();
-    if (n === 'tanknewlivery') m.setBaseColorFactor([0.75, 0.75, 0.75, 1]).setMetallicRoughnessTexture(null).setMetallicFactor(0.6).setRoughnessFactor(0.4)
-      .setExtension('KHR_materials_clearcoat', clearcoat.createClearcoat().setClearcoatFactor(0.3).setClearcoatRoughnessFactor(0.06));
-    if (n === 'mat_backtyre001') m.setMetallicRoughnessTexture(null).setMetallicFactor(0).setRoughnessFactor(0.88);
-    if (n === 'seat_fender_mat') m.setMetallicFactor(0.25);
+  // The grips, for the rider's hands. They are the outer ends of the handlebar itself (the widest
+  // piece in the steering, spanning the bike): on each side, its last 13 cm, as a middle and a line
+  // pointing outward. (The flat levers in front of them run across the bike too, but are not the
+  // bar.) Left is +x.
+  let bar = null;
+  for (const p of steerParts) {
+    const pos = p.getAttribute('POSITION'), piece = piecesOf(p), B = new Map(), v = [0, 0, 0];
+    for (let i = 0; i < pos.getCount(); i++) { pos.getElement(i, v); const r = piece(i); if (!B.has(r)) B.set(r, []); B.get(r).push(v.slice()); }
+    for (const pts of B.values()) { const b = bounds(pts); if (!bar || b.mx[0] - b.mn[0] > bar.w) bar = { w: b.mx[0] - b.mn[0], pts, b }; }
+  }
+  const grips = {};
+  for (const [side, sg] of [['Left', 1], ['Right', -1]]) {
+    const end = sg > 0 ? bar.b.mx[0] : bar.b.mn[0], pts = bar.pts.filter((v) => (v[0] - end) * -sg < 0.13);
+    const b = bounds(pts);
+    grips[side] = { c: b.mn.map((v, k) => (v + b.mx[k]) / 2), axis: [sg, 0, 0] };
+    console.log('  grip', side, grips[side].c.map((v) => +v.toFixed(3)), 'bar', bar.w.toFixed(3), 'across, thickness', (b.mx[1] - b.mn[1]).toFixed(3));
   }
 
   const scene = root.listScenes()[0];
@@ -226,9 +184,9 @@ async function paintOut(doc) {
   const body = doc.createMesh('body');
   for (const p of parts) if (!p.wheel && !p.steer && p.prim.getIndices().getCount()) body.addPrimitive(p.prim);
   scene.addChild(doc.createNode('body').setMesh(body));
-  // The steering: on the axis, level with the top of the fork, its +z up the axis.
-  const piv = [0, ay + ad[1] * 0.25, az + ad[0] * 0.25];
-  const n = [0, ad[1], ad[0]]; // the axis in the game's frame (x, y, z)
+  // The steering: on the axis, level with the top clamp, its +z up the axis.
+  const piv = [0, ...G(...Bp).reverse()];
+  const n = [0, ad[1], ad[0]];
   const ax = [-n[1], n[0], 0], sn = Math.hypot(...ax), cs = n[2], a2 = Math.atan2(sn, cs), u = sn > 1e-6 ? ax.map((x) => x / sn) : [1, 0, 0];
   const q = [...u.map((x) => x * Math.sin(a2 / 2)), Math.cos(a2 / 2)];
   const [x, y, z, w] = q, R = [[1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)], [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)], [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)]];
@@ -236,7 +194,8 @@ async function paintOut(doc) {
   const Mx = [R[0][0], R[0][1], R[0][2], 0, R[1][0], R[1][1], R[1][2], 0, R[2][0], R[2][1], R[2][2], 0, t[0], t[1], t[2], 1];
   const sm = doc.createMesh('steer');
   for (const p of steerParts) { transformPrimitive(p, Mx); sm.addPrimitive(p); }
-  scene.addChild(doc.createNode('steer').setMesh(sm).setTranslation(piv).setRotation(q).setExtras({ pivot: piv, axis: n }));
+  // Grips are kept in the bike's frame (with the bars straight), with the pivot.
+  scene.addChild(doc.createNode('steer').setMesh(sm).setTranslation(piv).setRotation(q).setExtras({ pivot: piv, axis: n, grips }));
   for (const [k, ps] of Object.entries(wheel)) {
     const b = bounds(verts(ps)), c = [0, (b.mn[1] + b.mx[1]) / 2, (b.mn[2] + b.mx[2]) / 2];
     const mesh = doc.createMesh('wheel_' + k);
@@ -245,7 +204,7 @@ async function paintOut(doc) {
     console.log('  wheel_' + k, c.map((v) => +v.toFixed(3)), 'r', ((b.mx[1] - b.mn[1]) / 2).toFixed(3), ps.length, 'parts');
   }
   console.log('  steer', piv.map((v) => +v.toFixed(3)), 'axis', n.map((v) => +v.toFixed(3)), steerParts.length, 'parts');
-  await doc.transform(prune(), dedup(), weld(), textureCompress({ encoder: sharp, targetFormat: 'webp', resize: [1024, 1024], quality: 84 }), meshopt({ encoder: MeshoptEncoder, level: 'medium' }));
+  await doc.transform(prune(), dedup(), weld(), textureCompress({ encoder: sharp, targetFormat: 'webp', resize: [2048, 2048], quality: 84 }), meshopt({ encoder: MeshoptEncoder, level: 'medium' }));
   await io.write('public/models/car_bike.glb', doc);
   console.log('bike bytes', fs.statSync('public/models/car_bike.glb').size);
 }

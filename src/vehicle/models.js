@@ -692,12 +692,15 @@ const GLB = {
   // Its cab is mirrored to left-hand drive (tools/cars); the seat is behind the wheel, looking down a little to show it.
   camper: { scale: 1.4, camDist: 8.8, camHeight: 3.7, eye: 3.2, cockpit: [0.28, 1.46, 1.18], pitch: -0.14, hood: [0, 1.95, 1.05],
     mirrors: [{ min: [0.74, 1.19, 1.63], max: [0.9, 1.34, 1.7] }, { min: [-0.07, 1.48, 1.52], max: [0.07, 1.57, 1.56], centre: true }] },
-  // The cafe racer ("moto guzzi v-twin" by Yakpower, CC BY 4.0). Two wheels and its steering (fork
-  // and bars) as "steer", turning about the steering axis (tools/cars/bike.mjs). At its true size
-  // it looked a toy under its rider: it is drawn 1.2 times larger (he is not), with the tyres wider
-  // than the model's slim 10 cm (tyres: front and rear, as a share of their width).
-  // cockpit: the rider's eyes, crouched over the tank; headlight and exhaust: where they are.
-  bike: { bike: true, scale: 1.2, tyres: [1.3, 1.55], camDist: 5.3, camHeight: 1.95, camFollow: 8, eye: 1.5, cockpit: [0, 1.36, -0.16], pitch: -0.2, hood: [0, 1.0, 0.85], headlight: [0, 0.88, 0.66], exhaust: [0.2, 0.3, -0.62] },
+  // The cafe racer ("Cafe Racer" by Andrei Milin, CC BY 4.0): yellow tank, brown bench seat, flat
+  // bars, fat tyres. Two wheels and its steering (fork, bars, headlamp) as "steer", turning about the
+  // steering axis, with the grips kept on it (tools/cars/bike.mjs). Drawn a little larger than true
+  // (scale) so it sits right under its rider (he is not scaled).
+  // The rider: seatZ, where he sits along the bench; pegs, his foot pegs (out either side, height,
+  // along the bike); lean, the forward lean he would choose (flat bars: fairly upright).
+  // cockpit: his eyes; headlight and exhaust: where they are. All in the file's units.
+  bike: { bike: true, scale: 1.1, camDist: 5.4, camHeight: 2.0, camFollow: 8, eye: 1.7, cockpit: [0, 1.62, -0.24], pitch: -0.16, hood: [0, 1.15, 0.9], headlight: [0, 1.0, 0.68], exhaust: [0.12, 0.24, -0.4],
+    seatZ: -0.2, pegs: [0.21, 0.31, -0.16], lean: 0.32 },
 };
 const loaded = {};
 // Plain float attributes: the files are packed (quantised), and merging and baking expect floats.
@@ -762,7 +765,12 @@ function cutMirrors(root, C) {
 // its shape (each mesh has its own copy of its geometry by now).
 function scaleScene(root, S = 1) {
   if (S === 1) return;
-  root.traverse((o) => { if (o !== root) o.position.multiplyScalar(S); if (o.isMesh) o.geometry.scale(S, S, S); if (o.userData.pivot) o.userData.pivot = o.userData.pivot.map((v) => v * S); });
+  root.traverse((o) => {
+    if (o !== root) o.position.multiplyScalar(S);
+    if (o.isMesh) o.geometry.scale(S, S, S);
+    if (o.userData.pivot) o.userData.pivot = o.userData.pivot.map((v) => v * S);
+    if (o.userData.grips) for (const g of Object.values(o.userData.grips)) g.c = g.c.map((v) => v * S);
+  });
   root.updateMatrixWorld(true);
 }
 // Load every car; onLoad(kind) runs as each arrives, so the one in use can be rebuilt.
@@ -803,6 +811,7 @@ function buildFromFile(kind) {
       // file moved the node's own origin off it); the part keeps its place on the car.
       const mount = new THREE.Group(); mount.position.fromArray(part.userData.pivot || part.position.toArray()); mount.quaternion.copy(part.quaternion);
       steer = new THREE.Group(); steer.userData.dynamic = true;
+      if (part.userData.grips) steer.userData.grips = part.userData.grips; // a bike's grips, in its own frame
       copy.position.copy(part.position).sub(mount.position).applyQuaternion(mount.quaternion.clone().invert()); copy.quaternion.identity();
       steer.add(copy); mount.add(steer); g.add(mount);
       continue;
@@ -838,7 +847,7 @@ function buildFromFile(kind) {
   return {
     group: g, wheels, lightMat, tailMat, R, glb: true, steer, seat: C.seat, size: C.scale || 1, mirrors: !!C.mirrors, cockpit: C.cockpit?.map((v) => v * (C.scale || 1)), cockpitPitch: C.pitch, hood: C.hood?.map((v) => v * (C.scale || 1)), cabinShift: C.cabinShift || 0,
     headlight: C.headlight?.map((v) => v * (C.scale || 1)) || [0, (box.max.y - box.min.y) * 0.42, box.max.z - 0.15], exhaust: C.exhaust?.map((v) => v * (C.scale || 1)) || [0.42, 0.32, box.min.z + 0.05],
-    camDist: C.camDist, camHeight: C.camHeight, camFollow: C.camFollow, eye: C.eye, bike: !!C.bike, turn: C.bike ? 1 : undefined,
+    camDist: C.camDist, camHeight: C.camHeight, camFollow: C.camFollow, eye: C.eye, bike: !!C.bike, turn: C.bike ? 1 : undefined, seatZ: C.seatZ, pegs: C.pegs, lean: C.lean,
   };
 }
 
@@ -873,7 +882,7 @@ function buildBike() {
   }
   g.updateMatrixWorld(true); steer.attach(wheels[0].pivot);
   return { group: g, wheels, lightMat, tailMat, R, steer, size: 1, cockpit: C.cockpit, cockpitPitch: C.pitch, hood: C.hood, cabinShift: 0,
-    headlight: C.headlight, exhaust: C.exhaust, camDist: C.camDist, camHeight: C.camHeight, camFollow: C.camFollow, eye: C.eye, bike: true, turn: 1 };
+    headlight: C.headlight, exhaust: C.exhaust, camDist: C.camDist, camHeight: C.camHeight, camFollow: C.camFollow, eye: C.eye, bike: true, turn: 1, seatZ: C.seatZ, pegs: C.pegs, lean: C.lean };
 }
 
 export function buildVehicleModel(kind) {
