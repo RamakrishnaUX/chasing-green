@@ -7,6 +7,7 @@
 // - turned to face +z with the tyres on y = 0 and the origin halfway between the axles;
 // - each wheel is every piece (a run of triangles joined at their corners) lying wholly inside
 //   a cylinder round its axle: tyre, rim, spokes, hub and disc;
+// - its paint, tyres and seat are given materials that sit in the game's daylight (see below);
 // - the steering is every piece lying wholly within a slab round the steering axis (found from
 //   the fork tubes): fork, clamps, clip-on bars, levers and the front mudguard. The fairing, its
 //   headlamp and screen stay on the frame, as on the real bike. It is saved as "steer", placed on
@@ -16,7 +17,7 @@
 // The helmet ("moto helmet" by sayedgamal655, CC BY 4.0), an open-face leather helmet with
 // goggles, loses its two side badges and most of its triangles, and is centred on the shell.
 import { NodeIO } from '@gltf-transform/core';
-import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
+import { ALL_EXTENSIONS, KHRMaterialsClearcoat } from '@gltf-transform/extensions';
 import { prune, dedup, textureCompress, meshopt, dequantize, transformPrimitive, weld, compactPrimitive, simplify } from '@gltf-transform/functions';
 import { MeshoptEncoder, MeshoptDecoder, MeshoptSimplifier } from 'meshoptimizer';
 import sharp from 'sharp';
@@ -207,6 +208,18 @@ async function paintOut(doc) {
   }
   for (const m of root.listMaterials()) if (m.getName() === 'light_mat_exp') m.setName('lamp');
   await paintOut(doc);
+  // Materials for the game's daylight. As made, the tank's paint is very glossy, so under the open
+  // sky it mirrors the bright sky in white over the red and reads washed-out pink; it becomes a
+  // metallic red (its reflections tinted red, as metallic paint's are) under a thin clear coat. The tyres are glossy (a studio look): matte rubber. The seat
+  // and mudguards, nearly half metal in their map, are mostly leather and paint.
+  const clearcoat = doc.createExtension(KHRMaterialsClearcoat);
+  for (const m of root.listMaterials()) {
+    const n = m.getName();
+    if (n === 'tanknewlivery') m.setBaseColorFactor([0.75, 0.75, 0.75, 1]).setMetallicRoughnessTexture(null).setMetallicFactor(0.6).setRoughnessFactor(0.4)
+      .setExtension('KHR_materials_clearcoat', clearcoat.createClearcoat().setClearcoatFactor(0.3).setClearcoatRoughnessFactor(0.06));
+    if (n === 'mat_backtyre001') m.setMetallicRoughnessTexture(null).setMetallicFactor(0).setRoughnessFactor(0.88);
+    if (n === 'seat_fender_mat') m.setMetallicFactor(0.25);
+  }
 
   const scene = root.listScenes()[0];
   for (const n of scene.listChildren()) scene.removeChild(n);

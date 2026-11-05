@@ -39,7 +39,7 @@ const poseCost = ([l, f]) => Math.abs(l - 0.2) + f * 2 + Math.max(0, -l) * 3;
 const RIDES = [];
 for (let l = 0.2; l < 1.31; l += 0.05) for (let f = -0.12; f < 0.13; f += 0.04) RIDES.push([l, f]);
 const rideCost = ([l, f]) => Math.abs(l - 0.7) + Math.abs(f) * 2;
-const PEG = [0.2, 0.34, -0.2]; // the foot pegs (x either side, height, along the bike)
+const PEG = [0.2, 0.34, -0.2]; // the foot pegs (x either side, height, along the bike), at the model's own size
 
 const V = () => new THREE.Vector3();
 const X = new THREE.Vector3(1, 0, 0);
@@ -397,7 +397,8 @@ export class Driver {
     // Legs: knees bent forward along the tank, feet on the pegs.
     for (const s2 of ['Left', 'Right']) {
       const out = s2 === 'Left' ? 1 : -1;
-      reach(bone[s2 + 'UpLeg'], bone[s2 + 'Leg'], bone[s2 + 'Foot'], body.localToWorld(new THREE.Vector3(out * PEG[0], PEG[1] + 0.08, PEG[2])), toW(out * 0.35, 0.25, 1));
+      const k = car.model.size || 1; // the bike is drawn larger than its model; he is not
+      reach(bone[s2 + 'UpLeg'], bone[s2 + 'Leg'], bone[s2 + 'Foot'], body.localToWorld(new THREE.Vector3(out * PEG[0] * k, PEG[1] * k + 0.08, PEG[2] * k)), toW(out * 0.35, 0.25, 1));
       aim(bone[s2 + 'Foot'], bone[s2 + 'ToeBase'], toW(out * 0.15, -0.3, 1));
     }
 

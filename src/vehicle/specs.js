@@ -54,7 +54,7 @@ export const VEHICLES = {
     offroad: { paved: 1, gravel: 0.74, moss: 0.52, sand: 0.42, snow: 0.38, ford: 0.4 },
     wade: 0.45, waterDrag: 1.3,
     nitro: { speed: 1.4, accel: 2.0 },
-    radius: 0.55, halfLength: 0.95,
+    radius: 0.66, halfLength: 1.14,
     engine: { base: 38, perSpeed: 2.3, type: 'sawtooth', rumble: 1.0 },
   },
   race: {
