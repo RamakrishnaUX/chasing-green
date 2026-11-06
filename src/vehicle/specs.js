@@ -14,7 +14,7 @@ export const VEHICLES = {
     boat: { maxSpeed: 17, accel: 7 },
     nitro: { speed: 1.45, accel: 2.0 },
     radius: 1.19, halfLength: 1.13,
-    engine: { base: 34, perSpeed: 1.7, type: 'sawtooth', rumble: 0.9 },
+    engine: { voice: 'v8' }, // a big cross-plane V8 (audio/engines.js)
   },
   vintage: {
     name: 'Vintage roadster',
@@ -27,7 +27,7 @@ export const VEHICLES = {
     boat: { maxSpeed: 13, accel: 5 },
     nitro: { speed: 1.4, accel: 1.8 },
     radius: 1.0, halfLength: 2.1,
-    engine: { base: 26, perSpeed: 1.3, type: 'square', rumble: 1.2 },
+    engine: { voice: 'six' }, // an old straight six
   },
   camper: {
     name: 'Camper van',
@@ -40,7 +40,7 @@ export const VEHICLES = {
     boat: { maxSpeed: 13, accel: 5 },
     nitro: { speed: 1.4, accel: 1.8 },
     radius: 1.36, halfLength: 2.3,
-    engine: { base: 30, perSpeed: 1.4, type: 'square', rumble: 1.1 },
+    engine: { voice: 'flat4' }, // an air-cooled flat four, as in the old VW bus
   },
   // Two wheels: it leans into its turns, its bars turn with the steering, and it cannot float
   // (it stops at water deeper than it can ford).
@@ -55,7 +55,7 @@ export const VEHICLES = {
     wade: 0.45, waterDrag: 1.3,
     nitro: { speed: 1.4, accel: 2.0 },
     radius: 0.62, halfLength: 1.2,
-    engine: { base: 38, perSpeed: 2.3, type: 'sawtooth', rumble: 1.0, twin: true }, // a 270-degree parallel twin (audio.js)
+    engine: { voice: 'twin' }, // a 270-degree parallel twin, as in a Triumph Scrambler
   },
   race: {
     name: 'Supercar',
@@ -68,7 +68,7 @@ export const VEHICLES = {
     boat: { maxSpeed: 21, accel: 9 },
     nitro: { speed: 1.5, accel: 2.2 },
     radius: 1.05, halfLength: 1.75,
-    engine: { base: 60, perSpeed: 2.6, type: 'sawtooth', rumble: 0.5 },
+    engine: { voice: 'race' }, // a flat-plane V8
   },
 };
 export const VEHICLE_ORDER = ['jeep', 'vintage', 'camper', 'race', 'bike'];

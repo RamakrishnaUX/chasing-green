@@ -1052,13 +1052,13 @@ function showReverseTip() {
 }
 // Nitro lives on Go: slide the finger up from Go to boost, back down to ease off. The ring
 // around Go shows how much is left.
-let nitroHinted = false;
+let nitroHinted = false, onBike = null;
 function nitroHint() {
   if (mode !== 'chase' && mode !== 'lookup') return; // on foot the slide jumps; in the air it does nothing
   haptics.play('heavy', 0);
-  if (nitroHinted) return;
-  nitroHinted = true;
-  hud.toast('Nitro! Slide back down to ease off.', { seconds: 2, priority: 2 });
+  if (nitroHinted === (jeep?.spec.bike ? 'bike' : 'car')) return;
+  nitroHinted = jeep?.spec.bike ? 'bike' : 'car';
+  hud.toast(jeep?.spec.bike ? 'Wheelie! Slide back down to bring the front down.' : 'Nitro! Slide back down to ease off.', { seconds: 2, priority: 2 });
 }
 $('t-look').addEventListener('click', toggleLookUp);
 $('sky-hint').addEventListener('click', () => { haptics.play('medium', 0); toggleLookUp(); });
@@ -1077,7 +1077,7 @@ document.querySelectorAll('.month-select').forEach((sel) => {
 forecast.monthFactor = clock.m.aurora;
 renderMonthCards();
 $('intro-challenge').innerHTML = `Today’s challenge: <strong>${challenge.title}</strong>`;
-if (isTouch) document.querySelector('.keys-hint').textContent = 'Steer with the arrows and press Go to drive. Brake slows you down; keep holding it to reverse. The camera button switches between chase, hood and cockpit views. Slide up from Go for a nitro boost. When the tank runs low, pull in under a fuel station’s roof and tap Refuel. Tap Look when the radio says the aurora is out. Drag to look around.';
+if (isTouch) document.querySelector('.keys-hint').textContent = 'Steer with the arrows and press Go to drive. Brake slows you down; keep holding it to reverse. The camera button switches between chase, hood and cockpit views. Slide up from Go for a nitro boost, or a wheelie on the bike. When the tank runs low, pull in under a fuel station’s roof and tap Refuel. Tap Look when the radio says the aurora is out. Drag to look around.';
 const startBtn = $('start');
 startBtn.disabled = true;
 startBtn.addEventListener('click', () => {
@@ -1365,7 +1365,7 @@ function boardHeli(announce = true) {
   mode = 'fly'; flyHeading = null; camOff.set(0, 0, 0); flySky = false;
   if (driveView === 'hood') driveView = 'chase';
   look.cabYaw = 0; look.cabPitch = 0; look.orbit = 0;
-  audio.setEngine({ base: 30, perSpeed: 0, type: 'sawtooth', rumble: 0.5 });
+  audio.setEngine(null); // the helicopter's own sounds replace the car's engine
   document.body.classList.add('is-flying');
   syncLookButton();
   if (announce) {
@@ -1743,7 +1743,7 @@ function frame(now) {
     }
     void near;
   }
-  audio.update(dt, { heli: ride === 'heli' ? { rpm: heli.rpm, load: heli.thrust / 9.81, inside: mode === 'fly' && driveView === 'cockpit', near: mode === 'walk' ? Math.hypot(walker.pos.x - heli.pos.x, walker.pos.z - heli.pos.z) : mode === 'sky' ? Math.max(1, diver.pos.distanceTo(heli.pos)) : 0 } : null, speed: mode === 'walk' ? 0 : mode === 'sky' ? diver.speed : ride === 'heli' ? heli.speed * 0.5 : jeep.speed, wind: w.strength, exposure: exposureAt(p.x, p.z), waterProx, iceProx, inCar: mode !== 'walk' && mode !== 'sky' && started, wade: mode === 'walk' || mode === 'sky' ? 0 : jeep.wadeLevel || 0, nitro: mode !== 'walk' && mode !== 'sky' && jeep.boosting, throttle: mode === 'chase' ? input.throttle : 0 });
+  audio.update(dt, { heli: ride === 'heli' ? { rpm: heli.rpm, load: heli.thrust / 9.81, inside: mode === 'fly' && driveView === 'cockpit', near: mode === 'walk' ? Math.hypot(walker.pos.x - heli.pos.x, walker.pos.z - heli.pos.z) : mode === 'sky' ? Math.max(1, diver.pos.distanceTo(heli.pos)) : 0 } : null, speed: mode === 'walk' ? 0 : mode === 'sky' ? diver.speed : ride === 'heli' ? heli.speed * 0.5 : jeep.speed, wind: w.strength, exposure: exposureAt(p.x, p.z), waterProx, iceProx, inCar: mode !== 'walk' && mode !== 'sky' && started, wade: mode === 'walk' || mode === 'sky' ? 0 : jeep.wadeLevel || 0, nitro: mode !== 'walk' && mode !== 'sky' && jeep.boosting, throttle: mode === 'chase' ? input.throttle : 0, voice: ride === 'car' ? jeep.spec.engine?.voice : null, surface: jeep.surface, grounded: !jeep.air });
 
   if (started) {
     if (jeep.warning && mode !== 'walk' && mode !== 'sky') hud.toast(jeep.warning, { seconds: 2.5, priority: 1 });
@@ -1757,6 +1757,7 @@ function frame(now) {
     $('nitro-bar').parentElement.classList.toggle('is-on', jeep.boosting);
     $('t-gas').style.setProperty('--tank', jeep.nitro.toFixed(3));
     $('t-gas').classList.toggle('is-boosting', jeep.boosting);
+    if (onBike !== !!jeep.spec.bike) { onBike = !!jeep.spec.bike; document.body.classList.toggle('on-bike', onBike); }
     if (!paused) fuelTick(dt);
     nav.update(dt, activePos(), activeHeading(), t);
     mapUI.route = nav.route?.pts || null; mapUI.dest = nav.dest;

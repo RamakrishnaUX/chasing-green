@@ -161,6 +161,7 @@ export class Input {
     const k = this.keys;
     return (k.has(' ') || this.touch.up ? 1 : 0) - (k.has('shift') || this.touch.down ? 1 : 0);
   }
+  get wheelie() { return this.enabled && (this.keys.has(' ') || this.touch.nitroSlide); }
   get nitro() { return this.enabled && this.nitroAllowed && (this.keys.has(' ') || this.touch.nitroSlide); }
 
   consumeLook() { const l = { ...this.look }; this.look.dx = 0; this.look.dy = 0; return l; }

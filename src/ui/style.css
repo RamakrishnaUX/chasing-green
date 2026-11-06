@@ -154,6 +154,10 @@ svg { overflow: visible; }
 /* Fuel gauge: a pump and a bar under the speed; amber when low, red and pulsing when empty. */
 .fuel { display: flex; align-items: center; gap: 6px; margin: 0 0 5px; }
 .nitro[hidden] + .fuel { margin-top: 5px; }
+/* The bike has no nitro: Space, or a slide up from Go, pulls a wheelie instead. */
+body.on-bike .nitro, body.on-bike .go-ring { display: none; }
+body.on-bike .nitro + .fuel { margin-top: 5px; }
+body.nitro-off.on-bike .pad-gas:not(.is-boost) .go-hint { display: block; }
 .fuel svg { width: 13px; height: 13px; flex: none; fill: none; stroke: var(--ink-3); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .fuel-track { flex: 1; height: 4px; border-radius: 3px; background: rgba(255, 255, 255, 0.14); overflow: hidden; }
 .fuel-track span { display: block; height: 100%; width: 100%; background: #e9ece6; border-radius: 3px; transform-origin: left; transition: background-color 0.4s var(--ease); }

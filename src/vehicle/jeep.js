@@ -68,6 +68,7 @@ export class Jeep {
     this.steerVis = 0;
     this.roll = 0; this.pitch = 0;
     this.nitro = 1;
+    this.wheelie = 0; this.wheelieV = 0; // the bike's front lifted, radians, and how fast it moves
     this.power = 1; // engine power from the fuel tank: 1 normal, 0 out of fuel
     this.boosting = false;
     this.depth = 0;
@@ -87,6 +88,7 @@ export class Jeep {
     }
     this.kind = kind;
     this.spec = VEHICLES[kind];
+    this.wheelie = 0; this.wheelieV = 0;
     this.model = buildVehicleModel(kind);
     if (HD.on && !this.model.glb) weatherCar(this.model.group); // the Sketchfab cars carry their own wear in their textures
     this.kit = this.model.bike ? bikeKit(this.model) : buildBoatKit(this.model);
@@ -170,9 +172,10 @@ export class Jeep {
     const afloat = this.boatOn && this.boat > 0.6; // hull down and jet out
     const B = S.boat || { maxSpeed: 15, accel: 6 };
 
+    // On the bike, the same control pulls a wheelie (see wheelieStep).
     // Nitro: hold to boost while the gauge lasts; it refills when you let go. It works on the
     // road and as a boat (it digs the jet in), but not while wading or changing over.
-    this.boosting = active && !!input.nitro && this.nitro > 0.02 && this.power > 0.5 && throttle > 0 && (afloat || (!wet && this.depth < 0.3));
+    this.boosting = active && !S.bike && !!input.nitro && this.nitro > 0.02 && this.power > 0.5 && throttle > 0 && (afloat || (!wet && this.depth < 0.3));
     if (this.boosting) this.nitro = Math.max(0, this.nitro - dt * 0.22);
     else this.nitro = Math.min(1, this.nitro + dt * 0.09);
 
@@ -210,7 +213,8 @@ export class Jeep {
     // Steering is softer at speed so it stays forgiving, even when boosting. A boat steers with
     // its jet, so it turns once it has a little way on, even slowly, and wider when fast.
     const sp = Math.abs(this.vF);
-    const steerAmt = wet
+    if (S.bike) this.wheelieStep(dt, active && !!input.wheelie && !air && this.depth < 0.3 && this.vF > -0.5 && (throttle > 0 || sp > 5), air);
+    const steerAmt = (S.bike ? 1 - 0.35 * clamp(this.wheelie / 0.5, 0, 1) : 1) * wet
       ? steer * S.steerRate * 0.55 * clamp(this.vF / 3, -1, 1) * (1 - 0.35 * clamp(sp / B.maxSpeed, 0, 1))
       : steer * S.steerRate * 0.72 * clamp(this.vF / 6, -1, 1) * (1 - 0.62 * clamp(sp / (S.maxSpeed * 1.2), 0, 1));
     if (!air) this.heading += steerAmt * dt;
@@ -432,8 +436,10 @@ export class Jeep {
       this.blob.visible = this.root.visible;
     }
     this.suspend(dt);
-    this.body.rotation.set(this.pitch + this.rockP, 0, this.roll);
-    this.body.position.y = this.susY;
+    // A wheelie turns the bike about where the back tyre meets the road, so that tyre stays down.
+    const wA = this.wheelie;
+    this.body.rotation.set(this.pitch + this.rockP - wA, 0, this.roll);
+    this.body.position.set(0, this.susY - B.z * Math.sin(wA), B.z * (1 - Math.cos(wA)));
     if (this.landing > 0) this.landing -= dt || 0;
     for (const w of this.wheels) w.spin.rotation.x += (this.vF * (dt || 0)) / this.model.R;
     this.nitroFx.update(dt, this.boosting, Math.abs(this.vF));
@@ -516,6 +522,30 @@ export class Jeep {
   }
   // The springs: the body's height over its wheels (susY) and a pitch rock (rockP), each a damped
   // spring, about one rebound before they settle. Bump stops at 0.3 m.
+  // The wheelie. Held, the front rises to the balance point (about 29 degrees) and hovers there,
+  // wavering a little as a rider holds it on the throttle; let go (or slow right down, or leave
+  // the ground) and it falls back, landing on the front tyre with a small bounce into the fork.
+  wheelieStep(dt, want, air) {
+    if (!dt) return;
+    if (air) { this.wheelieV = 0; return; } // in the air it keeps its attitude
+    const BAL = 0.5, t = this.bobT;
+    const target = want ? BAL + Math.sin(t * 2.3) * 0.045 + Math.sin(t * 5.3 + 1) * 0.02 : 0;
+    const w = want ? 5.5 : 8, z = want ? 0.75 : 0.5;
+    const h = Math.min(dt, 1 / 30);
+    for (let s = 0; s < dt - 1e-6; s += h) {
+      const k = Math.min(h, dt - s);
+      this.wheelieV += (-w * w * (this.wheelie - target) - 2 * z * w * this.wheelieV) * k;
+      this.wheelie += this.wheelieV * k;
+    }
+    if (this.wheelie > 0.62) { this.wheelie = 0.62; this.wheelieV = Math.min(0, this.wheelieV); }
+    if (this.wheelie < 0) {
+      // Front tyre down: the fork takes the hit, and a fast drop bounces it up a touch.
+      const hit = -this.wheelieV;
+      this.wheelie = 0; this.wheelieV = hit > 1 ? hit * 0.18 : 0;
+      if (hit > 0.4) { this.susV = (this.susV || 0) - Math.min(1.2, hit * 0.35); this.rockV = (this.rockV || 0) + Math.min(0.8, hit * 0.25); }
+    }
+  }
+
   suspend(dt) {
     this.susY = this.susY || 0; this.susV = this.susV || 0; this.rockP = this.rockP || 0; this.rockV = this.rockV || 0;
     if (!dt) return;

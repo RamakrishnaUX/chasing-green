@@ -174,9 +174,11 @@ export function updateInterior(i, { kmh, steer, music }) {
   i.draw(music ? `♪ ${music}` : 'FM 98.1');
 }
 // The steering wheel turns with the steering, in every view (it shows from outside too); a
-// bike's bars turn about the steering axis by the angle itself (turn: 1).
+// bike's bars turn about the steering axis by the angle itself (turn: 1). The bike's axis points
+// down its fork, the other way from a car's column, so the sign flips: left turns the bars, and the
+// front wheel with them, to the left.
 export function turnWheel(i, steer) {
-  if (i?.steer) i.steer.rotation.z = -steer * (i.turn ?? 2.2);
+  if (i?.steer) i.steer.rotation.z = (i.bike ? steer : -steer) * (i.turn ?? 2.2);
 }
 
 export const trackTitle = (n) => CONFIG.music.titles?.[n] ?? null;

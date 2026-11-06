@@ -1,6 +1,8 @@
 // Sound is made on the fly with the Web Audio API. The one exception is the music on the car
 // stereo, streamed from files in public/music.
 import { CONFIG } from '../config.js';
+import { VOICES, pulseBuffer } from './engines.js';
+export { TWIN_RPM, twinBuffer } from './engines.js';
 
 function noiseBuffer(ctx, seconds = 2, brown = false) {
   const len = Math.floor(ctx.sampleRate * seconds);
@@ -11,30 +13,6 @@ function noiseBuffer(ctx, seconds = 2, brown = false) {
     const w = Math.random() * 2 - 1;
     if (brown) { last = (last + 0.02 * w) / 1.02; d[i] = last * 3.5; } else d[i] = w;
   }
-  return buf;
-}
-
-// The twin's loop: CYCLES engine cycles (720 degrees of crank each) at TWIN_RPM, two firing pulses
-// per cycle at 0 and 270 degrees. Each pulse: a crack of exhaust noise ringing in the pipe near
-// 110 Hz, over a deeper thump; a little variation between pulses so the loop does not drone.
-export const TWIN_RPM = 1500;
-export function twinBuffer(ctx) {
-  const sr = ctx.sampleRate, CYCLES = 12, cyc = 120 / TWIN_RPM, n = Math.round(CYCLES * cyc * sr);
-  const buf = ctx.createBuffer(1, n, sr), d = buf.getChannelData(0);
-  let seed = 7; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-  const len = Math.round(0.07 * sr);
-  for (let c = 0; c < CYCLES; c++) for (const deg of [0, 270]) {
-    const start = Math.round((c + deg / 720) * cyc * sr), amp = 0.8 + rnd() * 0.35, pf = 104 + rnd() * 14, ph = rnd() * 6;
-    for (let i = 0; i < len; i++) {
-      const tt = i / sr;
-      const ring = Math.sin(2 * Math.PI * pf * tt + ph) * Math.exp(-tt / 0.016);
-      const thump = Math.sin(2 * Math.PI * 52 * tt) * Math.exp(-tt / 0.022);
-      const crack = (rnd() * 2 - 1) * Math.exp(-tt / 0.0035);
-      d[(start + i) % n] += amp * (0.55 * ring + 0.6 * thump + 0.5 * crack);
-    }
-  }
-  let peak = 0; for (let i = 0; i < n; i++) peak = Math.max(peak, Math.abs(d[i]));
-  for (let i = 0; i < n; i++) d[i] = Math.tanh(1.6 * d[i] / peak) * 0.9; // a little grit
   return buf;
 }
 
@@ -85,14 +63,22 @@ export class AudioEngine {
     this.waterGain = ctx.createGain(); this.waterGain.gain.value = 0;
     loop(this.white).connect(wh).connect(wl).connect(this.waterGain).connect(ambience);
 
-    // Engine: two detuned saws through a low-pass.
-    this.engLP = ctx.createBiquadFilter(); this.engLP.type = 'lowpass'; this.engLP.frequency.value = 300;
+    // Engine: the vehicle's voice (engines.js), a loop of its exhaust pulses played at the revs,
+    // through a boost where its body is and a filter that opens with revs and throttle.
+    this.engBody = ctx.createBiquadFilter(); this.engBody.type = 'peaking'; this.engBody.Q.value = 1.1;
+    this.engLP = ctx.createBiquadFilter(); this.engLP.type = 'lowpass'; this.engLP.Q.value = 0.8; this.engLP.frequency.value = 900;
     this.engGain = ctx.createGain(); this.engGain.gain.value = 0;
-    this.eng1 = ctx.createOscillator(); this.eng1.type = 'sawtooth'; this.eng1.frequency.value = 42;
-    this.eng2 = ctx.createOscillator(); this.eng2.type = 'sawtooth'; this.eng2.frequency.value = 42.7;
-    this.eng1.connect(this.engLP); this.eng2.connect(this.engLP);
-    this.engLP.connect(this.engGain).connect(car);
-    this.eng1.start(); this.eng2.start();
+    this.engBody.connect(this.engLP).connect(this.engGain).connect(car);
+    this.engSrc = null; this.voice = null; this.voiceName = undefined; this.voiceBufs = {};
+    this.gear = 1; this.lastThrottle = 0; this.popsLeft = 0; this.nextPop = 0; this.shiftT = -1;
+
+    // Tyres: a low roar that grows with speed, and off the tarmac a gritty crunch over it.
+    this.tyreLP = ctx.createBiquadFilter(); this.tyreLP.type = 'lowpass'; this.tyreLP.frequency.value = 380;
+    this.tyreGain = ctx.createGain(); this.tyreGain.gain.value = 0;
+    loop(this.brown).connect(this.tyreLP).connect(this.tyreGain).connect(car);
+    this.gritBand = ctx.createBiquadFilter(); this.gritBand.type = 'bandpass'; this.gritBand.frequency.value = 1700; this.gritBand.Q.value = 0.6;
+    this.gritGain = ctx.createGain(); this.gritGain.gain.value = 0;
+    loop(this.white).connect(this.gritBand).connect(this.gritGain).connect(car);
 
     // The aurora makes no sound here: none felt right, so the sky stays silent.
 
@@ -107,20 +93,6 @@ export class AudioEngine {
     this.nitroBand = ctx.createBiquadFilter(); this.nitroBand.type = 'bandpass'; this.nitroBand.frequency.value = 1400; this.nitroBand.Q.value = 0.7;
     this.nitroGain = ctx.createGain(); this.nitroGain.gain.value = 0;
     loop(this.white).connect(this.nitroBand).connect(this.nitroGain).connect(car);
-    this.engine = { base: 38, perSpeed: 2.2, rumble: 1 };
-
-    // Motorbike: a parallel twin with a 270-degree crank, as in a Triumph Bonneville, Thruxton or
-    // Scrambler. Its two exhaust pulses come 270 and then 450 degrees apart, the uneven beat that
-    // makes it lope like a V-twin rather than buzz. Built once as a loop of firing pulses at
-    // TWIN_RPM (each a short burst of exhaust noise ringing in the pipe, over a low thump) and
-    // played faster or slower for the revs, through a filter that opens with the throttle.
-    this.twinSrc = ctx.createBufferSource(); this.twinSrc.buffer = twinBuffer(ctx); this.twinSrc.loop = true;
-    this.twinLP = ctx.createBiquadFilter(); this.twinLP.type = 'lowpass'; this.twinLP.frequency.value = 900; this.twinLP.Q.value = 0.8;
-    this.twinBody = ctx.createBiquadFilter(); this.twinBody.type = 'peaking'; this.twinBody.frequency.value = 95; this.twinBody.gain.value = 6; this.twinBody.Q.value = 1.1;
-    this.twinGain = ctx.createGain(); this.twinGain.gain.value = 0;
-    this.twinSrc.connect(this.twinBody).connect(this.twinLP).connect(this.twinGain).connect(car);
-    this.twinSrc.start();
-    this.gear = 1; this.lastThrottle = 0; this.nextPop = 0;
 
     // Helicopter. The rotor: low noise chopped into a beat at the blade-passing rate (four
     // blades at about 6.6 turns a second), the deep "whop" of each blade's wake. The turbines: a
@@ -182,32 +154,79 @@ export class AudioEngine {
     this.music.el.play().catch(() => {});
   }
 
-  // Each vehicle sounds different: pitch, waveform and how rough it is.
-  setEngine(e) {
-    this.engine = e;
-    if (!this.ready) return;
-    this.eng1.type = e.type; this.eng2.type = e.type;
+  // Each vehicle has its own engine (its spec's engine.voice, from engines.js). The helicopter has
+  // none here: its rotor and turbines are their own sounds.
+  setEngine(e) { this.engine = e; }
+  setVoice(name) {
+    this.voiceName = name;
+    const V = VOICES[name] || null;
+    if (V === this.voice) return;
+    this.voice = V;
+    const t = this.ctx.currentTime;
+    this.engGain.gain.cancelScheduledValues(t); this.engGain.gain.setValueAtTime(0, t);
+    if (this.engSrc) { this.engSrc.stop(t + 0.02); this.engSrc = null; }
+    this.gear = 1; this.popsLeft = 0;
+    if (!V) return;
+    const src = this.ctx.createBufferSource();
+    src.buffer = this.voiceBufs[name] ||= pulseBuffer(this.ctx, V);
+    src.loop = true; src.playbackRate.value = V.idle / V.ref;
+    src.connect(this.engBody); src.start();
+    this.engSrc = src;
+    this.engBody.frequency.value = V.body[0]; this.engBody.gain.value = V.body[1];
   }
 
-  // The twin's revs: five gears, changing up near 6,800 rpm and down again below about 3,000, so it
-  // climbs through each gear and drops back at the change. Louder and brighter on the throttle; off
-  // it at high revs, the odd pop from the exhaust.
-  twinUpdate(t, on, speed, throttle, nitro) {
-    const TOPS = [13, 21, 29, 38, 60]; // m/s at 7,000 rpm in each gear
-    if (speed > TOPS[this.gear - 1] * 0.97 && this.gear < 5) this.gear++;
-    else if (this.gear > 1 && speed < TOPS[this.gear - 2] * 0.42) this.gear--;
+  // The revs: through the gears, changing up near the redline and down again once the revs have
+  // fallen well off, so they climb through each gear and drop back at the change (with a short
+  // dip in the sound as the clutch goes in). Louder and brighter on the throttle. Lift off at
+  // speed and the exhaust pops and crackles, how readily and how hard set by the voice: the bike
+  // nearly every time, the supercar often, the old cars only now and then.
+  engineUpdate(t, dt, on, speed, throttle, nitro) {
+    const V = this.voice;
+    if (!V) return;
+    const T = V.tops, P = V.pops, was = this.gear;
+    if (speed > T[this.gear - 1] * 0.97 && this.gear < T.length) this.gear++;
+    else if (this.gear > 1 && speed < T[this.gear - 2] * 0.45) this.gear--;
+    if (this.gear !== was) {
+      this.shiftT = t;
+      if (on && this.gear > was && throttle > 0 && Math.random() < P.upshift) this.pop(V, 0.5);
+      if (on && this.gear < was && throttle <= 0 && Math.random() < P.chance) this.popsLeft = Math.max(this.popsLeft, 1 + (Math.random() < 0.5 ? 1 : 0));
+    }
     const load = Math.max(0, throttle) + (nitro ? 0.4 : 0);
-    const rpm = speed < 0.4 ? 1150 + load * 900 : Math.max(1700, 7000 * speed / TOPS[this.gear - 1]) + load * 250;
-    this.twinSrc.playbackRate.setTargetAtTime(rpm / TWIN_RPM, t, 0.07);
-    this.twinLP.frequency.setTargetAtTime(500 + rpm * 0.16 + load * 1300, t, 0.08);
-    const vol = on ? (0.16 + Math.min(1, rpm / 7000) * 0.12 + load * 0.1) * (CONFIG.engineVolume ?? 1) : 0;
-    this.twinGain.gain.setTargetAtTime(vol, t, 0.08);
-    if (on && throttle <= 0 && this.lastThrottle > 0) this.nextPop = t + 0.08;
-    if (on && throttle <= 0 && rpm > 3200 && t > this.nextPop && this.nextPop > 0) {
-      this.burst(380 + Math.random() * 300, 3, 0.05, 0.16 + Math.random() * 0.12, 'bandpass', this.bus.car);
-      this.nextPop = Math.random() < 0.5 ? t + 0.07 + Math.random() * 0.25 : 0;
+    const rpm = Math.min(V.red * 1.04, speed < 0.4 ? V.idle + load * (V.red - V.idle) * 0.15 : Math.max(V.idle * 1.5, V.red * speed / T[this.gear - 1]) + load * 250);
+    const dip = t - this.shiftT < 0.11 ? 0.6 : 1;
+    this.engSrc.playbackRate.setTargetAtTime(rpm / V.ref, t, 0.07);
+    this.engLP.frequency.setTargetAtTime(V.lp[0] + rpm * V.lp[1] + load * V.lp[2], t, 0.08);
+    const vol = on ? (0.16 + Math.min(1, rpm / V.red) * 0.12 + load * 0.1) * V.gain * dip * (CONFIG.engineVolume ?? 1) : 0;
+    this.engGain.gain.setTargetAtTime(vol, t, dip < 1 ? 0.025 : 0.08);
+    // Pops: a run of them as the throttle closes, the odd one while coasting at high revs.
+    if (!on || throttle > 0) this.popsLeft = 0;
+    else {
+      if (this.lastThrottle > 0 && rpm > V.red * 0.38 && Math.random() < P.chance) {
+        this.popsLeft = P.min + Math.floor(Math.random() * (P.max - P.min + 1));
+        this.nextPop = t + 0.05 + Math.random() * 0.07;
+      } else if (!this.popsLeft && rpm > V.red * 0.5 && Math.random() < dt * P.chance * 0.7) {
+        this.popsLeft = 1; this.nextPop = t;
+      }
+      if (this.popsLeft > 0 && t >= this.nextPop) {
+        this.pop(V, 0.55 + Math.random() * 0.45);
+        this.popsLeft--; this.nextPop = t + 0.05 + Math.random() * 0.2;
+      }
     }
     this.lastThrottle = throttle;
+  }
+
+  // One pop from the exhaust: a blast of noise in the pipe's band, a low punch falling in pitch,
+  // and the crack on top.
+  pop(V, s) {
+    const ctx = this.ctx, t = ctx.currentTime, P = V.pops, out = this.bus.car;
+    const g0 = P.gain * s * (CONFIG.engineVolume ?? 1);
+    this.burst(P.freq[0] + Math.random() * (P.freq[1] - P.freq[0]), 1.4, 0.06 + Math.random() * 0.05, 0.42 * g0, 'bandpass', out);
+    const o = ctx.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(P.thump * 1.4, t); o.frequency.exponentialRampToValueAtTime(P.thump * 0.7, t + 0.08);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.38 * g0, t + 0.003); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.11);
+    o.connect(g).connect(out); o.start(t); o.stop(t + 0.13);
+    this.burst(2600 + Math.random() * 1800, 0.8, 0.025, 0.16 * g0, 'highpass', out);
   }
 
   // Splash when hitting water or a puddle. strength 0 to 1.
@@ -250,7 +269,7 @@ export class AudioEngine {
     s.start(t, Math.random() * 1.5, dur + 0.05);
   }
 
-  update(dt, { speed, wind, exposure, waterProx, iceProx, inCar, wade = 0, nitro = false, heli = null, throttle = 0 }) {
+  update(dt, { speed, wind, exposure, waterProx, iceProx, inCar, wade = 0, nitro = false, heli = null, throttle = 0, voice = null, surface = 'paved', grounded = true }) {
     if (!this.ready) return;
     const t = this.ctx.currentTime;
     // The helicopter replaces the car engine: rotor, turbines and fan, louder under load and
@@ -270,16 +289,15 @@ export class AudioEngine {
     this.windBand.frequency.setTargetAtTime(320 + windLevel * 700 + Math.sin(t * 0.7) * 120, t, 0.4);
     this.windHissGain.gain.setTargetAtTime(0.02 * windLevel * windLevel, t, ease);
     this.waterGain.gain.setTargetAtTime(0.45 * waterProx, t, 0.3);
-    const E = this.engine;
-    const eng = inCar && !heli ? (0.05 + Math.min(1, speed / 40) * 0.07 + (nitro ? 0.03 : 0)) * (CONFIG.engineVolume ?? 1) : 0;
-    this.engGain.gain.setTargetAtTime(E.twin ? 0 : eng, t, 0.2);
-    this.twinUpdate(t, E.twin && inCar && !heli, speed, throttle, nitro);
-    // A few "gears": revs climb, drop back, climb again.
-    const rev = speed < 1 ? 0 : ((speed * 0.9) % 14) / 14 + Math.min(3, Math.floor(speed * 0.9 / 14)) * 0.15;
-    const f = E.base + speed * E.perSpeed * 0.5 + rev * E.base * 1.4 + (nitro ? 18 : 0);
-    this.eng1.frequency.setTargetAtTime(f, t, 0.12);
-    this.eng2.frequency.setTargetAtTime(f * (1.012 + 0.01 * E.rumble), t, 0.12);
-    this.engLP.frequency.setTargetAtTime(240 + speed * 14 + (nitro ? 500 : 0), t, 0.2);
+    const v = heli ? null : voice;
+    if (v !== this.voiceName) this.setVoice(v);
+    this.engineUpdate(t, dt, inCar && !heli, speed, throttle, nitro);
+    // Tyres: only rolling on the ground, not in the air or on the water.
+    const roll = inCar && !heli && grounded && wade < 0.3 && surface !== 'ford' ? Math.min(1, speed / 35) : 0;
+    const rough = surface === 'paved' ? 0 : surface === 'gravel' ? 1 : 0.6;
+    this.tyreGain.gain.setTargetAtTime(roll * (0.07 + rough * 0.05), t, 0.15);
+    this.tyreLP.frequency.setTargetAtTime(300 + roll * 250 + rough * 200, t, 0.3);
+    this.gritGain.gain.setTargetAtTime(roll * rough * 0.035 * (0.5 + Math.random()), t, 0.03);
     this.wadeGain.gain.setTargetAtTime(0.32 * Math.min(1, wade), t, 0.15);
     this.nitroGain.gain.setTargetAtTime(nitro ? 0.12 : 0, t, nitro ? 0.08 : 0.3);
     this.nitroBand.frequency.setTargetAtTime(nitro ? 2600 : 1200, t, 0.5);
