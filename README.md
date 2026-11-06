@@ -493,14 +493,13 @@ The cafe racer's twin is built this way. **The four cars play real engine record
 
 | Car | Loops (rpm) | Recording | By | Licence |
 | --- | --- | --- | --- | --- |
-| Trail 4x4 | 700 | [vehicle truck land rover v8 engin startup idle running](https://freesound.org/s/772826/) | jerry.berumen | CC BY 4.0 |
-| | 1,130, 1,450, 2,580, 2,830 | [1953 Studebaker Idle up to 6000rpm](https://freesound.org/s/238847/) (a small-block Chevrolet V8) | lonemonk | CC BY 4.0 |
+| Trail 4x4 | 1,090, 1,375, 1,450 | [Jeep-CJ5-1965-final](https://freesound.org/s/234902/) (an old four-cylinder Jeep warming up and driving away) | a deleted Freesound user | CC0 |
 | Supercar | 820, 1,930, 2,780, 3,260, 4,070 | [Audi R8 Idling Reving Backfire](https://freesound.org/s/457733/) (V10) | Jonas_Jocys | CC BY 4.0 |
 | Camper van | 700 | [Volkswagen Beetle 1961](https://freesound.org/s/544344/) (air-cooled flat four) | klankbeeld | CC BY-SA 3.0 (the loop cut from it is shared under the same licence) |
 | | 2,590, 2,750 | [Volkswagen Type 2_revving up2](https://freesound.org/s/332695/) | nhaudio | CC BY 4.0 |
-| Vintage roadster | 1,050, 1,220, 1,640 | [R03-54-Old Auto Motor Constant High Speed](https://freesound.org/s/481694/) (from a vintage film-sound library) | craigsmith | CC0 |
+| Vintage roadster | 645, 725, 1,010, 1,210 | [Veteran car](https://freesound.org/s/77096/) (idling, climbing a steep hill and driving on) | juskiddink | CC BY 4.0 |
 
-**How the loops were made** (in the browser, from Freesound's high-quality previews): each recording's harmonic comb was measured on its steady stretches (the spacing of its exhaust harmonics, from the autocorrelation of a whitened 16,384-point spectrum); the engine's speed is that spacing times 60 (or times 120 where the comb is the half-order, as for the R8, whose V10 firing line at five times the crank speed confirms it). Rising stretches were tracked frame by frame and resampled at a varying rate so each loop holds one pitch, cut where its end best matches its start, joined with a 0.1 to 0.2 s equal-power crossfade, high-passed at 28 Hz (circularly, so the seam stays clean) and levelled to -16 dBFS. Loops from different recordings of one car are matched by these rpm figures, not by ear.
+**How the loops were made** (in the browser, from Freesound's high-quality previews): each recording's harmonic comb was measured on its steady stretches (the spacing of its exhaust harmonics, from the autocorrelation of a whitened 16,384-point spectrum); the engine's speed is that spacing times 60, or times 30 where the comb is the four-cylinder firing rate (the Jeep and the veteran car), or times 120 where it is the half-order (the R8, whose V10 firing line at five times the crank speed confirms it). Rising stretches were tracked frame by frame and resampled at a varying rate so each loop holds one pitch, cut where its end best matches its start, joined with a 0.1 to 0.2 s equal-power crossfade, high-passed at 28 Hz (circularly, so the seam stays clean) and levelled to -16 dBFS. Loops from different recordings of one car are matched by these rpm figures, not by ear.
 
 The built voices, still used for the bike and as each car's stand-in while its loops load:
 

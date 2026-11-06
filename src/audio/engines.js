@@ -26,10 +26,10 @@ export const VOICES = {
   // Trail 4x4: a big cross-plane V8. Firing order 1-8-4-3-6-5-7-2, banks L R R L R L L R, each
   // bank's pipe a little different: the lumpy off-beat burble.
   v8: {
-    ref: 1200, cycles: 10, idle: 700, red: 4400, len: 0.06,
-    // A Land Rover V8 idling, then a small-block Chevrolet V8 (in a 1953 Studebaker) held at four
-    // speeds on its way up.
-    rec: { lp: [1500, 0.45, 4000], gain: 1.75, loops: [['v8_0700', 700], ['v8_1130', 1130], ['v8_1450', 1450], ['v8_2580', 2580], ['v8_2830', 2830]] },
+    ref: 1200, cycles: 10, idle: 900, red: 3200, len: 0.06,
+    // The recordings: a 1965 Jeep CJ5, an old four-cylinder Jeep, at its warm-up idle and held at
+    // two speeds. A low-revving engine, so its redline is low.
+    rec: { lp: [1500, 0.5, 4000], gain: 2.2, loops: [['jeep_1090', 1090], ['jeep_1375', 1375], ['jeep_1450', 1450]] },
     fire: [[0, 0], [90, 1], [180, 1], [270, 0], [360, 1], [450, 0], [540, 0], [630, 1]],
     pipes: [
       { amp: 1, ring: [[70, 0.019, 0.75], [140, 0.008, 0.28], [210, 0.005, 0.1]] },
@@ -41,9 +41,10 @@ export const VOICES = {
   },
   // Vintage roadster: an old straight six, even and smooth, a soft hum through a quiet pipe.
   six: {
-    ref: 1200, cycles: 12, idle: 800, red: 3200, len: 0.07,
-    // An old car's engine from a vintage film-sound library, held at three speeds.
-    rec: { lp: [1300, 0.45, 3200], gain: 1.9, loops: [['six_1050', 1050], ['six_1220', 1220], ['six_1640', 1640]] },
+    ref: 1200, cycles: 12, idle: 650, red: 2400, len: 0.07,
+    // The recordings: a veteran car idling, climbing a steep hill and driving on. Engines that old
+    // turn slowly, so it idles near 650 rpm and runs out of revs near 2,400.
+    rec: { lp: [1300, 0.6, 3200], gain: 1.9, loops: [['old_0645', 645], ['old_0725', 725], ['old_1010', 1010], ['old_1210', 1210]] },
     fire: [[0, 0], [120, 0], [240, 0], [360, 0], [480, 0], [600, 0]],
     pipes: [{ amp: 1, ring: [[61, 0.022, 0.65], [122, 0.011, 0.25], [183, 0.006, 0.08]] }],
     thump: [33, 0.026, 0.8], crack: [0.1, 0.003], vary: 0.1, jit: 0.004, drive: 1.3,
