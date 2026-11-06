@@ -55,7 +55,7 @@ export const VEHICLES = {
     wade: 0.45, waterDrag: 1.3,
     nitro: { speed: 1.4, accel: 2.0 },
     radius: 0.62, halfLength: 1.2,
-    engine: { base: 38, perSpeed: 2.3, type: 'sawtooth', rumble: 1.0 },
+    engine: { base: 38, perSpeed: 2.3, type: 'sawtooth', rumble: 1.0, twin: true }, // a 270-degree parallel twin (audio.js)
   },
   race: {
     name: 'Supercar',

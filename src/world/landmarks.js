@@ -278,7 +278,8 @@ export const LANDMARKS = [
   { id: 'silfra', name: 'Silfra', kind: 'rift', glyph: 'rift', ll: [64.255, -21.12], offset: [-40, -40], model: 'silfra',
     desc: 'A crack between the continents filled with glass-clear water.',
     fact: 'The water is filtered through lava for decades, which is why you can see more than 100 metres through it.' },
-  { id: 'laugavegur', name: 'Laugavegur', kind: 'town', glyph: 'harpa', pos: [-452, 216], model: 'rainbowStreet',
+  // South-east of the church and back from the Ring Road, so the road past Harpa stays clear.
+  { id: 'laugavegur', name: 'Laugavegur', kind: 'town', glyph: 'harpa', pos: [-439, 179.5], model: 'rainbowStreet',
     desc: 'Reykjavík\u2019s main shopping street, with a rainbow painted up Skólavörðustígur toward the church.',
     fact: 'The rainbow was painted for Reykjavík Pride and was made permanent in 2019.' },
   { id: 'isafjordur', name: 'Ísafjörður', kind: 'town', glyph: 'church', ll: [66.07, -23.13], away: 22, model: 'church', params: { walls: 0xf2f0ea, roof: 0x8a2a24, hill: 0 },
@@ -658,6 +659,8 @@ export class Landmarks {
     this.auroraMats = [];
     this.onEvent = null;
     this.colliders = [];
+    // Rooms you can walk into (Harpa, Hallgrímskirkja): the walking camera stays inside them.
+    this.rooms = [];
     const rand = mulberry32(99);
     this.list = LANDMARKS.map((def) => {
       const w = def.pos ? { x: def.pos[0] * WS, z: def.pos[1] * WS } : toWorld(def.ll[0], def.ll[1]);
@@ -812,25 +815,48 @@ export class Landmarks {
         wb.setFromObject(m);
         climb = { top: wb.max.y, base: wb.min.y, dome: m.userData.collideCircle > 2 };
       }
-      if (m.userData.collideCircle) {
-        m.getWorldPosition(p);
-        this.colliders.push({ circle: true, x: p.x, z: p.z, r: m.userData.collideCircle, climb });
-      } else if (m.userData.collide) {
+      const box = () => {
         m.geometry.computeBoundingBox();
         const bb = m.geometry.boundingBox;
         m.matrixWorld.decompose(p, q, sc);
         e.setFromQuaternion(q, 'YXZ');
         const c = new THREE.Vector3().addVectors(bb.min, bb.max).multiplyScalar(0.5).applyMatrix4(m.matrixWorld);
-        this.colliders.push({ x: c.x, z: c.z, rot: e.y, hx: ((bb.max.x - bb.min.x) / 2) * sc.x, hz: ((bb.max.z - bb.min.z) / 2) * sc.z, climb });
+        wb.setFromObject(m);
+        return { x: c.x, z: c.z, rot: e.y, hx: ((bb.max.x - bb.min.x) / 2) * sc.x, hz: ((bb.max.z - bb.min.z) / 2) * sc.z, y0: wb.min.y, y1: wb.max.y };
+      };
+      if (m.userData.room) { this.rooms.push(box()); return; }
+      if (m.userData.collideCircle) {
+        m.getWorldPosition(p);
+        this.colliders.push({ circle: true, x: p.x, z: p.z, r: m.userData.collideCircle, climb });
+      } else if (m.userData.collide) {
+        this.colliders.push({ ...box(), climb, carOnly: !!m.userData.carOnly });
+      } else if (m.userData.solid) {
+        // A building or hut: a wall to the car and on foot. (These were drawn but never
+        // registered, so cars drove through every building at a landmark.) Something as big as a
+        // glacier is not a box.
+        const b = box();
+        if (Math.max(b.hx, b.hz) < 24) this.colliders.push({ ...b, climb: null });
       }
     });
+  }
+
+  // The smallest walk-in room containing the point, or null.
+  roomAt(x, z, y) {
+    let best = null;
+    for (const r of this.rooms) {
+      if (y < r.y0 - 1 || y > r.y1) continue;
+      const cs = Math.cos(r.rot), sn = Math.sin(r.rot), dx = x - r.x, dz = z - r.z;
+      if (Math.abs(dx * cs - dz * sn) > r.hx || Math.abs(dx * sn + dz * cs) > r.hz) continue;
+      if (!best || r.hx * r.hz < best.hx * best.hz) best = r;
+    }
+    return best;
   }
 
   // Hand every landmark collider to the shared obstacle set.
   registerObstacles(obs) {
     for (const c of this.colliders) {
       if (c.circle) obs.addCircle(c.x, c.z, c.r, 'cliff', c.climb);
-      else obs.addBox(c.x, c.z, c.rot, c.hx, c.hz, 'cliff', c.climb);
+      else obs.addBox(c.x, c.z, c.rot, c.hx, c.hz, c.carOnly ? 'wall' : 'cliff', c.carOnly ? { carOnly: true } : c.climb);
     }
   }
 
@@ -838,6 +864,7 @@ export class Landmarks {
   resolve(pos, r) {
     let hit = false;
     for (const c of this.colliders) {
+      if (c.carOnly) continue;
       if (Math.abs(pos.x - c.x) > 90 || Math.abs(pos.z - c.z) > 90) continue;
       if (c.circle) {
         const dx = pos.x - c.x, dz = pos.z - c.z, d = Math.hypot(dx, dz), min = c.r + r;

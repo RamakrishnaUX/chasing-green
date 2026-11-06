@@ -32,6 +32,10 @@ const RUN_AFTER = 0.7, RUN_BUILD = 0.8, TAP = 0.4, TAP_BOOST = 0.45;
 // about 0.62, then standing again. A hop plays from the end of the crouch to just after landing.
 const JUMP = { from: 0.31, to: 0.74, speed: 1.3 };
 const CLIPS = ['idle', 'walk', 'back', 'run', 'jump', 'kneel'];
+// Swimming: past chest depth he swims, lying forward in the water with a slow stroke (the run's
+// arms, slowed down), treading water upright when he stops. The water is cold, so not far: about
+// SWIM_RANGE metres from where he went in.
+const SWIM_DEPTH = 1.15, SWIM = 1.15, SWIM_RANGE = 35, FLOAT = 1.06, CHEST = 1.2;
 
 export class Walker {
   constructor(scene) {
@@ -45,7 +49,8 @@ export class Walker {
     this.stride = 0; // where in a stride the walk and run are, from 0 to 1
     this.time = 0; this.held = 0; this.pushing = false; this.letGo = -1; this.fwd = 0; // the forward key's hold, and the pace it has built
     this.sitting = false;
-    this.state = 'walk'; // walk, climb, mantle (pulling up over the top) or fall
+    this.state = 'walk'; // walk, climb, mantle (pulling up over the top), fall or swim
+    this.swimFrom = null; this.swimPitch = 0; this.stroke = 0; this.splashed = 0;
     this.vy = 0;
     this.landed = 0;
     this.jumpT = -1; // seconds into a hop, or -1
@@ -72,7 +77,7 @@ export class Walker {
     this.pos.set(fromJeep.pos.x + Math.sin(side) * 2.6, 0, fromJeep.pos.z + Math.cos(side) * 2.6);
     this.pos.y = heightAt(this.pos.x, this.pos.z);
     this.heading = fromJeep.heading;
-    this.state = 'walk'; this.vy = 0; this.landed = 0;
+    this.state = 'walk'; this.vy = 0; this.landed = 0; this.swimFrom = null;
     this.held = 0; this.pushing = false; this.letGo = -1; this.fwd = 0;
     this.car = carBox(fromJeep);
     this.root.visible = true;
@@ -81,7 +86,7 @@ export class Walker {
   land(x, z, heading) {
     this.pos.set(x, this.groundAt(x, z), z);
     this.heading = heading;
-    this.state = 'walk'; this.vy = 0; this.landed = 0;
+    this.state = 'walk'; this.vy = 0; this.landed = 0; this.swimFrom = null;
     this.held = 0; this.pushing = false; this.letGo = -1; this.fwd = 0;
     this.car = null;
     this.root.visible = true;
@@ -122,6 +127,7 @@ export class Walker {
     this.fwd = target > this.fwd ? Math.min(target, this.fwd + 7 * dt) : Math.max(target, this.fwd - 9 * dt);
     let speed = t < 0 ? t * BACK : this.fwd;
     if (t < 0 || this.state === 'climb') this.fwd = 0;
+    if (this.state === 'swim') { speed = clamp(speed, -0.5, SWIM); this.fwd = Math.min(this.fwd, SWIM); }
     if (this.state === 'mantle') speed = 1.8;
     this.blocked = '';
     let moved = 0;
@@ -138,7 +144,9 @@ export class Walker {
       const step = Math.abs(speed) * dt;
       const nx = this.pos.x + fx * speed * dt, nz = this.pos.z + fz * speed * dt;
       const tooFar = Math.hypot(nx - car.pos.x, nz - car.pos.z) > radius;
-      const tooDeep = heightAt(nx, nz) < waterLevelAt(nx, nz) - 0.6;
+      // Swimming, only so far out from where he went in (always free to swim back).
+      const tooDeep = this.state === 'swim' && this.swimFrom && Math.hypot(nx - this.swimFrom.x, nz - this.swimFrom.z) > SWIM_RANGE &&
+        Math.hypot(nx - this.swimFrom.x, nz - this.swimFrom.z) > Math.hypot(this.pos.x - this.swimFrom.x, this.pos.z - this.swimFrom.z);
       this.blocked = tooFar ? 'far' : tooDeep ? 'deep' : '';
       const g0 = this.groundAt(this.pos.x, this.pos.z), feet = Math.max(g0, this.pos.y);
       // A ledge higher than a step, or a slope steeper than about 50 degrees, is climbed: at
@@ -149,16 +157,23 @@ export class Walker {
       const face = toe - feet > STEP + REACH * 0.7 || gN - feet > STEP + step * 0.7;
       // In the air, a face in the way stops the drift rather than letting him into the rock.
       const wall = this.state === 'fall' ? gN > this.pos.y : face;
-      if (face && this.state !== 'fall' && (t > 0 || this.state === 'mantle')) { this.state = 'climb'; this.mantle = 0; }
+      if (face && this.state !== 'fall' && this.state !== 'swim' && (t > 0 || this.state === 'mantle')) { this.state = 'climb'; this.mantle = 0; }
       else if (!tooFar && !tooDeep && !wall) { moved = step; this.pos.x = nx; this.pos.z = nz; }
       const g = this.groundAt(this.pos.x, this.pos.z);
       // Never more than a scramble upward in one frame, even if pushed onto something taller.
       const rise = (y) => Math.min(y, this.pos.y + 15 * dt);
+      const water = waterLevelAt(this.pos.x, this.pos.z), deep = water - g;
       if (this.state === 'fall') {
         this.vy = Math.max(-40, this.vy - GRAVITY * dt);
         this.pos.y += this.vy * dt;
-        if (this.pos.y <= g) { this.landed = Math.min(1, -this.vy / 14); this.pos.y = g; this.vy = 0; this.state = 'walk'; }
-      } else if (this.state === 'mantle') {
+        // Into deep water: a splash, and he comes up swimming.
+        if (deep > SWIM_DEPTH && this.pos.y <= water - FLOAT) { this.pos.y = water - FLOAT; this.vy = 0; this.startSwim(); this.splashed = 1; }
+        else if (this.pos.y <= g) { this.landed = Math.min(1, -this.vy / 14); this.pos.y = g; this.vy = 0; this.state = 'walk'; }
+      } else if (this.state === 'swim') {
+        // Afloat, head and shoulders out, bobbing a little; out again where he can stand.
+        this.pos.y = lerp(this.pos.y, water - FLOAT, Math.min(1, dt * 4));
+        if (deep < SWIM_DEPTH - 0.2) { this.state = 'walk'; this.swimFrom = null; this.pos.y = Math.max(this.pos.y, g - 0.1); }
+      } else if (this.state === 'walk' && deep > SWIM_DEPTH) { this.startSwim(); this.splashed = 0.5; } else if (this.state === 'mantle') {
         if (g > this.pos.y) this.pos.y = rise(g);
         this.mantle -= moved;
         if (this.mantle <= 0) this.state = 'walk';
@@ -170,14 +185,26 @@ export class Walker {
       }
     }
     this.keepClear(car);
-    this.speedSmooth = lerp(this.speedSmooth, this.state === 'walk' ? Math.abs(speed) : 0, Math.min(1, dt * 8));
+    this.speedSmooth = lerp(this.speedSmooth, this.state === 'walk' || this.state === 'swim' ? Math.abs(speed) : 0, Math.min(1, dt * 8));
     this.climbPhase += this.state === 'climb' ? moved * 2.2 : 0;
     this.landed = Math.max(0, this.landed - dt * 3);
     if (this.jumpT >= 0) { this.jumpT += dt; if (this.state !== 'walk' || this.jumpT * JUMP.speed > (JUMP.to - JUMP.from) * (this.jumpLen || 2.37)) this.jumpT = -1; }
     this.animate(dt, Math.sign(speed) || 1);
     this.root.position.copy(this.pos);
     this.root.rotation.y = this.heading;
+    // Swimming he lies forward about his chest; treading water he is nearly upright.
+    const swimming = this.state === 'swim';
+    this.swimPitch = lerp(this.swimPitch, swimming ? (this.speedSmooth > 0.25 ? 1.12 : 0.22) : 0, Math.min(1, dt * 3));
+    if (this.man) {
+      const a = this.swimPitch;
+      this.man.rotation.x = a;
+      this.man.position.set(0, CHEST - CHEST * Math.cos(a), -CHEST * Math.sin(a));
+      if (swimming) this.root.position.y += Math.sin(this.time * 2.1) * 0.035;
+    }
   }
+
+  startSwim() { this.state = 'swim'; this.swimFrom = this.pos.clone(); this.jumpT = -1; }
+  get swimming() { return this.state === 'swim'; }
 
   // The car is solid: walk round it, not into it.
   keepClear(car) {
@@ -204,6 +231,14 @@ export class Walker {
     const A = this.actions, J = A.jump, len = this.jumpLen;
     J.paused = true;
     if (this.sitting) want.kneel = 1;
+    else if (this.state === 'swim') {
+      // A slow crawl from the run's arm swing while moving; treading water (the walk, slowly) while not.
+      const v = this.speedSmooth, rd = A.run.getClip().duration, wd = A.walk.getClip().duration;
+      this.stroke = (this.stroke + dt * (v > 0.25 ? 0.42 : 0.3)) % 1;
+      A.run.timeScale = 0; A.walk.timeScale = 0;
+      A.run.time = this.stroke * rd; A.walk.time = this.stroke * wd;
+      want.run = clamp(v / 0.6, 0, 1); want.walk = 1 - want.run;
+    }
     else if (this.state === 'climb') {
       // Reaching up and pulling, rocking between the two reaches of the jump.
       want.jump = 1;

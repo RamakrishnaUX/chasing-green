@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { harpaInterior, churchInterior, wall as hiddenWall, HARPA_DOOR, CHURCH_DOOR } from './halls.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { createWaterMaterial, createRiverMaterial, riverGeometry } from './materials.js';
 import { KERID, keridU, keridProfile, keridWob } from './geo.js';
@@ -129,7 +130,9 @@ float hgN(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
 
   // ---------- Tower ----------
   const TW = 8.6, TD = 7.4, TH = 50;
-  const tower = new THREE.BoxGeometry(TW, TH + 1, TD); tower.translate(0, (TH + 1) / 2 - 1, 0); parts.push(tower);
+  // Solid above the vestibule; the foot of the tower is built hollow (halls.js), with its door.
+  const LOW = 8;
+  const tower = new THREE.BoxGeometry(TW, TH - LOW, TD); tower.translate(0, LOW + (TH - LOW) / 2, 0); parts.push(tower);
   // Ribs on the tower's front corners, stepping up toward the top.
   for (const side of [-1, 1]) for (let k = 0; k < 3; k++) column(side * (TW / 2 - 0.45 - k * 0.95), TD / 2 + 0.25, 0.8, 0.9, TH - 4 + k * 1.5, 0.6, side);
   // Belfry storey and the stepped, crenellated top.
@@ -151,17 +154,17 @@ float hgN(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
       const x = side * (TW / 2 + 0.55 + i * 1.08);
       const back = -Math.pow(t, 1.8) * 9;                        // the outer columns curve back
       column(x, TD / 2 - 2.2 + back, 0.92, 3.4, h, 0.9, side, side * t * 0.35);
+      hiddenWall(g, x, TD / 2 - 2.2 + back, 0.92, 3.4, side * t * 0.35);
     }
   }
   // Nave behind the tower, with columns along its sides.
-  const nave = new THREE.BoxGeometry(14, 15, 34); nave.translate(0, 6.5, -21); parts.push(nave);
   for (const side of [-1, 1]) for (let k = 0; k < 12; k++) column(side * 7.4, -6 - k * 2.6, 0.9, 1.2, 14, 0.4, side);
 
   const merged = mergeGeometries(parts.map((q) => q.index ? q.toNonIndexed() : q));
   merged.computeVertexNormals();
   const body = M(merged, concrete);
-  body.userData.solid = true;
   g.add(body);
+  churchInterior(g, kit, { TW, TD, concrete, lower: LOW });
   const roof = M(gable(14.2, 34.4, 5), std(0x6c7075, 0.55, 0.35), 0, 14, -21); g.add(roof);
 
   // ---------- Openings that glow at night ----------
@@ -170,7 +173,10 @@ float hgN(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
   // Vertical row of slit windows up the tower face.
   for (let k = 0; k < 9; k++) g.add(M(new THREE.BoxGeometry(0.45, 1.0, 0.12), k % 2 ? glow : dark, 0, 18 + k * 3.4, TD / 2 + 0.06));
   // Belfry: three pointed openings on each face.
-  const lancet = (w, h) => { const sh = new THREE.Shape(); sh.moveTo(-w / 2, 0); sh.lineTo(w / 2, 0); sh.lineTo(w / 2, h - w * 0.8); sh.quadraticCurveTo(w / 2, h - w * 0.15, 0, h); sh.quadraticCurveTo(-w / 2, h - w * 0.15, -w / 2, h - w * 0.8); sh.closePath(); return new THREE.ExtrudeGeometry(sh, { depth: 0.12, bevelEnabled: false }); };
+  // With door: a doorway cut out of its foot (w wide, h high), so you can walk in through it.
+  const lancet = (w, h, door) => { const sh = new THREE.Shape(); sh.moveTo(-w / 2, 0);
+    if (door) { sh.lineTo(-door.w / 2, 0); sh.lineTo(-door.w / 2, door.h); sh.lineTo(door.w / 2, door.h); sh.lineTo(door.w / 2, 0); }
+    sh.lineTo(w / 2, 0); sh.lineTo(w / 2, h - w * 0.8); sh.quadraticCurveTo(w / 2, h - w * 0.15, 0, h); sh.quadraticCurveTo(-w / 2, h - w * 0.15, -w / 2, h - w * 0.8); sh.closePath(); return new THREE.ExtrudeGeometry(sh, { depth: 0.12, bevelEnabled: false }); };
   for (const [fx, fz, ry] of [[0, TD / 2 + 0.32, 0], [0, -TD / 2 - 0.32, Math.PI], [TW / 2 + 0.32, 0, Math.PI / 2], [-TW / 2 - 0.32, 0, -Math.PI / 2]]) {
     for (const k of [-1, 0, 1]) { const m = M(lancet(1.0, 2.8), glow); m.position.set(fx + Math.cos(ry) * k * 1.9, TH + 0.4, fz - Math.sin(ry) * k * 1.9); m.rotation.y = ry; g.add(m); }
   }
@@ -182,8 +188,8 @@ float hgN(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
     for (const [len, ang] of [[0.8, 0.6], [0.55, 2.2]]) { const hnd = M(new THREE.BoxGeometry(0.07, len, 0.04), dark); hnd.position.set(fx + Math.cos(ry) * Math.sin(ang) * len / 2 * 0 , TH - 4.5 + Math.cos(ang) * len / 2, fz); hnd.rotation.set(0, ry, -ang); hnd.position.x += Math.cos(ry) * Math.sin(ang) * len / 2; hnd.position.z -= Math.sin(ry) * Math.sin(ang) * len / 2; hnd.position.addScaledVector(new THREE.Vector3(Math.sin(ry), 0, Math.cos(ry)), 0.03); g.add(hnd); }
   }
   // Entrance: recessed pointed-arch surround, the tall stained-glass lancet, and the door below.
-  const surround = M(lancet(4.2, 17), std(0xbab3a7, 0.85)); surround.position.set(0, 0, TD / 2 + 0.02); g.add(surround);
-  const recess = M(lancet(3.4, 16.2), std(0x8e877c, 0.85)); recess.position.set(0, 0.2, TD / 2 + 0.08); g.add(recess);
+  const surround = M(lancet(4.2, 17, CHURCH_DOOR), std(0xbab3a7, 0.85)); surround.position.set(0, 0, TD / 2 + 0.02); g.add(surround);
+  const recess = M(lancet(3.4, 16.2, { w: CHURCH_DOOR.w, h: CHURCH_DOOR.h - 0.2 }), std(0x8e877c, 0.85)); recess.position.set(0, 0.2, TD / 2 + 0.08); g.add(recess);
   // Stained glass: vertical strips of colour inside the lancet.
   const glassCols = [0x2c5fd6, 0xd8a23a, 0xc23a3a, 0x3fa36b, 0x7d4fc9, 0x2c8fd6, 0xd8c24a];
   for (let k = 0; k < 7; k++) {
@@ -191,9 +197,11 @@ float hgN(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
     g.add(M(new THREE.BoxGeometry(0.28, 8.5 - Math.abs(k - 3) * 0.7, 0.1), m, -1.05 + k * 0.35, 9.5 + (8.5 - Math.abs(k - 3) * 0.7) / 2, TD / 2 + 0.22));
   }
   const glassArch = M(lancet(2.5, 10.4), std(0x2a3a5a, 0.3, 0, { emissive: 0x3a5a9a, emissiveIntensity: 0 })); kit.nightLit(glassArch.material, 0.6); glassArch.position.set(0, 7.6, TD / 2 + 0.15); g.add(glassArch);
-  const door = M(new THREE.BoxGeometry(2.3, 4.6, 0.2), std(0x2a2422, 0.7), 0, 2.3, TD / 2 + 0.2); g.add(door);
-  const emblem = M(new THREE.TorusGeometry(0.55, 0.12, 8, 24), std(0xb32a22, 0.5, 0, { emissive: 0x8a1a12, emissiveIntensity: 0 }), 0, 2.6, TD / 2 + 0.33); kit.nightLit(emblem.material, 0.6); g.add(emblem);
-  g.add(M(new THREE.CircleGeometry(0.4, 18), emblem.material, 0, 2.6, TD / 2 + 0.32));
+  // The doors stand open, folded back against the inside of the doorway.
+  const doorMat = std(0x2a2422, 0.7);
+  for (const sx of [-1, 1]) { const leaf = M(new THREE.BoxGeometry(0.1, CHURCH_DOOR.h - 0.1, CHURCH_DOOR.w / 2 - 0.05), doorMat, sx * (CHURCH_DOOR.w / 2 - 0.07), CHURCH_DOOR.h / 2, TD / 2 - 0.6 - CHURCH_DOOR.w / 4); g.add(leaf); }
+  const emblem = M(new THREE.TorusGeometry(0.55, 0.12, 8, 24), std(0xb32a22, 0.5, 0, { emissive: 0x8a1a12, emissiveIntensity: 0 }), 0, 5.6, TD / 2 + 0.33); kit.nightLit(emblem.material, 0.6); g.add(emblem);
+  g.add(M(new THREE.CircleGeometry(0.4, 18), emblem.material, 0, 5.6, TD / 2 + 0.32));
   // Gold cross on the very top.
   const gold = std(0xd8b84a, 0.3, 0.85);
   g.add(M(new THREE.BoxGeometry(0.22, 2.6, 0.22), gold, 0, topY + 1.3, 0));
@@ -213,12 +221,13 @@ float hgN(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
   }
 
   // ---------- Patterned paving in front: dark stone with pale lines ----------
-  const pave = M(new THREE.PlaneGeometry(64, 34), std(0x2a2b2d, 0.85), 0, 0.1, 21);
+  // It stops well short of the road in front.
+  const pave = M(new THREE.PlaneGeometry(64, 28), std(0x2a2b2d, 0.85), 0, 0.1, 18);
   pave.rotation.x = -Math.PI / 2; g.add(pave);
   const line = std(0xb8b5ad, 0.8);
   const strip = (x, z, w, l, rot) => { const m = M(new THREE.PlaneGeometry(w, l), line, x, 0.13, z); m.rotation.set(-Math.PI / 2, 0, rot); g.add(m); };
-  for (let i = 0; i < 5; i++) { const s2 = 5 + i * 5; strip(0, 21 - s2 * 0.5, s2 * 2, 0.35, 0); strip(0, 21 + s2 * 0.5, s2 * 2, 0.35, 0); strip(-s2, 21, 0.35, s2, 0); strip(s2, 21, 0.35, s2, 0); }
-  for (const r of [0.6, -0.6]) strip(0, 21, 0.35, 60, r);
+  for (let i = 0; i < 4; i++) { const s2 = 5 + i * 5; strip(0, 18 - s2 * 0.5, s2 * 2, 0.35, 0); strip(0, 18 + s2 * 0.5, s2 * 2, 0.35, 0); strip(-s2, 18, 0.35, s2, 0); strip(s2, 18, 0.35, s2, 0); }
+  for (const r of [0.6, -0.6]) strip(0, 18, 0.35, 50, r);
   return g;
 }
 
@@ -232,23 +241,44 @@ export function buildHarpa(kit) {
   const lean = 1.6;
   const top = (x, z) => lerp(H1, H0, (z + D / 2) / D) + (x / W) * 2.5;
   const shell = new THREE.BufferGeometry();
-  const P = [], I = [];
-  const quad = (a, b, c, d) => { const k = P.length / 3; P.push(...a, ...b, ...c, ...d); I.push(k, k + 1, k + 2, k, k + 2, k + 3); };
+  const P = [], I = [], RP = [], RI = [];
+  const quad = (a, b, c, d, p = P, i = I) => { const k = p.length / 3; p.push(...a, ...b, ...c, ...d); i.push(k, k + 1, k + 2, k, k + 2, k + 3); };
   const X = W / 2, Z = D / 2;
   const fl = (x) => [x, -1, Z], ft = (x) => [x, top(x, Z), Z + lean];
-  quad(fl(-X), fl(X), ft(X), ft(-X));                                       // front
+  // The front, with the way in: a doorway in the middle of the glass.
+  const fy = (x, y) => [x, y, Z + (lean * (y + 1)) / (top(x, Z) + 1)];
+  const dw = HARPA_DOOR.w / 2, dh = HARPA_DOOR.h;
+  quad(fl(-X), fl(-dw), ft(-dw), ft(-X));
+  quad(fl(dw), fl(X), ft(X), ft(dw));
+  quad(fy(-dw, dh), fy(dw, dh), ft(dw), ft(-dw));
   quad([X, -1, -Z], [-X, -1, -Z], [-X, top(-X, -Z), -Z], [X, top(X, -Z), -Z]); // back
   quad([X, -1, Z], [X, -1, -Z], [X, top(X, -Z), -Z], ft(X));                 // east
   quad([-X, -1, -Z], [-X, -1, Z], ft(-X), [-X, top(-X, -Z), -Z]);            // west
-  quad(ft(-X), ft(X), [X, top(X, -Z), -Z], [-X, top(-X, -Z), -Z]);           // roof
+  quad(ft(-X), ft(X), [X, top(X, -Z), -Z], [-X, top(-X, -Z), -Z], RP, RI);   // roof
   shell.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
   shell.setIndex(I);
   shell.computeVertexNormals();
+  // The walls are seen from outside only, so from inside you look out through the glass cells.
   const body = M(shell.toNonIndexed(), std(0x161b21, 0.35, 0.75));
   body.geometry.computeVertexNormals();
   body.position.z = -4;
-  body.userData.solid = true;
   g.add(body);
+  // The roof is also the foyer's ceiling: dark and mirror-like from below.
+  const roofGeo = new THREE.BufferGeometry();
+  roofGeo.setAttribute('position', new THREE.Float32BufferAttribute(RP, 3));
+  roofGeo.setIndex(RI);
+  roofGeo.computeVertexNormals();
+  const roof = M(roofGeo, std(0x0f1216, 0.18, 0.85, { side: THREE.DoubleSide }), 0, 0, -4);
+  g.add(roof);
+  // Door frame, and the glass doors standing open.
+  const steel = std(0x2a2e33, 0.4, 0.7), doorGlass = new THREE.MeshPhysicalMaterial({ color: 0xbfd8e0, roughness: 0.05, transparent: true, opacity: 0.3 });
+  const fz = fy(0, dh / 2)[2] - 4;
+  for (const sx of [-1, 1]) {
+    g.add(M(new THREE.BoxGeometry(0.16, dh + 1, 0.3), steel, sx * (dw + 0.08), dh / 2 - 0.5, fz));
+    const leaf = M(new THREE.BoxGeometry(0.05, dh - 0.1, dw - 0.1), doorGlass, sx * (dw - 0.1), dh / 2, fz - dw / 2);
+    leaf.castShadow = false; g.add(leaf);
+  }
+  g.add(M(new THREE.BoxGeometry(dw * 2 + 0.32, 0.18, 0.3), steel, 0, dh + 0.09, fy(0, dh)[2] - 4));
 
   // The cells. Iridescent physical glass reflects the sky and shifts colour with the angle.
   const cellGeo = new THREE.CylinderGeometry(0.54, 0.54, 0.24, 6, 1);
@@ -265,19 +295,20 @@ export function buildHarpa(kit) {
   const palette = [0x1f9a80, 0x2266c0, 0x6a3cc0, 0xc88a1c, 0x22a6b8, 0x3f9f46, 0x8a9ab0];
   const cells = [];
   // Fill each wall: a staggered honeycomb laid out in the wall's own plane.
-  const wall = (o, u, v, w, hAt) => {
+  const wall = (o, u, v, w, hAt, skip) => {
     const sx = 1.12, sy = 0.97;
     for (let r = 0; r * sy < 40; r++) for (let k = 0; k * sx < w; k++) {
       const a = k * sx + (r % 2 ? sx / 2 : 0) + 0.6, b = r * sy + 0.6;
       if (a > w - 0.6 || b > hAt(a) - 0.7) continue;
+      if (skip && skip(a, b)) continue;
       cells.push(o.clone().addScaledVector(u, a).addScaledVector(v, b));
     }
   };
   const V3 = (x, y, z) => new THREE.Vector3(x, y, z);
   const frontUp = V3(0, top(0, Z) + 1, lean).normalize();
   const cellFaces = [];
-  const addWall = (o, u, v, n, w, hAt) => { const before = cells.length; wall(o, u, v, w, hAt); for (let k = before; k < cells.length; k++) cellFaces.push(n); };
-  addWall(V3(-X, -1, Z + 0.17), V3(1, 0, 0), frontUp, V3(0, 0, 1), W, (a) => top(a - X, Z) + 1);
+  const addWall = (o, u, v, n, w, hAt, skip) => { const before = cells.length; wall(o, u, v, w, hAt, skip); for (let k = before; k < cells.length; k++) cellFaces.push(n); };
+  addWall(V3(-X, -1, Z + 0.17), V3(1, 0, 0), frontUp, V3(0, 0, 1), W, (a) => top(a - X, Z) + 1, (a, b) => Math.abs(a - X) < dw + 0.5 && b < dh + 1.5);
   addWall(V3(X, -1, -Z - 0.17), V3(-1, 0, 0), V3(0, 1, 0), V3(0, 0, -1), W, (a) => top(X - a, -Z) + 1);
   addWall(V3(X + 0.17, -1, Z), V3(0, 0, -1), V3(0, 1, 0), V3(1, 0, 0), D, (a) => top(X, Z - a) + 1 - (a < 2 ? 2 : 0));
   addWall(V3(-X - 0.17, -1, -Z), V3(0, 0, 1), V3(0, 1, 0), V3(-1, 0, 0), D, (a) => top(-X, a - Z) + 1 - (a > D - 2 ? 2 : 0));
@@ -293,6 +324,7 @@ export function buildHarpa(kit) {
   g.add(inst);
   // Forecourt by the harbour.
   g.add(M(new THREE.BoxGeometry(44, 0.3, 16), std(0x3a3c3f, 0.85), 0, 0.15, 15));
+  harpaInterior(g, kit, (x, z) => top(x, z + 4));
   return g;
 }
 
@@ -412,9 +444,11 @@ export function buildKerid(kit) {
       // Height: the shared profile, roughened on the walls, then laid onto the land at the edge.
       let y = K.base + keridProfile(u) - kit.baseY;
       if (u > 0.47 && u < 0.8) y += (n - 0.5) * 1.6 + (streak - 0.5) * 0.5;
-      const land = kit.ground(lx, lz) + 0.1;
-      if (u >= 0.84) y = Math.max(y, land);
-      y = THREE.MathUtils.lerp(y, land, THREE.MathUtils.smoothstep(u, 1.2, 1.9));
+      // Past the rim the land is already shaped to the crater (terrain.js): the surface lies on
+      // it, so nothing drives beneath it. (Blended separately, it rose up to 7 m above the land on
+      // the outer slope, and cars drove along inside the grass.)
+      const land = kit.ground(lx, lz) + 0.12;
+      if (u >= 0.84) y = land;
       pos.push(lx, y, lz);
       // Colour: scree apron, red scoria walls with moss and scree streaks, a dark ledge band,
       // the red rim path, then mossy ground outside.
@@ -431,7 +465,7 @@ export function buildKerid(kit) {
       col.push(C.r, C.g, C.b);
     }
   }
-  for (let i = 0; i < NR; i++) for (let j = 0; j < NS; j++) { const a0 = i * (NS + 1) + j, b0 = a0 + NS + 1; idx.push(a0, b0, a0 + 1, a0 + 1, b0, b0 + 1); }
+  for (let i = 0; i < NR; i++) for (let j = 0; j < NS; j++) { const a0 = i * (NS + 1) + j, b0 = a0 + NS + 1; idx.push(a0, a0 + 1, b0, a0 + 1, b0 + 1, b0); } // facing up: ground, not a roof
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));

@@ -207,7 +207,7 @@ async function buildWorld(progress) {
   // Pads under built landmarks, by kind (radius in world units). Natural sites keep their shape.
   const PAD = { building: 32, town: 30, sculpture: 12, pool: 26, geothermal: 24, cave: 16, bridge: 18, waterfall: 34, geyser: 18, wreck: 18, stadium: 80 };
   landmarks = new Landmarks(scene, { quality: qualityName, beforeBake: (root, lm) => naturalize(root, lm.kind), beforeBuild: (list) => {
-    const pads = list.filter((l) => PAD[l.kind] && l.id !== 'seydisfjordur').map((l) => ({ x: l.x, z: l.z, r: l.id === 'hallgrimskirkja' ? 38 : PAD[l.kind] }));
+    const pads = list.filter((l) => PAD[l.kind] && l.id !== 'seydisfjordur').map((l) => ({ x: l.x, z: l.z, r: l.id === 'hallgrimskirkja' ? 58 : PAD[l.kind], cap: l.id === 'hallgrimskirkja' || l.id === 'laugavegur' ? 2.5 : null }));
     // Fuel stations beside the Ring Road get level forecourts too.
     stationSites = siteStations(list);
     flattenPads(pads.concat(stationSites.map((s) => s.pad)), world.mesh);
@@ -224,7 +224,7 @@ async function buildWorld(progress) {
   // Bridge railings are solid on both sides.
   for (const B of bridges) for (const sx of [-1, 1]) obstacles.addBox(B.x - B.dz * sx * 4.65, B.z + B.dx * sx * 4.65, Math.atan2(B.dx, B.dz), 0.25, B.len / 2 + 2, 'wall');
   // No rocks or grass field on streets, churchyards and city squares.
-  const clear = landmarks.list.filter((l) => ['town', 'building', 'sculpture', 'stadium'].includes(l.kind)).map((l) => ({ x: l.x, z: l.z, r: l.kind === 'stadium' ? 78 : l.id === 'seydisfjordur' ? 58 : l.id === 'laugavegur' ? 30 : l.id === 'hallgrimskirkja' ? 34 : 22 }))
+  const clear = landmarks.list.filter((l) => ['town', 'building', 'sculpture', 'stadium'].includes(l.kind)).map((l) => ({ x: l.x, z: l.z, r: l.kind === 'stadium' ? 78 : l.id === 'seydisfjordur' ? 58 : l.id === 'laugavegur' ? 36 : l.id === 'hallgrimskirkja' ? 46 : l.id === 'harpa' ? 30 : 22 }))
     .concat(stationSites.map((st) => ({ x: st.pad.x, z: st.pad.z, r: 30 })));
   scatter = new Scatter(scene, { grass: 0, rocks: Math.round(Q.rocks * (CONFIG.rockDensity[settings.rocks || 'normal'] || 1)), obstacles, clear });
   // The realistic look grows the field thicker and a little further out (each tuft is ten blades,
@@ -438,9 +438,20 @@ function updateCamera(dt) {
       const h = walker.heading + look.walkYaw;
       // Running, the camera hangs back a little more and the view widens a touch.
       const run = clamp(walker.speedSmooth / 4.2, 0, 1);
-      const cd = 6 + run * 0.8;
-      const desired = new THREE.Vector3(walker.pos.x - Math.sin(h) * cd, walker.pos.y + 2.8, walker.pos.z - Math.cos(h) * cd);
+      // Indoors (Harpa, Hallgrímskirkja) the camera comes in closer and stays inside the room,
+      // rather than swinging out through a wall and showing the building from outside.
+      const indoors = landmarks.roomAt(walker.pos.x, walker.pos.z, walker.pos.y);
+      // Swimming, he is low in the water: the camera comes closer and looks down on him a little more.
+      const swim = walker.swimming;
+      const cd = indoors ? 4.2 : swim ? 4.4 : 6 + run * 0.8;
+      const desired = new THREE.Vector3(walker.pos.x - Math.sin(h) * cd, walker.pos.y + (indoors ? 2.2 : swim ? 3.3 : 2.8), walker.pos.z - Math.cos(h) * cd);
       desired.y = Math.max(desired.y, groundAt(desired.x, desired.z) + 1);
+      if (indoors) {
+        const r = indoors, cs = Math.cos(r.rot), sn = Math.sin(r.rot), dx = desired.x - r.x, dz = desired.z - r.z, m = 0.5;
+        const lx = clamp(dx * cs - dz * sn, -r.hx + m, r.hx - m), lz = clamp(dx * sn + dz * cs, -r.hz + m, r.hz - m);
+        desired.x = r.x + lx * cs + lz * sn; desired.z = r.z - lx * sn + lz * cs;
+        desired.y = Math.min(desired.y, r.y1 - 0.5);
+      }
       camera.position.lerp(desired, Math.min(1, dt * 5));
       camTarget.set(walker.pos.x, walker.pos.y + 1.6, walker.pos.z);
       camera.lookAt(camTarget);
@@ -513,6 +524,7 @@ function flyCamera(dt, l) {
 const skyOff = new THREE.Vector3(), _sk = new THREE.Vector3(), _sh = new THREE.Vector3();
 const smooth01 = (agl, top) => 1 - smoothstep(0, top, Math.max(0, agl));
 let skyHeading = null, skyAim = null;
+let swimTipShown = false;
 function skyCamera(dt, l) {
   const d = diver, agl = Math.max(0, d.agl), fallingNow = d.falling;
   const far = Math.min(16000, Math.max(Q.far || 3000, 2600 + agl * 3.6));
@@ -766,7 +778,7 @@ $('info-share').addEventListener('click', async () => {
 function updateLandmarks(p) {
   const near = landmarks.nearest(p.x, p.z), lm = near.lm;
   // From the helicopter a place counts once you come down to it, not while flying high over it.
-  const dist = mode === 'fly' ? Math.hypot(near.dist, Math.max(0, heli.agl - 60)) : near.dist;
+  const dist = mode === 'fly' ? Math.hypot(near.dist, Math.max(0, heli.agl - 60)) : mode === 'sky' ? Math.hypot(near.dist, Math.max(0, diver.agl - 60)) : near.dist;
   const reach = lm.reach || CONFIG.landmarkRadius;
   // Whether this place was new to you, judged before a stamp can land in this same step.
   const unstamped = !store.data.stamps[lm.id];
@@ -793,7 +805,8 @@ function updateLandmarks(p) {
       card.wanted = placeCards() === 'all' || (placeCards() === 'new' && unstamped);
       setCardExpanded(false);
     }
-    card.el.hidden = infoDismissed === lm.id || !card.wanted;
+    // Never while skydiving: on a phone the card sat over the Open button.
+    card.el.hidden = infoDismissed === lm.id || !card.wanted || mode === 'sky';
     // The card tucks itself away after a while of driving so it never sits over the view for good.
     if (!card.el.hidden && started && !card.el.classList.contains('is-expanded')) {
       card.shownAt ??= performance.now();
@@ -1158,8 +1171,8 @@ const SKY_LAND = {
   roof: 'You land on a roof and climb down.',
   steep: 'Too steep to stand there: you slide down to flatter ground.',
   soft: 'A soft landing. Nicely flared!',
-  firm: 'A firm landing: knees bent, and you run it out. Start the flare a little higher, about 8 m up, for a softer one.',
-  hard: 'A hard landing: you roll and get up. Next time hold Down (Brake) from about 8 m up and keep holding it: that is the flare.',
+  firm: 'Down! You run it out. For a softer landing, hold Down (Brake) from about 8 m up: that is the flare.',
+  hard: 'A hard landing: you roll and get up. Come in straight, not turning, and hold Down (Brake) from about 8 m up.',
 };
 function diverEvents(evs) {
   for (const e of evs) {
@@ -1617,6 +1630,12 @@ function frame(now) {
     }
     obstacles.resolve(walker.pos, 0.4, true);
     wildlife.pushOut(walker.pos, 0.3); // nor through the animals
+    // Swimming: a splash going in, and spray off his arms as he strokes.
+    if (walker.splashed) { audio.splash(walker.splashed); const wl = waterLevelAt(walker.pos.x, walker.pos.z); spray.emit(walker.pos.x, wl + 0.1, walker.pos.z, 0, 2.6, 0, Math.ceil(walker.splashed * 14), 1.4, 0.7); walker.splashed = 0; if (!swimTipShown) { swimTipShown = true; hud.toast('Swimming. The water is cold, so stay near the shore.', { seconds: 3, priority: 2 }); } }
+    if (walker.swimming && walker.speedSmooth > 0.3 && Math.random() < dt * 7) {
+      const wl = waterLevelAt(walker.pos.x, walker.pos.z), side = Math.random() < 0.5 ? -1 : 1, h = walker.heading;
+      spray.emit(walker.pos.x + Math.sin(h) * 0.9 + Math.cos(h) * side * 0.35, wl + 0.05, walker.pos.z + Math.cos(h) * 0.9 - Math.sin(h) * side * 0.35, 0, 1.2, 0, 2, 0.7, 0.45);
+    }
     walkHaptics();
   } else if (mode === 'fly') {
     heli.update(paused ? 0 : dt, { throttle: input.throttle, steer: input.steer, lift: input.lift }, w);
@@ -1724,10 +1743,11 @@ function frame(now) {
     }
     void near;
   }
-  audio.update(dt, { heli: ride === 'heli' ? { rpm: heli.rpm, load: heli.thrust / 9.81, inside: mode === 'fly' && driveView === 'cockpit', near: mode === 'walk' ? Math.hypot(walker.pos.x - heli.pos.x, walker.pos.z - heli.pos.z) : mode === 'sky' ? Math.max(1, diver.pos.distanceTo(heli.pos)) : 0 } : null, speed: mode === 'walk' ? 0 : mode === 'sky' ? diver.speed : ride === 'heli' ? heli.speed * 0.5 : jeep.speed, wind: w.strength, exposure: exposureAt(p.x, p.z), waterProx, iceProx, inCar: mode !== 'walk' && mode !== 'sky' && started, wade: mode === 'walk' || mode === 'sky' ? 0 : jeep.wadeLevel || 0, nitro: mode !== 'walk' && mode !== 'sky' && jeep.boosting });
+  audio.update(dt, { heli: ride === 'heli' ? { rpm: heli.rpm, load: heli.thrust / 9.81, inside: mode === 'fly' && driveView === 'cockpit', near: mode === 'walk' ? Math.hypot(walker.pos.x - heli.pos.x, walker.pos.z - heli.pos.z) : mode === 'sky' ? Math.max(1, diver.pos.distanceTo(heli.pos)) : 0 } : null, speed: mode === 'walk' ? 0 : mode === 'sky' ? diver.speed : ride === 'heli' ? heli.speed * 0.5 : jeep.speed, wind: w.strength, exposure: exposureAt(p.x, p.z), waterProx, iceProx, inCar: mode !== 'walk' && mode !== 'sky' && started, wade: mode === 'walk' || mode === 'sky' ? 0 : jeep.wadeLevel || 0, nitro: mode !== 'walk' && mode !== 'sky' && jeep.boosting, throttle: mode === 'chase' ? input.throttle : 0 });
 
   if (started) {
     if (jeep.warning && mode !== 'walk' && mode !== 'sky') hud.toast(jeep.warning, { seconds: 2.5, priority: 1 });
+    if (mode === 'walk' && walker.blocked === 'deep') hud.toast('The water is freezing out here. Swim back to the shore.', { seconds: 2.5 });
     if (mode === 'walk' && walker.blocked === 'far') hud.toast(afterJump && !leashOnHeli ? (isTouch ? 'Stay near where you landed. Tap Call for the helicopter.' : 'Stay near where you landed. Press E to call the helicopter.') : `Stay close to the ${ride === 'heli' ? 'helicopter' : 'car'}. Press E to get back in.`, { seconds: 2.5 });
     syncJumpButton();
     const fwd = new THREE.Vector3(); camera.getWorldDirection(fwd);

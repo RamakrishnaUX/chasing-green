@@ -6,7 +6,7 @@ import { buildVehicleModel } from './models.js';
 import { VEHICLES, SURFACE_DRAG } from './specs.js';
 import { NitroFX } from './nitrofx.js';
 import { bakeStatic } from '../world/bake.js';
-import { solidStep, solidTopAt } from '../world/solids.js';
+import { solidStep, solidTopAt, solidRoofAt } from '../world/solids.js';
 import { buildInterior } from './interiors.js';
 import { HD, weatherCar, carGround } from '../world/hd.js';
 import { buildBoatKit, stages } from './boat.js';
@@ -15,10 +15,16 @@ import { buildBoatKit, stages } from './boat.js';
 // ground. Set as each update and sync begins. Rock more than a little above the car is a wall
 // or a roof, not ground: the centre and bumper checks stop the car at it, and a wheel beside an
 // arch's opening does not lift the car onto the arch.
-let clearTop = null;
+// A mound, crater rim or hillside built as a landform is solid down to the land, so it is ground
+// under a wheel however steep, up to what a wheel could reach on a slope the car can climb (the
+// bumper check stops it at anything steeper). Without this a wheel on the uphill side of a mound
+// read the land beneath it, and the car's nose dug into the grass.
+let clearTop = null, carBase = null;
 function heightAt(x, z) {
   const base = surfaceHeightAt(x, z), rock = solidTopAt(x, z, clearTop);
-  return rock > base && (clearTop == null || rock < clearTop - 1.2) ? rock : base;
+  if (!(rock > base)) return base;
+  if (clearTop == null || rock < clearTop - 1.2) return rock;
+  return carBase != null && rock < carBase + 2.6 && !solidRoofAt(x, z) ? rock : base;
 }
 
 // A bike does not float: no hull, only the sizes the rest of the car code reads from a kit.
@@ -125,7 +131,7 @@ export class Jeep {
     // not ground (as when driving): a car put there sat up against it, tipped on its side.
     const base = surfaceHeightAt(x, z), rock = solidTopAt(x, z, base + this.kit.height + 0.1);
     const y = Math.max(base, rock);
-    clearTop = y + this.kit.height + 0.1;
+    clearTop = y + this.kit.height + 0.1; carBase = y;
     this.air = false; this.vy = 0; this.vyPrev = 0; this.lastGround = null; this.lastSyncY = null; this.groundVy = 0;
     this.pos.set(x, y, z);
     this.heading = heading;
@@ -140,7 +146,7 @@ export class Jeep {
 
   update(dt, input, wind, active) {
     carGround.value = this.pos.y;
-    clearTop = this.pos.y + this.kit.height + 0.1;
+    clearTop = this.pos.y + this.kit.height + 0.1; carBase = this.pos.y;
     this.bobT += dt;
     const S = this.spec, V = CONFIG.vehicle;
     const throttle = active ? input.throttle : 0;
@@ -339,9 +345,10 @@ export class Jeep {
         this.pos.y = clamp(this.pos.y, y - 0.08, y + 0.25); // never sinks into the road
       }
     }
-    let pitchT = Math.atan2(back - front, wbLen) - this.braking * 0.02 * sus.roll;
+    // Tilt follows the ground under the wheels, but no further than a car on its wheels can tip.
+    let pitchT = clamp(Math.atan2(back - front, wbLen), -0.62, 0.62) - this.braking * 0.02 * sus.roll;
     const lean = -this.steerVis * clamp(this.vF / 30, 0, 1) * 0.07 * sus.roll;
-    let rollT = Math.atan2(right - left, trackW) + (this.windSide || 0) * 0.01 + lean;
+    let rollT = clamp(Math.atan2(right - left, trackW), -0.5, 0.5) + (this.windSide || 0) * 0.01 + lean;
     let rate = sus.k * 0.85;
     if (afloat) {
       // Afloat the seabed does not tilt it: the bow lifts with speed, it rocks on the swell
@@ -362,11 +369,9 @@ export class Jeep {
       this.blob.scale.set(wid * 1.25, len * 1.15, 1);
       this.blob.visible = this.root.visible && this.boat < 0.3;
     }
-    this.body.rotation.set(this.pitch, 0, this.roll);
-    // Accelerating squats the back a touch; braking dips the nose.
-    // Suspension squash after a landing, springing back.
-    this.compress = (this.compress || 0) * Math.max(0, 1 - (dt || 0) * 5);
-    this.body.position.y = -this.compress;
+    this.suspend(dt);
+    this.body.rotation.set(this.pitch + this.rockP, 0, this.roll);
+    this.body.position.y = this.susY;
     if (this.landing > 0) this.landing -= dt || 0;
     // A model may be built at one size and scaled up (model.scale): its wheel pivots live in the
     // model's own units, so suspension travel is divided by the scale and spin uses the real radius.
@@ -375,7 +380,9 @@ export class Jeep {
     this.wheels.forEach((w, i) => {
       const plane = y + (w.z / wbLen) * (front - back) + (w.x / trackW) * (right - left);
       const sx = Math.sign(w.x);
-      w.pivot.position.y = R + clamp(g[i] - plane, -0.12, 0.12) / MS * (1 - fold) + K.lift * fold;
+      // In the air the wheels hang at full droop; landed, they stay on the ground while the body
+      // sinks and rebounds on its springs above them.
+      w.pivot.position.y = R + (clamp(g[i] - plane, -0.12, 0.12) - this.susY) / MS * (1 - fold) + K.lift * fold;
       w.pivot.position.x = w.baseX - sx * K.inset * fold;
       w.pivot.rotation.z = -sx * (Math.PI / 2) * fold;
       w.spin.rotation.x += (this.vF * (dt || 0)) / (R * MS) * (1 - fold);
@@ -424,9 +431,9 @@ export class Jeep {
       this.blob.scale.set(0.9, (F.z - B.z) + 1.4, 1);
       this.blob.visible = this.root.visible;
     }
-    this.body.rotation.set(this.pitch, 0, this.roll);
-    this.compress = (this.compress || 0) * Math.max(0, 1 - (dt || 0) * 5);
-    this.body.position.y = -this.compress;
+    this.suspend(dt);
+    this.body.rotation.set(this.pitch + this.rockP, 0, this.roll);
+    this.body.position.y = this.susY;
     if (this.landing > 0) this.landing -= dt || 0;
     for (const w of this.wheels) w.spin.rotation.x += (this.vF * (dt || 0)) / this.model.R;
     this.nitroFx.update(dt, this.boosting, Math.abs(this.vF));
@@ -451,37 +458,76 @@ export class Jeep {
     const g = Math.max(s / this.wheels.length, solidTopAt(this.pos.x, this.pos.z, clearTop) - 0.2);
     return Math.max(g, this.floatY());
   }
+  // Jumps. The car leaves the ground where the road drops away faster than gravity can pull it
+  // down after it (checked a moment ahead along its path, so small bumps only make it light), then
+  // flies ballistically. In the air it keeps the attitude it left with, the nose easing toward the
+  // line it is flying along, and the wheels hang down. It lands on its springs: how hard is how fast
+  // it meets the ground across the ground's own slope (landing on a downslope is gentle, as on a
+  // real jump's landing ramp), and the body sinks, rebounds once and settles, rocking on the axle
+  // that touched first. Only past the bump stops does the whole car bounce.
   vertical(dt, sp) {
     if (!dt) return;
-    const G = 18;
+    const G = 14;
     const ground = this.groundY();
+    const gv = this.lastGround == null ? 0 : (ground - this.lastGround) / dt;
     this.landImpact = 0;
     if (!this.air) {
-      const gv = this.lastGround == null ? 0 : (ground - this.lastGround) / dt;
-      // Take off: the road was carrying us up, and now falls away much faster than that.
-      if (sp > 12 && (this.vyPrev || 0) > gv + 4 && (this.vyPrev || 0) > -1) {
-        this.air = true;
-        this.vy = Math.min(this.vyPrev, 10);
+      this.vyPrev = lerp(this.vyPrev || 0, gv, 0.5);
+      if (sp > 10 && !this.boatOn && this.boat < 0.5 && this.vyPrev > -3 && this.wouldFly(ground, this.vyPrev, G)) {
+        this.air = true; this.airT = 0;
+        this.vy = Math.min(this.vyPrev, 11);
         this.airPitch = this.pitch;
       } else this.vy = gv;
-      this.vyPrev = lerp(this.vyPrev || 0, gv, 0.5);
     }
     if (this.air) {
+      this.airT += dt;
       this.vy -= G * dt;
       this.pos.y += this.vy * dt;
-      // Nose drops slowly during the flight.
-      this.airPitch = lerp(this.airPitch ?? 0, 0.16, dt * 0.8);
+      const path = -Math.atan2(this.vy, Math.max(6, Math.abs(this.vF))); // nose down as it falls
+      this.airPitch = lerp(this.airPitch ?? 0, clamp(path * 0.55, -0.3, 0.4), Math.min(1, dt * 1.1));
       if (this.pos.y <= ground) {
-        const impact = -this.vy;
+        const impact = Math.max(0, gv - this.vy);
         this.pos.y = ground;
         this.landImpact = impact;
-        this.compress = Math.min(0.32, impact * 0.022);
-        this.vF *= 1 - Math.min(0.25, impact * 0.012);
-        if (impact > 9) { this.vy = impact * 0.22; this.pos.y = ground + 0.02; } // one bounce
-        else { this.air = false; this.vy = 0; this.landing = 0.25; }
+        // Into the springs, and the axle that touched first rocks the body.
+        this.susV = (this.susV || 0) - Math.min(impact, 12) * 0.5;
+        const fx = Math.sin(this.heading), fz = Math.cos(this.heading);
+        const slope = Math.atan2(this.groundAtPoint(this.pos.x - fx * 1.5, this.pos.z - fz * 1.5) - this.groundAtPoint(this.pos.x + fx * 1.5, this.pos.z + fz * 1.5), 3);
+        this.rockV = (this.rockV || 0) + clamp(this.airPitch - slope, -0.4, 0.4) * Math.min(impact, 10) * 0.35;
+        this.vF *= 1 - Math.min(0.12, impact * 0.008);
+        if (impact > 9 && this.airT > 0.25) { this.vy = gv + (impact - 9) * 0.28; this.pos.y = ground + 0.02; this.airT = 0; }
+        else { this.air = false; this.vy = gv; this.vyPrev = gv; this.landing = 0.1; this.pitch = this.airPitch; }
       }
     }
     this.lastGround = ground;
+  }
+  // The ground (land, landform or water surface) at a point, as the car's centre reads it.
+  groundAtPoint(x, z) { return Math.max(heightAt(x, z), waterLevelAt(x, z) - this.draft()); }
+  // Would the car, leaving now with vertical speed vy, stay clear of the ground just ahead?
+  wouldFly(ground, vy, G) {
+    const fx = Math.sin(this.heading), fz = Math.cos(this.heading), rx = fz, rz = -fx;
+    const vx = fx * this.vF + rx * this.vL, vz = fz * this.vF + rz * this.vL;
+    const off = ground - this.groundAtPoint(this.pos.x, this.pos.z);
+    for (const t of [0.1, 0.2]) {
+      const g = this.groundAtPoint(this.pos.x + vx * t, this.pos.z + vz * t) + off;
+      if (g > ground + vy * t - 0.5 * G * t * t - 0.12) return false;
+    }
+    return true;
+  }
+  // The springs: the body's height over its wheels (susY) and a pitch rock (rockP), each a damped
+  // spring, about one rebound before they settle. Bump stops at 0.3 m.
+  suspend(dt) {
+    this.susY = this.susY || 0; this.susV = this.susV || 0; this.rockP = this.rockP || 0; this.rockV = this.rockV || 0;
+    if (!dt) return;
+    const h = Math.min(dt, 1 / 30);
+    for (let t = 0; t < dt - 1e-6; t += h) {
+      const k = Math.min(h, dt - t);
+      this.susV += (-100 * this.susY - 2 * 0.42 * 10 * this.susV) * k; this.susY += this.susV * k;
+      this.rockV += (-81 * this.rockP - 2 * 0.45 * 9 * this.rockV) * k; this.rockP += this.rockV * k;
+    }
+    if (this.susY < -0.3) { this.susY = -0.3; this.susV = Math.max(0, this.susV); }
+    if (this.susY > 0.12) { this.susY = 0.12; this.susV = Math.min(0, this.susV); }
+    this.rockP = clamp(this.rockP, -0.12, 0.12);
   }
 
   setLights(dark) {

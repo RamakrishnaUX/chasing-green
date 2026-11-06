@@ -2,7 +2,8 @@
 // Circles and yaw-rotated boxes in a spatial hash, so a query only checks nearby shapes.
 //
 // Rocks and cliffs can carry a height (climb): the car still hits them, but on foot they are
-// ground to climb, read with topAt, rather than walls.
+// ground to climb, read with topAt, rather than walls. A box marked carOnly (the footprint of a
+// building you can walk into) stops vehicles but not someone on foot.
 
 const CELL = 32;
 const key = (cx, cz) => cx * 73856093 ^ cz * 19349663;
@@ -80,7 +81,7 @@ export class Obstacles {
       const list = this.cells.get(key(ix, iz));
       if (!list) continue;
       for (const c of list) {
-        if (seen.has(c) || (climber && c.top != null)) continue;
+        if (seen.has(c) || (climber && (c.top != null || c.carOnly))) continue;
         seen.add(c);
         let nx = 0, nz = 0, depth = 0;
         if (c.circle) {

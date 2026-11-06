@@ -318,7 +318,8 @@ export function detailScene(root) {
   root.traverse((o) => {
     const mats = o.isMesh ? [].concat(o.material) : [];
     for (const mat of mats) {
-      if (done.has(mat) || mat.type !== 'MeshStandardMaterial' || mat.transparent || mat.map || mat.vertexColors) continue;
+      // Interiors (halls.js) keep their own finish: polished stone, plaster, wood, velvet.
+      if (done.has(mat) || mat.type !== 'MeshStandardMaterial' || mat.transparent || mat.map || mat.vertexColors || mat.userData.noDetail) continue;
       if (Object.prototype.hasOwnProperty.call(mat, 'onBeforeCompile') || mat.emissiveIntensity * Math.max(mat.emissive.r, mat.emissive.g, mat.emissive.b) > 0.2) continue;
       done.add(mat);
       // A white material on an instanced mesh takes its real colour from the instances.

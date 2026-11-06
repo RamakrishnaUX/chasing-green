@@ -85,10 +85,10 @@ export class Towns {
         if (h < waterLevelAt(x, z) + 0.8 || coastAt(x, z) < 6) continue;
         // Size first, so the whole footprint (not just the centre) stays clear of every road.
         const bw = block ? 10 + rand() * 8 : 5 + rand() * 3, bd = block ? 9 + rand() * 4 : 7 + rand() * 4;
-        if (roadDistAt(x, z) < Math.hypot(bw, bd) / 2 + 4) continue;
+        if (roadDistAt(x, z) < Math.hypot(bw, bd) / 2 + 7) continue; // well back from the kerb
         const slope = Math.abs(heightAt(x + 4, z) - heightAt(x - 4, z)) + Math.abs(heightAt(x, z + 4) - heightAt(x, z - 4));
         if (slope > 1.6) continue; // gentle ground only, so foundations stay short
-        if (landmarks.some((l) => Math.hypot(l.x - x, l.z - z) < (l.id === 'perlan' ? 38 : l.id === 'hallgrimskirkja' || l.id === 'harpa' ? 30 : 22))) continue;
+        if (landmarks.some((l) => Math.hypot(l.x - x, l.z - z) < (l.id === 'perlan' ? 38 : l.id === 'harpa' ? 58 : l.id === 'hallgrimskirkja' ? 52 : l.id === 'laugavegur' ? 42 : 22))) continue;
         if (clear.some((c) => Math.hypot(c.x - x, c.z - z) < c.r)) continue; // fuel station forecourts
         const rot = Math.atan2(dx, dz) + (rand() - 0.5) * 0.15;
         const all = houses.concat(blocks);

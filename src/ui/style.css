@@ -956,7 +956,7 @@ body.is-flying .pad-brake .pad-sub { display: none; }
 .pad-jump { position: absolute; right: calc(14px + var(--safe-r)); bottom: calc(var(--go, 76px) + 30px + var(--safe-b)); flex-direction: column; gap: 2px; min-width: 64px; background: rgba(200, 35, 29, 0.78); border-color: rgba(255, 255, 255, 0.35); color: #fff; }
 .pad-jump span { font-size: 0.6rem; letter-spacing: 0.06em; text-transform: uppercase; font-weight: 700; }
 .pad-jump svg { stroke: #fff; }
-body.is-skydiving .nitro, body.is-skydiving .fuel, body.is-skydiving .go-ring, body.is-skydiving .go-hint, body.is-skydiving #t-look { display: none; }
+body.is-skydiving #infocard, body.is-skydiving .nitro, body.is-skydiving .fuel, body.is-skydiving .go-ring, body.is-skydiving .go-hint, body.is-skydiving #t-look { display: none; }
 /* Never takes a click or a tap, wherever it sits (it covers the whole screen). */
 #fade { position: fixed; inset: 0; background: #05080b; opacity: 0; pointer-events: none !important; transition: opacity 0.22s ease; z-index: 40; }
 #fade.is-on { opacity: 1; }

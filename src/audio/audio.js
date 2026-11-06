@@ -14,6 +14,30 @@ function noiseBuffer(ctx, seconds = 2, brown = false) {
   return buf;
 }
 
+// The twin's loop: CYCLES engine cycles (720 degrees of crank each) at TWIN_RPM, two firing pulses
+// per cycle at 0 and 270 degrees. Each pulse: a crack of exhaust noise ringing in the pipe near
+// 110 Hz, over a deeper thump; a little variation between pulses so the loop does not drone.
+export const TWIN_RPM = 1500;
+export function twinBuffer(ctx) {
+  const sr = ctx.sampleRate, CYCLES = 12, cyc = 120 / TWIN_RPM, n = Math.round(CYCLES * cyc * sr);
+  const buf = ctx.createBuffer(1, n, sr), d = buf.getChannelData(0);
+  let seed = 7; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const len = Math.round(0.07 * sr);
+  for (let c = 0; c < CYCLES; c++) for (const deg of [0, 270]) {
+    const start = Math.round((c + deg / 720) * cyc * sr), amp = 0.8 + rnd() * 0.35, pf = 104 + rnd() * 14, ph = rnd() * 6;
+    for (let i = 0; i < len; i++) {
+      const tt = i / sr;
+      const ring = Math.sin(2 * Math.PI * pf * tt + ph) * Math.exp(-tt / 0.016);
+      const thump = Math.sin(2 * Math.PI * 52 * tt) * Math.exp(-tt / 0.022);
+      const crack = (rnd() * 2 - 1) * Math.exp(-tt / 0.0035);
+      d[(start + i) % n] += amp * (0.55 * ring + 0.6 * thump + 0.5 * crack);
+    }
+  }
+  let peak = 0; for (let i = 0; i < n; i++) peak = Math.max(peak, Math.abs(d[i]));
+  for (let i = 0; i < n; i++) d[i] = Math.tanh(1.6 * d[i] / peak) * 0.9; // a little grit
+  return buf;
+}
+
 export class AudioEngine {
   constructor() {
     this.ctx = null;
@@ -85,6 +109,19 @@ export class AudioEngine {
     loop(this.white).connect(this.nitroBand).connect(this.nitroGain).connect(car);
     this.engine = { base: 38, perSpeed: 2.2, rumble: 1 };
 
+    // Motorbike: a parallel twin with a 270-degree crank, as in a Triumph Bonneville, Thruxton or
+    // Scrambler. Its two exhaust pulses come 270 and then 450 degrees apart, the uneven beat that
+    // makes it lope like a V-twin rather than buzz. Built once as a loop of firing pulses at
+    // TWIN_RPM (each a short burst of exhaust noise ringing in the pipe, over a low thump) and
+    // played faster or slower for the revs, through a filter that opens with the throttle.
+    this.twinSrc = ctx.createBufferSource(); this.twinSrc.buffer = twinBuffer(ctx); this.twinSrc.loop = true;
+    this.twinLP = ctx.createBiquadFilter(); this.twinLP.type = 'lowpass'; this.twinLP.frequency.value = 900; this.twinLP.Q.value = 0.8;
+    this.twinBody = ctx.createBiquadFilter(); this.twinBody.type = 'peaking'; this.twinBody.frequency.value = 95; this.twinBody.gain.value = 6; this.twinBody.Q.value = 1.1;
+    this.twinGain = ctx.createGain(); this.twinGain.gain.value = 0;
+    this.twinSrc.connect(this.twinBody).connect(this.twinLP).connect(this.twinGain).connect(car);
+    this.twinSrc.start();
+    this.gear = 1; this.lastThrottle = 0; this.nextPop = 0;
+
     // Helicopter. The rotor: low noise chopped into a beat at the blade-passing rate (four
     // blades at about 6.6 turns a second), the deep "whop" of each blade's wake. The turbines: a
     // high whine that rises as they spool up. The Fenestron: a band of hiss near 900 Hz.
@@ -152,6 +189,27 @@ export class AudioEngine {
     this.eng1.type = e.type; this.eng2.type = e.type;
   }
 
+  // The twin's revs: five gears, changing up near 6,800 rpm and down again below about 3,000, so it
+  // climbs through each gear and drops back at the change. Louder and brighter on the throttle; off
+  // it at high revs, the odd pop from the exhaust.
+  twinUpdate(t, on, speed, throttle, nitro) {
+    const TOPS = [13, 21, 29, 38, 60]; // m/s at 7,000 rpm in each gear
+    if (speed > TOPS[this.gear - 1] * 0.97 && this.gear < 5) this.gear++;
+    else if (this.gear > 1 && speed < TOPS[this.gear - 2] * 0.42) this.gear--;
+    const load = Math.max(0, throttle) + (nitro ? 0.4 : 0);
+    const rpm = speed < 0.4 ? 1150 + load * 900 : Math.max(1700, 7000 * speed / TOPS[this.gear - 1]) + load * 250;
+    this.twinSrc.playbackRate.setTargetAtTime(rpm / TWIN_RPM, t, 0.07);
+    this.twinLP.frequency.setTargetAtTime(500 + rpm * 0.16 + load * 1300, t, 0.08);
+    const vol = on ? (0.16 + Math.min(1, rpm / 7000) * 0.12 + load * 0.1) * (CONFIG.engineVolume ?? 1) : 0;
+    this.twinGain.gain.setTargetAtTime(vol, t, 0.08);
+    if (on && throttle <= 0 && this.lastThrottle > 0) this.nextPop = t + 0.08;
+    if (on && throttle <= 0 && rpm > 3200 && t > this.nextPop && this.nextPop > 0) {
+      this.burst(380 + Math.random() * 300, 3, 0.05, 0.16 + Math.random() * 0.12, 'bandpass', this.bus.car);
+      this.nextPop = Math.random() < 0.5 ? t + 0.07 + Math.random() * 0.25 : 0;
+    }
+    this.lastThrottle = throttle;
+  }
+
   // Splash when hitting water or a puddle. strength 0 to 1.
   splash(strength) {
     if (!this.ready) return;
@@ -192,7 +250,7 @@ export class AudioEngine {
     s.start(t, Math.random() * 1.5, dur + 0.05);
   }
 
-  update(dt, { speed, wind, exposure, waterProx, iceProx, inCar, wade = 0, nitro = false, heli = null }) {
+  update(dt, { speed, wind, exposure, waterProx, iceProx, inCar, wade = 0, nitro = false, heli = null, throttle = 0 }) {
     if (!this.ready) return;
     const t = this.ctx.currentTime;
     // The helicopter replaces the car engine: rotor, turbines and fan, louder under load and
@@ -214,7 +272,8 @@ export class AudioEngine {
     this.waterGain.gain.setTargetAtTime(0.45 * waterProx, t, 0.3);
     const E = this.engine;
     const eng = inCar && !heli ? (0.05 + Math.min(1, speed / 40) * 0.07 + (nitro ? 0.03 : 0)) * (CONFIG.engineVolume ?? 1) : 0;
-    this.engGain.gain.setTargetAtTime(eng, t, 0.2);
+    this.engGain.gain.setTargetAtTime(E.twin ? 0 : eng, t, 0.2);
+    this.twinUpdate(t, E.twin && inCar && !heli, speed, throttle, nitro);
     // A few "gears": revs climb, drop back, climb again.
     const rev = speed < 1 ? 0 : ((speed * 0.9) % 14) / 14 + Math.min(3, Math.floor(speed * 0.9 / 14)) * 0.15;
     const f = E.base + speed * E.perSpeed * 0.5 + rev * E.base * 1.4 + (nitro ? 18 : 0);

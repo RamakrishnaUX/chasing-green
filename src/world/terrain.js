@@ -1278,6 +1278,9 @@ export function flattenPads(pads, mesh) {
     let sum = 0;
     for (let k = 0; k < 12; k++) { const a = (k / 12) * Math.PI * 2; sum += heightAt(pd.x + Math.cos(a) * pd.r * 0.35, pd.z + Math.sin(a) * pd.r * 0.35); }
     pd.h = Math.max(sum / 12, waterLevelAt(pd.x, pd.z) + 0.8);
+    // A pad on a hillside beside a road (Hallgrímskirkja above the Ring Road) sits no more than
+    // cap above the road, so the road is not left running along a cliff below it.
+    if (pd.cap != null) { const r = nearestRoad(pd.x, pd.z, 120); if (r) pd.h = Math.min(pd.h, heightAt(r.px, r.pz) + pd.cap); }
     pd.core = pd.r * 0.7 + Math.max(grid.dx, grid.dz);
     let drop = 0;
     for (let k = 0; k < 16; k++) { const a = (k / 16) * Math.PI * 2; drop = Math.max(drop, Math.abs(heightAt(pd.x + Math.cos(a) * pd.r, pd.z + Math.sin(a) * pd.r) - pd.h)); }

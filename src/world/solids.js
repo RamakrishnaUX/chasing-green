@@ -187,3 +187,16 @@ export function solidStep(x, z, y, step, clear = null) {
 }
 
 export function solidTiles() { return tiles; }
+
+// True where a landform near (x, z) has open space beneath it (an arch's roof or the rim
+// around its opening), rather than being solid down to the ground (a mound or a hillside).
+export function solidRoofAt(x, z) {
+  for (const t of tiles) {
+    if (x < t.x0 || x >= t.x1 || z < t.z0 || z >= t.z1) continue;
+    const i = Math.max(0, Math.min(t.nx - 2, Math.floor((x - t.ox) / t.cell - 0.5)));
+    const j = Math.max(0, Math.min(t.nz - 2, Math.floor((z - t.oz) / t.cell - 0.5)));
+    const k0 = j * t.nx + i;
+    for (const k of [k0, k0 + 1, k0 + t.nx, k0 + t.nx + 1]) if (t.top[k] > -Infinity && t.ceil[k] < Infinity) return true;
+  }
+  return false;
+}

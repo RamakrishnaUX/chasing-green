@@ -179,6 +179,9 @@ function rainbowStrip(kit, x0, z0, x1, z1, w = 5) {
       const bx = x0 + dx * L * t1 + nx * off, bz = z0 + dz * L * t1 + nz * off;
       const seg = new THREE.Mesh(new THREE.BoxGeometry(w / 6, 0.08, L / n + 0.05), mats[k]);
       seg.position.set((ax + bx) / 2, (kit.ground(ax, az) + kit.ground(bx, bz)) / 2 + 0.14, (az + bz) / 2);
+      // Turned along the street first, then tilted with the slope (in the other order each piece
+      // tipped the wrong way on a hill, a row of steps).
+      seg.rotation.order = 'YXZ';
       seg.rotation.y = Math.atan2(dx, dz);
       seg.rotation.x = Math.atan2(kit.ground(ax, az) - kit.ground(bx, bz), L / n);
       seg.receiveShadow = true;

@@ -435,10 +435,11 @@ export class Skydiver {
     this.agl = this.pos.y - (flying ? HIP : 0.35) - f.y;
     if (this.agl > 0) return false;
     const vy = -this.vel.y, hs = Math.hypot(this.vel.x, this.vel.z);
-    // How it went: a gentle touchdown is run out on his feet; a firmer one bends his knees deep
-    // first; a fast one (or one still falling) is a forward roll.
-    // (An unflared canopy comes in at 4.6 m/s down; a good flare at 3 to 4 m takes that to under 1.5.)
-    const kind = this.state !== 'canopy' || vy >= 4.2 || hs >= 11 ? 'hard' : vy >= 3 ? 'firm' : 'soft';
+    // How it went: under a canopy he lands on his feet and runs it out, a few quick strides and
+    // then a stop, knees bending more the harder he came in (an unflared canopy comes in at about
+    // 4.6 m/s down; a good flare at 3 to 4 m takes that under 1.5). Only something far harder (a
+    // diving turn into the ground) or no canopy at all is a forward roll.
+    const kind = this.state !== 'canopy' || vy >= 7 || hs >= 16 ? 'hard' : vy >= 3 ? 'firm' : 'soft';
     // Anywhere he cannot stand (water, a roof, a steep slope), he is put on the nearest ground he can.
     const ok = this.standable(this.pos.x, this.pos.z, 0);
     const spot = ok || this.standable(this.pos.x, this.pos.z, f.water ? 3000 : 400) || { x: this.pos.x, z: this.pos.z, moved: false };
@@ -446,9 +447,10 @@ export class Skydiver {
     this.landKind = kind; this.landedSoft = kind !== 'hard'; this.water = f.water;
     this.spot = { x: spot.x, z: spot.z, y: groundAt(spot.x, spot.z), moved: spot.moved };
     // The run-out: along the way he was moving over the ground, at that speed.
-    this.run = kind === 'hard' ? hs * 0.35 : hs;
+    // The canopy's drag takes most of a fast approach: no one runs out more than a sprint.
+    this.run = kind === 'hard' ? hs * 0.35 : Math.min(hs, 6.5);
     this.runDir = hs > 0.1 ? V().set(this.vel.x / hs, 0, this.vel.z / hs) : V().set(Math.sin(this.heading), 0, Math.cos(this.heading));
-    this.crouch = kind === 'firm' ? 1 : kind === 'soft' ? clamp(vy / 3, 0.15, 0.65) : 0; this.crouchV = 0;
+    this.crouch = kind === 'firm' ? clamp(vy / 7, 0.45, 0.8) : kind === 'soft' ? clamp(vy / 3, 0.15, 0.6) : 0; this.crouchV = 0;
     this.stride = 0;
     this.pos.y = f.y + (kind === 'hard' ? 0.45 : HIP);
     // The canopy flies on past him, then sinks and settles.
@@ -473,14 +475,17 @@ export class Skydiver {
       if (this.t >= 1.0) this.finish();
       return;
     }
-    this.run = Math.max(0, this.run - (kind === 'firm' ? 6.5 : 5.5) * dt);
+    // Slowing to a stop over a few strides; each stride longer the faster he is going.
+    this.run = Math.max(0, this.run - (kind === 'firm' ? 3.6 : 3.2) * dt);
     this.step2(this.runDir, this.run * dt);
-    this.stride += this.run * dt / 0.95;
-    // Knees: held a moment, then straightening.
-    if (this.t > (kind === 'firm' ? 0.3 : 0.15)) this.spring(this, 'crouch', 0, 6, 1, dt);
+    this.stride += this.run * dt / this.stepLen();
+    // Knees: held a moment, then straightening as he slows.
+    if (this.t > (kind === 'firm' ? 0.25 : 0.15)) this.spring(this, 'crouch', 0, 6, 1, dt);
     this.pos.y = this.floor(this.pos.x, this.pos.z).y + HIP - this.crouch * 0.38;
     if (this.run < 0.05 && this.crouch < 0.04 && this.t > 0.6) this.finish();
   }
+  // One step's length at the run-out speed: a walk's at the end, a sprint's at the start.
+  stepLen() { return lerp(0.75, 1.5, clamp(this.run / 6, 0, 1)); }
   // Move along the ground, stopping at anything too tall to step onto.
   step2(dir, d) {
     if (d <= 0) return;
@@ -515,7 +520,8 @@ export class Skydiver {
     const c = this.canopy, t = this.collapse;
     if (!c.group.visible) { this.collapse = -1; return; }
     const w = this.wingAt, v = this.wingVel;
-    v.x *= Math.exp(-dt / 0.7); v.z *= Math.exp(-dt / 0.7);
+    // It carries on a little further than his run-out, so it comes down in front of him, not on him.
+    v.x *= Math.exp(-dt / 1.05); v.z *= Math.exp(-dt / 1.05);
     v.y = Math.max(-3.5, v.y - 2.6 * dt);
     w.addScaledVector(v, dt);
     const gy = this.floor(w.x, w.z).y + 0.12;
@@ -617,8 +623,8 @@ export class Skydiver {
           // On his feet: each foot on the ground, stepping in turn while he runs out his speed;
           // the knees bend as the hips come down.
           const gy = this.floor(this.pos.x, this.pos.z).y, ph = this.stride * Math.PI + (s > 0 ? 0 : Math.PI);
-          const amp = clamp(this.run / 4, 0, 1);
-          const along = Math.sin(ph) * 0.42 * amp + 0.05, lift = Math.max(0, Math.cos(ph)) * 0.16 * amp;
+          const amp = clamp(this.run / 2, 0, 1), reachF = this.stepLen() * 0.42;
+          const along = Math.sin(ph) * reachF * amp + 0.05, lift = Math.max(0, Math.cos(ph)) * lerp(0.12, 0.3, clamp(this.run / 6, 0, 1)) * amp;
           const hip = wpos(bone[side + 'UpLeg']);
           const foot = V().set(hip.x, gy + 0.09 + lift, hip.z).addScaledVector(F, along).addScaledVector(V().crossVectors(U, F), s * 0.04);
           reach(bone[side + 'UpLeg'], bone[side + 'Leg'], bone[side + 'Foot'], foot, F);
