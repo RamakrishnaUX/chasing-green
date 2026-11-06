@@ -45,37 +45,46 @@ const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t
 const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 
 // ---------- The canopy ----------
-// A ram-air wing: nine cells in an arc, red and white, an airfoil section open at the front, with
-// the suspension lines down to the risers and the steering lines down to his hands. Built in its
-// own frame: origin at the harness, +y up, +z forward, +x his left.
-function airfoil(u) { // thickness through the chord, u from the leading edge (0) to the tail (1)
-  return 0.4 * (1.48 * Math.sqrt(Math.max(u, 0)) - 0.63 * u - 1.76 * u * u + 1.42 * u * u * u - 0.51 * u ** 4);
+// A nine-cell ram-air wing, as a sport canopy is built: an arc of fat, pillowy cells (the top skin
+// bulges up between the ribs, the bottom a little down), a thick airfoil with the cell mouths open
+// across the front and the dark rib walls seen inside them, tapering a little to the tips. Its lines
+// run from four points along each rib, join in cascades, and come down to four risers at his
+// shoulders through the slider; the steering lines gather from the tail to his hands.
+// Built in its own frame: origin at the harness, +y up, +z forward, +x his left.
+const TMAX = 0.17; // thickness, as a share of the chord
+function airfoil(u) { // thickness through the chord (metres at the root), u from the nose (0) to the tail (1)
+  const t = 1.48 * Math.sqrt(Math.max(u, 0)) - 0.63 * u - 1.76 * u * u + 1.42 * u * u * u - 0.51 * u ** 4;
+  return CHORD * TMAX * t / 0.5;
 }
-function ribPoint(s, u, h) { // s: across the span (-1..1), u: along the chord, h: up from the bottom skin
-  const th = s * ARC / 2, R = SPAN / ARC;
+const chordAt = (s) => 1 - 0.16 * s * s; // a little narrower at the tips
+function ribPoint(s, u, h) { // s: across the span (-1..1), u: along the chord, h: up from the chord line
+  const th = s * ARC / 2, R = SPAN / ARC, k = chordAt(s);
   const n = new THREE.Vector3(Math.sin(th), Math.cos(th), 0);
-  const base = new THREE.Vector3(R * Math.sin(th), LINE - R * (1 - Math.cos(th)), CHORD * (0.42 - u));
-  return base.addScaledVector(n, h);
+  const base = new THREE.Vector3(R * Math.sin(th), LINE - R * (1 - Math.cos(th)), CHORD * k * (0.4 - u) + CHORD * 0.06 * (1 - k));
+  return base.addScaledVector(n, h * k);
 }
+// The scheme: cells from the left tip to the right one.
+const SCHEME = [0x1c2a4a, 0xf2efe6, 0xc8231d, 0xf2efe6, 0xc8231d, 0xf2efe6, 0xc8231d, 0xf2efe6, 0x1c2a4a].map((c) => new THREE.Color(c));
 function buildCanopy() {
   const group = new THREE.Group();
   group.userData.dynamic = true;
   const pos = [], col = [], idx = [];
-  const NU = 12, SUB = 4; // chord samples; span samples per cell
-  const red = new THREE.Color(0xc8231d), white = new THREE.Color(0xf1efe8);
+  const NU = 20, SUB = 6; // chord samples; span samples per cell
+  const cols = CELLS * SUB + 1, tm = airfoil(0.3);
+  const push = (p, c, shade = 1) => { pos.push(p.x, p.y, p.z); col.push(c.r * shade, c.g * shade, c.b * shade); };
   for (const surface of ['top', 'bottom']) {
     const start = pos.length / 3;
-    const cols = CELLS * SUB + 1;
-    for (let j = 0; j <= CELLS * SUB; j++) {
-      const s = j / (CELLS * SUB) * 2 - 1, cell = Math.min(CELLS - 1, Math.floor(j / SUB)), within = (j % SUB) / SUB;
-      const bulge = surface === 'top' ? Math.sin(Math.PI * within) * 0.07 : -Math.sin(Math.PI * within) * 0.03;
-      const c = cell % 2 ? white : red;
+    for (let j = 0; j < cols; j++) {
+      const s = j / (cols - 1) * 2 - 1, cell = Math.min(CELLS - 1, Math.floor(j / SUB)), within = (j - cell * SUB) / SUB;
+      // A cell is a fabric tube held in at its ribs: rounder near the middle, flat at the tail.
+      const lobe = Math.sin(Math.PI * within);
+      const c = SCHEME[cell];
       for (let i = 0; i <= NU; i++) {
-        const u = surface === 'bottom' ? 0.06 + (i / NU) * 0.94 : i / NU; // the bottom skin starts behind the cell mouths
-        const t = airfoil(u);
-        const h = surface === 'top' ? t * 0.85 + bulge * t / 0.12 : -t * 0.15 + bulge * t / 0.12;
-        const p = ribPoint(s, u, h);
-        pos.push(p.x, p.y, p.z); col.push(c.r, c.g, c.b);
+        const u = surface === 'bottom' ? 0.07 + (i / NU) ** 1.2 * 0.93 : (i / NU) ** 1.35;
+        const t = airfoil(u), fill = t / tm;
+        const h = surface === 'top' ? t * 0.8 + lobe * 0.075 * fill : -t * 0.2 - lobe * 0.03 * fill;
+        // The underside is in its own shadow, a little darker.
+        push(ribPoint(s, u, h), c, surface === 'top' ? 1 : 0.82);
       }
     }
     for (let j = 0; j < cols - 1; j++) for (let i = 0; i < NU; i++) {
@@ -83,12 +92,13 @@ function buildCanopy() {
       if (surface === 'top') idx.push(a, a + 1, b, b, a + 1, b + 1); else idx.push(a, b, a + 1, b, b + 1, a + 1);
     }
   }
-  // The end ribs close the wing at the tips.
-  for (const s of [-1, 1]) {
-    const start = pos.length / 3, c = red;
+  // The ribs: the cell walls, dark inside (seen through the mouths), the end ones in the tip colour.
+  for (let r = 0; r <= CELLS; r++) {
+    const s = r / CELLS * 2 - 1, start = pos.length / 3, end = r === 0 || r === CELLS;
+    const c = end ? SCHEME[r === 0 ? 0 : CELLS - 1] : new THREE.Color(0x3a3c40);
     for (let i = 0; i <= NU; i++) {
-      const u = i / NU, t = airfoil(u);
-      for (const h of [t * 0.85, -t * 0.15]) { const p = ribPoint(s, u, h); pos.push(p.x, p.y, p.z); col.push(c.r, c.g, c.b); }
+      const u = (i / NU) ** 1.35, t = airfoil(u);
+      push(ribPoint(s, u, t * 0.8), c, end ? 0.9 : 1); push(ribPoint(s, Math.max(u, 0.07), -t * 0.2), c, end ? 0.9 : 1);
     }
     for (let i = 0; i < NU; i++) { const a = start + i * 2; idx.push(a, a + 1, a + 2, a + 2, a + 1, a + 3); }
   }
@@ -97,26 +107,34 @@ function buildCanopy() {
   geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
   geo.setIndex(idx);
   geo.computeVertexNormals();
-  const wing = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, side: THREE.DoubleSide }));
-  wing.castShadow = true;
+  // Ripstop nylon: a soft, slightly glossy fabric.
+  const wing = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, side: THREE.DoubleSide }));
+  wing.castShadow = true; wing.receiveShadow = true;
   // The wing's own pivot is the middle of its underside, so it can be scaled as it inflates.
   const pivot = new THREE.Group(); pivot.position.set(0, LINE, 0);
   wing.position.set(0, -LINE, 0);
   pivot.add(wing); group.add(pivot);
-  // Line attachments: three along the chord on each rib (the cascades), to the left or right riser.
-  const attach = [];
-  for (let r = 0; r <= CELLS; r++) for (const u of [0.12, 0.45, 0.78]) attach.push({ p: ribPoint(r / CELLS * 2 - 1, u, -airfoil(u) * 0.15), left: r / CELLS > 0.5 });
-  const tails = [ribPoint(1, 0.98, 0), ribPoint(-1, 0.98, 0), ribPoint(0.6, 0.98, 0), ribPoint(-0.6, 0.98, 0)];
-  const nLines = attach.length + 4;
+  // Line attachments: four along each rib (A, B, C, D) on the bottom skin.
+  const ribs = [];
+  for (let r = 0; r <= CELLS; r++) { const s = r / CELLS * 2 - 1; ribs.push({ left: s > 0, pts: [0.1, 0.32, 0.56, 0.8].map((u) => ribPoint(s, u, -airfoil(u) * 0.2)) }); }
+  const tails = { left: [0.95, 0.75, 0.55].map((s) => ribPoint(s, 0.99, 0)), right: [-0.95, -0.75, -0.55].map((s) => ribPoint(s, 0.99, 0)) };
+  const nSeg = ribs.length * 6 + 4 + 8;
   const lineGeo = new THREE.BufferGeometry();
-  lineGeo.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(nLines * 6), 3));
-  const lines = new THREE.LineSegments(lineGeo, new THREE.LineBasicMaterial({ color: 0x2a2a2a, transparent: true, opacity: 0.85 }));
+  lineGeo.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(nSeg * 6), 3));
+  const lines = new THREE.LineSegments(lineGeo, new THREE.LineBasicMaterial({ color: 0x9c9890, transparent: true, opacity: 0.8 }));
   lines.frustumCulled = false;
   group.add(lines);
+  // The risers (dark webbing) and the slider (a square of canopy fabric the lines run through).
+  const riserGeo = new THREE.BufferGeometry();
+  riserGeo.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(4 * 6), 3));
+  const risers = new THREE.LineSegments(riserGeo, new THREE.LineBasicMaterial({ color: 0x1a1c20 }));
+  risers.frustumCulled = false; group.add(risers);
+  const slider = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.42).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0xc8231d, roughness: 0.7, side: THREE.DoubleSide }));
+  group.add(slider);
   // The deployment bag, seen for a moment as the lines stretch out.
   const bag = new THREE.Mesh(new RoundedBoxGeometry(0.34, 0.22, 0.2, 2, 0.05), new THREE.MeshStandardMaterial({ color: 0x1d2633, roughness: 0.8 }));
   group.add(bag);
-  return { group, pivot, wing, lines, attach, tails, bag };
+  return { group, pivot, wing, lines, risers, slider, ribs, tails, bag };
 }
 
 // The container on his back: a rounded black pack with a red handle at the bottom.
@@ -386,8 +404,8 @@ export class Skydiver {
     c.pivot.rotation.set(0, 0, 0);
     c.pivot.scale.set(lerp(1, 0.9, k), lerp(1, 0.08, k), 1);
     c.wing.rotation.set(0, 0, 0);
-    c.lines.material.opacity = 0.85 * (1 - k);
-    c.lines.visible = k < 0.95;
+    c.lines.material.opacity = 0.8 * (1 - k);
+    c.lines.visible = c.risers.visible = c.slider.visible = k < 0.6;
     if (this.collapse > 2.2) { c.group.visible = false; this.collapse = -1; }
   }
 
@@ -507,20 +525,41 @@ export class Skydiver {
       c.wing.visible = d > 0.12;
       c.bag.visible = d < 0.35;
       c.bag.position.set(0, lerp(0.3, LINE + 0.6, up) + (d > 0.18 ? (d - 0.18) * 6 : 0), -0.2);
-      c.lines.visible = d > 0.05; c.lines.material.opacity = 0.85;
+      c.lines.visible = d > 0.05; c.lines.material.opacity = 0.8;
     }
     c.group.updateMatrixWorld(true);
-    // Lines: attachments on the wing (through its pivot) to the risers at his shoulders.
+    // Lines: from the rib attachments (through the wing's pivot) into cascades, then to the tops of
+    // the risers, which run down to his shoulders; the steering lines gather to his hands.
     const inv = c.group.matrixWorld.clone().invert();
     const shL = wpos(bone.LeftArm).applyMatrix4(inv), shR = wpos(bone.RightArm).applyMatrix4(inv);
     const handL = wpos(bone.LeftHand).applyMatrix4(inv), handR = wpos(bone.RightHand).applyMatrix4(inv);
-    const P = c.lines.geometry.attributes.position, m = c.pivot.matrix, wm = c.wing.matrix, v = V();
+    const d = st === 'deploy' ? this.d : 1, rise = lerp(0.12, 0.55, smooth(0.3, 0.9, d)); // the slider comes down as it opens
+    const top = (sh, f) => sh.clone().add(V().set(0, 0.55, f));
+    const tops = { left: [top(shL, 0.07), top(shL, -0.07)], right: [top(shR, 0.07), top(shR, -0.07)] };
+    const P = c.lines.geometry.attributes.position, m = c.pivot.matrix, wm = c.wing.matrix;
     c.pivot.updateMatrix(); c.wing.updateMatrix();
+    const W = (p) => p.clone().applyMatrix4(wm).applyMatrix4(m);
     let i = 0;
-    const put = (a, b) => { P.setXYZ(i++, a.x, a.y, a.z); P.setXYZ(i++, b.x, b.y, b.z); };
-    for (const at of c.attach) { v.copy(at.p).applyMatrix4(wm).applyMatrix4(m); put(v, (at.left ? shL : shR).clone().setY((at.left ? shL : shR).y + 0.25)); }
-    c.tails.forEach((tp, k) => { v.copy(tp).applyMatrix4(wm).applyMatrix4(m); put(v, k % 2 === 0 ? handL : handR); });
+    const put = (A, a, b) => { A.setXYZ(i++, a.x, a.y, a.z); A.setXYZ(i++, b.x, b.y, b.z); };
+    for (const rb of c.ribs) {
+      const [pa, pb, pc, pd] = rb.pts.map(W), [front, rear] = tops[rb.left ? 'left' : 'right'];
+      const c1 = pa.clone().add(pb).multiplyScalar(0.5).lerp(front, 0.3), c2 = pc.clone().add(pd).multiplyScalar(0.5).lerp(rear, 0.3);
+      put(P, pa, c1); put(P, pb, c1); put(P, c1, front); put(P, pc, c2); put(P, pd, c2); put(P, c2, rear);
+    }
+    for (const [side, hand] of [['left', handL], ['right', handR]]) {
+      const tp = c.tails[side].map(W), mid = tp.reduce((a, b) => a.add(b), V()).multiplyScalar(1 / tp.length).lerp(tops[side][1], 0.35);
+      for (const t of tp) put(P, t, mid);
+      put(P, mid, hand);
+    }
+    while (i < P.count) P.setXYZ(i++, 0, 0, 0);
     P.needsUpdate = true;
+    // Risers and slider.
+    const R = c.risers.geometry.attributes.position; i = 0;
+    put(R, shL, tops.left[0]); put(R, shL, tops.left[1]); put(R, shR, tops.right[0]); put(R, shR, tops.right[1]);
+    R.needsUpdate = true;
+    c.slider.position.copy(shL).add(shR).multiplyScalar(0.5).add(V().set(0, rise + 0.02, 0));
+    c.slider.visible = d > 0.25;
+    c.risers.visible = c.lines.visible;
     void F;
   }
 }

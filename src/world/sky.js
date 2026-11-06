@@ -4,6 +4,9 @@ import { clamp, smoothstep } from './noise.js';
 import { HD } from './hd.js';
 
 export const GLSL_NOISE = /* glsl */ `
+// smoothstep, defined for edges in either order (GLSL leaves edge0 >= edge1 undefined; on Apple GPUs
+// it came out as dark seams across the sky).
+float sstep(float a, float b, float x){ float t = clamp((x - a) / (b - a), 0.0, 1.0); return t * t * (3.0 - 2.0 * t); }
 float hash12(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * .1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 float hash13(vec3 p3){ p3 = fract(p3 * .1031); p3 += dot(p3, p3.zyx + 31.32); return fract((p3.x + p3.y) * p3.z); }
 float vnoise(vec2 p){ vec2 i = floor(p); vec2 f = fract(p); vec2 u = f*f*(3.0-2.0*f);
@@ -34,21 +37,21 @@ void main(){
   float el = uSunEl;
   float sunF = max(dot(normalize(vec3(d.x, 0.0, d.z)), normalize(vec3(uSunDir.x, 0.0, uSunDir.z))), 0.0);
   // Day: deep blue overhead fading to a pale hazy horizon.
-  vec3 day = mix(${v3(PAL.dayZen)}, ${v3(PAL.dayMid)}, smoothstep(0.0, 0.7, 1.0 - y));
+  vec3 day = mix(${v3(PAL.dayZen)}, ${v3(PAL.dayMid)}, sstep(0.0, 0.7, 1.0 - y));
   day = mix(day, ${v3(PAL.dayHor)}, hor);
   // Low winter sun warms the horizon on the sun side.
-  float golden = smoothstep(16.0, 1.0, el) * smoothstep(-4.0, 0.0, el);
+  float golden = sstep(16.0, 1.0, el) * sstep(-4.0, 0.0, el);
   day = mix(day, ${v3(PAL.goldSun)}, golden * pow(sunF, 2.5) * hor * 0.85);
   // Twilight: lilac and pink, hottest toward the set sun.
   vec3 tw = mix(${v3(PAL.twZen)}, ${v3(PAL.twHor)}, pow(1.0 - y, 2.2));
   tw = mix(tw, ${v3(PAL.twSun)}, pow(sunF, 3.0) * pow(1.0 - y, 5.0));
-  float wTw = smoothstep(-10.0, -3.0, el) * smoothstep(6.0, 0.0, el);
+  float wTw = sstep(-10.0, -3.0, el) * sstep(6.0, 0.0, el);
   vec3 col = mix(day, tw, wTw);
   vec3 night = mix(${v3(PAL.nightZen)}, ${v3(PAL.nightHor)}, hor);
-  col = mix(col, night, smoothstep(-5.0, -11.0, el));
+  col = mix(col, night, sstep(-5.0, -11.0, el));
   // Sun disk and glow.
   float sd = dot(d, uSunDir);
-  col += vec3(1.0, 0.92, 0.78) * smoothstep(0.9993, 0.9997, sd) * (1.0 - uDark);
+  col += vec3(1.0, 0.92, 0.78) * sstep(0.9993, 0.9997, sd) * (1.0 - uDark);
   col += vec3(1.0, 0.8, 0.55) * pow(max(sd, 0.0), 40.0) * 0.35 * (1.0 - uDark);
   // City light pollution.
   float cityFacing = pow(max(dot(normalize(vec3(d.x, 0.0, d.z)), uCityDir), 0.0), 5.0);
@@ -62,14 +65,14 @@ void main(){
     vec3 c = cell + 0.5 + (vec3(hash13(cell + 1.3), hash13(cell + 2.7), hash13(cell + 5.1)) - 0.5) * 0.6;
     float dist = length(sp - c);
     float twk = 0.7 + 0.3 * sin(uTime * (1.5 + h * 30.0) + h * 100.0);
-    star = smoothstep(0.35, 0.0, dist) * twk * (0.4 + 2.5 * (h - 0.9965) / 0.0035);
+    star = sstep(0.35, 0.0, dist) * twk * (0.4 + 2.5 * (h - 0.9965) / 0.0035);
   }
-  float starVis = uDark * (1.0 - uCloud * 0.9) * (1.0 - uCityOverhead * 0.85) * smoothstep(0.0, 0.12, y);
+  float starVis = uDark * (1.0 - uCloud * 0.9) * (1.0 - uCityOverhead * 0.85) * sstep(0.0, 0.12, y);
   col += vec3(0.85, 0.9, 1.0) * star * starVis;
   col += vec3(0.05, 0.06, 0.08) * fbm2(d.xz / (y + 0.3) * 3.0) * uDark * (1.0 - uCloud) * 0.5;
   // Moon.
   float md = dot(d, uMoonDir);
-  col += vec3(0.88, 0.9, 0.92) * smoothstep(0.99955, 0.99975, md) * (1.0 - uCloud * 0.8);
+  col += vec3(0.88, 0.9, 0.92) * sstep(0.99955, 0.99975, md) * (1.0 - uCloud * 0.8);
   col += vec3(0.25, 0.3, 0.4) * pow(max(md, 0.0), 30.0) * 0.3 * uDark * (1.0 - uCloud * 0.6);
   col += uAuroraTint * uAurora * hor * 0.05;
   gl_FragColor = vec4(col, uOverlay);
@@ -106,14 +109,15 @@ float cDens(vec3 q, float cov, bool fine){
   float field = fbm3(w * 0.0011);
   float n = field * 0.55 + big * 0.33 + lumps * 0.12;
   // Flat bases; tops rounded and taller where a cell is thick.
-  float prof = smoothstep(0.0, 0.1, hf) * smoothstep(0.35 + 0.6 * big, 0.15 + 0.3 * big, hf);
-  float dd = smoothstep(1.0 - cov - 0.06, 1.0 - cov + 0.22, n);
+  float prof = sstep(0.0, 0.1, hf) * sstep(0.35 + 0.6 * big, 0.15 + 0.3 * big, hf);
+  float dd = sstep(1.0 - cov - 0.06, 1.0 - cov + 0.22, n);
   if (fine) dd -= vnoise(p * 0.06 + hf * 3.0) * 0.28 * (1.0 - dd);
   return clamp(dd, 0.0, 1.0) * prof;
 }
 vec4 volClouds(vec3 d, float cov, vec3 sunCol, vec3 ambCol){
-  // Above the deck (in the helicopter) there is nothing overhead to march through.
-  if (cov < 0.03 || d.y < 0.015 || uCam.y > 790.0) return vec4(0.0);
+  // The march is for a deck seen from below. From inside it or above (in the helicopter, under a
+  // parachute) it came out as dark seams across the sky: there the flat layer is drawn instead.
+  if (cov < 0.03 || d.y < 0.015 || uCam.y > 420.0) return vec4(0.0);
   float t0 = (420.0 - uCam.y) / d.y, t1 = min((800.0 - uCam.y) / d.y, t0 + 1300.0);
   if (t0 < 0.0) t0 = 0.0;
 #ifdef PANO
@@ -149,17 +153,17 @@ vec4 volClouds(vec3 d, float cov, vec3 sunCol, vec3 ambCol){
 #endif
 vec4 cloudAt(vec3 d){
   if (d.y < 0.0) return vec4(0.0);
-  float horizonFade = smoothstep(0.0, 0.09, d.y);
+  float horizonFade = sstep(0.0, 0.09, d.y);
   vec2 p = uCam.xz + d.xz / max(d.y, 0.04) * 420.0 + uOffset;
   // Weather clouds, driven by the simulation's local cover.
   float n = fbm2(p * 0.0045) * 0.75 + fbm2(p * 0.018 + uTime * 0.01) * 0.25;
   float cov = clamp(uCloud, 0.0, 1.0);
-  float dens = smoothstep(1.0 - cov - 0.1, 1.0 - cov + 0.25, n) * horizonFade;
+  float dens = sstep(1.0 - cov - 0.1, 1.0 - cov + 0.25, n) * horizonFade;
   // Light the cloud: sample again a little toward the sun. Thicker cloud between this point and
   // the sun means a darker, bluer underside; thin edges facing the sun glow.
   vec2 toSun = normalize(uSunDir.xz + vec2(1e-4));
   float n2 = fbm2((p + toSun * 38.0) * 0.0045) * 0.75 + fbm2((p + toSun * 38.0) * 0.018 + uTime * 0.01) * 0.25;
-  float occl = smoothstep(1.0 - cov - 0.1, 1.0 - cov + 0.25, n2);
+  float occl = sstep(1.0 - cov - 0.1, 1.0 - cov + 0.25, n2);
   float shade = 1.0 - 0.55 * occl;
   float lining = pow(max(dot(d, uSunDir), 0.0), 6.0) * (1.0 - dens) * 1.4;
   // High cirrus: long wind-combed streaks, mostly for looks.
@@ -167,12 +171,12 @@ vec4 cloudAt(vec3 d){
   vec2 pc = uCam.xz + d.xz / max(d.y, 0.04) * 900.0 + uOffset * 1.6;
   vec2 qc = vec2(dot(pc, uWind), dot(pc, vec2(-uWind.y, uWind.x)));
   float streak = fbm2(vec2(qc.x * 0.0016, qc.y * 0.0062));
-  float wisp = smoothstep(0.56, 0.8, streak) * (0.55 + 0.45 * vnoise(qc * 0.012)) * horizonFade;
+  float wisp = sstep(0.56, 0.8, streak) * (0.55 + 0.45 * vnoise(qc * 0.012)) * horizonFade;
   float el = uSunEl;
   float sunF = pow(max(dot(d, uSunDir), 0.0), 3.0);
-  float golden = smoothstep(16.0, 1.0, el) * smoothstep(-4.0, 0.0, el);
-  float wTw = smoothstep(-10.0, -3.0, el) * smoothstep(6.0, 0.0, el);
-  float wNight = smoothstep(-5.0, -11.0, el);
+  float golden = sstep(16.0, 1.0, el) * sstep(-4.0, 0.0, el);
+  float wTw = sstep(-10.0, -3.0, el) * sstep(6.0, 0.0, el);
+  float wNight = sstep(-5.0, -11.0, el);
   // Lit tops and grey bellies by day, gold near a low sun, pink at twilight.
   vec3 dayCol = mix(vec3(0.62, 0.66, 0.74), vec3(1.0, 0.99, 0.97), shade) * (1.0 - dens * 0.18) + vec3(1.0, 0.9, 0.75) * lining;
   dayCol *= mix(vec3(1.0), vec3(1.0, 0.8, 0.6), golden * (0.35 + 0.65 * sunF));
@@ -187,11 +191,11 @@ vec4 cloudAt(vec3 d){
   vec3 vcol = mix(v.rgb, twCol, wTw * 0.75);
   vcol = mix(vcol, nightCol, wNight);
   // Low in the sky the march grows too long for its steps, so hand over to the flat layer.
-  float vw = smoothstep(0.06, 0.22, d.y);
+  float vw = sstep(0.06, 0.22, d.y) * (1.0 - sstep(370.0, 420.0, uCam.y)); // and hand over as you climb into the deck
   vcol = mix(col, vcol, vw);
   float va = mix(dens * 0.95, v.a * horizonFade, vw);
   // High streaky cirrus only shows in fair weather; under real cloud it reads as smears.
-  float wa = wisp * 0.6 * (1.0 - wNight * 0.85) * (1.0 - va) * (1.0 - smoothstep(0.25, 0.55, cov));
+  float wa = wisp * 0.6 * (1.0 - wNight * 0.85) * (1.0 - va) * (1.0 - sstep(0.25, 0.55, cov));
   col = (vcol * va + col * wa) / max(va + wa, 1e-3);
   a = va + wa;
 #endif

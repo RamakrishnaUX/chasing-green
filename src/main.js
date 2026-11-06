@@ -511,10 +511,13 @@ function flyCamera(dt, l) {
 // for the helicopter), further back and level with the canopy under it; or through his own eyes
 // (C). Drag to look round. Never below the ground.
 const skyOff = new THREE.Vector3(), _sk = new THREE.Vector3(), _sh = new THREE.Vector3();
+const smooth01 = (agl, top) => 1 - smoothstep(0, top, Math.max(0, agl));
 function skyCamera(dt, l) {
   const d = diver, agl = Math.max(0, d.agl), fallingNow = d.falling;
   const far = Math.min(16000, Math.max(Q.far || 3000, 2600 + agl * 3.6));
-  const near = skyView === 'eyes' ? 0.08 : 0.3;
+  // The near plane moves out with height, as in the helicopter: with the far plane 16 km out, a
+  // near plane of a few centimetres left too little depth precision and the sky showed dark seams.
+  const near = skyView === 'eyes' ? clamp(0.08 + agl * 0.0004, 0.08, 0.5) : clamp(0.3 + agl * 0.002, 0.3, 2);
   if (camera.far !== far || camera.near !== near) { camera.far = far; camera.near = near; camera.updateProjectionMatrix(); }
   look.orbit -= l.dx * 0.006;
   look.skyPitch = clamp((look.skyPitch || 0) + l.dy * 0.004, -0.5, 0.9);
@@ -529,13 +532,16 @@ function skyCamera(dt, l) {
     if (Math.abs(camera.fov - 72) > 0.05) { camera.fov += (72 - camera.fov) * Math.min(1, dt * 3); camera.updateProjectionMatrix(); }
     return;
   }
-  const back = fallingNow ? 5 : 9.5, up = (fallingNow ? 2.6 : 2.8) + look.skyPitch * 6;
+  // Under the canopy the camera rides level with the wing, behind it, so you see across its back
+  // with him hanging below; falling, it is close behind and above him.
+  const low = fallingNow ? 0 : smooth01(d.agl, 25); // 1 at the ground, 0 from 25 m up
+  const back = fallingNow ? 5 : 11 - low * 3, up = (fallingNow ? 2.6 : 5.4 - low * 3.2) + look.skyPitch * 6;
   _sk.set(-fx * back, up, -fz * back);
   skyOff.lerp(_sk, Math.min(1, dt * (d.state === 'exit' ? 1.6 : 3.5)));
   camera.position.copy(d.pos).add(skyOff);
   camera.position.y = Math.max(camera.position.y, groundAt(camera.position.x, camera.position.z) + 1.2);
   if (fallingNow) camTarget.set(d.pos.x + Math.sin(d.heading) * 5, d.pos.y - 2.5, d.pos.z + Math.cos(d.heading) * 5);
-  else camTarget.set(d.pos.x + Math.sin(d.heading) * 3, d.pos.y + 2.4, d.pos.z + Math.cos(d.heading) * 3);
+  else camTarget.set(d.pos.x + Math.sin(d.heading) * 2, d.pos.y + 2.1 - smooth01(d.agl, 25) * 1.2, d.pos.z + Math.cos(d.heading) * 2);
   camera.lookAt(camTarget);
   const fov = fallingNow ? 60 + clamp(d.speed / 55, 0, 1) * 10 : 60;
   if (Math.abs(camera.fov - fov) > 0.05) { camera.fov += (fov - camera.fov) * Math.min(1, dt * 3); camera.updateProjectionMatrix(); }
