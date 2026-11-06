@@ -10,6 +10,11 @@
 // each gear), how its filter opens with revs and throttle (`lp`: base, per rpm, per throttle),
 // a body boost (`body`: frequency, gain), its level, and how readily it pops and crackles on the
 // overrun (`pops`: the chance a throttle lift sets it off, how many, how loud, and their pitch).
+//
+// The four cars play real recordings instead (`rec`): loops cut from engine recordings, each held at
+// one rpm (public/sounds/engines, credited in the README), crossfaded by the revs and each played
+// faster or slower to match them (audio.js, recMix). Their built voice plays only until the loops
+// have loaded. rec.lp is their filter (base, per rpm, per throttle) and rec.gain their level.
 
 export const VOICES = {
   // Motorbike: a 270-degree parallel twin, as in a Triumph Scrambler or Bonneville (see twinBuffer).
@@ -21,7 +26,10 @@ export const VOICES = {
   // Trail 4x4: a big cross-plane V8. Firing order 1-8-4-3-6-5-7-2, banks L R R L R L L R, each
   // bank's pipe a little different: the lumpy off-beat burble.
   v8: {
-    ref: 1200, cycles: 10, idle: 760, red: 5600, len: 0.06,
+    ref: 1200, cycles: 10, idle: 700, red: 4400, len: 0.06,
+    // A Land Rover V8 idling, then a small-block Chevrolet V8 (in a 1953 Studebaker) held at four
+    // speeds on its way up.
+    rec: { lp: [1500, 0.45, 4000], gain: 1.75, loops: [['v8_0700', 700], ['v8_1130', 1130], ['v8_1450', 1450], ['v8_2580', 2580], ['v8_2830', 2830]] },
     fire: [[0, 0], [90, 1], [180, 1], [270, 0], [360, 1], [450, 0], [540, 0], [630, 1]],
     pipes: [
       { amp: 1, ring: [[70, 0.019, 0.75], [140, 0.008, 0.28], [210, 0.005, 0.1]] },
@@ -33,7 +41,9 @@ export const VOICES = {
   },
   // Vintage roadster: an old straight six, even and smooth, a soft hum through a quiet pipe.
   six: {
-    ref: 1200, cycles: 12, idle: 620, red: 4300, len: 0.07,
+    ref: 1200, cycles: 12, idle: 800, red: 3200, len: 0.07,
+    // An old car's engine from a vintage film-sound library, held at three speeds.
+    rec: { lp: [1300, 0.45, 3200], gain: 1.9, loops: [['six_1050', 1050], ['six_1220', 1220], ['six_1640', 1640]] },
     fire: [[0, 0], [120, 0], [240, 0], [360, 0], [480, 0], [600, 0]],
     pipes: [{ amp: 1, ring: [[61, 0.022, 0.65], [122, 0.011, 0.25], [183, 0.006, 0.08]] }],
     thump: [33, 0.026, 0.8], crack: [0.1, 0.003], vary: 0.1, jit: 0.004, drive: 1.3,
@@ -43,7 +53,9 @@ export const VOICES = {
   // Camper van: an air-cooled flat four, as in the old VW bus. Firing 1-4-3-2, banks L R R L,
   // through a short raspy pipe: the clattering putter.
   flat4: {
-    ref: 1500, cycles: 12, idle: 880, red: 4600, len: 0.05,
+    ref: 1500, cycles: 12, idle: 700, red: 4200, len: 0.05,
+    // A 1961 VW Beetle's air-cooled flat four idling, then a VW Type 2 bus held at two speeds.
+    rec: { lp: [1500, 0.45, 3800], gain: 2.1, loops: [['flat4_0700', 700], ['flat4_2590', 2590], ['flat4_2750', 2750]] },
     fire: [[0, 0], [180, 1], [360, 1], [540, 0]],
     pipes: [
       { amp: 1, ring: [[116, 0.013, 0.6], [232, 0.006, 0.32], [348, 0.004, 0.12]] },
@@ -56,7 +68,9 @@ export const VOICES = {
   // Supercar: a flat-plane V8, banks alternating L R L R so each pipe fires evenly: a hard,
   // rising scream, with crackle on the overrun.
   race: {
-    ref: 2400, cycles: 16, idle: 1000, red: 8800, len: 0.03,
+    ref: 2400, cycles: 16, idle: 900, red: 7400, len: 0.03,
+    // An Audi R8's V10 idling and held at four speeds.
+    rec: { lp: [1800, 0.5, 5000], gain: 1.8, loops: [['race_0820', 820], ['race_1930', 1930], ['race_2780', 2780], ['race_3260', 3260], ['race_4070', 4070]] },
     fire: [[0, 0], [90, 1], [180, 0], [270, 1], [360, 0], [450, 1], [540, 0], [630, 1]],
     pipes: [
       { amp: 1, ring: [[150, 0.008, 0.6], [300, 0.004, 0.36], [450, 0.003, 0.16]] },

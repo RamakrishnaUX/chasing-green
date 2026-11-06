@@ -398,7 +398,7 @@ src/
     style.css
   audio/
     audio.js         procedural wind, water, ice, tyres and engine, the music player, and the volume groups
-    engines.js       each vehicle's engine voice: firing order, pipes, revs, gears and pops
+    engines.js       each vehicle's engine voice: firing order, pipes, revs, gears, pops, and the cars' recorded loops
   share/
     postcard.js      postcard image, caption, share and save
     link.js          encode a sighting into a URL
@@ -488,6 +488,21 @@ Two tracks play in turn on the car stereo, streamed from `public/music`: "Road t
 ### Engine sounds
 
 Every vehicle has its own engine (`audio/engines.js`, chosen by `engine.voice` in `specs.js`), heard as its exhaust: a train of firing pulses, one per cylinder per engine cycle, at the crank angles its firing order sets. Each pulse rings the pipe it leaves through (a few decaying partials) over a low thump and a crack of noise; cylinders on different banks leave through different pipes, so an uneven firing order burbles or putters and an even one hums or screams. A loop of a few cycles is built once per engine and played faster or slower for the revs, through a boost at the engine's body and a filter that opens with revs and throttle.
+
+The cafe racer's twin is built this way. **The four cars play real engine recordings** (`rec` in `engines.js`, `recMix` in `audio.js`): loops cut from Freesound recordings, each held at one rpm, in `public/sounds/engines` (22 kHz mono WAV, 1 to 2.4 s, 40 to 110 KB; each car's set is fetched the first time it is driven, and its built voice plays until then). For any revs the two loops either side play together, crossfaded over the middle of the gap (equal power, on a log scale), each sped up or slowed to the revs over its own recorded rpm, so the pair always agree on pitch and each stays near the speed it was recorded at. The gears, clutch dip, throttle filter, pops and tyres are as below.
+
+| Car | Loops (rpm) | Recording | By | Licence |
+| --- | --- | --- | --- | --- |
+| Trail 4x4 | 700 | [vehicle truck land rover v8 engin startup idle running](https://freesound.org/s/772826/) | jerry.berumen | CC BY 4.0 |
+| | 1,130, 1,450, 2,580, 2,830 | [1953 Studebaker Idle up to 6000rpm](https://freesound.org/s/238847/) (a small-block Chevrolet V8) | lonemonk | CC BY 4.0 |
+| Supercar | 820, 1,930, 2,780, 3,260, 4,070 | [Audi R8 Idling Reving Backfire](https://freesound.org/s/457733/) (V10) | Jonas_Jocys | CC BY 4.0 |
+| Camper van | 700 | [Volkswagen Beetle 1961](https://freesound.org/s/544344/) (air-cooled flat four) | klankbeeld | CC BY-SA 3.0 (the loop cut from it is shared under the same licence) |
+| | 2,590, 2,750 | [Volkswagen Type 2_revving up2](https://freesound.org/s/332695/) | nhaudio | CC BY 4.0 |
+| Vintage roadster | 1,050, 1,220, 1,640 | [R03-54-Old Auto Motor Constant High Speed](https://freesound.org/s/481694/) (from a vintage film-sound library) | craigsmith | CC0 |
+
+**How the loops were made** (in the browser, from Freesound's high-quality previews): each recording's harmonic comb was measured on its steady stretches (the spacing of its exhaust harmonics, from the autocorrelation of a whitened 16,384-point spectrum); the engine's speed is that spacing times 60 (or times 120 where the comb is the half-order, as for the R8, whose V10 firing line at five times the crank speed confirms it). Rising stretches were tracked frame by frame and resampled at a varying rate so each loop holds one pitch, cut where its end best matches its start, joined with a 0.1 to 0.2 s equal-power crossfade, high-passed at 28 Hz (circularly, so the seam stays clean) and levelled to -16 dBFS. Loops from different recordings of one car are matched by these rpm figures, not by ear.
+
+The built voices, still used for the bike and as each car's stand-in while its loops load:
 
 | Vehicle | Engine | Character |
 | --- | --- | --- |

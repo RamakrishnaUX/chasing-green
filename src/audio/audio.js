@@ -70,6 +70,7 @@ export class AudioEngine {
     this.engGain = ctx.createGain(); this.engGain.gain.value = 0;
     this.engBody.connect(this.engLP).connect(this.engGain).connect(car);
     this.engSrc = null; this.voice = null; this.voiceName = undefined; this.voiceBufs = {};
+    this.recSrc = null; this.recLoads = {};
     this.gear = 1; this.lastThrottle = 0; this.popsLeft = 0; this.nextPop = 0; this.shiftT = -1;
 
     // Tyres: a low roar that grows with speed, and off the tarmac a gritty crunch over it.
@@ -165,14 +166,53 @@ export class AudioEngine {
     const t = this.ctx.currentTime;
     this.engGain.gain.cancelScheduledValues(t); this.engGain.gain.setValueAtTime(0, t);
     if (this.engSrc) { this.engSrc.stop(t + 0.02); this.engSrc = null; }
+    if (this.recSrc) { for (const s of this.recSrc) s.src.stop(t + 0.02); this.recSrc = null; }
     this.gear = 1; this.popsLeft = 0;
     if (!V) return;
+    if (V.rec) this.loadRec(name, V).then((bufs) => { if (bufs && this.voice === V && !this.recSrc) this.startRec(V, bufs); });
     const src = this.ctx.createBufferSource();
     src.buffer = this.voiceBufs[name] ||= pulseBuffer(this.ctx, V);
     src.loop = true; src.playbackRate.value = V.idle / V.ref;
     src.connect(this.engBody); src.start();
     this.engSrc = src;
     this.engBody.frequency.value = V.body[0]; this.engBody.gain.value = V.body[1];
+  }
+
+  // A recorded engine's loops (rec in engines.js), fetched and decoded once, the first time that
+  // vehicle is driven. A failed load leaves the built voice playing.
+  loadRec(name, V) {
+    const url = (f) => `${import.meta.env.BASE_URL}sounds/engines/${f}.wav`;
+    return (this.recLoads[name] ||= Promise.all(V.rec.loops.map(([f]) => fetch(url(f))
+      .then((r) => { if (!r.ok) throw new Error(f); return r.arrayBuffer(); })
+      .then((b) => this.ctx.decodeAudioData(b)))).catch(() => { delete this.recLoads[name]; return null; }));
+  }
+  // Swap the built voice for the recordings: every loop runs all the time, silent until the revs
+  // come near the speed it was recorded at.
+  startRec(V, bufs) {
+    const t = this.ctx.currentTime;
+    if (this.engSrc) { this.engSrc.stop(t + 0.05); this.engSrc = null; }
+    this.engBody.gain.value = 0; // the recordings need no body boost
+    this.recSrc = bufs.map((buf, i) => {
+      const src = this.ctx.createBufferSource(), g = this.ctx.createGain();
+      src.buffer = buf; src.loop = true; g.gain.value = 0;
+      src.connect(g).connect(this.engBody); src.start(t, Math.random() * buf.duration * 0.9);
+      return { src, g, rpm: V.rec.loops[i][1] };
+    });
+  }
+  // The two loops either side of the revs, crossfaded (equal power, over the middle of the gap on a
+  // log scale) and each played at the revs over its own: so each sounds near the speed it was
+  // recorded at, and the pair never disagree on pitch.
+  recMix(t, rpm) {
+    const S = this.recSrc;
+    let i = 0;
+    while (i < S.length - 1 && rpm > S[i + 1].rpm) i++;
+    const lo = S[i], hi = S[Math.min(i + 1, S.length - 1)];
+    const x = hi === lo || rpm <= lo.rpm ? 0 : Math.log(rpm / lo.rpm) / Math.log(hi.rpm / lo.rpm);
+    const m = Math.min(1, Math.max(0, (x - 0.2) / 0.6));
+    for (const s of S) {
+      s.src.playbackRate.setTargetAtTime(Math.min(3, Math.max(0.35, rpm / s.rpm)), t, 0.07);
+      s.g.gain.setTargetAtTime(s === lo ? Math.cos(m * Math.PI / 2) : s === hi ? Math.sin(m * Math.PI / 2) : 0, t, 0.06);
+    }
   }
 
   // The revs: through the gears, changing up near the redline and down again once the revs have
@@ -194,9 +234,10 @@ export class AudioEngine {
     const load = Math.max(0, throttle) + (nitro ? 0.4 : 0);
     const rpm = Math.min(V.red * 1.04, speed < 0.4 ? V.idle + load * (V.red - V.idle) * 0.15 : Math.max(V.idle * 1.5, V.red * speed / T[this.gear - 1]) + load * 250);
     const dip = t - this.shiftT < 0.11 ? 0.6 : 1;
-    this.engSrc.playbackRate.setTargetAtTime(rpm / V.ref, t, 0.07);
-    this.engLP.frequency.setTargetAtTime(V.lp[0] + rpm * V.lp[1] + load * V.lp[2], t, 0.08);
-    const vol = on ? (0.16 + Math.min(1, rpm / V.red) * 0.12 + load * 0.1) * V.gain * dip * (CONFIG.engineVolume ?? 1) : 0;
+    const R = this.recSrc ? V.rec : null, lp = R ? R.lp : V.lp;
+    if (R) this.recMix(t, rpm); else this.engSrc.playbackRate.setTargetAtTime(rpm / V.ref, t, 0.07);
+    this.engLP.frequency.setTargetAtTime(lp[0] + rpm * lp[1] + load * lp[2], t, 0.08);
+    const vol = on ? (0.16 + Math.min(1, rpm / V.red) * 0.12 + load * 0.1) * (R ? R.gain : V.gain) * dip * (CONFIG.engineVolume ?? 1) : 0;
     this.engGain.gain.setTargetAtTime(vol, t, dip < 1 ? 0.025 : 0.08);
     // Pops: a run of them as the throttle closes, the odd one while coasting at high revs.
     if (!on || throttle > 0) this.popsLeft = 0;
