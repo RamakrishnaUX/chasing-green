@@ -430,6 +430,153 @@ export const EXTRA = {
   },
   glacier(kit) { const g = buildSkaftafell(kit); g.scale.set(0.7, 0.7, 0.7); return g; },
 
+  // Dynjandi: not a sheer drop but a broad hillside of basalt ledges, one lava flow laid on the
+  // next, and the river spreading down it like a bridal veil: about 30 m wide at the lip and 60 m
+  // at the foot over a 100 m fall (here about half that), white on every ledge. Above, the river
+  // runs in from the plateau; below, a pool. The hillside is one terraced surface, the same
+  // basalt bands running right across it, so it reads as layered rock with moss and grass (or
+  // snow) on each shelf; it is solid ground (solids.js), climbable on foot, its risers walls.
+  dynjandi(kit) {
+    const g = new THREE.Group(), rand = kit.rand;
+    const zTop = -42, zFoot = -6, wTop = 15, wBot = 31;
+    let base = 0;
+    for (let x = -16; x <= 16; x += 4) base = Math.max(base, kit.ground(x, zFoot + 1), kit.ground(x, zFoot + 4));
+    const H = 48 + base;
+    // The profile down the middle, lip to foot: a riser (steep, a little undercut look) then a
+    // shelf, step after step. Riser heights and shelf depths vary, as real lava layers do.
+    const STEPS = 28, rh = [], sd = [], sw = [], sx = [];
+    for (let i = 0; i < STEPS; i++) {
+      const t = i / (STEPS - 1);
+      rh.push((1.35 - 0.6 * t) * (0.5 + rand())); sd.push((0.5 + 0.9 * t) * (0.4 + rand() * 1.2));
+      sw.push(1 + (rand() - 0.5) * 0.18); sx.push((rand() - 0.5) * 1.6); // each ledge spills a little wider or narrower, a little off line
+    }
+    const rs = rh.reduce((a, b) => a + b, 0), ss = sd.reduce((a, b) => a + b, 0);
+    const run = zFoot - zTop - 0.25 * (H - base); // run left for the shelves
+    const prof = [{ z: zTop, y: H, v: 1, lip: true }];
+    let z = zTop, y = H;
+    for (let i = 0; i < STEPS; i++) {
+      const h = (rh[i] / rs) * (H - base), d = (sd[i] / ss) * run;
+      z += h * 0.25; y -= h; prof.push({ z, y, v: 0.3 });
+      z += d * 0.5; y -= d * 0.04; prof.push({ z, y, v: 0.12 });
+      z += d * 0.5; y -= d * 0.04; prof.push({ z, y: i === STEPS - 1 ? 0 : y, v: 0, lip: i < STEPS - 1 });
+    }
+    prof[prof.length - 1].y = base;
+    for (const p of prof) if (p.y < base) p.y = base;
+    const yAt = (zz) => { // the profile's height at zz (between zTop and zFoot)
+      if (zz <= zTop) return H;
+      for (let i = 1; i < prof.length; i++) if (zz <= prof[i].z) { const a = prof[i - 1], b = prof[i]; return a.y + (b.y - a.y) * (zz - a.z) / (b.z - a.z || 1); }
+      return 0;
+    };
+    const widthAt = (zz) => { const t = THREE.MathUtils.clamp((zz - zTop) / (zFoot - zTop), 0, 1); return wTop + (wBot - wTop) * Math.pow(t, 0.85); };
+    const nz = (x, k) => Math.sin(x * 0.045 + k) * 0.6 + Math.sin(x * 0.13 + k * 2.1) * 0.3 + Math.sin(x * 0.31 + k * 3.7) * 0.1;
+    // A ledge's edge is never a ruled line: it wanders up and down across the face (rock and water alike).
+    const J = (x, i) => i <= 0 ? 0 : (nz(x * 2.2 + i * 17, i * 1.7) * 0.55 + nz(x * 5.3 - i * 7, i) * 0.2);
+
+    // The hillside. Rows follow the profile (so every ledge is crisp); columns run across it. The
+    // front wanders back and forth along the hill, and the plateau rolls a little away from the river.
+    const rows = [];
+    for (let zz = -200; zz < zTop - 1; zz += 6) rows.push({ z: zz, plateau: true });
+    prof.forEach((p, i) => rows.push({ z: p.z, y: p.y, i }));
+    for (const dz of [2.5, 6, 10]) rows.push({ z: zFoot + dz, foot: dz });
+    const xs = [];
+    for (let x = -176; x <= 176; x += x > -40 && x < 40 ? 2 : 4) xs.push(x);
+    const pos = [], col = [], idx = [];
+    for (const r of rows) for (const x of xs) {
+      const ax = Math.abs(x), shift = nz(x, 1.3) * 5 * THREE.MathUtils.smoothstep(ax, 10, 40);
+      const zz = r.z + shift;
+      let yy;
+      if (r.plateau) {
+        // Behind the lip the land keeps climbing in rounded shoulders, except along the river.
+        const away = zTop - r.z, side = THREE.MathUtils.smoothstep(ax, 9, 30);
+        yy = H + away * 0.04 + (away * 0.12 + Math.min(away, 60) * 0.05) * side + nz(x * 0.8 + r.z * 0.6, 4.2) * 5 * THREE.MathUtils.smoothstep(ax, 10, 30);
+      }
+      else if (r.foot) yy = base - r.foot * 0.6;
+      else yy = r.y + J(x, r.i);
+      // The water's channel is worn a little into the face; the ribs either side stand proud.
+      if (!r.plateau && !r.foot) {
+        const hw = widthAt(r.z) / 2;
+        yy += ax < hw ? -0.45 * (1 - ax / hw) : 0.5 * Math.exp(-((ax - hw - 3) ** 2) / 10);
+      }
+      // The hill slumps away to the sides and behind, down into the land.
+      const fade = (1 - THREE.MathUtils.smoothstep(ax + nz(r.z, 2) * 20, 70, 170)) * THREE.MathUtils.smoothstep(r.z + nz(x, 5) * 15, -200, -150);
+      yy = -6 + (yy + 6) * fade;
+      pos.push(x, yy, zz); col.push(0, 0, 0);
+    }
+    const C = xs.length;
+    for (let j = 0; j < rows.length - 1; j++) for (let i = 0; i < C - 1; i++) {
+      const a = j * C + i, b = a + 1, c = a + C, d = c + 1;
+      idx.push(a, c, b, b, c, d);
+    }
+    const hg = new THREE.BufferGeometry();
+    hg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    hg.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    hg.setIndex(idx); hg.computeVertexNormals();
+    const hill = new THREE.Mesh(hg, kit.rockMaterial()); hill.receiveShadow = true; hill.castShadow = true;
+    g.add(hill);
+
+    // Wet black rock under the water, then the water itself in two layers: each ledge's water
+    // starts glassy at its lip, breaks white down the riser and churns across the shelf below.
+    const wet = new THREE.MeshStandardMaterial({ color: 0x15181a, roughness: 0.2, metalness: 0.05 });
+    const ribbon = (extra, lift, out, perStep) => {
+      const P = [], U = [], I = [], N = 9;
+      let base = 0;
+      const strip = (pts) => {
+        for (const p of pts) for (let k = 0; k < N; k++) {
+          const u = k / (N - 1), d = 1 - p.v, w = (widthAt(p.z) + extra) * (1 + 0.08 * nz(p.z * 3.1, k === 0 ? 3 : 8));
+          // fallMaterial spreads the sheet by 14% toward each step's foot: take that back out here.
+          const spread = perStep ? 1 + d * 0.14 : 1;
+          const off = p.riser ? out : 0;
+          const st = Math.min(STEPS - 1, Math.floor((p.i - 1) / 3)), jw = perStep && p.i > 0 ? sw[st] : 1, jx = perStep && p.i > 0 ? sx[st] : 0;
+          const x = (u - 0.5) * w * jw / spread + jx;
+          P.push(x, p.y + J(x * spread, p.i) + lift, p.z + off); U.push(u, p.v);
+        }
+        for (let j = 0; j < pts.length - 1; j++) for (let k = 0; k < N - 1; k++) {
+          const a = base + j * N + k, b = a + 1, c = a + N, e = c + 1; I.push(a, c, b, b, c, e);
+        }
+        base += pts.length * N;
+      };
+      if (perStep) {
+        for (let i = 0; i < STEPS; i++) {
+          const L = prof[i * 3], A = prof[i * 3 + 1], B = prof[i * 3 + 2], E = prof[i * 3 + 3];
+          const top = i === 0 ? 1 : 0.86;
+          strip([{ ...L, v: top, riser: true, i: i * 3 }, { ...A, v: 0.32, riser: true, i: i * 3 + 1 }, { ...B, v: 0.12, i: i * 3 + 2 }, { ...E, v: 0.0, i: i * 3 + 3 }]);
+        }
+      } else strip(prof.map((p, i) => ({ ...p, v: 1 - (p.z - zTop) / (zFoot - zTop), riser: false, i })));
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
+      geo.setAttribute('uv', new THREE.Float32BufferAttribute(U, 2));
+      geo.setIndex(I); geo.computeVertexNormals();
+      return geo;
+    };
+    const rock = new THREE.Mesh(ribbon(4, 0.06, 0.12, false), wet); rock.userData.notGround = true; g.add(rock);
+    const sheet = new THREE.Mesh(ribbon(0, 0.3, 0.45, true), kit.fallMaterial(0xdbe9f2, 2.4, 0)); g.add(sheet);
+    const veil = new THREE.Mesh(ribbon(2.5, 0.6, 0.7, true), kit.fallMaterial(0xeef4f8, 3.3, 0)); g.add(veil);
+    sheet.renderOrder = 2; veil.renderOrder = 3;
+
+    // The river on the plateau, running in to the lip.
+    const rpts = [];
+    for (let zz = -112; zz <= zTop + 0.5; zz += 3) rpts.push({ x: Math.sin(zz * 0.05) * 3 * THREE.MathUtils.smoothstep(-zz, -zTop, -zTop + 25), y: H + (zTop - zz) * 0.04 - 0.1, z: zz });
+    const rmat = createRiverMaterial({ shallow: [0.45, 0.62, 0.62], deep: [0.12, 0.3, 0.33], speed: 1.6 });
+    const river = M(riverGeometry(rpts, 11), rmat); river.castShadow = false; river.renderOrder = 1; g.add(river);
+
+    // At the foot: a pool, white water where the veil lands, and spray.
+    const pg = new THREE.CircleGeometry(1, 40), pp = pg.attributes.position;
+    for (let i = 1; i < pp.count; i++) { const a = Math.atan2(pp.getY(i), pp.getX(i)), r = 1 + 0.12 * Math.sin(a * 3 + 1) + 0.07 * Math.sin(a * 7 + 2); pp.setXY(i, Math.cos(a) * r * (wBot * 0.62 + 2), Math.sin(a) * r * 7); }
+    let py = base; for (let x = -18; x <= 18; x += 6) py = Math.max(py, kit.ground(x, zFoot + 3));
+    const pool = M(pg, createWaterMaterial(0x0f3036, { roughness: 0.1, ripple: 1.4 }), 0, py + 0.12, zFoot + 3);
+    pool.rotation.x = -Math.PI / 2; pool.castShadow = false; g.add(pool);
+    const boil = M(new THREE.PlaneGeometry(wBot + 4, 5), kit.fallMaterial(0xf2f6f8, 3.6, 0), 0, py + 0.2, zFoot + 1.5);
+    boil.rotation.x = -Math.PI / 2; boil.castShadow = false; g.add(boil);
+    const mists = [];
+    for (const [my, mz, spread, h, n] of [[base + 0.5, zFoot + 3, wBot + 10, H * 0.45, 260], [base + (H - base) * 0.45, (zTop + zFoot) / 2 + 2, wTop + 12, H * 0.3, 120]]) {
+      const m = kit.makeMist(Math.round(n * (HD.on ? 2.5 : 1)), spread, h);
+      m.position.set(0, my, mz); m.material.size = HD.on ? 2.2 : 6; m.material.opacity = HD.on ? 0.09 : 0.12;
+      g.add(m); mists.push(m);
+    }
+    kit.mists(mists);
+    return g;
+  },
+
   beach(kit) {
     const g = new THREE.Group();
     const rock = kit.rockMaterial();
