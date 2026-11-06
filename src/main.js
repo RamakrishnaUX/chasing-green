@@ -512,6 +512,7 @@ function flyCamera(dt, l) {
 // (C). Drag to look round. Never below the ground.
 const skyOff = new THREE.Vector3(), _sk = new THREE.Vector3(), _sh = new THREE.Vector3();
 const smooth01 = (agl, top) => 1 - smoothstep(0, top, Math.max(0, agl));
+let skyHeading = null, skyAim = null;
 function skyCamera(dt, l) {
   const d = diver, agl = Math.max(0, d.agl), fallingNow = d.falling;
   const far = Math.min(16000, Math.max(Q.far || 3000, 2600 + agl * 3.6));
@@ -522,7 +523,8 @@ function skyCamera(dt, l) {
   look.orbit -= l.dx * 0.006;
   look.skyPitch = clamp((look.skyPitch || 0) + l.dy * 0.004, -0.5, 0.9);
   if (!l.dx) look.orbit *= 1 - Math.min(1, dt * 0.8);
-  const h = d.heading + look.orbit, fx = Math.sin(h), fz = Math.cos(h);
+  skyHeading = skyHeading == null ? d.heading : skyHeading + wrapAngle(d.heading - skyHeading) * Math.min(1, dt * (fallingNow ? 2.2 : 1.4));
+  const h = skyHeading + look.orbit, fx = Math.sin(h), fz = Math.cos(h);
   if (skyView === 'eyes' && d.bone && d.root.visible) {
     d.bone.Head.getWorldPosition(_sh);
     const pitch = (fallingNow ? -0.75 : -0.22) - look.skyPitch * 0.8;
@@ -540,8 +542,11 @@ function skyCamera(dt, l) {
   skyOff.lerp(_sk, Math.min(1, dt * (d.state === 'exit' ? 1.6 : 3.5)));
   camera.position.copy(d.pos).add(skyOff);
   camera.position.y = Math.max(camera.position.y, groundAt(camera.position.x, camera.position.z) + 1.2);
-  if (fallingNow) camTarget.set(d.pos.x + Math.sin(d.heading) * 5, d.pos.y - 2.5, d.pos.z + Math.cos(d.heading) * 5);
-  else camTarget.set(d.pos.x + Math.sin(d.heading) * 2, d.pos.y + 2.1 - smooth01(d.agl, 25) * 1.2, d.pos.z + Math.cos(d.heading) * 2);
+  // It looks a little ahead along the smoothed heading, and eases its aim, so nothing jolts.
+  if (fallingNow) _sh.set(d.pos.x + fx * 5, d.pos.y - 2.5, d.pos.z + fz * 5);
+  else _sh.set(d.pos.x + fx * 2, d.pos.y + 2.1 - smooth01(d.agl, 25) * 1.2, d.pos.z + fz * 2);
+  skyAim = skyAim ? skyAim.lerp(_sh, Math.min(1, dt * 6)) : _sh.clone();
+  camTarget.copy(skyAim);
   camera.lookAt(camTarget);
   const fov = fallingNow ? 60 + clamp(d.speed / 55, 0, 1) * 10 : 60;
   if (Math.abs(camera.fov - fov) > 0.05) { camera.fov += (fov - camera.fov) * Math.min(1, dt * 3); camera.updateProjectionMatrix(); }
@@ -1139,7 +1144,7 @@ function jump() {
   if (!diver.loaded) { hud.toast('Getting your parachute ready. Try again in a moment.', { seconds: 2.5 }); return; }
   flySky = false; heli.cockpitOn = false;
   mode = 'sky'; skyView = 'chase'; look.orbit = 0; look.skyPitch = 0;
-  skyOff.copy(camera.position).sub(heli.pos);
+  skyOff.copy(camera.position).sub(heli.pos); skyHeading = null; skyAim = null;
   diver.start(heli);
   heli.autopilot('park', diver.pos);
   document.body.classList.add('is-skydiving');
@@ -1153,7 +1158,8 @@ const SKY_LAND = {
   roof: 'You land on a roof and climb down.',
   steep: 'Too steep to stand there: you slide down to flatter ground.',
   soft: 'A soft landing. Nicely flared!',
-  hard: 'A firm landing: you roll and get up. Pull Down (Brake) just before the ground to flare.',
+  firm: 'A firm landing: knees bent, and you run it out. Start the flare a little higher, about 8 m up, for a softer one.',
+  hard: 'A hard landing: you roll and get up. Next time hold Down (Brake) from about 8 m up and keep holding it: that is the flare.',
 };
 function diverEvents(evs) {
   for (const e of evs) {
@@ -1162,11 +1168,11 @@ function diverEvents(evs) {
       haptics.play('heavy'); audio.thud?.(4);
       track('skydive_open', { auto: e.auto, agl: e.agl });
       if (e.auto) hud.toast('Your automatic opener fired the parachute.', { seconds: 3.5, priority: 3 });
-    } else if (e.type === 'flying') hud.toast(isTouch ? 'Canopy open. Arrows steer, Brake slows you; pull Brake just before the ground to flare.' : 'Canopy open. Left and Right steer, Down brakes, Up dives. Pull Down just before the ground to flare.', { seconds: 5, priority: 3 });
+    } else if (e.type === 'flying') hud.toast(isTouch ? 'Canopy open. Arrows steer, Brake slows you. To land, hold Brake from about 8 m up, all the way down.' : 'Canopy open. Left and Right steer, Down brakes, Up dives. To land softly, hold Down from about 8 m up, all the way down.', { seconds: 5, priority: 3 });
     else if (e.type === 'touchdown') {
       haptics.play(e.soft ? 'medium' : 'heavy');
       if (e.water) audio.splash?.(1); else audio.thud?.(e.soft ? 2 : 5);
-      const why = e.water ? 'water' : e.roof ? 'roof' : e.moved ? 'steep' : e.soft ? 'soft' : 'hard';
+      const why = e.water ? 'water' : e.roof ? 'roof' : e.moved ? 'steep' : e.kind || (e.soft ? 'soft' : 'hard');
       hud.toast(SKY_LAND[why], { seconds: 4, priority: 3 });
       track('skydive_land', { how: why });
       if (e.water || e.moved) { $('fade').classList.add('is-on'); setTimeout(() => $('fade').classList.remove('is-on'), 450); }

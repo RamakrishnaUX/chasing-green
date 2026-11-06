@@ -34,7 +34,12 @@ const OPEN_PROMPT = 650; // below this, "open your parachute"
 const DEPLOY_T = 2.6; // seconds from pull to a flying canopy
 const VT = { box: 54, track: 49, flat: 45 }; // terminal fall speeds, m/s
 const TRACK = 22; // forward speed tracking, m/s
-const CANOPY = { air: 10, sink: 4.8, riserAir: 13.5, riserSink: 7.5, brakeAir: 3.2, brakeSink: 3.4, spiral: 9 };
+// The canopy: a 20 m2 (215 sq ft) nine-cell wing carrying 95 kg. Lift and drag coefficients at trim,
+// full brakes and full front risers. They give about 11.5 m/s along a path 23 degrees down (10.5
+// forward, 4.6 down) at trim, 5.3 and 2.8 in deep brakes, 12.4 and 5.6 on the risers.
+const AERO = { m: 95, S: 20, rho: 1.2, cl: [0.54, 1.9, 0.385], cd: [0.234, 1.0, 0.183] };
+const LINE_STRETCH = 0.45; // seconds from the pull until the lines are stretched
+const INFLATE = 1.5; // seconds for the canopy to inflate (the slider holds it back)
 const HIP = 0.95; // hips above the feet, standing
 const LINE = 5.0; // harness to the canopy's underside
 const SPAN = 7.2, CHORD = 2.6, CELLS = 9, ARC = 0.78;
@@ -227,8 +232,9 @@ export class Skydiver {
     this.heading = Math.atan2(lx, lz);
     this.state = 'exit'; this.t = 0;
     this.d = 0; this.auto = false; this.prompted = false;
-    this.turnHeld = 0; this.air = 0; this.sink = 0; this.bank = 0; this.brake = 0; this.toggles = [0, 0];
+    this.bank = 0; this.toggles = [0, 0]; this.yaw = 0;
     this.tilt = { track: 0, flat: 0, roll: 0 };
+    this.cn = { V: 1, gam: 0, r: 0, phi: 0, theta: 0, brel: 0, side: 0, tl: 0, tr: 0, rf: 0, f: 0 };
     this.collapse = -1;
     this.root.visible = true; this.pack.visible = true; this.helmet.visible = true;
     this.canopy.group.visible = false;
@@ -239,7 +245,13 @@ export class Skydiver {
   open(auto = false) {
     if (!this.falling) return false;
     this.state = 'deploy'; this.t = 0; this.d = 0; this.auto = auto;
-    this.v0 = Math.max(4, -this.vel.y);
+    // The canopy takes over from the body: its flight path from the way he was moving through the
+    // air, his body still face down (brel) and rolled as he was, the canopy a little off heading.
+    const F = V().set(Math.sin(this.heading), 0, Math.cos(this.heading)), L = V().set(F.z, 0, -F.x);
+    const w = this.windNow || V(), va = this.vel.clone().sub(w), along = va.dot(F);
+    const pitch = 0.08 - 0.2 * clamp(this.tilt.track, 0, 1) + 0.06 * clamp(this.tilt.flat, 0, 1);
+    this.cn = { V: Math.max(2, Math.hypot(along, va.y)), gam: Math.atan2(va.y, Math.max(0.1, along)), r: (Math.random() - 0.5) * 0.5, phi: this.tilt.roll * 0.35, theta: 0, brel: Math.PI / 2 - pitch, side: va.dot(L), tl: 0.5, tr: 0.5, rf: 0, f: 0 };
+    this.stowed = true; this.stowedT = 1;
     this.canopy.group.visible = true;
     this.events.push({ type: 'open', auto, agl: Math.round(this.agl) });
     return true;
@@ -274,116 +286,218 @@ export class Skydiver {
     const fwd = input?.throttle || 0, turn = input?.steer || 0;
     if (input?.open && this.falling) this.open(false);
     const wx = wind ? wind.x * 0.6 : 0, wz = wind ? wind.z * 0.6 : 0;
-    // Sub-steps of at most a metre, so contact is never skipped.
-    const n = Math.max(1, Math.ceil(Math.hypot(this.vel.x, this.vel.y, this.vel.z) * dt / 1.0));
+    (this.windNow ||= V()).set(wx, 0, wz);
+    // Sub-steps of at most a metre and 1/120 s, so contact is never skipped and the springs and
+    // pendulums below stay steady at any frame rate.
+    const n = Math.max(1, Math.ceil(Math.hypot(this.vel.x, this.vel.y, this.vel.z) * dt / 1.0), Math.ceil(dt * 120));
     const h = dt / n;
     for (let s = 0; s < n && this.state !== 'landed' && this.state !== 'off'; s++) {
       this.step(h, fwd, turn, wx, wz);
       if (this.contact()) break;
     }
-    if (this.state === 'landed') this.landing(dt);
+    if (this.state === 'landed') this.landing(dt, wx, wz);
     this.speed = this.vel.length();
     this.pose(dt);
     this.animateCollapse(dt);
     return ev;
   }
 
+  // A critically damped (or lightly underdamped) spring: obj[key] towards target, at natural
+  // frequency w and damping ratio z. Smooth, with no kinks, whatever the input does.
+  spring(obj, key, target, w, z, h) {
+    const v = key + 'V';
+    const vel = obj[v] || 0;
+    obj[v] = vel + (w * w * (target - (obj[key] || 0)) - 2 * z * w * vel) * h;
+    obj[key] = obj[key] || 0;
+    obj[key] += obj[v] * h;
+  }
+
+  // The wing's lift and drag coefficients for the toggles (tl, tr: 0 up to 1 at the hips) and the
+  // front risers (rf), blended between trim, full brakes and full risers. One toggle down drags
+  // that side (the turn) and adds a little to both.
+  coeffs(tl, tr, rf) {
+    const b = Math.min(tl, tr) + 0.3 * Math.abs(tl - tr), bb = Math.pow(clamp(b, 0, 1), 1.2), k = rf * (1 - b);
+    return {
+      cl: AERO.cl[0] + (AERO.cl[1] - AERO.cl[0]) * bb + (AERO.cl[2] - AERO.cl[0]) * k,
+      cd: AERO.cd[0] + (AERO.cd[1] - AERO.cd[0]) * Math.pow(clamp(b, 0, 1), 1.6) + (AERO.cd[2] - AERO.cd[0]) * k + 0.07 * Math.abs(tl - tr),
+      b,
+    };
+  }
+
   step(h, fwd, turn, wx, wz) {
     const st = this.state;
-    const F = V().set(Math.sin(this.heading), 0, Math.cos(this.heading));
+    const F = V().set(Math.sin(this.heading), 0, Math.cos(this.heading)), Lh = V().set(F.z, 0, -F.x);
     if (st === 'exit' || st === 'freefall') {
       if (st === 'exit' && this.t > 0.8) this.state = 'freefall';
       const k = st === 'exit' ? 0.3 : 1; // a moment to settle before the controls bite
-      this.tilt.track = lerp(this.tilt.track, Math.max(0, fwd) * k, Math.min(1, h * 3));
-      this.tilt.flat = lerp(this.tilt.flat, Math.max(0, -fwd) * k, Math.min(1, h * 3));
-      this.tilt.roll = lerp(this.tilt.roll, turn * k, Math.min(1, h * 4));
-      this.heading = wrap(this.heading + turn * k * 1.3 * h);
-      const vt = lerp(lerp(VT.box, VT.track, this.tilt.track), VT.flat, this.tilt.flat);
+      // Body position changes are springs (arms and legs take a moment to move), and a turn builds
+      // up and dies away (a body has inertia), so free fall never snaps.
+      this.spring(this.tilt, 'track', Math.max(0, fwd) * k, 5, 1, h);
+      this.spring(this.tilt, 'flat', Math.max(0, -fwd) * k, 5, 1, h);
+      this.yaw += (turn * k * 1.35 - this.yaw) * Math.min(1, h / 0.45);
+      this.spring(this.tilt, 'roll', clamp(this.yaw / 1.35, -1, 1), 6, 0.9, h);
+      this.heading = wrap(this.heading + this.yaw * h);
+      const tk = clamp(this.tilt.track, 0, 1), fl = clamp(this.tilt.flat, 0, 1);
+      const vt = lerp(lerp(VT.box, VT.track, tk), VT.flat, fl);
       const vy = -this.vel.y;
       this.vel.y -= G * (1 - Math.sign(vy) * (vy / vt) ** 2) * h;
       // Sideways: the air slows him to the wind's drift; tracking drives him forward.
-      const tx = wx + F.x * TRACK * this.tilt.track, tz = wz + F.z * TRACK * this.tilt.track;
-      const rate = 0.35 + 0.4 * this.tilt.track;
+      const tx = wx + F.x * TRACK * tk, tz = wz + F.z * TRACK * tk;
+      const rate = 0.35 + 0.4 * tk;
       this.vel.x += (tx - this.vel.x) * Math.min(1, h * rate); this.vel.z += (tz - this.vel.z) * Math.min(1, h * rate);
       // The automatic opener, and the prompt: the ground under him or ahead along his path.
       let g = this.floor(this.pos.x, this.pos.z).y;
       for (const t of [1, 2, 3]) g = Math.max(g, this.floor(this.pos.x + this.vel.x * t, this.pos.z + this.vel.z * t).y);
       const above = this.pos.y - g, fall = Math.max(0, -this.vel.y);
       if (!this.prompted && above < OPEN_PROMPT && this.t > 1.5) { this.prompted = true; this.events.push({ type: 'prompt' }); }
-      if (above < fall * DEPLOY_T * 0.55 + 45) { this.open(true); }
-    } else if (st === 'deploy') {
-      this.d = clamp(this.t / DEPLOY_T, 0, 1);
-      if (this.d >= 1) { this.state = 'canopy'; this.air = CANOPY.air * 0.7; this.sink = CANOPY.sink; this.events.push({ type: 'flying' }); }
-      // The snatch: most of the speed goes between a quarter and two thirds of the way.
-      const e = smooth(0.18, 0.7, this.d);
-      const vyT = -lerp(this.v0, CANOPY.sink, e);
-      this.vel.y += (vyT - this.vel.y) * Math.min(1, h * 6);
-      const air = lerp(0, CANOPY.air * 0.7, e);
-      this.vel.x += (F.x * air + wx - this.vel.x) * Math.min(1, h * 2);
-      this.vel.z += (F.z * air + wz - this.vel.z) * Math.min(1, h * 2);
-      this.heading = wrap(this.heading + turn * 0.4 * e * h);
-    } else if (st === 'canopy') {
-      const risers = Math.max(0, fwd), brakes = Math.max(0, -fwd);
-      this.brake = lerp(this.brake, brakes, Math.min(1, h * 5));
-      this.toggles[0] = lerp(this.toggles[0], Math.max(this.brake, Math.max(0, turn)), Math.min(1, h * 6));
-      this.toggles[1] = lerp(this.toggles[1], Math.max(this.brake, Math.max(0, -turn)), Math.min(1, h * 6));
-      this.turnHeld = Math.abs(turn) > 0.5 ? this.turnHeld + h : Math.max(0, this.turnHeld - h * 2);
-      const airT = lerp(lerp(CANOPY.air, CANOPY.riserAir, risers), CANOPY.brakeAir, this.brake);
-      // Airspeed lags: pulled down quickly, the speed it had turns into lift for a moment (the flare).
-      const was = this.air;
-      this.air += (airT - this.air) * Math.min(1, h * (airT < this.air ? 1.4 : 0.8));
-      const spiral = clamp((this.turnHeld - 0.8) / 2.5, 0, 1) * Math.abs(turn);
-      let sinkT = lerp(lerp(CANOPY.sink, CANOPY.riserSink, risers), CANOPY.brakeSink, this.brake) + spiral * CANOPY.spiral;
-      const lift = Math.max(0, was - this.air) / h * 0.9; // speed given up this step, as lift
-      sinkT = Math.max(0.3, sinkT - lift * 0.9 * this.brake);
-      this.sink += (sinkT - this.sink) * Math.min(1, h * 3);
-      const rate = turn * lerp(0.95, 1.4, risers) * (1 - 0.5 * this.brake) * (1 + spiral);
-      this.heading = wrap(this.heading + rate * h);
-      this.bank = lerp(this.bank, -Math.atan(this.air * rate / G) * 1.2, Math.min(1, h * 3));
-      this.vel.set(F.x * this.air + wx, -this.sink, F.z * this.air + wz);
+      // (An opening takes about 130 m from full speed: this leaves the canopy flying 40 m up or more.)
+      if (above < fall * DEPLOY_T * 0.8 + 60) { this.open(true); }
+    } else if (st === 'deploy' || st === 'canopy') {
+      // ---- The canopy in flight: a wing on a pendulum. ----
+      // Controls: hands pull the toggles (both down: brakes; one: a turn) and push the front risers,
+      // each a spring, so a key press becomes a smooth pull of about half a second. The canopy
+      // opens with its brakes stowed (half brakes); they are released once it flies.
+      const C = this.cn;
+      const stowed = this.stowed ? 0.5 : 0;
+      // Holding the brakes pulls both toggles down progressively, about a second to the hips, as a
+      // canopy pilot flares: the lift builds as the speed bleeds off, and the wing planes out.
+      // Letting go, the hands go back up faster.
+      const bkT = Math.max(0, -fwd);
+      C.bk = (C.bk || 0) + clamp(bkT - (C.bk || 0), -2.2 * h, 0.95 * h);
+      const tlT = Math.max(stowed, C.bk, Math.max(0, turn)), trT = Math.max(stowed, C.bk, Math.max(0, -turn));
+      this.spring(C, 'tl', tlT, 9, 1, h); this.spring(C, 'tr', trT, 9, 1, h);
+      this.spring(C, 'rf', st === 'canopy' ? Math.max(0, fwd) : 0, 6, 1, h);
+      C.tl = clamp(C.tl, 0, 1); C.tr = clamp(C.tr, 0, 1); C.rf = clamp(C.rf, 0, 1);
+      this.toggles[0] = C.tl; this.toggles[1] = C.tr;
+      // Opening: the pilot chute drags the bag out until line stretch, then the canopy inflates,
+      // slowed by the slider so the opening shock stays near 3 g.
+      let fe = 1, extraCD = 0;
+      if (st === 'deploy') {
+        if (this.t > LINE_STRETCH) C.f = Math.min(1, C.f + h / INFLATE);
+        fe = smooth(0, 1, C.f);
+        extraCD = 1.1 * 4 * fe * (1 - fe); // a half-open canopy is mostly drag
+        this.d = this.t < LINE_STRETCH ? 0.2 * this.t / LINE_STRETCH : 0.2 + 0.8 * C.f; // for the visuals
+        if (C.f >= 1) { this.state = 'canopy'; this.events.push({ type: 'flying' }); this.stowedT = 0.7; }
+      } else if (this.stowed) { this.stowedT -= h; if (this.stowedT <= 0) this.stowed = false; }
+      const co = this.coeffs(C.tl, C.tr, C.rf);
+      // Pulling the brakes first pitches the wing nose up (more lift at once); the drag of the
+      // deflected tail builds over about 0.4 s. That is what lets a flare plane out for a moment.
+      C.cdl = C.cdl == null ? co.cd : C.cdl + (co.cd - C.cdl) * Math.min(1, h / (co.cd > C.cdl ? 0.4 : 0.3));
+      const q = 0.5 * AERO.rho * C.V * C.V * AERO.S;
+      let Lf = q * co.cl * fe * fe, Df = q * (C.cdl * fe + extraCD) + (st === 'deploy' && this.t <= LINE_STRETCH ? 0.5 * AERO.rho * C.V * C.V * 0.25 : 0);
+      const cap = 3.2 * AERO.m * G, tot = Math.hypot(Lf, Df);
+      if (tot > cap) { Lf *= cap / tot; Df *= cap / tot; }
+      // Turning: the toggle difference yaws the wing, the faster it flies the quicker; held down a
+      // while, the bank deepens, the wing drops its nose and speeds up, and the turn tightens itself
+      // (a spiral). The edge of the map turns it gently back.
+      const delta = C.tl - C.tr, Vh = Math.max(1, C.V * Math.cos(C.gam));
+      const spiral = 0.9 * clamp((Math.abs(C.phi) - 0.45) / 0.5, 0, 1);
+      const m = 400, ox = Math.max(0, BOUNDS.minX - m - this.pos.x) - Math.max(0, this.pos.x - BOUNDS.maxX - m), oz = Math.max(0, BOUNDS.minZ - m - this.pos.z) - Math.max(0, this.pos.z - BOUNDS.maxZ - m);
+      const edge = ox || oz ? clamp(wrap(Math.atan2(ox, oz) - this.heading), -0.5, 0.5) : 0;
+      const rCmd = clamp(1.15 * delta * (Vh / 10.5) * (1 - 0.4 * co.b) * (1 + spiral) + edge, -2.4, 2.4) * fe;
+      C.r += (rCmd - C.r) * Math.min(1, h / 0.55);
+      this.heading = wrap(this.heading + C.r * h);
+      // The pendulums: he hangs 5 m under the wing. Sideways he swings out into the bank a turn
+      // needs (tan bank = speed x turn rate / g), lagging a little and settling without a jolt;
+      // fore and aft he swings against the wing's surges (forward when it brakes, back when it dives).
+      const phiEq = -Math.atan(Vh * C.r / G);
+      this.spring(C, 'phi', phiEq, 1.7, 0.55, h);
+      C.phi = clamp(C.phi, -1.15, 1.15);
+      // Flight path: speed along it, and the angle it makes with the horizontal. Lift (tilted by the
+      // bank) bends the path up; gravity bends it down and drives the speed; drag slows it. So a
+      // quick pull of both toggles near the ground turns the speed into lift and levels the path for a
+      // moment (the flare), and a bank sinks it faster.
+      const Vprev = C.V * Math.cos(C.gam);
+      const dV = -Df / AERO.m - G * Math.sin(C.gam);
+      // Pitch damping: as the path curves up the wing meets the air at a smaller angle and lifts
+      // less, and more as it curves down, so a flare planes out instead of ballooning and dropping.
+      const Ld = Lf * clamp(1 - 0.45 * (C.dGam || 0), 0.5, 1.5);
+      const dGam = (Ld * Math.cos(C.phi) - AERO.m * G * Math.cos(C.gam)) / (AERO.m * Math.max(1.5, C.V));
+      C.dGam = dGam;
+      C.V = Math.max(1.5, C.V + dV * h);
+      C.gam = clamp(C.gam + dGam * h, -Math.PI * 0.55, 0.6);
+      const aH = (C.V * Math.cos(C.gam) - Vprev) / h;
+      this.spring(C, 'theta', clamp(aH / G, -0.7, 0.7) * fe, 1.4, 0.35, h);
+      // His body swings from belly-down to hanging under the lines once they stretch.
+      if (st === 'deploy' && this.t > LINE_STRETCH) this.spring(C, 'brel', 0, 2.6, 0.5, h);
+      else if (st === 'canopy') this.spring(C, 'brel', 0, 2.6, 0.5, h);
+      C.side *= Math.exp(-h / 0.8); // any sideways slip dies away
+      this.bank = C.phi;
+      const vh = C.V * Math.cos(C.gam);
+      this.vel.set(F.x * vh + Lh.x * C.side + wx, C.V * Math.sin(C.gam), F.z * vh + Lh.z * C.side + wz);
     }
-    // Soft walls at the edge of the map, as for the helicopter.
-    const m = 400, ox = Math.max(0, BOUNDS.minX - m - this.pos.x) - Math.max(0, this.pos.x - BOUNDS.maxX - m), oz = Math.max(0, BOUNDS.minZ - m - this.pos.z) - Math.max(0, this.pos.z - BOUNDS.maxZ - m);
-    if (ox || oz) { this.vel.x += ox * 0.5 * h; this.vel.z += oz * 0.5 * h; if (this.state === 'canopy') this.heading = wrap(this.heading + Math.sign(wrap(Math.atan2(ox, oz) - this.heading)) * 0.6 * h); }
     this.pos.addScaledVector(this.vel, h);
   }
 
   // Touching down: whatever is under his feet (or his belly, falling).
   contact() {
-    const f = this.floor(this.pos.x, this.pos.z);
-    this.agl = this.pos.y - (this.state === 'canopy' || this.state === 'deploy' ? HIP : 0.35) - f.y;
+    const f = this.floor(this.pos.x, this.pos.z), flying = this.state === 'canopy' || this.state === 'deploy';
+    this.agl = this.pos.y - (flying ? HIP : 0.35) - f.y;
     if (this.agl > 0) return false;
     const vy = -this.vel.y, hs = Math.hypot(this.vel.x, this.vel.z);
-    // Where he ends up standing: here, or the nearest ground he can stand on.
-    const spot = this.standable(this.pos.x, this.pos.z, f.water ? 3000 : 400) || { x: this.pos.x, z: this.pos.z, moved: false };
-    // Soft when it comes down gently and slowly through the air (a tailwind adds to the speed over
-    // the ground, but a flared canopy still touches down softly).
-    const soft = this.state === 'canopy' && vy < 3.6 && this.air < 7;
+    // How it went: a gentle touchdown is run out on his feet; a firmer one bends his knees deep
+    // first; a fast one (or one still falling) is a forward roll.
+    // (An unflared canopy comes in at 4.6 m/s down; a good flare at 3 to 4 m takes that to under 1.5.)
+    const kind = this.state !== 'canopy' || vy >= 4.2 || hs >= 11 ? 'hard' : vy >= 3 ? 'firm' : 'soft';
+    // Anywhere he cannot stand (water, a roof, a steep slope), he is put on the nearest ground he can.
+    const ok = this.standable(this.pos.x, this.pos.z, 0);
+    const spot = ok || this.standable(this.pos.x, this.pos.z, f.water ? 3000 : 400) || { x: this.pos.x, z: this.pos.z, moved: false };
     this.state = 'landed'; this.t = 0;
-    this.landedSoft = soft; this.water = f.water;
+    this.landKind = kind; this.landedSoft = kind !== 'hard'; this.water = f.water;
     this.spot = { x: spot.x, z: spot.z, y: groundAt(spot.x, spot.z), moved: spot.moved };
-    this.pos.y = f.y + (soft ? HIP : 0.45);
+    // The run-out: along the way he was moving over the ground, at that speed.
+    this.run = kind === 'hard' ? hs * 0.35 : hs;
+    this.runDir = hs > 0.1 ? V().set(this.vel.x / hs, 0, this.vel.z / hs) : V().set(Math.sin(this.heading), 0, Math.cos(this.heading));
+    this.crouch = kind === 'firm' ? 1 : kind === 'soft' ? clamp(vy / 3, 0.15, 0.65) : 0; this.crouchV = 0;
+    this.stride = 0;
+    this.pos.y = f.y + (kind === 'hard' ? 0.45 : HIP);
+    // The canopy flies on past him, then sinks and settles.
+    this.wingAt = wpos(this.bone.Spine2).add(V().set(0, LINE, 0).applyQuaternion(this.canopy.group.quaternion));
+    this.wingVel = this.vel.clone();
     this.vel.set(0, 0, 0);
-    this.events.push({ type: 'touchdown', soft, water: f.water, moved: spot.moved, vy: +vy.toFixed(1), hs: +hs.toFixed(1), roof: !f.water && this.obstacles && this.obstacles.topAt(this.pos.x, this.pos.z) > heightAt(this.pos.x, this.pos.z) + 0.4 });
-    this.collapse = 0; this.collapseFrom = this.heading;
-    if (f.water) this.canopy.group.visible = false;
+    this.events.push({ type: 'touchdown', kind, soft: kind !== 'hard', water: f.water, moved: spot.moved, vy: +vy.toFixed(1), hs: +hs.toFixed(1), roof: !f.water && this.obstacles && this.obstacles.topAt(this.pos.x, this.pos.z) > heightAt(this.pos.x, this.pos.z) + 0.4 });
+    this.collapse = 0; this.collapseHeading = this.heading;
+    if (f.water || spot.moved) this.canopy.group.visible = false;
     return true;
   }
 
-  // A stand-up landing settles in a moment; a hard one is a forward roll. Then he is down.
+  // On the ground: running out the speed (steps in time with it, knees giving and straightening),
+  // or rolling; then he is down and on his feet.
   landing(dt) {
-    const done = this.landedSoft ? 0.35 : 1.0;
-    if (this.water) { if (this.t > 0.1) this.finish(); return; }
-    if (!this.landedSoft) {
-      const F = V().set(Math.sin(this.heading), 0, Math.cos(this.heading));
-      this.pos.addScaledVector(F, dt * 1.8 * (1 - this.t / done));
+    if (this.water || this.spot.moved) { if (this.t > 0.1) this.finish(); return; }
+    const kind = this.landKind;
+    if (kind === 'hard') {
+      this.run = Math.max(0, this.run - 3 * dt);
+      this.step2(this.runDir, this.run * dt);
+      this.pos.y = this.floor(this.pos.x, this.pos.z).y + 0.45;
+      if (this.t >= 1.0) this.finish();
+      return;
     }
-    if (this.t >= done) this.finish();
+    this.run = Math.max(0, this.run - (kind === 'firm' ? 6.5 : 5.5) * dt);
+    this.step2(this.runDir, this.run * dt);
+    this.stride += this.run * dt / 0.95;
+    // Knees: held a moment, then straightening.
+    if (this.t > (kind === 'firm' ? 0.3 : 0.15)) this.spring(this, 'crouch', 0, 6, 1, dt);
+    this.pos.y = this.floor(this.pos.x, this.pos.z).y + HIP - this.crouch * 0.38;
+    if (this.run < 0.05 && this.crouch < 0.04 && this.t > 0.6) this.finish();
+  }
+  // Move along the ground, stopping at anything too tall to step onto.
+  step2(dir, d) {
+    if (d <= 0) return;
+    const nx = this.pos.x + dir.x * d, nz = this.pos.z + dir.z * d;
+    if (this.floor(nx, nz).y > this.floor(this.pos.x, this.pos.z).y + 0.4) { this.run = 0; return; }
+    this.pos.x = nx; this.pos.z = nz;
   }
   finish() {
+    // Where he stands: here, unless he was set somewhere else (water, a roof, a slope).
+    if (!this.spot.moved) {
+      const s = this.standable(this.pos.x, this.pos.z, 400) || { x: this.pos.x, z: this.pos.z, moved: false };
+      this.spot = { x: s.x, z: s.z, y: groundAt(s.x, s.z), moved: s.moved };
+    }
     this.state = 'off';
     this.root.visible = false;
-    this.events.push({ type: 'down', spot: this.spot, heading: this.heading, soft: this.landedSoft, water: this.water });
+    this.canopy.lines.visible = this.canopy.risers.visible = this.canopy.slider.visible = false;
+    this.events.push({ type: 'down', spot: this.spot, heading: this.heading, soft: this.landKind !== 'hard', kind: this.landKind, water: this.water });
   }
 
   // Put everything away (boarded, travelled, switched).
@@ -392,21 +506,29 @@ export class Skydiver {
     this.pack.visible = false; this.helmet.visible = false; this.collapse = -1;
   }
 
-  // The canopy after touchdown: it carries on a little, sinks and falls in, then is packed away.
+  // The canopy after touchdown: it carries on over his head with the speed it had, losing it to
+  // drag, sinks as it loses its pressure, nods forward as it comes down and lies flat on the
+  // ground, deflated. It is packed away a while later.
   animateCollapse(dt) {
     if (this.collapse < 0) return;
     this.collapse += dt;
-    const c = this.canopy, k = clamp(this.collapse / 1.6, 0, 1);
-    if (!c.group.visible) return;
-    // It sinks forward and settles flat on the ground behind its own leading edge, deflating.
-    const gy = this.floor(c.group.position.x, c.group.position.z).y - c.group.position.y + 0.12; // the ground, in the canopy's frame
-    c.pivot.position.set(0, lerp(LINE, gy, k * k), lerp(0, LINE * 0.9, k));
-    c.pivot.rotation.set(0, 0, 0);
-    c.pivot.scale.set(lerp(1, 0.9, k), lerp(1, 0.08, k), 1);
-    c.wing.rotation.set(0, 0, 0);
-    c.lines.material.opacity = 0.8 * (1 - k);
-    c.lines.visible = c.risers.visible = c.slider.visible = k < 0.6;
-    if (this.collapse > 2.2) { c.group.visible = false; this.collapse = -1; }
+    const c = this.canopy, t = this.collapse;
+    if (!c.group.visible) { this.collapse = -1; return; }
+    const w = this.wingAt, v = this.wingVel;
+    v.x *= Math.exp(-dt / 0.7); v.z *= Math.exp(-dt / 0.7);
+    v.y = Math.max(-3.5, v.y - 2.6 * dt);
+    w.addScaledVector(v, dt);
+    const gy = this.floor(w.x, w.z).y + 0.12;
+    if (w.y <= gy) { w.y = gy; v.set(0, 0, 0); }
+    c.group.position.copy(w);
+    const nod = 0.45 * Math.sin(Math.PI * clamp(t / 1.8, 0, 1));
+    c.group.quaternion.setFromAxisAngle(UP, this.collapseHeading).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), nod));
+    c.pivot.position.set(0, 0, 0); c.pivot.rotation.set(0, 0, 0);
+    const k = smooth(0.15, 1.7, t);
+    c.pivot.scale.set(lerp(1, 0.92, k), lerp(1, 0.07, k), lerp(1, 0.95, k));
+    c.lines.material.opacity = 0.8 * (1 - smooth(0.6, 1.4, t));
+    if (t > 1.4) c.lines.visible = c.risers.visible = c.slider.visible = false;
+    if (t > 9) { c.group.visible = false; this.collapse = -1; }
   }
 
   // ---------- The body, posed by hand ----------
@@ -420,26 +542,38 @@ export class Skydiver {
   }
   pose(dt) {
     if (!this.bone || this.state === 'off') return;
-    const bone = this.bone;
+    const bone = this.bone, C = this.cn;
     for (const [o, q] of this.rest) o.quaternion.copy(q);
-    const F = V().set(Math.sin(this.heading), 0, Math.cos(this.heading)), U = UP.clone(), L = V().crossVectors(U, F);
+    const F = V().set(Math.sin(this.heading), 0, Math.cos(this.heading)), U = UP.clone();
     const st = this.state;
-    const dir = (a, b, c) => V().addScaledVector(F, a).addScaledVector(U, b).addScaledVector(L, c).normalize();
-    // How flat he is: 0 standing (in the door, under the canopy), 1 face down in free fall.
-    let flat = 0;
-    if (st === 'exit') flat = smooth(0.05, 0.75, this.t);
-    else if (st === 'freefall') flat = 1;
-    else if (st === 'deploy') flat = 1 - smooth(0.15, 0.55, this.d);
-    // Free-fall body frame: torso along the heading (head a little up), belly down, rolled for turns.
-    const pitch = 0.08 - 0.2 * this.tilt.track + 0.06 * this.tilt.flat;
-    let T = F.clone().multiplyScalar(Math.cos(pitch)).addScaledVector(U, Math.sin(pitch));
-    let B = U.clone().multiplyScalar(-Math.cos(pitch)).addScaledVector(F, Math.sin(pitch));
-    const roll = this.tilt.roll * 0.35;
-    B = B.clone().multiplyScalar(Math.cos(roll)).addScaledVector(V().crossVectors(T, B), Math.sin(roll)).normalize();
-    // Hanging: upright under the canopy, leaning with its bank.
-    const Uc = U.clone().applyAxisAngle(F, this.bank || 0);
-    const Tc = Uc.clone().addScaledVector(F, -0.06).normalize(), Bc = F.clone().addScaledVector(Uc, -F.dot(Uc)).normalize();
-    const Tq = T.clone().lerp(Tc, 1 - flat).normalize(), Bq = B.clone().lerp(Bc, 1 - flat).normalize();
+    const tk = clamp(this.tilt.track, 0, 1), fl = clamp(this.tilt.flat, 0, 1);
+    // How flat he is: 0 hanging (in the door, under the canopy), 1 face down in free fall.
+    let flat = 0, Tq, Bq;
+    if (st === 'exit' || st === 'freefall') {
+      flat = st === 'exit' ? smooth(0.05, 0.75, this.t) : 1;
+      // Free-fall body frame: torso along the heading (head a little up), belly down, rolled for turns.
+      const pitch = 0.08 - 0.2 * tk + 0.06 * fl;
+      const T = F.clone().multiplyScalar(Math.cos(pitch)).addScaledVector(U, Math.sin(pitch));
+      let B = U.clone().multiplyScalar(-Math.cos(pitch)).addScaledVector(F, Math.sin(pitch));
+      const roll = this.tilt.roll * 0.35;
+      B = B.clone().multiplyScalar(Math.cos(roll)).addScaledVector(V().crossVectors(T, B), Math.sin(roll)).normalize();
+      // In the door he stands, then rolls into it.
+      const Tc = U.clone(), Bc = F.clone();
+      Tq = T.clone().lerp(Tc, 1 - flat).normalize(); Bq = B.clone().lerp(Bc, 1 - flat).normalize();
+    } else {
+      // Under the lines: banked with the turn (phi, about his forward axis) and pitched by the fore
+      // and aft swing plus, while the canopy opens, how far he still is from hanging (brel).
+      let phi = C.phi, beta = C.theta + C.brel;
+      if (st === 'landed') {
+        const k = smooth(0, 0.4, this.t);
+        phi = lerp(C.phi, 0, k);
+        beta = this.landKind === 'hard' ? lerp(beta, 0.2, k) : lerp(beta, 0.12 + this.crouch * 0.28 + Math.min(this.run, 6) * 0.03, k);
+      }
+      flat = clamp(C.brel / (Math.PI / 2), 0, 1);
+      const Uc = U.clone().applyAxisAngle(F, phi);
+      Tq = Uc.clone().multiplyScalar(Math.cos(beta)).addScaledVector(F, Math.sin(beta)).normalize();
+      Bq = F.clone().multiplyScalar(Math.cos(beta)).addScaledVector(Uc, -Math.sin(beta)).normalize();
+    }
     Bq.addScaledVector(Tq, -Bq.dot(Tq)).normalize();
     this.placeBody(Tq, Bq);
     const Lb = V().crossVectors(Tq, Bq); // his left, in this pose
@@ -452,9 +586,9 @@ export class Skydiver {
     // Head: in free fall the crown points ahead and up, so he looks at the horizon.
     blend(bone.Neck, bone.Head, bd(0.85, -0.5, 0), flat * 0.6);
     blend(bone.Head, bone.HeadTop_End, bd(0.62, -0.78, 0), flat);
+    const onFeet = st === 'landed' && this.landKind !== 'hard';
     for (const side of ['Left', 'Right']) {
       const s = side === 'Left' ? 1 : -1;
-      const tk = this.tilt.track, fl = this.tilt.flat;
       // Free fall: arms out and bent forward (the box), swept back to track, further forward to slow.
       const upper = bd(lerp(lerp(0.22, -0.85, tk), 0.55, fl), -0.3, s * lerp(lerp(0.93, 0.35, tk), 0.8, fl));
       const fore = bd(lerp(lerp(0.95, -0.95, tk), 0.85, fl), lerp(-0.2, -0.12, tk), s * lerp(-0.08, 0.15, tk));
@@ -469,30 +603,44 @@ export class Skydiver {
       }
       if (flat < 1) {
         // Under the canopy: hands on the toggles at the rear risers, pulled down to turn or flare;
-        // legs hanging, knees a little bent, together and forward for the landing.
-        const w = 1 - flat, tg = st === 'canopy' || st === 'landed' ? this.toggles[s > 0 ? 0 : 1] : 0;
+        // legs hanging, knees a little bent, together and forward for the landing. On the ground he
+        // lets go and his arms come down to his sides.
+        const w = 1 - flat, tg = st === 'canopy' || st === 'landed' || st === 'deploy' ? this.toggles[s > 0 ? 0 : 1] : 0;
         const sh = wpos(bone[side + 'Arm']);
-        const high = sh.clone().addScaledVector(Uc, 0.3).addScaledVector(Lb, s * 0.12).addScaledVector(F, 0.1);
-        const low = wpos(bone.Hips).addScaledVector(Uc, 0.12).addScaledVector(Lb, s * 0.24).addScaledVector(F, 0.12);
+        const high = sh.clone().addScaledVector(Tq, 0.3).addScaledVector(Lb, s * 0.12).addScaledVector(Bq, 0.1);
+        const low = wpos(bone.Hips).addScaledVector(Tq, 0.12).addScaledVector(Lb, s * 0.24).addScaledVector(Bq, 0.12);
         const hand = high.lerp(low, tg);
-        if (w >= 0.999) reach(bone[side + 'Arm'], bone[side + 'ForeArm'], bone[side + 'Hand'], hand, V().addScaledVector(Lb, s).addScaledVector(F, -0.3).normalize());
+        if (st === 'landed') hand.lerp(wpos(bone.Hips).addScaledVector(Tq, -0.18).addScaledVector(Lb, s * 0.3).addScaledVector(Bq, 0.06), smooth(0.25, 0.9, this.t));
+        if (w >= 0.999) reach(bone[side + 'Arm'], bone[side + 'ForeArm'], bone[side + 'Hand'], hand, V().addScaledVector(Lb, s).addScaledVector(Bq, -0.3).normalize());
         else blend(bone[side + 'Arm'], bone[side + 'ForeArm'], V().subVectors(hand, sh).normalize(), w);
-        const ready = st === 'canopy' ? clamp(1 - (this.agl - 2) / 10, 0, 1) : st === 'landed' ? 1 : 0;
-        blend(bone[side + 'UpLeg'], bone[side + 'Leg'], V().addScaledVector(Uc, -0.9).addScaledVector(F, lerp(0.28, 0.4, ready)).addScaledVector(Lb, s * lerp(0.1, 0.04, ready)).normalize(), w);
-        blend(bone[side + 'Leg'], bone[side + 'Foot'], V().addScaledVector(Uc, -1).addScaledVector(F, lerp(-0.12, 0.05, ready)).normalize(), w);
-        // Fists round the toggles.
-        const palm = V().subVectors(wpos(bone[side + 'Hand']), wpos(bone[side + 'ForeArm'])).normalize();
+        if (onFeet) {
+          // On his feet: each foot on the ground, stepping in turn while he runs out his speed;
+          // the knees bend as the hips come down.
+          const gy = this.floor(this.pos.x, this.pos.z).y, ph = this.stride * Math.PI + (s > 0 ? 0 : Math.PI);
+          const amp = clamp(this.run / 4, 0, 1);
+          const along = Math.sin(ph) * 0.42 * amp + 0.05, lift = Math.max(0, Math.cos(ph)) * 0.16 * amp;
+          const hip = wpos(bone[side + 'UpLeg']);
+          const foot = V().set(hip.x, gy + 0.09 + lift, hip.z).addScaledVector(F, along).addScaledVector(V().crossVectors(U, F), s * 0.04);
+          reach(bone[side + 'UpLeg'], bone[side + 'Leg'], bone[side + 'Foot'], foot, F);
+          aim(bone[side + 'Foot'], bone[side + 'ToeBase'], V().addScaledVector(F, 1).addScaledVector(U, -0.25).normalize());
+        } else {
+          const ready = st === 'canopy' ? clamp(1 - (this.agl - 2) / 10, 0, 1) : st === 'landed' ? 1 : 0;
+          blend(bone[side + 'UpLeg'], bone[side + 'Leg'], bd(-0.9, lerp(0.28, 0.4, ready), s * lerp(0.1, 0.04, ready)), w);
+          blend(bone[side + 'Leg'], bone[side + 'Foot'], bd(-1, lerp(-0.12, 0.05, ready), 0), w);
+        }
+        // Fists round the toggles (relaxing once he lets go).
+        const grip = st === 'landed' ? 1 - smooth(0.25, 0.9, this.t) : 1;
         for (const f of ['Index', 'Middle', 'Ring', 'Pinky']) for (const j of [1, 2, 3]) {
           const b = bone[side + 'Hand' + f + j], nx = bone[side + 'Hand' + f + (j + 1)];
           if (!b || !nx) continue;
-          const d = V().subVectors(wpos(nx), wpos(b)).normalize(), ax = V().crossVectors(d, Lb.clone().multiplyScalar(-s)).add(V().crossVectors(d, palm).multiplyScalar(0.0));
+          const d = V().subVectors(wpos(nx), wpos(b)).normalize(), ax = V().crossVectors(d, Lb.clone().multiplyScalar(-s));
           if (ax.lengthSq() < 1e-6) continue;
-          turnWorld(b, ax.normalize(), CURL[j - 1] * w * 0.8);
+          turnWorld(b, ax.normalize(), CURL[j - 1] * w * 0.8 * grip);
         }
       }
     }
     // A hard landing: a forward roll about his left-right axis.
-    if (st === 'landed' && !this.landedSoft && !this.water) {
+    if (st === 'landed' && this.landKind === 'hard' && !this.water) {
       const k = clamp(this.t / 1.0, 0, 1), turn = Math.PI * 2 * smooth(0, 1, k);
       const Lw = V().crossVectors(UP, F).normalize();
       const q = new THREE.Quaternion().setFromAxisAngle(Lw, turn);
@@ -506,34 +654,40 @@ export class Skydiver {
     this.placeCanopy();
   }
 
-  // The canopy over his head: on the line from the harness, banked with the turns, inflating as it
-  // deploys; its lines run to his shoulders and the steering lines to his hands.
+  // The canopy over his head: on the lines from the harness, banked and swinging with him,
+  // inflating as it opens (the wing itself stays nearly level as he swings under it); its lines
+  // run to his shoulders and the steering lines to his hands.
   placeCanopy() {
-    const c = this.canopy, st = this.state;
+    const c = this.canopy, st = this.state, C = this.cn;
     if (!c.group.visible || st === 'off') return;
-    const bone = this.bone, F = V().set(Math.sin(this.heading), 0, Math.cos(this.heading));
+    const bone = this.bone;
     const harness = wpos(bone.Spine2);
+    const d = st === 'deploy' ? this.d : 1;
     if (this.collapse < 0) {
       c.group.position.copy(harness);
-      c.group.quaternion.setFromAxisAngle(UP, this.heading).multiply(new THREE.Quaternion().setFromAxisAngle(FWD, this.bank || 0));
-      // Inflating: a bundle that rises as the lines pay out, then spreads into the wing.
-      const d = st === 'deploy' ? this.d : 1;
-      const up = smooth(0, 0.22, d), spread = smooth(0.18, 0.75, d), settle = Math.sin(clamp((d - 0.6) / 0.4, 0, 1) * Math.PI) * 0.06;
+      const X = new THREE.Vector3(1, 0, 0);
+      c.group.quaternion.setFromAxisAngle(UP, this.heading).multiply(new THREE.Quaternion().setFromAxisAngle(FWD, C.phi)).multiply(new THREE.Quaternion().setFromAxisAngle(X, C.theta));
+      // Opening: the bag rides up on the pilot chute as the lines pay out; at line stretch the
+      // canopy spreads and inflates.
+      const up = smooth(0, 0.2, d), spread = smooth(0.2, 1, d), settle = Math.sin(clamp((d - 0.7) / 0.3, 0, 1) * Math.PI) * 0.05;
       c.pivot.position.set(0, lerp(0.3, LINE, up), 0);
-      c.pivot.rotation.set(0, 0, 0);
+      const co = this.coeffs(C.tl, C.tr, C.rf);
+      c.pivot.rotation.set(-C.theta * 0.85 - 0.12 * co.b + 0.08 * C.rf, 0, 0);
       c.pivot.scale.set(lerp(0.06, 1, spread) + settle, lerp(0.15, 1, spread), lerp(0.25, 1, spread));
       c.wing.visible = d > 0.12;
-      c.bag.visible = d < 0.35;
-      c.bag.position.set(0, lerp(0.3, LINE + 0.6, up) + (d > 0.18 ? (d - 0.18) * 6 : 0), -0.2);
+      c.bag.visible = d < 0.3;
+      c.bag.position.set(0, lerp(0.3, LINE + 0.6, up) + (d > 0.2 ? (d - 0.2) * 6 : 0), -0.2);
       c.lines.visible = d > 0.05; c.lines.material.opacity = 0.8;
     }
+    if (!c.lines.visible) return;
     c.group.updateMatrixWorld(true);
     // Lines: from the rib attachments (through the wing's pivot) into cascades, then to the tops of
     // the risers, which run down to his shoulders; the steering lines gather to his hands.
     const inv = c.group.matrixWorld.clone().invert();
     const shL = wpos(bone.LeftArm).applyMatrix4(inv), shR = wpos(bone.RightArm).applyMatrix4(inv);
     const handL = wpos(bone.LeftHand).applyMatrix4(inv), handR = wpos(bone.RightHand).applyMatrix4(inv);
-    const d = st === 'deploy' ? this.d : 1, rise = lerp(0.12, 0.55, smooth(0.3, 0.9, d)); // the slider comes down as it opens
+    const rise = lerp(0.12, 0.55, smooth(0.3, 0.9, d)); // the slider comes down as it opens
+    // The riser tops: above his shoulders along the lines (in the canopy's own frame, up is along them).
     const top = (sh, f) => sh.clone().add(V().set(0, 0.55, f));
     const tops = { left: [top(shL, 0.07), top(shL, -0.07)], right: [top(shR, 0.07), top(shR, -0.07)] };
     const P = c.lines.geometry.attributes.position, m = c.pivot.matrix, wm = c.wing.matrix;
@@ -558,8 +712,7 @@ export class Skydiver {
     put(R, shL, tops.left[0]); put(R, shL, tops.left[1]); put(R, shR, tops.right[0]); put(R, shR, tops.right[1]);
     R.needsUpdate = true;
     c.slider.position.copy(shL).add(shR).multiplyScalar(0.5).add(V().set(0, rise + 0.02, 0));
-    c.slider.visible = d > 0.25;
+    c.slider.visible = d > 0.25 && this.collapse < 0;
     c.risers.visible = c.lines.visible;
-    void F;
   }
 }
