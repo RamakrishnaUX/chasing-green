@@ -35,6 +35,7 @@ import { Heli } from './vehicle/heli.js';
 import { loadCarModels } from './vehicle/models.js';
 import { Mirrors } from './vehicle/mirrors.js';
 import { Driver } from './vehicle/driver.js';
+import { Skydiver, MIN_JUMP, fitGear, bonesOf } from './vehicle/skydiver.js';
 import { solidTopAt } from './world/solids.js';
 import { BoatWater } from './vehicle/boat.js';
 import { Wildlife, WILDLIFE_NOTES } from './world/wildlife.js';
@@ -109,13 +110,16 @@ audio.muted = !!settings.muted;
 const volumes = settings.volumes || (settings.volumes = { master: 1, music: settings.music === 'off' ? 0 : 1, car: 1, ambience: 1 });
 audio.setLevels(volumes);
 
-let world = null, sky, aurora, landmarks, jeep, walker, heli, scatter, grass, props, post = null;
+let world = null, sky, aurora, landmarks, jeep, walker, heli, diver, scatter, grass, props, post = null;
 let obstacles, puddles, spray, boatWater, wildlife, dust, powder, powderCloud, mapUI, towns, snow, nav, stations, stationSites = [];
 let lastPostState = { aurora: 0, dark: 0 };
 const snowNoise = createNoise2D(4040);
 let wasInPuddle = false, wasInWater = false, shake = 0, sitting = false, sitSpeedBefore = 1, camHeading = null;
 let started = false;
-let mode = 'chase'; // chase | lookup | walk | fly (at the helicopter's controls)
+let mode = 'chase'; // chase | lookup | walk | fly (at the helicopter's controls) | sky (skydiving)
+// Skydiving (see skydiver.js): afterJump while on foot after a jump, until you board, switch or
+// travel; the leash is where you landed until the helicopter lands near you.
+let afterJump = false, jumpAnchor = null, leashOnHeli = null, heliComing = false, skyView = 'chase', jumpTipShown = false, walkerBones = null, jumpBtnState = null;
 let ride = 'car'; // what you travel in: the car, or the helicopter that takes its place
 let flySky = false; // in the helicopter: looking at the sky from above the rotor head
 let walkTilt = false;
@@ -257,6 +261,8 @@ async function buildWorld(progress) {
   walker = new Walker(scene);
   heli = new Heli(scene);
   heli.obstacles = obstacles;
+  diver = new Skydiver(scene);
+  diver.obstacles = obstacles;
   heli.easy = settings.heli !== 'manual';
   const sp = nearestRoadAnywhere(START.x, START.z);
   jeep.place(sp.x, sp.z, sp.heading);
@@ -318,8 +324,8 @@ function describePlace(x, z) {
   return { label, nearId: n.lm.id, nearDist: n.dist };
 }
 
-function activePos() { return mode === 'walk' ? walker.pos : ride === 'heli' ? heli.pos : jeep.pos; }
-function activeHeading() { return mode === 'walk' ? walker.heading : ride === 'heli' ? heli.heading : jeep.heading; }
+function activePos() { return mode === 'walk' ? walker.pos : mode === 'sky' ? diver.pos : ride === 'heli' ? heli.pos : jeep.pos; }
+function activeHeading() { return mode === 'walk' ? walker.heading : mode === 'sky' ? diver.heading : ride === 'heli' ? heli.heading : jeep.heading; }
 function lookingUp() {
   if (mode === 'fly') return flySky && look.pitch > 0.35;
   return mode === 'lookup' ? look.pitch > 0.35 : mode === 'walk' && (walkTilt || (sitting && look.pitch > 0.35));
@@ -378,6 +384,7 @@ function updateCamera(dt) {
   const l = input.consumeLook();
   if (mode === 'photo') return; // camera placed by hand from the console
   if (mode === 'fly') { flyCamera(dt, l); return; }
+  if (mode === 'sky') { skyCamera(dt, l); return; }
   if (camera.far !== (Q.far || 3000)) { camera.far = Q.far || 3000; camera.updateProjectionMatrix(); }
   // Inside the car things are centimetres from the eye, so the near clip comes in close.
   const inside = mode === 'chase' && driveView !== 'chase';
@@ -500,6 +507,39 @@ function flyCamera(dt, l) {
   if (shakeNow > 0.01) { camera.position.x += (Math.random() - 0.5) * shakeNow * 0.25; camera.position.y += (Math.random() - 0.5) * shakeNow * 0.25; }
   camHeading = heli.heading;
 }
+// Skydiving: behind and above him in free fall (no lag: the offset eases, not the position, as
+// for the helicopter), further back and level with the canopy under it; or through his own eyes
+// (C). Drag to look round. Never below the ground.
+const skyOff = new THREE.Vector3(), _sk = new THREE.Vector3(), _sh = new THREE.Vector3();
+function skyCamera(dt, l) {
+  const d = diver, agl = Math.max(0, d.agl), fallingNow = d.falling;
+  const far = Math.min(16000, Math.max(Q.far || 3000, 2600 + agl * 3.6));
+  const near = skyView === 'eyes' ? 0.08 : 0.3;
+  if (camera.far !== far || camera.near !== near) { camera.far = far; camera.near = near; camera.updateProjectionMatrix(); }
+  look.orbit -= l.dx * 0.006;
+  look.skyPitch = clamp((look.skyPitch || 0) + l.dy * 0.004, -0.5, 0.9);
+  if (!l.dx) look.orbit *= 1 - Math.min(1, dt * 0.8);
+  const h = d.heading + look.orbit, fx = Math.sin(h), fz = Math.cos(h);
+  if (skyView === 'eyes' && d.bone && d.root.visible) {
+    d.bone.Head.getWorldPosition(_sh);
+    const pitch = (fallingNow ? -0.75 : -0.22) - look.skyPitch * 0.8;
+    camera.position.set(_sh.x + Math.sin(d.heading) * 0.16, _sh.y + 0.06, _sh.z + Math.cos(d.heading) * 0.16);
+    camTarget.set(camera.position.x + fx * Math.cos(pitch), camera.position.y + Math.sin(pitch), camera.position.z + fz * Math.cos(pitch));
+    camera.lookAt(camTarget);
+    if (Math.abs(camera.fov - 72) > 0.05) { camera.fov += (72 - camera.fov) * Math.min(1, dt * 3); camera.updateProjectionMatrix(); }
+    return;
+  }
+  const back = fallingNow ? 5 : 9.5, up = (fallingNow ? 2.6 : 2.8) + look.skyPitch * 6;
+  _sk.set(-fx * back, up, -fz * back);
+  skyOff.lerp(_sk, Math.min(1, dt * (d.state === 'exit' ? 1.6 : 3.5)));
+  camera.position.copy(d.pos).add(skyOff);
+  camera.position.y = Math.max(camera.position.y, groundAt(camera.position.x, camera.position.z) + 1.2);
+  if (fallingNow) camTarget.set(d.pos.x + Math.sin(d.heading) * 5, d.pos.y - 2.5, d.pos.z + Math.cos(d.heading) * 5);
+  else camTarget.set(d.pos.x + Math.sin(d.heading) * 3, d.pos.y + 2.4, d.pos.z + Math.cos(d.heading) * 3);
+  camera.lookAt(camTarget);
+  const fov = fallingNow ? 60 + clamp(d.speed / 55, 0, 1) * 10 : 60;
+  if (Math.abs(camera.fov - fov) > 0.05) { camera.fov += (fov - camera.fov) * Math.min(1, dt * 3); camera.updateProjectionMatrix(); }
+}
 canvas.addEventListener('wheel', (e) => {
   if (mode !== 'fly' || driveView === 'cockpit') return;
   e.preventDefault();
@@ -509,6 +549,7 @@ canvas.addEventListener('wheel', (e) => {
 // C or the view button: Chase, Hood, Cockpit in turn. On foot it gets you back in the car.
 const VIEW_TOASTS = { chase: 'Chase view.', hood: 'Hood view.', cockpit: 'Cockpit view. Drag to look around.' };
 function cycleView() {
+  if (mode === 'sky') { skyView = skyView === 'eyes' ? 'chase' : 'eyes'; hud.toast(skyView === 'eyes' ? 'Through your own eyes. Drag to look around.' : 'Chase view.', { seconds: 2, priority: 2 }); return; }
   if (mode === 'walk') { getIn(); return; }
   if (mode === 'fly') { if (flySky) flySky = false; else setView(driveView === 'cockpit' ? 'chase' : 'cockpit'); look.cabPitch = 0; look.cabYaw = 0; syncLookButton(); return; }
   if (mode === 'lookup') { mode = 'chase'; syncLookButton(); }
@@ -523,6 +564,7 @@ function setView(v) {
 }
 // E (or Step out in the menu): leave the car, or get back in.
 function stepOut() {
+  if (mode === 'sky') { hud.toast('You are in the air. Open your parachute and land first.', { seconds: 2.5, priority: 2 }); return; }
   if (ride === 'heli') {
     if (!heli.landed) { hud.toast('Land first, then step out.', { seconds: 2.5 }); return; }
     mode = 'walk'; walkTilt = false; heli.engineOn = false; walker.enter(heli); track('step_out'); look.walkYaw = 0;
@@ -537,6 +579,9 @@ function stepOut() {
   syncLookButton();
 }
 function getIn() {
+  if (afterJump && ride === 'heli' && !heliBeside()) { callHeli(); return; }
+  if (afterJump) endJump();
+  if (ride === 'heli') { heli.auto = null; heli.touchdown = false; }
   mode = ride === 'heli' ? 'fly' : 'chase';
   flySky = false;
   if (ride === 'heli') heli.engineOn = true;
@@ -547,6 +592,7 @@ function toggleWalk() { if (mode === 'walk') getIn(); else stepOut(); }
 function wrapAngle(a) { return Math.atan2(Math.sin(a), Math.cos(a)); }
 function enterLookUp() { track('look_up'); mode = 'lookup'; look.yaw = wrapAngle(Math.PI - jeep.heading); look.pitch = 0.75; }
 function toggleLookUp() {
+  if (mode === 'sky') { hud.toast('Drag to look around while you fall.', { seconds: 2 }); return; }
   // In the helicopter: a view of the sky from above the rotor head, turned to the north (where the
   // lights usually are), and back.
   if (mode === 'fly') {
@@ -794,7 +840,7 @@ function toggleRecording() {
 
 const settingsDialog = $('settings');
 function openSettings() {
-  $('quick-walk').textContent = mode === 'walk' ? 'Get in' : 'Step out';
+  $('quick-walk').textContent = mode === 'sky' ? 'In the air' : mode === 'walk' ? (afterJump && ride === 'heli' && !heliBeside() ? 'Call helicopter' : 'Get in') : 'Step out';
   $('set-quality').value = qualityName;
   $('set-month').value = String(clock.month);
   $('set-speed').value = String(clock.speed);
@@ -957,7 +1003,7 @@ const brakeBtn = $('t-brake');
 const tips = settings.tips || (settings.tips = {});
 let reverseShown = false;
 function syncBrakePedal() {
-  const rev = mode !== 'walk' && mode !== 'fly' && (jeep.vF < -0.3 || (input.throttle < 0 && Math.abs(jeep.vF) < 0.6));
+  const rev = mode !== 'walk' && mode !== 'fly' && mode !== 'sky' && (jeep.vF < -0.3 || (input.throttle < 0 && Math.abs(jeep.vF) < 0.6));
   if (rev === reverseShown) return;
   reverseShown = rev;
   brakeBtn.classList.toggle('is-reverse', rev);
@@ -966,7 +1012,7 @@ function syncBrakePedal() {
 function showReverseTip() {
   if (tips.reverse || !isTouch || !started) return;
   // Wait for a clear moment: driving, no menu open, and no place card where the bubble would go.
-  if (mode === 'walk' || !brakeBtn.offsetParent || document.querySelector('dialog[open]') || !$('infocard').hidden) { setTimeout(showReverseTip, 3000); return; }
+  if (mode === 'walk' || mode === 'sky' || !brakeBtn.offsetParent || document.querySelector('dialog[open]') || !$('infocard').hidden) { setTimeout(showReverseTip, 3000); return; }
   tips.reverse = true; store.save();
   const tip = $('coach-reverse'), b = brakeBtn.getBoundingClientRect();
   tip.hidden = false;
@@ -1030,7 +1076,9 @@ startBtn.addEventListener('click', () => {
 addEventListener('keydown', (e) => {
   if (!started || document.querySelector('dialog[open]')) return;
   const k = e.key.toLowerCase();
-  if (k === 'c') cycleView();
+  if (k === 'j' && mode === 'fly') jump();
+  else if ((k === 'j' || k === ' ') && mode === 'sky') diver.open();
+  else if (k === 'c') cycleView();
   else if (k === 'e') toggleWalk();
   else if (k === 'l') toggleLookUp();
   else if (k === 'u') setMuted(!audio.muted);
@@ -1048,6 +1096,7 @@ const learn = new Learn();
 sheet.register('learn', () => learn.open());
 // Sit down on foot: lower view, free look, and time passes faster while you rest and watch.
 function toggleSit(force) {
+  if (mode === 'sky') return;
   if (mode !== 'walk') { hud.toast('Step out of the car first (E), then sit down.', { seconds: 2.5 }); return; }
   sitting = force ?? !sitting;
   walker.setSitting?.(sitting);
@@ -1069,11 +1118,112 @@ function applyNitroSetting() {
 $('set-nitro').addEventListener('change', (e) => { settings.nitro = e.target.value; store.save(); applyNitroSetting(); });
 // Helicopter controls: easy (flown like the car, holding its height) or the full manual set.
 function heliHelp() {
-  return heli.easy
+  return (heli.easy
   ? (isTouch ? 'Helicopter. Go takes off and flies forward, Brake slows to a hover, hold it when stopped to land. Arrows turn; Up and Down set the height.' : 'Helicopter. Up takes off and flies forward, Down slows to a hover; hold it when stopped to land. Left and Right turn; Space and Shift set the height.')
-  : (isTouch ? 'Helicopter. The rotor is spooling up. Hold Up to lift off, Go to fly forward, arrows to turn, Down to land on flat ground.' : 'Helicopter. The rotor is spooling up. Space to lift off, W and S to fly forward and back, A and D to turn, Shift to come down. Land on flat ground.');
+  : (isTouch ? 'Helicopter. The rotor is spooling up. Hold Up to lift off, Go to fly forward, arrows to turn, Down to land on flat ground.' : 'Helicopter. The rotor is spooling up. Space to lift off, W and S to fly forward and back, A and D to turn, Shift to come down. Land on flat ground.'))
+  + (isTouch ? ` Above ${MIN_JUMP} m, tap Jump to skydive.` : ` Above ${MIN_JUMP} m, J jumps out with a parachute.`);
 }
-$('set-heli').addEventListener('change', (e) => { settings.heli = e.target.value; store.save(); heli.easy = settings.heli !== 'manual'; if (ride === 'heli') hud.toast(heliHelp(), { seconds: 6, priority: 2 }); });
+$('set-heli').addEventListener('change', (e) => { settings.heli = e.target.value; store.save(); heli.easy = settings.heli !== 'manual'; if (ride === 'heli' && mode === 'fly') hud.toast(heliHelp(), { seconds: 6, priority: 2 }); });
+
+// ---------- Skydiving ----------
+function jump() {
+  if (mode !== 'fly' || ride !== 'heli') return;
+  if (heli.landed) { hud.toast(`Take off and climb above ${MIN_JUMP} m to jump.`, { seconds: 2.5, priority: 2 }); return; }
+  if (heli.agl < MIN_JUMP) { hud.toast(`Climb above ${MIN_JUMP} m to jump. You are at ${Math.round(heli.agl)} m.`, { seconds: 2.5, priority: 2 }); return; }
+  if (!diver.loaded) { hud.toast('Getting your parachute ready. Try again in a moment.', { seconds: 2.5 }); return; }
+  flySky = false; heli.cockpitOn = false;
+  mode = 'sky'; skyView = 'chase'; look.orbit = 0; look.skyPitch = 0;
+  skyOff.copy(camera.position).sub(heli.pos);
+  diver.start(heli);
+  heli.autopilot('park', diver.pos);
+  document.body.classList.add('is-skydiving');
+  haptics.play('medium');
+  track('skydive_jump', { agl: Math.round(heli.agl) });
+  hud.toast(isTouch ? 'Out of the door! Arrows turn, Go glides forward, Brake slows your fall. Tap Open for your parachute.' : 'Out of the door! Left and Right turn, Up glides forward, Down slows your fall. Space opens your parachute.', { seconds: 6, priority: 3 });
+  syncLookButton();
+}
+const SKY_LAND = {
+  water: 'Splashdown! You swim to the shore.',
+  roof: 'You land on a roof and climb down.',
+  steep: 'Too steep to stand there: you slide down to flatter ground.',
+  soft: 'A soft landing. Nicely flared!',
+  hard: 'A firm landing: you roll and get up. Pull Down (Brake) just before the ground to flare.',
+};
+function diverEvents(evs) {
+  for (const e of evs) {
+    if (e.type === 'prompt') hud.toast(isTouch ? 'Open your parachute: tap Open.' : 'Open your parachute: press Space.', { seconds: 3, priority: 3 });
+    else if (e.type === 'open') {
+      haptics.play('heavy'); audio.thud?.(4);
+      track('skydive_open', { auto: e.auto, agl: e.agl });
+      if (e.auto) hud.toast('Your automatic opener fired the parachute.', { seconds: 3.5, priority: 3 });
+    } else if (e.type === 'flying') hud.toast(isTouch ? 'Canopy open. Arrows steer, Brake slows you; pull Brake just before the ground to flare.' : 'Canopy open. Left and Right steer, Down brakes, Up dives. Pull Down just before the ground to flare.', { seconds: 5, priority: 3 });
+    else if (e.type === 'touchdown') {
+      haptics.play(e.soft ? 'medium' : 'heavy');
+      if (e.water) audio.splash?.(1); else audio.thud?.(e.soft ? 2 : 5);
+      const why = e.water ? 'water' : e.roof ? 'roof' : e.moved ? 'steep' : e.soft ? 'soft' : 'hard';
+      hud.toast(SKY_LAND[why], { seconds: 4, priority: 3 });
+      track('skydive_land', { how: why });
+      if (e.water || e.moved) { $('fade').classList.add('is-on'); setTimeout(() => $('fade').classList.remove('is-on'), 450); }
+    } else if (e.type === 'down') landOnFoot(e.spot, e.heading);
+  }
+}
+// Down: on foot where he landed, still in his pack and helmet, the helicopter on its way to land.
+function landOnFoot(spot, heading) {
+  mode = 'walk'; afterJump = true; leashOnHeli = null; walkTilt = false; look.walkYaw = 0;
+  walker.land(spot.x, spot.z, heading);
+  jumpAnchor = { pos: new THREE.Vector3(spot.x, spot.y, spot.z), heading };
+  document.body.classList.remove('is-skydiving');
+  setTimeout(() => { if (afterJump && mode === 'walk') hud.toast(isTouch ? 'On the ground. Tap Call to bring the helicopter over, or pick a car in Menu, Cars.' : 'On the ground. Press E to call the helicopter over, or V for a car.', { seconds: 5, priority: 2 }); }, 4200);
+  syncLookButton();
+}
+function endJump() {
+  afterJump = false; jumpAnchor = null; leashOnHeli = null; heliComing = false;
+  if (mode === 'sky') mode = 'walk';
+  diver.stop();
+  walker.setCar?.(ride === 'heli' ? heli : jeep);
+  document.body.classList.remove('is-skydiving');
+}
+// The helicopter is landed and stopped right beside you.
+function heliBeside() { return heli.landed && !heli.auto && Math.hypot(walker.pos.x - heli.pos.x, walker.pos.z - heli.pos.z) < 16; }
+function callHeli() {
+  const d = Math.round(Math.hypot(walker.pos.x - heli.pos.x, walker.pos.z - heli.pos.z));
+  if (heli.auto?.phase === 'come') { hud.toast(`The helicopter is on its way, ${d} m out.`, { seconds: 2.5, priority: 2 }); return; }
+  const pad = heli.findPad(walker.pos.x, walker.pos.z, walker.pos, 18, 400);
+  if (!pad) { hud.toast('No flat ground near here for the helicopter. Walk to flatter ground and call again.', { seconds: 3.5, priority: 2 }); return; }
+  heli.autopilot('come', walker.pos); heli.auto.pad = pad; heliComing = true;
+  track('skydive_call_heli', { dist: d });
+  hud.toast('The helicopter is on its way. When it has landed, press E beside it to get in.'.replace('press E beside it', isTouch ? 'tap Get in' : 'press E beside it'), { seconds: 3.5, priority: 2 });
+}
+// Who the walker is tethered to: where he landed, until the helicopter lands near him.
+function walkLeash() {
+  const v = ride === 'heli' ? heli : jeep;
+  if (!afterJump) return v;
+  const near = ride === 'heli' && heli.landed && !heli.auto && Math.hypot(walker.pos.x - heli.pos.x, walker.pos.z - heli.pos.z) < CONFIG.vehicle.walkRadius * 0.9;
+  if (near !== leashOnHeli) { walker.setCar(near ? heli : null); leashOnHeli = near; }
+  return near ? heli : jumpAnchor;
+}
+// The Jump / Open / Call / Get in button (touch), and the first-time tip on a keyboard.
+const JUMP_BTN = { jump: ['Jump', 'Jump out with a parachute'], open: ['Open', 'Open your parachute'], call: ['Call', 'Call the helicopter'], board: ['Get in', 'Get in the helicopter'] };
+function syncJumpButton() {
+  let st = '';
+  if (mode === 'fly' && !heli.landed && heli.agl >= MIN_JUMP) st = 'jump';
+  else if (mode === 'sky' && diver.falling) st = 'open';
+  else if (mode === 'walk' && afterJump && ride === 'heli') st = heliBeside() ? 'board' : heli.auto?.phase === 'come' ? '' : 'call';
+  if (st === jumpBtnState) return;
+  jumpBtnState = st;
+  const b = $('t-jump');
+  b.hidden = !st; b.dataset.act = st;
+  if (st) { b.querySelector('span').textContent = JUMP_BTN[st][0]; b.setAttribute('aria-label', JUMP_BTN[st][1]); }
+}
+$('t-jump').addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  const act = $('t-jump').dataset.act;
+  haptics.play('medium');
+  if (act === 'jump') jump();
+  else if (act === 'open') diver.open();
+  else if (act === 'call') callHeli();
+  else if (act === 'board') getIn();
+});
 applyNitroSetting();
 
 // ---------- Fuel ----------
@@ -1090,6 +1240,7 @@ $('set-fuel').value = settings.fuel || 'on';
 $('set-fuel').addEventListener('change', (e) => { settings.fuel = e.target.value; store.save(); applyFuelSetting(); });
 applyFuelSetting();
 function fuelAction() {
+  if (mode === 'sky') return;
   if (fuelMode === 'refuel') {
     fuel.filling = !fuel.filling;
     if (fuel.filling) haptics.play('medium', 0);
@@ -1152,6 +1303,7 @@ function fuelTick(dt) {
 
 // ---------- Vehicles ----------
 function setVehicle(kind, announce = true) {
+  if (mode === 'sky') { hud.toast('Land first, then change vehicles.', { seconds: 2.5, priority: 2 }); return; }
   if (kind === 'heli') { boardHeli(announce); return; }
   if (!VEHICLES[kind]) return;
   if (ride === 'heli' && jeep && !leaveHeli()) return;
@@ -1199,7 +1351,10 @@ function boardHeli(announce = true) {
 // Back to a car: only once landed. The car stands where the helicopter was, or on the nearest
 // road if that is too far out for it.
 function leaveHeli() {
-  if (!heli.landed) { hud.toast('Land first, then switch.', { seconds: 2.5, priority: 2 }); return false; }
+  const jumped = afterJump && mode === 'walk';
+  if (!heli.landed && !jumped) { hud.toast('Land first, then switch.', { seconds: 2.5, priority: 2 }); return false; }
+  const from = jumped ? walker.pos.clone() : heli.pos.clone();
+  if (jumped) { endJump(); heli.auto = null; heli.engineOn = false; }
   if (mode === 'walk') walker.exit();
   ride = 'car';
   heli.root.visible = false; heli.engineOn = false; heli.rpm = 0;
@@ -1207,9 +1362,9 @@ function leaveHeli() {
   if (LAMP_HOME.head) { jeep.headlight.position.copy(LAMP_HOME.head); jeep.spread.position.copy(LAMP_HOME.spread); }
   jeep.headlight.target.position.set(0, -2.6, 60); jeep.spread.target.position.set(0, -1.6, 16);
   jeep.body.visible = true; jeep.blob.visible = true;
-  const r = nearestRoadAnywhere(heli.pos.x, heli.pos.z);
-  const far = !r || Math.hypot(r.x - heli.pos.x, r.z - heli.pos.z) > CONFIG.vehicle.offRoadLimit * 0.8;
-  if (far && r) jeep.place(r.x, r.z, r.heading); else jeep.place(heli.pos.x, heli.pos.z, heli.heading);
+  const r = nearestRoadAnywhere(from.x, from.z);
+  const far = !r || Math.hypot(r.x - from.x, r.z - from.z) > CONFIG.vehicle.offRoadLimit * 0.8;
+  if (far && r) jeep.place(r.x, r.z, r.heading); else jeep.place(from.x, from.z, jumped ? walker.heading : heli.heading);
   mode = 'chase'; camHeading = jeep.heading;
   document.body.classList.remove('is-flying');
   syncLookButton();
@@ -1218,6 +1373,7 @@ function leaveHeli() {
 // V (or a tap on the car) goes round every vehicle: the cars in order, then the helicopter, then
 // back to the first car.
 function cycleVehicle() {
+  if (mode === 'sky') { hud.toast('Land first, then change vehicles.', { seconds: 2.5, priority: 2 }); return; }
   if (ride === 'heli') { setVehicle(VEHICLE_ORDER[0]); return; }
   const i = VEHICLE_ORDER.indexOf(jeep.kind);
   setVehicle(i === VEHICLE_ORDER.length - 1 ? 'heli' : VEHICLE_ORDER[i + 1]);
@@ -1390,6 +1546,7 @@ function driveTo(x, z, label) {
 
 // Put the car down somewhere new, back in it, with the camera behind.
 function putCar(x, z, heading) {
+  if (afterJump || mode === 'sky') endJump();
   if (mode === 'walk') walker.exit();
   jeep.place(x, z, heading);
   if (ride === 'heli') { heli.place(x, z, heading); mode = 'fly'; flyHeading = null; camOff.set(0, 0, 0); infoDismissed = null; return; }
@@ -1401,6 +1558,7 @@ function putCar(x, z, heading) {
 }
 
 function fastTravel(x, z, label, face) {
+  if (mode === 'sky') { hud.toast('Land first, then travel.', { seconds: 2.5, priority: 2 }); return; }
   const r = nearestRoadAnywhere(x, z);
   if (!r) return;
   const d = Math.hypot(x - r.x, z - r.z);
@@ -1430,15 +1588,30 @@ function frame(now) {
   if (sitting && (mode !== 'walk' || input.throttle || input.steer)) toggleSit(false);
   $('t-sit').hidden = mode !== 'walk';
   $('t-up').hidden = $('t-down').hidden = mode !== 'fly';
-  if (mode === 'walk') {
-    if (ride === 'heli') heli.update(paused ? 0 : dt, null, w); else jeep.update(dt, input, w, false);
-    walker.update(dt, input, ride === 'heli' ? heli : jeep, obstacles);
+  if (mode === 'sky') {
+    heli.fly(paused ? 0 : dt, w, diver.pos);
+    diverEvents(diver.update(paused ? 0 : dt, { throttle: input.throttle, steer: input.steer }, w));
+  } else if (mode === 'walk') {
+    if (ride === 'heli') heli.fly(paused ? 0 : dt, w, walker.pos); else jeep.update(dt, input, w, false);
+    walker.update(dt, input, walkLeash(), obstacles);
+    if (afterJump) {
+      // Still in his pack and helmet (not while sitting: the camera is in his head), the canopy
+      // falling in where he landed, and word when the helicopter is down beside him.
+      diver.update(paused ? 0 : dt, null, w);
+      walkerBones ||= walker.man ? bonesOf(walker.man) : null;
+      diver.helmet.visible = !sitting;
+      fitGear(walkerBones, diver.pack, sitting ? null : diver.helmet);
+      if (heliComing && !heli.auto) { heliComing = false; hud.toast(isTouch ? 'The helicopter has landed. Tap Get in when you are beside it.' : 'The helicopter has landed. Walk over and press E to get in.', { seconds: 3.5, priority: 2 }); }
+    }
     obstacles.resolve(walker.pos, 0.4, true);
     wildlife.pushOut(walker.pos, 0.3); // nor through the animals
     walkHaptics();
   } else if (mode === 'fly') {
     heli.update(paused ? 0 : dt, { throttle: input.throttle, steer: input.steer, lift: input.lift }, w);
     if (!paused) flyFeedback(dt);
+    // High enough to skydive: say so once each flight.
+    if (heli.landed) jumpTipShown = false;
+    else if (!jumpTipShown && heli.agl >= MIN_JUMP) { jumpTipShown = true; hud.toast(isTouch ? 'High enough to skydive: tap Jump to jump out.' : 'High enough to skydive: press J to jump out.', { seconds: 4, priority: 2 }); }
   } else {
     if (!paused) jeep.power = fuel.burn(dt, jeep, input.throttle);
     jeep.update(paused ? 0 : dt, input, w, !paused);
@@ -1489,10 +1662,10 @@ function frame(now) {
   if (snow.intensity > 0.02) { sky.fog.density += snow.intensity * 0.0012; sky.fog.color.lerp(new THREE.Color(0xd9dfe4), snow.intensity * 0.5); }
   // Up in the helicopter the air between you and the land thins out: the haze is in the lowest
   // few hundred metres, so the farther coast stays in view.
-  if (mode === 'fly') sky.fog.density /= 1 + Math.max(0, camera.position.y - Math.max(0, heightAt(camera.position.x, camera.position.z)) - 60) / 220;
+  if (mode === 'fly' || mode === 'sky') sky.fog.density /= 1 + Math.max(0, camera.position.y - Math.max(0, heightAt(camera.position.x, camera.position.z)) - 60) / 220;
   // Ambient occlusion shades corners a few metres across: from a few hundred metres up it shows
   // nothing, and it would draw the whole island a second time, so it rests while you fly high.
-  if (post?.ao) post.ao.enabled = !(mode === 'fly' && heli.agl > 150 && driveView !== 'cockpit');
+  if (post?.ao) post.ao.enabled = !((mode === 'fly' && heli.agl > 150 && driveView !== 'cockpit') || (mode === 'sky' && diver.agl > 150));
   grass?.update(camera, w);
   scatter?.hdRocks?.update(dt, camera.position);
   props?.setNight(dark);
@@ -1539,11 +1712,12 @@ function frame(now) {
     }
     void near;
   }
-  audio.update(dt, { heli: ride === 'heli' ? { rpm: heli.rpm, load: heli.thrust / 9.81, inside: mode === 'fly' && driveView === 'cockpit', near: mode === 'walk' ? Math.hypot(walker.pos.x - heli.pos.x, walker.pos.z - heli.pos.z) : 0 } : null, speed: mode === 'walk' ? 0 : ride === 'heli' ? heli.speed * 0.5 : jeep.speed, wind: w.strength, exposure: exposureAt(p.x, p.z), waterProx, iceProx, inCar: mode !== 'walk' && started, wade: mode === 'walk' ? 0 : jeep.wadeLevel || 0, nitro: mode !== 'walk' && jeep.boosting });
+  audio.update(dt, { heli: ride === 'heli' ? { rpm: heli.rpm, load: heli.thrust / 9.81, inside: mode === 'fly' && driveView === 'cockpit', near: mode === 'walk' ? Math.hypot(walker.pos.x - heli.pos.x, walker.pos.z - heli.pos.z) : mode === 'sky' ? Math.max(1, diver.pos.distanceTo(heli.pos)) : 0 } : null, speed: mode === 'walk' ? 0 : mode === 'sky' ? diver.speed : ride === 'heli' ? heli.speed * 0.5 : jeep.speed, wind: w.strength, exposure: exposureAt(p.x, p.z), waterProx, iceProx, inCar: mode !== 'walk' && mode !== 'sky' && started, wade: mode === 'walk' || mode === 'sky' ? 0 : jeep.wadeLevel || 0, nitro: mode !== 'walk' && mode !== 'sky' && jeep.boosting });
 
   if (started) {
-    if (jeep.warning && mode !== 'walk') hud.toast(jeep.warning, { seconds: 2.5, priority: 1 });
-    if (mode === 'walk' && walker.blocked === 'far') hud.toast('Stay close to the jeep. Press C to get back in.', { seconds: 2.5 });
+    if (jeep.warning && mode !== 'walk' && mode !== 'sky') hud.toast(jeep.warning, { seconds: 2.5, priority: 1 });
+    if (mode === 'walk' && walker.blocked === 'far') hud.toast(afterJump && !leashOnHeli ? (isTouch ? 'Stay near where you landed. Tap Call for the helicopter.' : 'Stay near where you landed. Press E to call the helicopter.') : `Stay close to the ${ride === 'heli' ? 'helicopter' : 'car'}. Press E to get back in.`, { seconds: 2.5 });
+    syncJumpButton();
     const fwd = new THREE.Vector3(); camera.getWorldDirection(fwd);
     const bearing = Math.atan2(fwd.x, -fwd.z);
     if (Math.floor(clock.realSeconds * 2) !== lastWhere) { lastWhere = Math.floor(clock.realSeconds * 2); hud.whereText = describePlace(p.x, p.z).label; hud.nextWindowText = nextWindowLabel(); }
@@ -1556,7 +1730,7 @@ function frame(now) {
     mapUI.route = nav.route?.pts || null; mapUI.dest = nav.dest;
     mapUI.update(dt, activePos(), activeHeading());
     hud.update(dt, {
-      kmh: ride === 'heli' ? heli.kmh : jeep.kmh, walking: mode === 'walk', altitude: mode === 'fly' ? heli.pos.y : null, where: hud.whereText || '', clockLabel: clock.label(), season: clock.season, monthName: clock.m.name, aurora: a,
+      kmh: mode === 'sky' ? diver.kmh : ride === 'heli' ? heli.kmh : jeep.kmh, walking: mode === 'walk', altitude: mode === 'fly' ? heli.pos.y : mode === 'sky' ? diver.agl : null, where: hud.whereText || '', clockLabel: clock.label(), season: clock.season, monthName: clock.m.name, aurora: a,
       bearingDeg: THREE.MathUtils.radToDeg(bearing), windBearingDeg: THREE.MathUtils.radToDeg(Math.atan2(w.x, -w.z)), windStrength: w.strength,
       lookingUp: up, lookingUpWrongWay: upAnyDir && !up, lookTimer, loggedThisWindow,
       now: clock.gameHours, nightStart: clock.nightIndex * 24 + 12 + 4, history: forecast.history.get(clock.nightIndex),
@@ -1689,7 +1863,7 @@ window.chasingGreen = {
     camera.lookAt(r.x + Math.sin(hd) * 50, camera.position.y + pitch * 50, r.z + Math.cos(hd) * 50);
     return [r.x, r.z];
   },
-  get jeep() { return jeep; }, get heli() { return heli; }, get ride() { return ride; }, get walker() { return walker; }, get audio() { return audio; }, get sitting() { return sitting; }, get canyon() { return CANYONS[0]; }, get landmarks() { return landmarks; }, get aurora() { return aurora; }, get mode() { return mode; },
+  get jeep() { return jeep; }, get heli() { return heli; }, get diver() { return diver; }, get afterJump() { return afterJump; }, jump: () => jump(), callHeli: () => callHeli(), get ride() { return ride; }, get walker() { return walker; }, get audio() { return audio; }, get sitting() { return sitting; }, get canyon() { return CANYONS[0]; }, get landmarks() { return landmarks; }, get aurora() { return aurora; }, get mode() { return mode; },
   setMode: (m) => { mode = m; },
   // Render one still with a forced aurora, from a given camera, at any size. Used to make the
   // share image and, frame by frame with a rising t, the share video. Returns a PNG data URL,

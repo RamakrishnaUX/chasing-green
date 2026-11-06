@@ -25,6 +25,9 @@
 // - Landing: it settles only where the ground under all four skid corners is within about 11
 //   degrees of level, and never on water. A hard touchdown jolts it. Cliffs and mountains are
 //   solid: fly into a face and it stops against it.
+// - Empty (you have jumped out): an autopilot flies it, through the same easy controls. It stops
+//   and hovers, then finds flat, dry, open ground nearby and lands there, clear of where you are,
+//   and shuts down. Called, it starts up, flies over to flat ground beside you and lands (see fly).
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
@@ -84,6 +87,7 @@ export class Heli {
     this.cruise = 30; // easy: height to hold above the ground, metres
     this.gref = 0; // easy: the ground height it follows, smoothed
     this.landing = false; // easy: coming down to land (Down held while stopped)
+    this.auto = null; // the autopilot's job when nobody is aboard (see fly)
     this.obstacles = null;
     this.ready = this.load();
   }
@@ -262,7 +266,7 @@ mat3 rotZ(float a) { float c = cos(a), s = sin(a); return mat3(c, s, 0.0, -s, c,
     this.pos.set(x, this.floor(x, z).y, z);
     this.vel.set(0, 0, 0);
     this.heading = heading; this.pitch = 0; this.roll = 0; this.pitchRate = 0; this.rollRate = 0; this.yawRate = 0;
-    this.landed = true; this.agl = 0;
+    this.landed = true; this.agl = 0; this.auto = null;
     this.sync();
   }
 
@@ -351,11 +355,13 @@ mat3 rotZ(float a) { float c = cos(a), s = sin(a); return mat3(c, s, 0.0, -s, c,
       for (const t of [0.6, 1.5, 3]) g = Math.max(g, this.floor(this.pos.x + this.vel.x * t, this.pos.z + this.vel.z * t).y);
       this.gref += (g - this.gref) * Math.min(1, dt * (g > this.gref ? 3 : 0.7));
       this.cruise = clamp(this.cruise + lift * 14 * dt, 4, 900);
-      vyT = this.landing ? -DESCEND : clamp((this.gref + this.cruise - this.pos.y) * 0.7, -DESCEND, CLIMB);
+      // The autopilot comes down quickly from high up (a pilot would too, with nobody aboard).
+      const down = this.auto && this.agl > 80 ? DESCEND * 3 : DESCEND;
+      vyT = this.landing ? -down : clamp((this.gref + this.cruise - this.pos.y) * 0.7, -down, CLIMB);
     }
     // Close to the ground the descent eases off for a gentle touchdown; over water it will not
     // go below a safe hover.
-    if (vyT < 0) vyT = Math.max(vyT, -clamp(0.8 + this.agl * 0.35, 0.8, DESCEND));
+    if (vyT < 0) vyT = Math.max(vyT, -clamp(0.8 + this.agl * 0.35, 0.8, this.auto && this.agl > 80 ? DESCEND * 3 : DESCEND));
     if (here.water && this.agl < 2.5) vyT = Math.max(vyT, (2.5 - this.agl) * 0.8);
     if (here.water && this.agl < 3.5 && lift < -0.05) this.warning = 'water';
     if (this.pos.y > CEILING) vyT = Math.min(vyT, (CEILING - this.pos.y) * 0.5);
@@ -439,6 +445,74 @@ mat3 rotZ(float a) { float c = cos(a), s = sin(a); return mat3(c, s, 0.0, -s, c,
     this.shake = Math.max(this.shake * Math.exp(-dt * 3), etl * 0.06);
     this.agl = this.pos.y - under.y;
     this.sync(dt);
+  }
+
+  // ---------- Autopilot ----------
+  // A place to land near (x, z): dry, nearly level across the skids' footprint, with nothing built
+  // on it, and at least clear metres from avoid (where you are). Rings outward; null if none.
+  findPad(x, z, avoid = null, clear = 30, maxR = 3000) {
+    const ok = (px, pz) => {
+      if (avoid && Math.hypot(px - avoid.x, pz - avoid.z) < clear) return false;
+      let lo = Infinity, hi = -Infinity;
+      for (const [a, b] of [[0, 0], [4, 0], [-4, 0], [0, 4], [0, -4], [3, 3], [-3, 3], [3, -3], [-3, -3]]) {
+        const f = this.floor(px + a, pz + b);
+        if (f.water) return false;
+        const g = groundAt(px + a, pz + b);
+        if (f.y > g + 0.3) return false; // a roof, a wall
+        lo = Math.min(lo, f.y); hi = Math.max(hi, f.y);
+      }
+      return hi - lo < 0.9;
+    };
+    for (let r = 0; r <= maxR; r += r < 200 ? 8 : 25) {
+      const n = r === 0 ? 1 : Math.max(12, Math.min(40, Math.round(r / 6)));
+      for (let k = 0; k < n; k++) { const a = (k / n) * Math.PI * 2, px = x + Math.cos(a) * r, pz = z + Math.sin(a) * r; if (ok(px, pz)) return { x: px, z: pz }; }
+    }
+    return null;
+  }
+  // Fly it empty: phase 'park' (land near here, where you jumped) or 'come' (to you, at avoid).
+  autopilot(phase, avoid) {
+    this.auto = { phase, t: 0, pad: null, avoid: avoid ? { x: avoid.x, z: avoid.z } : null, tries: 0, bad: [] };
+    this.engineOn = true; this.landing = false;
+  }
+  // Each frame while nobody is at the controls: the autopilot if it has a job, else parked.
+  // avoid: where you are now (it never lands on you).
+  fly(dt, wind, avoid = null) {
+    const A = this.auto;
+    if (!A || dt <= 0) { this.update(dt, null, wind); return; }
+    A.t += dt;
+    if (avoid) A.avoid = { x: avoid.x, z: avoid.z };
+    const inp = { throttle: 0, steer: 0, lift: 0 };
+    const sp = this.speed;
+    // Where to land: chosen once it has slowed (after a jump) or straight away (called).
+    if (!A.pad && (A.phase === 'come' || A.t > 2.5)) {
+      const c = A.phase === 'come' && A.avoid ? A.avoid : this.pos;
+      A.pad = this.findPad(c.x, c.z, A.avoid, A.phase === 'come' ? 18 : 30);
+      if (!A.pad) A.none = true;
+      this.cruise = Math.min(Math.max(this.cruise, 45), 90);
+    }
+    if (this.landed && A.pad && Math.hypot(this.pos.x - A.pad.x, this.pos.z - A.pad.z) < 12 && A.t > 3) {
+      // Down: shut down and wait.
+      this.auto = null; this.engineOn = false; this.parkedAt = { x: this.pos.x, z: this.pos.z };
+      this.update(dt, null, wind); return;
+    }
+    if (!A.pad) inp.throttle = this.landed ? 0 : -0.2; // stop and hover
+    else {
+      const dx = A.pad.x - this.pos.x, dz = A.pad.z - this.pos.z, dist = Math.hypot(dx, dz);
+      const err = wrap(Math.atan2(dx, dz) - this.heading);
+      // You walked under it: find somewhere else.
+      if (A.avoid && Math.hypot(A.pad.x - A.avoid.x, A.pad.z - A.avoid.z) < 14) { A.pad = null; A.t = 3; this.update(dt, inp, wind); return; }
+      if (this.landed) inp.throttle = 1; // take off (once the rotor is up to speed)
+      else if (dist > 9) {
+        inp.steer = clamp(err * 1.6, -1, 1);
+        const want = clamp(dist * 0.22, 3, 45) * (Math.abs(err) < 0.6 ? 1 : 0.2);
+        inp.throttle = sp > want + 2 ? -0.25 : clamp((want - sp) / 8, 0, 1);
+      } else inp.throttle = sp > 3.5 ? -0.25 : -1; // over the pad: stop, then down
+      // Stuck on bad ground (steep, water) while landing: try the next pad.
+      if (this.warning === 'steep' || this.warning === 'water') { A.stuck = (A.stuck || 0) + dt; if (A.stuck > 2.5) { A.bad.push(A.pad); A.pad = this.findPad(A.pad.x + 40, A.pad.z, A.avoid, 30); A.stuck = 0; } }
+    }
+    const e = this.easy; this.easy = true;
+    this.update(dt, inp, wind);
+    this.easy = e;
   }
 
   // The ground under the four skid corners: how it slopes, and whether that is too steep to land.

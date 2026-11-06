@@ -77,6 +77,17 @@ export class Walker {
     this.car = carBox(fromJeep);
     this.root.visible = true;
   }
+  // On the ground after a parachute jump: standing where he landed, with no vehicle beside him.
+  land(x, z, heading) {
+    this.pos.set(x, this.groundAt(x, z), z);
+    this.heading = heading;
+    this.state = 'walk'; this.vy = 0; this.landed = 0;
+    this.held = 0; this.pushing = false; this.letGo = -1; this.fwd = 0;
+    this.car = null;
+    this.root.visible = true;
+  }
+  // The vehicle he walks round (null for none), when it changes while he is on foot.
+  setCar(vehicle) { this.car = vehicle ? carBox(vehicle) : null; }
   exit() { this.root.visible = false; this.setSitting(false); this.jumpT = -1; }
 
   // Sitting is seen through his own eyes, from inside his head: his body is hidden meanwhile, or

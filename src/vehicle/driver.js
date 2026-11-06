@@ -453,3 +453,5 @@ export class Driver {
     this.helmet.scale.setScalar(this.helmetScale ?? 1);
   }
 }
+// Shared with the skydiver, who is posed by hand the same way.
+export { setWorldQuat, turnWorld, aim, reach, frameQuat, wpos, wquat, CURL, THUMB };

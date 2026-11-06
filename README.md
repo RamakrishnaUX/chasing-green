@@ -117,6 +117,7 @@ Manual (Settings, Helicopter: Manual) is the full set: Space and Shift climb and
 | Chase or cockpit view | C | Steering-wheel button |
 | Look at the sky from above the rotor | L | Look |
 | Step out (once landed) | E | Menu, Step out |
+| Jump out with a parachute (above 300 m; see Skydiving) | J | Jump |
 | Pull the chase camera back | Mouse wheel | |
 
 - **The model** is a Eurocopter EC135 ("Elicopter SMURD Romania" by [solid3DDD](https://sketchfab.com/solid3ddd), [Sketchfab](https://sketchfab.com/3d-models/d505c4eba9ef46c1b8725d1977bd0263), CC BY 4.0), with the Romanian rescue service's names, emblems, flags and numbers painted out of the body texture (`tools/heli/livery.mjs`) and the model slimmed to 101,000 triangles and 1.6 MB (`tools/heli/process.mjs`). Main rotor, Fenestron fan, doors and cabin are separate parts.
@@ -125,6 +126,30 @@ Manual (Settings, Helicopter: Manual) is the full set: Space and Shift climb and
 - **The cockpit**: both cyclic sticks and both collective levers move with your inputs (dual controls, swung in the shader about their pivots since they are part of the cabin mesh). The four flight displays are live: horizon with pitch ladder and bank pointer, speed and altitude tapes and heading on one; rotor speed, torque, height above the ground, climb rate and a compass on the other.
 - **Seeing the whole island**: the view reaches out to 16 km as you climb, the haze thins with height, the sea plane reaches past the horizon, and the chase camera tilts down and hangs back so the land fills the view. From the 3,600 m ceiling all of Iceland fits on screen. Ambient occlusion rests above 150 m, where it shows nothing and would draw the island twice, so flying high costs less than driving.
 - **Details**: the rotor blades fade into a blurred disc as they speed up, with a faint ring from the painted tips; red, green and white navigation lights, a flashing red beacon and a white strobe; the car's headlamps become a landing light under the nose at night (moved, not added, so no shader rebuilds); downwash kicks up dust or spray when low; and the sound is a rotor beat at the blade-passing rate, turbine whine and fan hiss, muffled in the cockpit and fading as you walk away.
+
+## Skydiving
+
+Above **300 m** in the helicopter you can jump out with a parachute (J, or the red **Jump** button above Go on a phone). He steps off the side door, rolls face down with his pack on, falls at up to about 200 km/h, opens a red and white ram-air canopy, flies it down and lands on his feet. The helicopter flies itself meanwhile, and lands nearby.
+
+| Action | Keyboard | Touch |
+| --- | --- | --- |
+| Jump (helicopter above 300 m) | J | Jump |
+| Free fall: turn | Left / Right | Arrows |
+| Free fall: glide forward (track) / slow the fall | Up / Down | Go / Brake |
+| Open the parachute | Space or J | Open |
+| Canopy: steer (held, a spiral that comes down faster) | Left / Right | Arrows |
+| Canopy: dive (front risers) / brakes, and the flare just before the ground | Up / Down | Go / Brake |
+| Chase view or his own eyes | C | |
+| On the ground: call the helicopter, or get in beside it | E | Call / Get in |
+| On the ground: a car instead | V | Menu, Cars |
+
+- **Physics** (`src/vehicle/skydiver.js`): face down he falls at about 54 m/s, tracking about 49 down and 22 forward, spread out 45. Opening takes 2.6 s, most of the speed going in the middle of it. The canopy flies at about 10 m/s and sinks at 5; the front risers make it 13.5 and 7.5; brakes 3.2 and 3.4; a held turn winds into a spiral that sinks up to 14 m/s. Airspeed lags the controls, so pulling the brakes quickly turns the speed into lift for a moment: the flare. The game's wind drifts both, and soft walls keep him inside the map.
+- **Nothing ends badly.** An automatic opener fires once the ground, under him or ahead along his path, is closer than the canopy needs to open at his speed plus a margin (about 120 m at full speed), so a jump with no pull at all still lands. A landing is soft when it comes down gently and slowly through the air (flared, or on deep brakes); anything firmer is a forward roll and he stands up. He never stays in water, on a roof or on a slope too steep to stand on: he is put on the nearest ground he can stand on (the shore, beside the building, the foot of the slope), behind a quick fade. Ground contact is checked along his whole path each frame, at most a metre at a time, so at 55 m/s and 20 frames a second he cannot pass through the ground or a roof.
+- **Locked while in the air**: changing vehicles (V, the Cars tab, tapping a car), fast travel, getting in or out (E), looking up (L), sitting (X) and fuel or towing (F). C switches the camera instead. Menus pause the fall like everything else. Recording a clip works throughout.
+- **The empty helicopter** (`fly` in `heli.js`) keeps its engine on and is flown by an autopilot through its own easy controls (so it keeps its terrain following and gentle touchdowns): it stops and hovers, then finds flat, dry, open ground nearby (nine points within 4 m all within 0.9 m of each other, no roof, not on water, at least 30 m from you) and lands there, and shuts down. Over the sea it flies to the nearest such ground. Called (E, or Call), it starts up, flies over and lands on flat ground 18 m or more from you, or tells you to walk to flatter ground if there is none within 400 m. It comes down from high up three times faster than a pilot would with passengers. If the ground under it turns out steep or wet, it tries elsewhere; if you walk under it, it picks another spot.
+- **On the ground** he keeps his pack and helmet until he gets back in. The on-foot leash (120 m) is centred where he landed until the helicopter has landed near him; E and C call it from afar and only get in beside it (16 m). Choosing a car puts you in it, beside you or on the nearest road.
+- **The canopy** is built in code: nine cells in an arc, an airfoil section open at the front, 30 suspension lines to the risers at his shoulders and steering lines to his hands. It streams out of the pack as a bundle, spreads and inflates, banks with the turns, and after landing sinks forward, deflates and lies flat, then is packed away. **The pack** is a rounded black container with a red handle; it and the helmet are fitted to his bones each frame, on the jumper and then on the walker.
+- **The jumper** is the same man, posed by hand with the driver's tools (`driver.js`): the exit (standing in the door, then rolling flat), the box (arms out and bent, knees bent, head up to the horizon), tracking (arms swept back, legs straight), hanging under the canopy (hands on the toggles, pulled down to turn or flare, legs together and forward near the ground) and the landing roll.
 
 ## Fuel
 
@@ -353,7 +378,8 @@ src/
   vehicle/
     jeep.js          jeep model and driving physics
     walker.js        step-out character: moving, climbing and mixing his clips
-    heli.js          the helicopter: model, flight, landing, cockpit controls and displays
+    heli.js          the helicopter: model, flight, landing, cockpit controls and displays, autopilot
+    skydiver.js      the parachute jump: free fall, canopy, landing, the jumper's poses, pack and canopy
     models.js        the cars, loaded from their files, with stand-ins built in code
     interiors.js     dashboards, wheels and dials for the cockpit view, plus each car's hood and cockpit eye
     mirrors.js       live wing and rear-view mirrors for the cockpit view
