@@ -12,6 +12,7 @@ export class Sheet {
     this.current = null;
     this.openers = {};
     this.tabs = [...this.dialog.querySelectorAll('.sheet-tabs [data-page]')];
+    this.tabPages = ['settings', 'notebook'];
     this.pages = [...this.dialog.querySelectorAll('.sheet-page')];
     for (const page of this.pages) {
       const name = page.dataset.page;
@@ -60,6 +61,8 @@ export class Sheet {
       this.dialog.focus({ preventScroll: true });
     }
     this.onShow?.(name);
+    // Choose the first row, so the keys and the info panel start somewhere.
+    if (!this.dialog.querySelector('.sheet-page:not([hidden]) .is-sel')) { const r = this.rows()[0]; if (r && !document.body.classList.contains('has-touch')) this.select(r); }
   }
 
   close() { if (this.dialog.open) this.dialog.close(); }
@@ -73,16 +76,32 @@ export class Sheet {
     for (const r of this.dialog.querySelectorAll('.is-sel')) r.classList.remove('is-sel');
     row?.classList.add('is-sel');
     row?.scrollIntoView({ block: 'nearest' });
+    if (row) document.dispatchEvent(new CustomEvent('row-select', { detail: row }));
   }
 
   key(e) {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     const k = e.key, typing = e.target.matches?.('input:not([type=range]), textarea');
     if (typing) return;
-    const order = this.tabs.map((t) => t.dataset.page), i = order.indexOf(this.current);
+    const order = this.tabs.filter((t) => t.offsetParent).map((t) => t.dataset.page), i = order.indexOf(this.current);
     if (k === 'q' || k === 'Q' || k === 'e' || k === 'E') {
       const n = order[(i + (k.toLowerCase() === 'e' ? 1 : -1) + order.length) % order.length];
       e.preventDefault(); haptics.play('select'); sfx.whoosh(); this.go(n);
+      return;
+    }
+    // Tab moves between the groups inside a page (settings groups, notebook sections).
+    if (k === 'Tab' && !e.shiftKey && this.onTab && this.tabPages?.includes(this.current) && !document.body.classList.contains('has-touch')) {
+      e.preventDefault(); sfx.tick(); this.onTab(this.current);
+      return;
+    }
+    // The badge grid: arrows move around the medals.
+    const grid = this.dialog.querySelector('.sheet-page:not([hidden]) .tab-body:not([hidden]) .badges');
+    if (grid && k.startsWith('Arrow')) {
+      const items = [...grid.children], i = Math.max(0, items.findIndex((x) => x.classList.contains('is-sel')));
+      const cols = items.filter((x) => x.offsetTop === items[0].offsetTop).length || 1;
+      const n = Math.max(0, Math.min(items.length - 1, i + { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -cols, ArrowDown: cols }[k]));
+      e.preventDefault();
+      if (n !== i) { items[n].click(); items[n].scrollIntoView({ block: 'nearest' }); sfx.tick(); }
       return;
     }
     const rows = this.rows();
@@ -100,7 +119,9 @@ export class Sheet {
       const seg = row.querySelector('.seg');
       const range = row.querySelector('input[type=range]');
       const sel = row.querySelector('select.month-select');
-      if (seg) {
+      const step = row.querySelector('.step');
+      if (step && getComputedStyle(step).display !== 'none') step.step(d);
+      else if (seg) {
         const bs = [...seg.querySelectorAll('button')], on = bs.findIndex((b) => b.classList.contains('is-on'));
         const n = Math.max(0, Math.min(bs.length - 1, on + d));
         if (n !== on) bs[n].click();

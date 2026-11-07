@@ -45,6 +45,14 @@
     <div class="cv-shade" aria-hidden="true"></div>
     <div class="cv-spot" aria-hidden="true"></div>
     <header class="gx-top"><h1 id="intro-title" class="gx-brand">Chasing <b>Green</b></h1><p class="gx-tag">Drive. Wait. Look up.</p></header>
+    <nav class="gx-tabs" aria-label="Start screen">
+      <kbd aria-hidden="true">Q</kbd>
+      <button type="button" data-gx="vehicle" class="is-on" aria-current="page">Vehicle</button>
+      <button type="button" data-gx="month">Month</button>
+      <button type="button" data-gx="journey">Journey</button>
+      <button type="button" data-gx="settings">Settings</button>
+      <kbd aria-hidden="true">E</kbd>
+    </nav>
     <div class="gx-name">
       <p class="gx-kick" id="intro-kick"></p>
       <div class="gx-pick">
@@ -63,7 +71,7 @@
       </div>
     </div>
     <div class="gx-go">
-      <button id="start" class="btn btn-primary btn-start is-loading" role="progressbar" aria-label="Loading the island" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span class="start-fill" aria-hidden="true"></span><span class="start-label">Shaping the island</span><span class="start-pct">0%</span></button>
+      <button id="start" class="btn btn-primary btn-start is-loading" role="progressbar" aria-label="Loading the island" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span class="start-fill" aria-hidden="true"></span><span class="start-label">Shaping the island</span><span class="start-pct">0%</span><kbd class="start-key" aria-hidden="true">&crarr;</kbd></button>
       <p class="loading" id="loading" role="status"></p>
     </div>
     <p class="keys-hint"><span><kbd>WASD</kbd>Drive</span><span><kbd>Space</kbd>Nitro</span><span><kbd>C</kbd>View</span><span><kbd>V</kbd>Vehicle</span><span><kbd>M</kbd>Map</span><span><kbd>H</kbd>Learn</span></p>
@@ -86,6 +94,8 @@
       <div class="hx-tape"><svg viewBox="0 0 760 46" preserveAspectRatio="xMidYMid meet"><g id="hx-tape"></g></svg><i class="hx-caret"></i></div>
       <div class="hx-tl"><p class="hx-kick" id="hx-kick"></p><p class="hx-place" id="hx-place"></p><p class="hx-small" id="hx-next"></p></div>
       <div class="hx-tr"><p class="hx-clock" id="hx-clock"></p><p class="hx-small" id="hx-day"></p></div>
+      <div class="hx-mark" id="hx-mark-place"><b></b><span></span><svg viewBox="0 0 30 20"><path d="M2 3 L15 16 L28 3"/></svg></div>
+      <div class="hx-mark is-fuel" id="hx-mark-fuel"><b>Fuel</b><span></span><svg viewBox="0 0 30 20"><path d="M15 2 L25 10 L15 18 L5 10 Z"/></svg></div>
       <div class="hx-cluster">
         <p class="hx-gear" id="hx-gear"></p>
         <div class="hx-side l" id="hx-fuelside"><p class="hx-val"><b id="hx-fuel">0</b><small>L fuel</small></p><i class="hx-line"></i><i class="hx-bar"><b id="hx-fuelbar"></b></i></div>
@@ -202,8 +212,9 @@
       <p class="sheet-brand" aria-hidden="true">Chasing <b>Green</b></p>
       <nav class="sheet-tabs" role="tablist" aria-label="Sections">
         <kbd class="tab-key" aria-hidden="true">Q</kbd>
+        <button role="tab" data-page="journey" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M4 19c3-1 4-6 8-6s5 3 8 1M6 7.5a2 2 0 1 0 0-.01M18 5.5l-2 3h4z"/></svg><span>Journey</span></button>
         <button role="tab" data-page="map" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M3.5 6.5l5-2 7 2 5-2v13l-5 2-7-2-5 2zM8.5 4.5v13M15.5 6.5v13"/></svg><span>Map</span></button>
-        <button role="tab" data-page="garage" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M5 15.5l1.6-5.2A2 2 0 0 1 8.5 9h7a2 2 0 0 1 1.9 1.3l1.6 5.2M3.5 15.5h17v2.5a1 1 0 0 1-1 1h-15a1 1 0 0 1-1-1z"/></svg><span>Cars</span></button>
+        <button role="tab" data-page="garage" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M5 15.5l1.6-5.2A2 2 0 0 1 8.5 9h7a2 2 0 0 1 1.9 1.3l1.6 5.2M3.5 15.5h17v2.5a1 1 0 0 1-1 1h-15a1 1 0 0 1-1-1z"/></svg><span>Garage</span></button>
         <button role="tab" data-page="notebook" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M6.5 3.5h10a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2h-10zM6.5 3.5v17M9.5 8h6M9.5 11.5h6"/></svg><span>Notebook</span></button>
         <button role="tab" data-page="learn" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M3 15c3-6 6-9 9-9s6 3 9 9M6 18c2-4 4-6 6-6s4 2 6 6"/></svg><span>Learn</span></button>
         <button role="tab" data-page="sound" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9.5a3.5 3.5 0 0 1 0 5M18 7a7 7 0 0 1 0 10"/></svg><span>Sound</span></button>
@@ -212,6 +223,9 @@
       </nav>
       <button class="icon-btn glass sheet-close" id="sheet-close" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M7 7l10 10M17 7L7 17"/></svg></button>
     </header>
+
+    <!-- Journey: the trip so far -->
+    <section id="journey" class="sheet-page" data-page="journey" hidden aria-label="Journey"><div class="jr" id="journey-body"></div></section>
 
     <!-- Map -->
     <section id="map" class="sheet-page page-map" data-page="map" hidden aria-label="Map">
@@ -244,14 +258,14 @@
     <!-- Field notebook -->
     <section id="notebook" class="sheet-page" data-page="notebook" hidden aria-label="Field notebook">
       <div class="seg seg-tabs" role="tablist">
-        <button role="tab" class="tab is-on" aria-selected="true" data-tab="sightings">Sightings</button>
-        <button role="tab" class="tab" aria-selected="false" data-tab="stamps">Stamps</button>
-        <button role="tab" class="tab" aria-selected="false" data-tab="badges">Badges</button>
+        <button role="tab" class="tab is-on" aria-selected="true" data-tab="stamps">Places <span id="nb-n-places"></span></button>
+        <button role="tab" class="tab" aria-selected="false" data-tab="badges">Badges <span id="nb-n-badges"></span></button>
+        <button role="tab" class="tab" aria-selected="false" data-tab="sightings">Sightings <span id="nb-n-sightings"></span></button>
         <button role="tab" class="tab" aria-selected="false" data-tab="today">Today</button>
       </div>
-      <div class="tab-body" data-body="sightings"><ol class="sightings" id="sightings-list"></ol></div>
-      <div class="tab-body" data-body="stamps" hidden><ul class="stamps" id="stamps-list"></ul></div>
-      <div class="tab-body" data-body="badges" hidden><p class="badges-count" id="badges-count"></p><ul class="badges" id="badges-list"></ul></div>
+      <div class="tab-body" data-body="stamps"><ul class="stamps" id="stamps-list"></ul></div>
+      <div class="tab-body" data-body="badges" hidden><p class="badges-count" id="badges-count"></p><div class="nb-split"><ul class="badges" id="badges-list"></ul><aside class="nb-detail" id="nb-detail" aria-live="polite"></aside></div></div>
+      <div class="tab-body" data-body="sightings" hidden><ol class="sightings" id="sightings-list"></ol></div>
       <div class="tab-body" data-body="today" hidden><div id="challenge-card" class="challenge-card"></div></div>
     </section>
 
@@ -279,7 +293,14 @@
     </section>
 
     <!-- Settings -->
-    <section id="settings" class="sheet-page" data-page="settings" hidden aria-label="Settings">
+    <section id="settings" class="sheet-page" data-page="settings" data-cat="trip" hidden aria-label="Settings">
+      <nav class="set-cats" role="tablist" aria-label="Settings sections">
+        <button role="tab" data-cat="trip" class="is-on" aria-selected="true"><svg viewBox="0 0 24 24"><path d="M3 19L10 6l4 7 2-3 5 9z"/></svg><span>Trip</span></button>
+        <button role="tab" data-cat="picture" aria-selected="false"><svg viewBox="0 0 24 24"><rect x="3.5" y="5.5" width="17" height="12" rx="1.5"/><path d="M8 20.5h8"/></svg><span>Picture</span></button>
+        <button role="tab" data-cat="sound" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9.5a3.5 3.5 0 0 1 0 5"/></svg><span>Sound</span></button>
+        <button role="tab" data-cat="controls" aria-selected="false"><svg viewBox="0 0 24 24"><rect x="2.5" y="7.5" width="19" height="9" rx="4.5"/><path d="M7 10.5v3M5.5 12h3M16 11h.01M18 13h.01"/></svg><span>Controls</span></button>
+        <button role="tab" data-cat="about" aria-selected="false"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.5M12 7.6v.2"/></svg><span>About</span></button>
+      </nav>
       <div class="quick-actions" aria-label="Quick actions">
         <button class="tile" data-quick="walk"><svg viewBox="0 0 24 24"><circle cx="13" cy="4.8" r="1.8"/><path d="M10.5 21l2-6 2.5 2.5V21M8 12.5l2.5-4.5 3 1 2 3 2.5 1M12.5 9l-1.5 6"/></svg><span id="quick-walk">Step out</span></button>
         <button class="tile" data-quick="record"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7.5"/><circle cx="12" cy="12" r="3.2" class="fill"/></svg><span>Record</span></button>
@@ -287,6 +308,10 @@
         <button class="tile" data-quick="fullscreen"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg><span>Fullscreen</span></button>
       </div>
       <div class="settings-grid">
+        <label for="set-full" class="desk-only">Fullscreen</label>
+        <select id="set-full" class="desk-only"><option value="on">On</option><option value="off">Off</option></select>
+        <label for="set-sound" class="desk-only">Sound</label>
+        <select id="set-sound" class="desk-only"><option value="on">On</option><option value="off">Off</option></select>
         <label for="set-quality">Graphics</label>
         <select id="set-quality"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select>
         <label for="set-month">Month</label>
@@ -311,6 +336,7 @@
         <select id="set-rocks" class="desk-only"><option value="few">Few</option><option value="normal">Normal</option><option value="many">Many</option></select>
       </div>
       <div class="month-card settings-month"></div>
+      <aside class="set-note" aria-live="polite"><p class="sn-kick" id="sn-kick"></p><h4 class="sn-title" id="sn-title"></h4><p class="sn-text" id="sn-text"></p><div class="sn-extra" id="sn-extra"></div></aside>
       <p class="credits">Animals from Sketchfab, changed for the game: horse, arctic fox and reindeer (an elk) by WildMesh 3D, sheep by Nyilonelycompany, orca by neurodolphin (CC BY-NC 4.0, the elk CC BY 4.0); harbour seal by c4rn4g3, puffin by Troels, humpback by Connlan_Immure, dolphin by Alex_Pfe (CC BY 4.0). Helicopter: "Elicopter SMURD Romania" by solid3DDD (CC BY 4.0), repainted without its markings. Cars: "Willy Jeep" by AnilG; "Fictional supercar - V12 Goblin" by ollitei, repainted; "Retro Car" by pisarenok; "Volkswagen Kombi Micro Bus" by winterborn, without its badge and with its cab made left-hand drive (CC BY 4.0). On foot: "Man In Coat" by Saitam, moving with the Mixamo clips from "ETB Animated" by Royaleyourdad (CC BY 4.0). Engine sounds from Freesound, cut into loops: "Audi R8 Idling Reving Backfire" by Jonas_Jocys, "Veteran car" by juskiddink and "Volkswagen Type 2_revving up2" by nhaudio (CC BY 4.0); "Volkswagen Beetle 1961" by klankbeeld (CC BY-SA 3.0; the loops cut from it are shared under the same licence); "Jeep-CJ5-1965-final" (CC0).</p>
       <p class="credits desk-only">Realistic look: elevation from Copernicus DEM GLO-90, © DLR e.V. 2010–2014 and © Airbus Defence and Space GmbH 2014–2018, provided under COPERNICUS by the European Union and ESA. Ground textures and rocks from Poly Haven (CC0).</p>
       <div class="panel-actions">
@@ -318,7 +344,7 @@
       </div>
     </section>
     <footer class="sheet-foot" aria-hidden="true">
-      <div><span><kbd>&uarr;&darr;</kbd>Choose</span><span><kbd>&larr;&rarr;</kbd>Change</span><span><kbd>Q</kbd><kbd>E</kbd>Section</span></div>
+      <div><span><kbd>&uarr;&darr;</kbd>Choose</span><span><kbd>&larr;&rarr;</kbd>Change</span><span><kbd>Q</kbd><kbd>E</kbd>Section</span><span class="foot-tab"><kbd>Tab</kbd>Next group</span></div>
       <div><span><kbd>Esc</kbd>Back to the road</span></div>
     </footer>
   </dialog>
@@ -330,10 +356,15 @@
       <button class="icon-btn glass sheet-close" data-close aria-label="Close postcard"><svg viewBox="0 0 24 24"><path d="M7 7l10 10M17 7L7 17"/></svg></button>
     </header>
     <div class="postcard-frame"><canvas id="postcard-canvas" width="1500" height="1000" aria-label="Sighting postcard"></canvas></div>
-    <div class="pc-side" aria-hidden="true"><p class="pc-kick">Postcard</p><p class="pc-big">Send it home</p></div>
+    <div class="pc-side"><p class="pc-kick" aria-hidden="true">Postcard</p><p class="pc-big" aria-hidden="true">Send it home</p>
+      <div class="pc-opt"><p class="pc-k" id="pc-k-frame">Frame</p><div class="pc-seg" data-opt="frame" role="radiogroup" aria-labelledby="pc-k-frame"><button type="button" data-v="postcard" class="is-on">Postcard</button><button type="button" data-v="polaroid">Polaroid</button><button type="button" data-v="film">Film</button></div></div>
+      <div class="pc-opt"><label class="pc-k" for="pc-note">Note</label><textarea id="pc-note" rows="2" maxlength="150" spellcheck="true"></textarea></div>
+      <div class="pc-opt"><p class="pc-k" id="pc-k-filter">Filter</p><div class="pc-seg" data-opt="filter" role="radiogroup" aria-labelledby="pc-k-filter"><button type="button" data-v="none" class="is-on">None</button><button type="button" data-v="night">Night</button><button type="button" data-v="warm">Warm</button><button type="button" data-v="mono">Mono</button></div></div>
+    </div>
     <div class="panel-actions">
-      <button class="btn btn-primary" id="pc-share"><span>Share</span><kbd>&crarr;</kbd></button>
+      <button class="btn btn-primary" id="pc-share"><span>Share postcard</span><kbd>&crarr;</kbd></button>
       <button class="btn" id="pc-save"><span>Save image</span><kbd>S</kbd></button>
+      <button class="btn" id="pc-again"><span>Take another</span><kbd>P</kbd></button>
       <button class="btn" id="pc-link"><span>Copy link</span><kbd>L</kbd></button>
       <button class="btn" id="pc-play" hidden>Start your own trip</button>
     </div>

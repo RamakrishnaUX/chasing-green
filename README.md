@@ -83,7 +83,7 @@ The arrows step through every car and the helicopter and change your vehicle the
 
 ## Driving display
 
-On a computer the driving display follows the game's look, with no boxes behind the readouts: a compass tape across the top with a green caret, the vehicle and the place you are in at the top left with the nearest place you have not found yet (or your route), and the time at the top right with the month and when the lights are likely. At the bottom centre sits the speed cluster: the gear (or Nitro, Flying, On foot) over the speed, a thin nitro line under it, fuel in litres on the left with a warm bar, and the Kp on the right with the flowing aurora gradient. The minimap moves to the bottom left; the radio, toasts and buttons wear the same dark panels with a green edge. Phones and tablets keep their touch layout.
+On a computer the driving display follows the game's look, with no boxes behind the readouts: a compass tape across the top with a green caret, the vehicle and the place you are in at the top left with the nearest place you have not found yet (or your route), and the time at the top right with the month and when the lights are likely. At the bottom centre sits the speed cluster: the gear (or Nitro, Flying, On foot) over the speed, a thin nitro line under it, fuel in litres on the left with a warm bar, and the Kp on the right with the flowing aurora gradient. The minimap becomes just the road: the roads around you as thin lines, heading up, the stretch ahead in green and fuel stations as amber diamonds; click it for the full map. The next place to find and the nearest fuel station float over the world with their distance. The aurora radio stays out of the way until you click the Kp in the cluster (or press K); toasts and buttons wear the same dark panels with a green edge. Phones and tablets keep their touch layout.
 
 ## Places, the aurora and badges
 
@@ -95,11 +95,17 @@ Badges (`src/ui/badges.js`) come from what the notebook already keeps and a few 
 
 ## Postcards
 
-Every photo becomes a postcard (`src/share/postcard.js`), drawn like a real one: the photo on the left with "Greetings from Iceland" across its foot, and the back on the right. The back has a green aurora stamp in the corner, perforated evenly on all four sides; a round Reykjavík postmark with the date and wavy cancellation lines running onto the stamp; a handwritten note in Caveat about what you saw and where; three address lines; and a small line of trip details (place, time, Kp). On a computer the card sits tilted on the blurred road with Share (Enter), Save image (S) and Copy link (L) beside it.
+Every photo becomes a postcard (`src/share/postcard.js`), drawn like a real one: the photo on the left with "Greetings from Iceland" across its foot, and the back on the right. The back has a green aurora stamp in the corner, perforated evenly on all four sides; a round Reykjavík postmark with the date and wavy cancellation lines running onto the stamp; a handwritten note in Caveat about what you saw and where; three address lines; and a small line of trip details (place, time, Kp). On a computer the card sits tilted on the blurred road with the options beside it: Frame (Postcard, Polaroid or Film), your own Note, written on the card in Caveat, and Filter (None, Night, Warm, Mono); then Share postcard (Enter), Save image (S), Take another (P) and Copy link (L).
 
 ## Menus
 
-On a computer the menu fills the screen over the blurred road, like a console game's front end: a dark tab bar across the top with Q and E either side and a green line under the open section, and the keys along the foot. Settings and Sound are rows on dark panels; the chosen row is lighter with a green edge. Up and down choose a row, left and right change it, Q and E change section and Esc goes back to the road; the mouse works too. On phones and tablets the menu stays a sheet with the sections down the side (or across the top when upright), with the same green for whatever is chosen.
+On a computer the menu fills the screen over the blurred road, like a console game's front end: a dark tab bar across the top (Journey, Map, Garage, Notebook, Learn, Settings) with Q and E either side and a green line under the open section, and the keys along the foot.
+
+- **Journey**: places found, sightings, postcards, badges, trips, today's challenge and tonight's outlook.
+- **Notebook**: Places, Badges and Sightings with their counts. Badges are a grid of medals with the chosen one in full on the right (what it is for, when you earned it, progress).
+- **Settings**: groups on the left (Trip, Picture, Sound, Controls, About), the group's rows in the middle, and a panel on the right that says what the chosen setting does. Month shows its day, dark hours, aurora chance and a year of nights. Three or more choices are a ◂ value ▸ stepper; two are an ON | OFF pill. Up and down choose a row, left and right change it, Tab moves to the next group.
+
+The start screen has its own tabs: Vehicle (the garage), Month, Journey and Settings, with Q and E; Enter starts the drive and the arrow keys change vehicle. On phones and tablets the menu stays a sheet with the sections down the side (or across the top when upright). The touch layout is for touch screens only; a computer always gets the computer layout.
 
 The menus have their own sounds, made on the spot (`src/audio/uisfx.js`): a dry tick moving between rows, a clack changing a value, a whoosh and a low thud changing section, and a short engine blip with a chime for buttons that do something. A badge gets three bright rising notes. They follow the game's mute and All sound volume.
 

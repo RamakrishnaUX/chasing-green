@@ -47,7 +47,7 @@ import { Notebook, stampSvg } from './ui/notebook.js';
 import { Badges } from './ui/badges.js';
 import { AudioEngine } from './audio/audio.js';
 import { sfx, bindUiSfx } from './audio/uisfx.js';
-import { drawPostcard, sharePostcard, canvasBlob, download } from './share/postcard.js';
+import { drawPostcard, sharePostcard, canvasBlob, download, captionFor } from './share/postcard.js';
 import { linkFor, readSharedSighting } from './share/link.js';
 import { ClipRecorder } from './share/recorder.js';
 import { dailyChallenge } from './challenges.js';
@@ -393,7 +393,30 @@ function nextPlaceText(p) {
     const d = Math.hypot(l.x - p.x, l.z - p.z);
     if (d < bd) { bd = d; best = l; }
   }
+  hud.nextLm = best;
   return best ? `Next · ${best.name} ${formatDistance(bd)}` : 'Every place found';
+}
+// Markers floating over the world: the next place to find and the nearest fuel station, with
+// their distance, only while they are ahead of you and inside the screen.
+const markV = new THREE.Vector3();
+function worldMark(el, x, z, lift, text, dist) {
+  if (x == null || dist > 9000 || dist < 60 || lookingUp() || mode === 'sky') { el.classList.remove('is-on'); return; }
+  markV.set(x, heightAt(x, z) + lift, z).project(camera);
+  const on = markV.z < 1 && Math.abs(markV.x) < 0.82 && markV.y > -0.35 && markV.y < 0.8;
+  el.classList.toggle('is-on', on);
+  if (!on) return;
+  el.style.transform = `translate(${((markV.x + 1) / 2 * innerWidth).toFixed(0)}px, ${((1 - markV.y) / 2 * innerHeight).toFixed(0)}px) translate(-50%, -100%)`;
+  if (text != null && el.firstElementChild.textContent !== text) el.firstElementChild.textContent = text;
+  const d = formatDistance(dist).toUpperCase();
+  if (el.children[1].textContent !== d) el.children[1].textContent = d;
+}
+// The Kp in the cluster opens the full aurora radio, and K does too.
+document.querySelector('.hx-side.r').addEventListener('click', () => { sfx.tick(); $('radio').classList.toggle('is-open'); });
+function worldMarks() {
+  const p = activePos(), lm = hud.nextLm;
+  worldMark($('hx-mark-place'), lm?.x, lm?.z, 30, lm?.name, lm ? Math.hypot(lm.x - p.x, lm.z - p.z) : Infinity);
+  const st = fuel.on && ride === 'car' && stations ? stations.nearest(p.x, p.z) : null;
+  worldMark($('hx-mark-fuel'), st?.station?.x ?? st?.x, st?.station?.z ?? st?.z, 8, null, st ? (st.dist ?? Infinity) : Infinity);
 }
 // What the gear readout says: a gear from the speed when driving, R reversing, N standing.
 function gearText() {
@@ -758,12 +781,32 @@ async function openPostcard(n, sharedImg) {
     const t = store.thumb(s.n);
     if (t) img = await new Promise((res) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = t; });
   }
-  await drawPostcard($('postcard-canvas'), s, img);
+  pcImg = img;
+  pcOpts.note = `${captionFor(s)} Wish you were here.`;
+  $('pc-note').value = pcOpts.note;
+  await drawPostcard($('postcard-canvas'), s, img, pcOpts);
   $('pc-play').hidden = n !== 'shared';
+  $('pc-again').hidden = n === 'shared';
   if ($('notebook').open) $('notebook').close();
   if (!pcDialog.open) pcDialog.showModal();
 }
 pcDialog.querySelector('[data-close]').addEventListener('click', () => pcDialog.close());
+// Frame, note and filter: each change redraws the card.
+let pcImg = null, pcRedraw = 0;
+const pcOpts = { frame: 'postcard', filter: 'none', note: '' };
+const redrawPostcard = () => { if (pcSighting) drawPostcard($('postcard-canvas'), pcSighting, pcImg, pcOpts); };
+for (const seg of pcDialog.querySelectorAll('.pc-seg')) {
+  seg.addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    sfx.clack();
+    for (const x of seg.querySelectorAll('button')) { const on = x === b; x.classList.toggle('is-on', on); x.setAttribute('aria-checked', String(on)); }
+    pcOpts[seg.dataset.opt] = b.dataset.v;
+    track('postcard_option', { option: seg.dataset.opt, value: b.dataset.v });
+    redrawPostcard();
+  });
+}
+$('pc-note').addEventListener('input', (e) => { pcOpts.note = e.target.value; clearTimeout(pcRedraw); pcRedraw = setTimeout(redrawPostcard, 120); });
+$('pc-again').addEventListener('click', () => { pcDialog.close(); if (!lookingUp() && (mode === 'chase' || mode === 'walk')) toggleLookUp(); setTimeout(snapPostcard, 900); });
 $('pc-save').addEventListener('click', async () => { track('postcard_save'); download(await canvasBlob($('postcard-canvas')), `chasing-green-sighting-${pcSighting.n}.png`); });
 $('pc-share').addEventListener('click', async () => {
   const r = await sharePostcard($('postcard-canvas'), pcSighting, linkFor(pcSighting));
@@ -780,9 +823,9 @@ $('pc-link').addEventListener('click', async () => {
 });
 // Keys on the postcard: Enter shares, S saves, L copies the link.
 pcDialog.addEventListener('keydown', (e) => {
-  if (e.metaKey || e.ctrlKey || e.altKey || e.target.matches?.('button')) return;
+  if (e.metaKey || e.ctrlKey || e.altKey || e.target.matches?.('button, textarea, input')) return;
   const k = e.key.toLowerCase();
-  const b = k === 'enter' ? $('pc-share') : k === 's' ? $('pc-save') : k === 'l' ? $('pc-link') : null;
+  const b = k === 'enter' ? $('pc-share') : k === 's' ? $('pc-save') : k === 'l' ? $('pc-link') : k === 'p' && !$('pc-again').hidden ? $('pc-again') : null;
   if (b) { e.preventDefault(); b.click(); }
 });
 pcDialog.addEventListener('click', (e) => { if (e.target.closest('.panel-actions button')) sfx.confirm(); });
@@ -909,6 +952,7 @@ function setMuted(m) {
   $('btn-mute').setAttribute('aria-pressed', String(m));
   $('btn-mute').setAttribute('aria-label', m ? 'Unmute sound' : 'Mute sound');
   $('sound-muted').hidden = !m;
+  if ($('set-sound')) { $('set-sound').value = m ? 'off' : 'on'; $('settings').dispatchEvent(new Event('sync')); }
 }
 setMuted(audio.muted);
 
@@ -953,11 +997,34 @@ function openSettings() {
   $('set-places').value = placeCards();
   $('set-steering').value = settings.steering || 'buttons';
   $('set-heli').value = settings.heli || 'easy';
+  $('set-full').value = document.fullscreenElement ? 'on' : 'off';
+  $('set-sound').value = audio.muted ? 'off' : 'on';
   settingsDialog.showModal();
   settingsDialog.dispatchEvent(new Event('sync'));
 }
 $('btn-settings').addEventListener('click', openSettings);
 sheet.register('settings', openSettings);
+// Journey: the trip so far at a glance.
+function renderJourney() {
+  const total = landmarks?.list.length || 57, found = Object.keys(store.data.stamps).filter((id) => !landmarks || landmarks.list.some((l) => l.id === id)).length;
+  const lights = store.data.sightings.filter((x) => x.type !== 'Sky' && x.type !== 'Night sky').length;
+  const got = Object.keys(store.data.badges || {}).length, rec = store.data.challenges[challenge.key];
+  const win = clock.midnightSun ? 'Midnight sun: no aurora this month' : hud.nextWindowText ? `Lights likely around ${hud.nextWindowText}` : `${clock.m.name}: aurora chance ${clock.m.chance.toLowerCase()}`;
+  $('journey-body').innerHTML = `
+    <div class="jr-hero"><p class="jr-k">Places found</p><p class="jr-big"><b>${found}</b> / ${total}</p><i class="jr-bar"><b style="width:${((found / total) * 100).toFixed(1)}%"></b></i></div>
+    <div class="jr-grid">
+      <div><p class="jr-k">Aurora sightings</p><b>${lights}</b></div>
+      <div><p class="jr-k">Postcards</p><b>${store.data.sightings.length}</b></div>
+      <div><p class="jr-k">Badges</p><b>${got} / ${badges.total}</b></div>
+      <div><p class="jr-k">Trips</p><b>${store.data.trips || 1}</b></div>
+    </div>
+    <div class="jr-row">
+      <div class="jr-card"><p class="jr-k">Today's challenge</p><h4>${challenge.title}</h4><p>${challenge.detail}</p><p class="jr-done">${rec?.done ? 'Done. Stamp in your notebook.' : 'Not done yet'}</p></div>
+      <div class="jr-card"><p class="jr-k">Tonight</p><h4>${clock.m.name}</h4><p>${win}.</p><p class="jr-done">Dark for ${clock.darkHours().toFixed(1)} hours</p></div>
+    </div>`;
+  sheet.show('journey');
+}
+sheet.register('journey', renderJourney);
 sheet.register('notebook', () => notebook.open());
 pcDialog.addEventListener('click', (e) => { if (e.target === pcDialog) pcDialog.close(); });
 $('set-places').addEventListener('change', (e) => {
@@ -1172,7 +1239,11 @@ function vehicleStats(kind) {
     ['Wading depth', v.wade.toFixed(1), 'm', seg(v.wade / 2.8)], litres ? ['Fuel tank', String(litres), 'L', seg(litres / 90)] : ['Weight', 'Light', '', 3]];
 }
 function introInfo(kind) {
-  $('intro-car').textContent = kind === 'heli' ? 'Helicopter' : VEHICLES[kind].name;
+  const name = $('intro-car');
+  name.textContent = kind === 'heli' ? 'Helicopter' : VEHICLES[kind].name;
+  // The name fills its brackets: as large as fits, never cut off.
+  name.style.fontSize = '';
+  requestAnimationFrame(() => { let f = parseFloat(getComputedStyle(name).fontSize); while (name.scrollWidth > name.clientWidth + 1 && f > 18) name.style.fontSize = `${(f -= 2)}px`; });
   $('intro-kick').textContent = KIND_LABEL[kind] || '';
   const stats = vehicleStats(kind).map(([t, v, u, n]) => `<div class="gx-stat"><div class="gx-t">${t}</div><div class="gx-v">${v}<small>${u}</small></div><div class="gx-segs">${Array.from({ length: 10 }, (_, i) => `<i${i < n ? ' class="on"' : ''}></i>`).join('')}</div></div>`);
   $('gx-stats-l').innerHTML = stats.slice(0, 2).join('');
@@ -1204,6 +1275,28 @@ for (const [id, step] of [['cv-prev', -1], ['cv-next', 1]]) $(id).addEventListen
 });
 const startBtn = $('start');
 startBtn.disabled = true;
+// The start screen's own tabs: Vehicle is this garage; Month, Journey and Settings open the menu.
+document.body.classList.add('pre-start');
+function gxTab(name) {
+  sfx.whoosh();
+  if (name === 'journey') sheet.go('journey');
+  else if (name === 'settings' || name === 'month') {
+    sheet.go('settings');
+    setCat('trip');
+    if (name === 'month') { const r = document.querySelector('#settings .srow[data-key="set-month"]'); if (r) sheet.select(r); }
+  }
+  for (const b of document.querySelectorAll('.gx-tabs button')) b.classList.toggle('is-on', b.dataset.gx === name);
+}
+for (const b of document.querySelectorAll('.gx-tabs button')) b.addEventListener('click', () => { if (b.dataset.gx !== 'vehicle') gxTab(b.dataset.gx); });
+$('sheet').addEventListener('close', () => { for (const b of document.querySelectorAll('.gx-tabs button')) b.classList.toggle('is-on', b.dataset.gx === 'vehicle'); });
+addEventListener('keydown', (e) => {
+  if (started || document.querySelector('dialog[open]') || e.metaKey || e.ctrlKey || e.altKey) return;
+  const k = e.key.toLowerCase();
+  if (k === 'e') gxTab('month');
+  else if (k === 'q') gxTab('settings');
+  else if (k === 'arrowleft' || k === 'arrowright') { e.preventDefault(); $(k === 'arrowleft' ? 'cv-prev' : 'cv-next').click(); }
+  else if (k === 'enter' && !startBtn.disabled && document.activeElement?.tagName !== 'SELECT') { e.preventDefault(); startBtn.click(); }
+});
 startBtn.addEventListener('click', () => {
   audio.start();
   audio.setMuted(audio.muted);
@@ -1211,6 +1304,7 @@ startBtn.addEventListener('click', () => {
   store.data.trips++; store.save();
   track('game_start', { month: clock.m.name, vehicle: settings.vehicle || 'jeep', graphics: qualityName, input: isTouch ? 'touch' : 'keyboard', trip_number: store.data.trips });
   $('intro').classList.add('is-leaving');
+  document.body.classList.remove('pre-start');
   // The cover fades out over the island; then its two canvases let go of their GPU contexts.
   setTimeout(() => { $('intro').hidden = true; cover.dispose(); introSky.stop(); }, 900);
   hud.show();
@@ -1244,6 +1338,7 @@ addEventListener('keydown', (e) => {
   else if (k === 'x') toggleSit();
   else if (k === 'h') learn.open();
   else if (k === 'f') fuelAction();
+  else if (k === 'k') $('radio').classList.toggle('is-open');
 });
 
 // ---------- Learn, sitting, nitro option ----------
@@ -1903,6 +1998,8 @@ function frame(now) {
     if (!paused) fuelTick(dt);
     nav.update(dt, activePos(), activeHeading(), t);
     mapUI.route = nav.route?.pts || null; mapUI.dest = nav.dest;
+    mapUI.lineMode = !!document.querySelector('.hx')?.offsetParent;
+    if (mapUI.lineMode) worldMarks();
     mapUI.update(dt, activePos(), activeHeading());
     if (jeep.boatOn && started) badges.feat('boat');
     hud.update(dt, {
@@ -2104,6 +2201,24 @@ window.chasingGreen = {
   },
 };
 
+const SET_CAT = { 'set-month': 'trip', 'set-speed': 'trip', 'set-fuel': 'trip', 'set-nitro': 'trip', 'set-places': 'trip', 'set-quality': 'picture', 'set-look': 'picture', 'set-rocks': 'picture', 'set-full': 'picture', 'set-sound': 'sound', 'set-heli': 'controls', 'set-haptics': 'controls', 'set-steering': 'controls' };
+const SET_NOTE = {
+  'set-month': 'Sets the sun, the length of the night and how often the aurora comes out.',
+  'set-speed': 'How fast the clock runs. Faster brings the night, and the lights, sooner.',
+  'set-fuel': 'Off and the tank never runs dry. On and you stop at stations to fill up.',
+  'set-nitro': 'A burst of speed on Space. The tank refills on its own as you drive.',
+  'set-places': 'When the place panel shows: at every place, only places you have not stamped, or never.',
+  'set-quality': 'Low runs smoothest; High draws more grass, rocks and longer views.',
+  'set-look': 'Realistic uses real Icelandic elevation and textures. Classic is the original, simpler look.',
+  'set-rocks': 'How many rocks lie around the land. Changes on the next load.',
+  'set-full': 'Fill the whole screen with the island.',
+  'set-sound': 'All sound on or off. The volumes below set each part.',
+  'set-heli': 'Easy flies like the car: steer and go. Manual gives you lift, pitch and turn yourself.',
+  'set-haptics': 'Little buzzes for bumps, stamps and the aurora.',
+  'set-steering': 'Steer with the arrow buttons or by tilting the phone like a wheel.',
+  volume: 'Drag, or choose the row and use left and right.',
+};
+
 // ---------- Settings: tap a choice instead of opening a drop-down ----------
 // Each short select in Settings gets a row of buttons that drive it, so the same change
 // handlers run. The long month list keeps its drop-down.
@@ -2124,7 +2239,29 @@ for (const sel of document.querySelectorAll('.settings-grid select:not(.month-se
   sel.after(seg);
   settingsDialog.addEventListener('sync', sync);
   sync();
+  // Three or more choices also get a stepper (◂ value ▸), which the computer menu shows instead.
+  if (sel.options.length > 2) seg.after(stepper(sel));
 }
+function stepper(sel) {
+  const st = document.createElement('div');
+  st.className = 'step';
+  st.innerHTML = '<button type="button" class="st-prev" aria-label="Previous"><svg viewBox="0 0 10 10"><path d="M7 1 2 5l5 4z"/></svg></button><span class="st-val"></span><button type="button" class="st-next" aria-label="Next"><svg viewBox="0 0 10 10"><path d="m3 1 5 4-5 4z"/></svg></button>';
+  const val = st.querySelector('.st-val');
+  const show = () => { val.textContent = sel.options[sel.selectedIndex]?.textContent || ''; };
+  const go = (d) => {
+    const n = Math.max(0, Math.min(sel.options.length - 1, sel.selectedIndex + d));
+    if (n === sel.selectedIndex) return;
+    sel.selectedIndex = n; sel.dispatchEvent(new Event('change', { bubbles: true })); show();
+  };
+  st.querySelector('.st-prev').addEventListener('click', () => go(-1));
+  st.querySelector('.st-next').addEventListener('click', () => go(1));
+  st.step = go;
+  sel.addEventListener('change', show);
+  settingsDialog.addEventListener('sync', show);
+  show();
+  return st;
+}
+$('set-month').closest('.select-wrap').after(stepper($('set-month')));
 // Each setting becomes one row (a label and its control), so the menu can light the chosen row.
 // On phones the row box drops away (display: contents) and the grid lays the parts out as before.
 for (const label of [...document.querySelectorAll('.settings-grid > label')]) {
@@ -2134,4 +2271,70 @@ for (const label of [...document.querySelectorAll('.settings-grid > label')]) {
   let n = label.nextElementSibling;
   row.append(label);
   while (n && n.tagName !== 'LABEL') { const next = n.nextElementSibling; row.append(n); n = next; }
+  row.dataset.cat = SET_CAT[label.htmlFor] || 'trip';
+  row.dataset.key = label.htmlFor;
 }
+for (const el of document.querySelectorAll('#settings .credits, #settings .panel-actions')) el.dataset.cat = 'about';
+$('sound').querySelector('.sound-list').dataset.cat = 'sound';
+
+// ---------- Settings on computers: groups on the left, an info panel on the right ----------
+function setCat(cat) {
+  const page = $('settings');
+  page.dataset.cat = cat;
+  for (const b of page.querySelectorAll('.set-cats button')) { const on = b.dataset.cat === cat; b.classList.toggle('is-on', on); b.setAttribute('aria-selected', String(on)); }
+  const first = sheet.rows()[0];
+  if (first) sheet.select(first);
+}
+for (const b of document.querySelectorAll('#settings .set-cats button')) b.addEventListener('click', () => { sfx.tick(); setCat(b.dataset.cat); });
+sheet.onTab = (page) => {
+  if (page === 'notebook') { notebook.nextTab?.(); return; }
+  const cats = [...document.querySelectorAll('#settings .set-cats button')].map((b) => b.dataset.cat);
+  setCat(cats[(cats.indexOf($('settings').dataset.cat) + 1) % cats.length]);
+};
+// The info panel says what the chosen setting does; Month also shows its light and a year of nights.
+function darkByMonth() {
+  const keep = clock.month, out = [];
+  for (let i = 0; i < 12; i++) { clock.month = i; out.push(clock.darkHours()); }
+  clock.month = keep;
+  return out;
+}
+let darkYear = null;
+document.addEventListener('row-select', (e) => {
+  const row = e.detail;
+  if (!row.closest('#settings')) return;
+  const key = row.dataset.key || (row.querySelector('input[type=range]') ? 'volume' : '');
+  const label = row.querySelector('label')?.querySelector('b')?.textContent || row.querySelector('label')?.textContent || '';
+  $('sn-kick').textContent = { trip: 'Trip', picture: 'Picture', sound: 'Sound', controls: 'Controls', about: 'About' }[row.dataset.cat || $('settings').dataset.cat] || '';
+  $('sn-title').textContent = key === 'set-month' ? clock.m.name : label;
+  $('sn-text').textContent = SET_NOTE[key] || row.querySelector('label span')?.textContent || '';
+  let extra = '';
+  if (key === 'set-month') {
+    const m = clock.m, day = Math.max(0, Math.min(24, m.sunset - m.sunrise)), dark = clock.darkHours();
+    darkYear ||= darkByMonth();
+    extra = `<div class="sn-three"><div><span>Day</span><b>${day.toFixed(1)} h</b></div><div><span>Dark</span><b>${dark.toFixed(1)} h</b></div><div><span>Aurora</span><b class="g">${m.chance}</b></div></div>
+      <div class="sn-bars">${darkYear.map((d, i) => `<i class="${i === clock.month ? 'on' : ''}" style="height:${Math.max(3, (d / 20) * 100).toFixed(0)}%"></i>`).join('')}</div>
+      <div class="sn-lbl">${'JFMAMJJASOND'.split('').map((c) => `<span>${c}</span>`).join('')}</div><p class="sn-tip">${m.tip}</p>`;
+  } else if (key === 'set-heli' || key === 'set-nitro' || key === 'set-speed') {
+    extra = `<dl class="sn-keys"><div><dt>Drive</dt><dd>W A S D</dd></div><div><dt>Nitro</dt><dd>Space</dd></div><div><dt>Look up</dt><dd>L</dd></div><div><dt>View</dt><dd>C</dd></div><div><dt>Vehicle</dt><dd>V</dd></div><div><dt>Step out</dt><dd>E</dd></div><div><dt>Map</dt><dd>M</dd></div><div><dt>Postcard</dt><dd>P</dd></div></dl>`;
+  }
+  $('sn-extra').innerHTML = extra;
+});
+$('set-month').addEventListener('change', () => { const r = document.querySelector('#settings .srow.is-sel'); if (r) document.dispatchEvent(new CustomEvent('row-select', { detail: r })); });
+
+// Fullscreen and sound as plain rows.
+$('set-full').addEventListener('change', (e) => {
+  const on = e.target.value === 'on';
+  if (on && !document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(() => { e.target.value = 'off'; settingsDialog.dispatchEvent(new Event('sync')); });
+  if (!on && document.fullscreenElement) document.exitFullscreen?.();
+});
+document.addEventListener('fullscreenchange', () => { $('set-full').value = document.fullscreenElement ? 'on' : 'off'; settingsDialog.dispatchEvent(new Event('sync')); });
+$('set-sound').addEventListener('change', (e) => setMuted(e.target.value === 'off'));
+
+// On computers the volumes live under Settings > Sound; phones keep their own Sound page.
+function placeSoundList() {
+  const list = document.querySelector('.sound-list'), desk = !document.body.classList.contains('has-touch');
+  if (desk && list.parentElement.id !== 'settings') $('settings').querySelector('.settings-grid').after(list);
+  if (!desk && list.parentElement.id === 'settings') $('sound').append(list);
+}
+placeSoundList();
+new MutationObserver(placeSoundList).observe(document.body, { attributes: true, attributeFilter: ['class'] });

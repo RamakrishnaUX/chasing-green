@@ -138,12 +138,22 @@ export class Badges {
     }, 5200);
   }
 
+  // One badge in full, for the panel beside the grid.
+  detail(id) {
+    const b = BADGES.find((x) => x.id === id);
+    if (!b) return '';
+    const when = store.data.badges?.[id], have = Math.min(b.have(), b.need);
+    const date = when ? new Date(when).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : '—';
+    return `<div class="nbd-medal">${medalSvg(b.icon, !!when)}</div><h4>${esc(b.name)}</h4><p>${esc(when ? b.done() : b.what)}</p>
+      <div class="nbd-meta"><div><span>${when ? 'Earned' : 'Status'}</span><b>${when ? date : 'Locked'}</b></div><div><span>Progress</span><b>${have} / ${b.need}</b></div></div>`;
+  }
+
   // The collection, for the notebook.
   html() {
     const got = store.data.badges || {};
     return [...BADGES].sort((a, b) => (got[b.id] ? 1 : 0) - (got[a.id] ? 1 : 0)).map((b) => {
       const g = !!got[b.id], p = Math.min(1, b.have() / b.need);
-      return `<li class="badge${g ? ' is-got' : ''}">${medalSvg(b.icon, g)}<b>${esc(b.name)}</b><span>${esc(g ? b.done() : b.what)}</span>${g ? '' : `<i class="bprog" aria-label="${Math.round(p * 100)}% done"><i style="width:${(p * 100).toFixed(0)}%"></i></i>`}</li>`;
+      return `<li class="badge${g ? ' is-got' : ''}" data-id="${b.id}" tabindex="-1">${medalSvg(b.icon, g)}<b>${esc(b.name)}</b><span>${esc(g ? b.done() : b.what)}</span>${g ? '' : `<i class="bprog" aria-label="${Math.round(p * 100)}% done"><i style="width:${(p * 100).toFixed(0)}%"></i></i>`}</li>`;
     }).join('');
   }
 }

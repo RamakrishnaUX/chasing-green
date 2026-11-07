@@ -128,15 +128,69 @@ function wrap(ctx, text, maxW) {
   return lines;
 }
 
+// Filters for the photo: a cooler night, a warm print, or black and white.
+const FILTERS = { none: 'none', night: 'saturate(1.25) hue-rotate(-10deg) brightness(0.92) contrast(1.12)', warm: 'sepia(0.32) saturate(1.25) brightness(1.03) contrast(1.04)', mono: 'grayscale(1) contrast(1.15) brightness(1.02)' };
+function photo(ctx, image, x, y, w, h, filter = 'none') {
+  ctx.fillStyle = '#0d1520'; ctx.fillRect(x, y, w, h);
+  if (!image) return;
+  ctx.save();
+  if ('filter' in ctx) ctx.filter = FILTERS[filter] || 'none';
+  cover(ctx, image, x, y, w, h);
+  ctx.restore();
+  if (filter === 'night') { ctx.fillStyle = 'rgba(30,70,110,0.16)'; ctx.fillRect(x, y, w, h); }
+}
+
+// Polaroid (wide instant film): a white card, the photo, and the note written underneath.
+function drawPolaroid(ctx, W, H, s, image, o) {
+  ctx.fillStyle = '#26302c'; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#f7f5ef'; ctx.fillRect(40, 30, W - 80, H - 60);
+  photo(ctx, image, 92, 80, W - 184, H - 330, o.filter);
+  ctx.fillStyle = PEN; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  ctx.font = '500 50px "Caveat", "Bradley Hand", cursive';
+  const lines = wrap(ctx, o.note, W - 420);
+  lines.slice(0, 2).forEach((l, i) => ctx.fillText(l, 100, H - 172 + i * 56));
+  ctx.textAlign = 'right'; ctx.fillStyle = 'rgba(40,44,46,0.55)';
+  ctx.font = '600 17px "Saira", system-ui, sans-serif';
+  if ('letterSpacing' in ctx) ctx.letterSpacing = '4px';
+  ctx.fillText(`${s.place.toUpperCase()}`, W - 100, H - 150);
+  ctx.fillText(`${s.clock} · KP ${s.kp.toFixed(1)}`, W - 100, H - 118);
+  if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
+}
+
+// Film: a strip of negative with sprocket holes, the frame number and the stock name in orange.
+function drawFilm(ctx, W, H, s, image, o) {
+  ctx.fillStyle = '#121110'; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#2b2620';
+  for (let x = 30; x < W; x += 62) { ctx.beginPath(); ctx.roundRect(x, 34, 34, 46, 6); ctx.roundRect(x, H - 80, 34, 46, 6); ctx.fill(); }
+  photo(ctx, image, 60, 120, W - 120, H - 240, o.filter);
+  ctx.fillStyle = '#f08c2a'; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+  ctx.font = '700 22px "Saira", system-ui, sans-serif';
+  if ('letterSpacing' in ctx) ctx.letterSpacing = '5px';
+  ctx.fillText(`CHASING GREEN 400  ▸ ${String(s.n).padStart(2, '0')}A`, 70, 102);
+  ctx.textAlign = 'right'; ctx.fillText(`${s.place.toUpperCase()} · KP ${s.kp.toFixed(1)}`, W - 70, H - 102);
+  if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
+  ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = '#f4f8f6'; ctx.font = '500 44px "Caveat", "Bradley Hand", cursive';
+  const lines = wrap(ctx, o.note, W - 260);
+  const fade = ctx.createLinearGradient(0, H - 300, 0, H - 120); fade.addColorStop(0, 'rgba(0,0,0,0)'); fade.addColorStop(1, 'rgba(0,0,0,0.6)');
+  ctx.fillStyle = fade; ctx.fillRect(60, H - 300, W - 120, 180);
+  ctx.fillStyle = '#f4f8f6';
+  lines.slice(0, 2).reverse().forEach((l, i) => ctx.fillText(l, 100, H - 150 - i * 50));
+}
+
 const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
 
-export async function drawPostcard(canvas, s, image) {
+export async function drawPostcard(canvas, s, image, opts = {}) {
   canvas.width = 1500; canvas.height = 1000;
   const ctx = canvas.getContext('2d');
   const W = canvas.width, H = canvas.height;
+  const o = { frame: 'postcard', filter: 'none', note: `${captionFor(s)} Wish you were here.`, ...opts };
+  if (!o.note.trim()) o.note = ' ';
   // The canvas only gets these fonts if they are loaded first; nothing else on screen uses Caveat.
   try { await Promise.all(['500 46px Caveat', '600 44px Caveat', '400 50px Michroma', '700 20px Saira', '600 17px Saira'].map((f) => document.fonts.load(f))); } catch { /* fall back */ }
   ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+  if (o.frame === 'polaroid') { drawPolaroid(ctx, W, H, s, image, o); return; }
+  if (o.frame === 'film') { drawFilm(ctx, W, H, s, image, o); return; }
 
   // Paper, with a little grain.
   ctx.fillStyle = PAPER; ctx.fillRect(0, 0, W, H);
@@ -147,8 +201,7 @@ export async function drawPostcard(canvas, s, image) {
 
   // Front: the photo on the left.
   const PX = 26, PY = 26, PW = 830, PH = H - 52;
-  ctx.fillStyle = '#0d1520'; ctx.fillRect(PX, PY, PW, PH);
-  if (image) cover(ctx, image, PX, PY, PW, PH);
+  photo(ctx, image, PX, PY, PW, PH, o.filter);
   // A dark fade at the foot of the photo so the greeting reads without a shadow.
   const fade = ctx.createLinearGradient(0, PY + PH * 0.62, 0, PY + PH);
   fade.addColorStop(0, 'rgba(4,10,9,0)'); fade.addColorStop(1, 'rgba(4,10,9,0.72)');
@@ -181,11 +234,10 @@ export async function drawPostcard(canvas, s, image) {
   ctx.fillStyle = PEN; ctx.textAlign = 'left';
   ctx.font = '500 46px "Caveat", "Bradley Hand", cursive';
   const NX = BX + 22, NW = BR - NX;
-  const lines = wrap(ctx, `${captionFor(s)} Wish you were here.`, NW);
+  const lines = wrap(ctx, o.note, NW);
   let y = 392;
   for (const l of lines.slice(0, 5)) { ctx.fillText(l, NX, y); y += 58; }
-  ctx.font = '600 44px "Caveat", "Bradley Hand", cursive';
-  ctx.fillText('— from the Ring Road', NX, y + 6);
+  if (o.note === `${captionFor(s)} Wish you were here.`) { ctx.font = '600 44px "Caveat", "Bradley Hand", cursive'; ctx.fillText('— from the Ring Road', NX, y + 6); }
 
   // Address lines and the trip details.
   ctx.strokeStyle = 'rgba(40,44,46,0.3)'; ctx.lineWidth = 2;

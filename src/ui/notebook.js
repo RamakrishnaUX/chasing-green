@@ -56,9 +56,24 @@ export class Notebook {
   tab(name) {
     this.dialog.querySelectorAll('.tab').forEach((t) => { const on = t.dataset.tab === name; t.classList.toggle('is-on', on); t.setAttribute('aria-selected', String(on)); });
     this.dialog.querySelectorAll('.tab-body').forEach((b) => (b.hidden = b.dataset.body !== name));
+    this.last = name;
+    // The first badge starts chosen, so its story shows on the right.
+    if (name === 'badges') { const first = this.dialog.querySelector('.badges .badge'); if (first) this.pick(first); }
   }
 
-  open(tab = 'sightings') { this.render(); this.tab(tab); this.dialog.showModal(); }
+  pick(li) {
+    for (const x of this.dialog.querySelectorAll('.badges .badge.is-sel')) x.classList.remove('is-sel');
+    li.classList.add('is-sel');
+    if (this.badges) document.getElementById('nb-detail').innerHTML = this.badges.detail(li.dataset.id);
+  }
+
+  open(tab = this.last || 'stamps') { this.render(); this.tab(tab); this.dialog.showModal(); }
+
+  nextTab() {
+    const tabs = [...this.dialog.querySelectorAll('.tab')].filter((t) => t.offsetParent).map((t) => t.dataset.tab);
+    const on = this.dialog.querySelector('.tab.is-on')?.dataset.tab;
+    this.tab(tabs[(tabs.indexOf(on) + 1) % tabs.length]);
+  }
 
   render() {
     const sightings = [...store.data.sightings].reverse();
@@ -87,7 +102,14 @@ export class Notebook {
       const got = Object.keys(store.data.badges || {}).length;
       document.getElementById('badges-list').innerHTML = this.badges.html();
       document.getElementById('badges-count').textContent = `${got} of ${this.badges.total} earned`;
+      document.getElementById('nb-n-badges').textContent = `${got}/${this.badges.total}`;
+      for (const li of this.dialog.querySelectorAll('.badges .badge')) {
+        li.addEventListener('click', () => this.pick(li));
+        li.addEventListener('pointerenter', (e) => { if (e.pointerType === 'mouse') this.pick(li); });
+      }
     }
+    document.getElementById('nb-n-places').textContent = `${Object.keys(store.data.stamps).filter((id) => LANDMARKS.some((l) => l.id === id)).length}/${LANDMARKS.length}`;
+    document.getElementById('nb-n-sightings').textContent = String(store.data.sightings.length);
 
     const c = this.getChallenge();
     const rec = store.data.challenges[c.key];

@@ -328,11 +328,61 @@ export class MapUI {
     g.restore();
   }
 
+  // On computers the minimap is just the road: the roads around you as thin lines, heading up,
+  // the stretch ahead in green and you as a small green arrow. Click it for the full map.
+  drawLine(pos, heading) {
+    const c = this.mini, g = this.ctx;
+    const dpr = Math.min(2, devicePixelRatio || 1);
+    const cw = c.clientWidth || 220, ch = c.clientHeight || 170;
+    if (c.width !== Math.round(cw * dpr) || c.height !== Math.round(ch * dpr)) { c.width = Math.round(cw * dpr); c.height = Math.round(ch * dpr); }
+    const Wd = c.width, H = c.height, view = 1300, k = Wd / view;
+    g.clearRect(0, 0, Wd, H);
+    // You sit low in the frame, so more of the road ahead shows.
+    const ox = Wd * 0.45, oy = H * 0.7, cs = Math.cos(heading), sn = Math.sin(heading);
+    // World to frame, rotated so the way you face points up.
+    const P = (x, z) => { const dx = x - pos.x, dz = z - pos.z; const r = dz * sn - dx * cs, f = dx * sn + dz * cs; return [ox + r * k, oy - f * k]; };
+    const fwd = (x, z) => (x - pos.x) * sn + (z - pos.z) * cs;
+    const near = view * 0.75;
+    g.lineCap = 'round'; g.lineJoin = 'round';
+    for (const path of roadPaths) {
+      const pts = path.pts;
+      let any = false;
+      for (let i = 0; i < pts.length; i += 4) if (Math.abs(pts[i].x - pos.x) < near && Math.abs(pts[i].z - pos.z) < near) { any = true; break; }
+      if (!any) continue;
+      for (let i = 1; i < pts.length; i++) {
+        const a = pts[i - 1], b = pts[i];
+        if (Math.abs(b.x - pos.x) > near || Math.abs(b.z - pos.z) > near) continue;
+        const d = Math.hypot(b.x - pos.x, b.z - pos.z), f = fwd(b.x, b.z), ahead = f > 0 && d < 420 && Math.sqrt(Math.max(0, d * d - f * f)) < 90;
+        const [u1, v1] = P(a.x, a.z), [u2, v2] = P(b.x, b.z);
+        g.beginPath(); g.moveTo(u1, v1); g.lineTo(u2, v2);
+        // Fade the lines towards the edges, so the map has no hard frame.
+        const edge = Math.min(1, Math.max(0, 1.25 - d / (view * 0.55)));
+        g.strokeStyle = ahead ? '#66dfb0' : `rgba(244,248,246,${((path.type === 'paved' ? 0.85 : 0.4) * edge).toFixed(2)})`;
+        g.lineWidth = (ahead ? 3.4 : path.type === 'paved' ? 2.4 : 1.6) * dpr;
+        g.stroke();
+      }
+    }
+    if (this.route) {
+      g.beginPath();
+      this.route.forEach((q, i) => { const [u, v] = P(q.x, q.z); i ? g.lineTo(u, v) : g.moveTo(u, v); });
+      g.strokeStyle = '#a2f6d3'; g.lineWidth = 3.6 * dpr; g.stroke();
+    }
+    for (const st of this.stations) {
+      if (Math.abs(st.x - pos.x) > near || Math.abs(st.z - pos.z) > near) continue;
+      const [u, v] = P(st.x, st.z), r = 3.5 * dpr;
+      g.save(); g.translate(u, v); g.rotate(Math.PI / 4); g.fillStyle = '#ffbe5c'; g.fillRect(-r, -r, r * 2, r * 2); g.restore();
+    }
+    const s = 9 * dpr;
+    g.beginPath(); g.moveTo(ox, oy - s); g.lineTo(ox + s * 0.8, oy + s * 0.75); g.lineTo(ox, oy + s * 0.3); g.lineTo(ox - s * 0.8, oy + s * 0.75); g.closePath();
+    g.fillStyle = '#66dfb0'; g.fill();
+  }
+
   update(dt, pos, heading) {
     this.player = { x: pos.x, z: pos.z, heading };
     this.timer -= dt;
     if (this.timer > 0) return;
     this.timer = 0.1;
+    if (this.lineMode) { this.drawLine(pos, heading); return; }
     const c = this.mini, g = this.ctx;
     const dpr = Math.min(2, devicePixelRatio || 1);
     const css = c.clientWidth || 168;
