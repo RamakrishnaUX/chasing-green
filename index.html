@@ -106,6 +106,7 @@
             <linearGradient id="hx-g-fuel" gradientUnits="userSpaceOnUse" x1="300" y1="0" x2="24" y2="0"><stop offset="0" stop-color="#ff6a50"/><stop offset="0.45" stop-color="#ffbe5c"/><stop offset="1" stop-color="#ffe7a3"/></linearGradient>
             <linearGradient id="hx-g-kp" gradientUnits="userSpaceOnUse" x1="400" y1="0" x2="676" y2="0" spreadMethod="reflect"><stop offset="0" stop-color="#20634c"/><stop offset="0.5" stop-color="#66dfb0"/><stop offset="1" stop-color="#a2f6d3"/>
               <animate attributeName="x1" values="400;676;400" dur="5s" repeatCount="indefinite"/><animate attributeName="x2" values="676;952;676" dur="5s" repeatCount="indefinite"/></linearGradient>
+            <linearGradient id="hx-g-alt" gradientUnits="userSpaceOnUse" x1="300" y1="0" x2="24" y2="0"><stop offset="0" stop-color="#5aa7ff"/><stop offset="1" stop-color="#e3f1ff"/></linearGradient>
             <linearGradient id="hx-g-nitro" gradientUnits="userSpaceOnUse" x1="350" y1="0" x2="250" y2="0" spreadMethod="reflect"><stop offset="0" stop-color="#a2f6d3"/><stop offset="1" stop-color="#43ab83"/></linearGradient>
           </defs>
           <g clip-path="url(#hx-clip)">
@@ -229,6 +230,8 @@
     </div>
   </div>
   <div class="boost-glow" id="boost-glow" aria-hidden="true"></div>
+  <div class="opening" aria-hidden="true"><i class="op-bar op-top"></i><i class="op-bar op-bottom"></i>
+    <div class="op-card"><p class="op-kick" id="op-kick"></p><h2 class="op-place" id="op-place"></h2><p class="op-sub">Ring Road · Iceland</p></div></div>
   <div class="coach" id="coach-reverse" role="status" hidden>Brake. Keep holding it to reverse.</div>
 
   <!-- One sheet for everything: map, cars, notebook, learn and settings -->
@@ -301,24 +304,30 @@
     <!-- Field notebook -->
     <section id="notebook" class="sheet-page" data-page="notebook" hidden aria-label="Field notebook">
       <div class="seg seg-tabs" role="tablist">
-        <button role="tab" class="tab is-on" aria-selected="true" data-tab="stamps">Places <span id="nb-n-places"></span></button>
-        <button role="tab" class="tab" aria-selected="false" data-tab="badges">Badges <span id="nb-n-badges"></span></button>
-        <button role="tab" class="tab" aria-selected="false" data-tab="sightings">Sightings <span id="nb-n-sightings"></span></button>
-        <button role="tab" class="tab" aria-selected="false" data-tab="today">Today</button>
+        <button role="tab" class="tab is-on" aria-selected="true" data-tab="stamps"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 19L10 6l4 7 2-3 5 9z"/></svg>Places <span id="nb-n-places"></span></button>
+        <button role="tab" class="tab" aria-selected="false" data-tab="badges"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 4v10l-7 4-7-4V7z"/></svg>Badges <span id="nb-n-badges"></span></button>
+        <button role="tab" class="tab" aria-selected="false" data-tab="sightings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17C6 8 10 14 12 9s6-4 9 3"/></svg>Sightings <span id="nb-n-sightings"></span></button>
+        <button role="tab" class="tab" aria-selected="false" data-tab="today"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2"/></svg>Today</button>
       </div>
       <div class="tab-body" data-body="stamps"><ul class="stamps" id="stamps-list"></ul></div>
-      <div class="tab-body" data-body="badges" hidden><p class="badges-count" id="badges-count"></p><div class="nb-split"><ul class="badges" id="badges-list"></ul><aside class="nb-detail" id="nb-detail" aria-live="polite"></aside></div></div>
+      <div class="tab-body" data-body="badges" hidden><p class="badges-count" id="badges-count"></p><ul class="badges" id="badges-list"></ul></div>
       <div class="tab-body" data-body="sightings" hidden><ol class="sightings" id="sightings-list"></ol></div>
       <div class="tab-body" data-body="today" hidden><div id="challenge-card" class="challenge-card"></div></div>
+      <aside class="page-note" id="nb-detail" aria-live="polite"></aside>
     </section>
 
     <!-- Learn -->
     <section id="learn" class="sheet-page" data-page="learn" hidden aria-label="Learn">
       <div class="seg seg-tabs" role="tablist">
-        <button role="tab" class="tab is-on" aria-selected="true" data-ltab="terms">Aurora terms</button>
-        <button role="tab" class="tab" aria-selected="false" data-ltab="lesson">How auroras work</button>
+        <button role="tab" class="tab is-on" aria-selected="true" data-ltab="terms"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h10a2 2 0 0 1 2 2v14H7a2 2 0 0 1-2-2z"/><path d="M8 8h6M8 11h6"/></svg>Aurora terms</button>
+        <button role="tab" class="tab" aria-selected="false" data-ltab="lesson"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 15c3-6 6-9 9-9s6 3 9 9"/></svg>How auroras work</button>
       </div>
       <div class="tab-body" id="learn-body"></div>
+      <aside class="page-note"><p class="sn-kick">At a glance</p><h4 class="sn-title">The Kp scale</h4>
+        <div class="kp-scale" aria-hidden="true"><i></i><i></i><i></i><i class="a"></i><i class="a"></i><i class="s"></i><i class="s"></i><i class="s"></i><i class="s"></i><i class="s"></i></div>
+        <div class="kp-lbl" aria-hidden="true"><span>0</span><span>3</span><span>5</span><span>9</span></div>
+        <p class="sn-text">0 to 2 is quiet. 3 and 4 are active: the lights can reach Iceland. 5 or more is a storm, bright and fast.</p>
+        <p class="sn-text">Best odds: a dark sky, away from towns, clouds under 30%, Kp 3 or more.</p></aside>
     </section>
 
     <!-- Sound -->

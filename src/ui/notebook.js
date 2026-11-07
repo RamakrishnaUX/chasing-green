@@ -57,8 +57,23 @@ export class Notebook {
     this.dialog.querySelectorAll('.tab').forEach((t) => { const on = t.dataset.tab === name; t.classList.toggle('is-on', on); t.setAttribute('aria-selected', String(on)); });
     this.dialog.querySelectorAll('.tab-body').forEach((b) => (b.hidden = b.dataset.body !== name));
     this.last = name;
+    this.note(name);
     // The first badge starts chosen, so its story shows on the right.
     if (name === 'badges') { const first = this.dialog.querySelector('.badges .badge'); if (first) this.pick(first); }
+  }
+
+  // The panel on the right: the chosen badge in full, or a summary of the open section.
+  note(name) {
+    if (name === 'badges') return;
+    const el = document.getElementById('nb-detail');
+    const got = Object.keys(store.data.stamps).filter((id) => LANDMARKS.some((l) => l.id === id)).length;
+    const n = store.data.sightings.length, lights = store.data.sightings.filter((x) => x.type !== 'Sky' && x.type !== 'Night sky').length;
+    const k = (t) => `<p class="sn-kick">${t}</p>`;
+    el.innerHTML = name === 'stamps'
+      ? `${k('Places')}<h4 class="sn-title">${got} of ${LANDMARKS.length} stamped</h4><i class="jr-bar"><b style="width:${(got / LANDMARKS.length * 100).toFixed(1)}%"></b></i><p class="sn-text">Drive up to a place to stamp it. Stamped places turn green here and on the map.</p>`
+      : name === 'sightings'
+        ? `${k('Sightings')}<h4 class="sn-title">${lights} aurora · ${n} postcards</h4><p class="sn-text">When the radio says the lights are out, find a dark spot and look up for a few seconds. Each sighting becomes a postcard.</p>`
+        : `${k('Today')}<h4 class="sn-title">A new challenge every day</h4><p class="sn-text">Finish it for a stamp in your notebook and the Daily Driver badge.</p>`;
   }
 
   pick(li) {

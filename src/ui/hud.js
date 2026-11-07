@@ -131,7 +131,7 @@ export class Hud {
     set(h.day, s.dayText || '');
     set(h.gear, s.gear || '');
     set(h.speed, s.walking ? '0' : String(s.kmh));
-    set(h.unit, s.altitude != null ? `km/h · ${Math.max(0, Math.round(s.altitude))} m` : 'km/h');
+    set(h.unit, 'km/h');
     // The ribbon: each part filled from the centre out (pathLength 100, so a dash of n is n%).
     // Power-up when the drive starts: fuel sweeps in first, then nitro from the centre out to both
     // sides, then the Kp, like a dash waking up.
@@ -144,9 +144,22 @@ export class Hud {
     this.gauge.classList.toggle('is-boost', !!s.boosting);
     set(h.kp, kp.toFixed(1));
     dash(h.kpbar, Math.max(0.03, kp / 9) * ramp(2.0, 0.9));
-    h.fuelside.hidden = s.fuel == null;
-    h.fuelbar.style.visibility = s.fuel == null ? 'hidden' : '';
-    if (s.fuel != null) {
+    // Flying, the left of the cluster is height above the ground instead of fuel, its bar growing
+    // out from the centre as you climb (full at 600 m).
+    const alt = s.agl != null;
+    h.fuelside.classList.toggle('is-alt', alt);
+    this.gauge.classList.toggle('is-alt', alt);
+    if (alt) {
+      h.fuelside.hidden = false; h.fuelbar.style.visibility = '';
+      set(h.fuel, String(Math.round(s.agl)));
+      set(h.fuelside.querySelector('small'), 'm altitude');
+      dash(h.fuelbar, Math.min(1, s.agl / 600) * ramp(0.9, 1.1));
+      h.fuelside.classList.remove('is-low');
+    } else if (h.fuelside.classList.contains('was-alt')) set(h.fuelside.querySelector('small'), 'L fuel');
+    h.fuelside.classList.toggle('was-alt', alt);
+    if (!alt) h.fuelside.hidden = s.fuel == null;
+    if (!alt) h.fuelbar.style.visibility = s.fuel == null ? 'hidden' : '';
+    if (!alt && s.fuel != null) {
       set(h.fuel, String(s.fuel.litres));
       dash(h.fuelbar, s.fuel.level * ramp(0.9, 1.1));
       h.fuelside.classList.toggle('is-low', s.fuel.level < 0.2);

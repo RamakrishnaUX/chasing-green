@@ -3,6 +3,8 @@
 // switching sections, a short engine blip and a chime confirming, and a bright chime for a badge.
 // They play through the game's master volume, so Mute and the All sound slider cover them too.
 
+import { VOICES, twinBuffer } from './engines.js';
+
 let engine = null;
 export function bindUiSfx(audio) { engine = audio; }
 
@@ -48,7 +50,7 @@ let lastTick = 0;
 // a pitch for the cafe racer, which borrows the flat four, played higher, for its twin.
 const ARRIVE = {
   jeep: ['jeep_1090', 'jeep_1450', 2.2, 1], vintage: ['old_0645', 'old_1010', 1.9, 1], camper: ['flat4_0700', 'flat4_2590', 2.1, 1],
-  race: ['race_0820', 'race_2780', 1.8, 1], bike: ['flat4_0700', 'flat4_2590', 2.0, 1.45],
+  race: ['race_0820', 'race_2780', 1.8, 1],
 };
 const bufs = {};
 function loadLoop(ctx, f) {
@@ -56,8 +58,29 @@ function loadLoop(ctx, f) {
 }
 export function preloadArrival(kind) { const ctx = out(); const a = ARRIVE[kind]; if (ctx && a) { loadLoop(ctx, a[0]); loadLoop(ctx, a[1]); } }
 let arrivalStop = null;
+// The cafe racer: its own parallel twin, the same one it rides with (engines.js), ticking over as it
+// rolls in, one sharp blip as it stops, then idling away.
+let twinBuf = null;
+function playTwin(ctx) {
+  arrivalStop?.();
+  const V = VOICES.twin, t = ctx.currentTime, r = (rpm) => rpm / V.ref;
+  const src = ctx.createBufferSource(), lp = ctx.createBiquadFilter(), g = ctx.createGain();
+  src.buffer = twinBuf ||= twinBuffer(ctx); src.loop = true;
+  src.playbackRate.setValueAtTime(r(1500), t);
+  src.playbackRate.linearRampToValueAtTime(r(1250), t + 0.9);
+  src.playbackRate.linearRampToValueAtTime(r(3600), t + 1.12);
+  src.playbackRate.linearRampToValueAtTime(r(1150), t + 1.6);
+  lp.type = 'lowpass'; lp.Q.value = 0.6;
+  lp.frequency.setValueAtTime(900, t); lp.frequency.linearRampToValueAtTime(2200, t + 1.12); lp.frequency.linearRampToValueAtTime(900, t + 1.6);
+  g.gain.setValueAtTime(0, t);
+  for (const [at, v] of [[0.3, 0.32], [1.0, 0.28], [1.12, 0.42], [1.6, 0.26], [2.4, 0.2], [3.0, 0]]) g.gain.linearRampToValueAtTime(v, t + at);
+  src.connect(lp).connect(g).connect(dest); src.start(t); src.stop(t + 3.1);
+  arrivalStop = () => { const n = ctx.currentTime; g.gain.cancelScheduledValues(n); g.gain.setTargetAtTime(0, n, 0.06); src.stop(n + 0.3); };
+}
+
 async function playArrival(kind) {
   const ctx = out(), a = ARRIVE[kind];
+  if (ctx && kind === 'bike') { playTwin(ctx); return; }
   if (!ctx || !a) return;
   const asked = performance.now();
   const [idleBuf, revBuf] = await Promise.all([loadLoop(ctx, a[0]), loadLoop(ctx, a[1])]);

@@ -12,7 +12,7 @@ const FOV = 26;
 const YAW = 0.62;
 // Size on the cover against the rest: the supercar is long and low and would look the biggest;
 // the 4x4 and the roadster stand a little larger.
-const SCALE = { race: 0.8, jeep: 1.08, vintage: 1.06 };
+const SCALE = { race: 0.9, jeep: 1.08, vintage: 1.06, bike: 1.25 };
 
 function gradient(size, stops, radial = true) {
   const c = document.createElement('canvas'); c.width = c.height = size;

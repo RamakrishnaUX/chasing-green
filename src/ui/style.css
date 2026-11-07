@@ -419,13 +419,15 @@ dialog.sheet::backdrop { background: rgba(4, 8, 12, 0.42); -webkit-backdrop-filt
 .map-pin.is-town { left: -6px; top: -6px; width: 12px; height: 12px; }
 .map-pin.is-town .dot { inset: 2px; background: #0d1520; border: 1.5px solid #f3f7f9; }
 .map-pin:hover .dot, .map-pin:focus-visible .dot { transform: scale(1.35); }
-.map-pin .label { display: none; position: absolute; left: 20px; top: 50%; transform: translateY(-50%); white-space: nowrap; font-size: 0.74rem; font-weight: 700; color: #0d1520;
-  padding: 2px 7px; border-radius: 999px; background: rgba(255, 255, 255, 0.82); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25); }
-.map-pin.is-town .label { left: 14px; font-weight: 400; font-size: 0.7rem; background: rgba(255, 255, 255, 0.66); }
-.show-lm .map-pin.is-lm .label, .show-town .map-pin.is-town .label { display: block; }
+.map-pin .label { position: absolute; left: 18px; top: 50%; transform: translateY(-50%) translateX(-4px); white-space: nowrap; font: 700 12px var(--sans); color: #f4f8f6;
+  padding: 3px 8px; border-radius: 4px; background: rgba(6,16,14,0.78); box-shadow: 0 1px 6px rgba(0,0,0,0.3); opacity: 0; pointer-events: none;
+  transition: opacity 220ms ease-out, transform 220ms ease-out; }
+.map-pin.is-named .label { opacity: 1; transform: translateY(-50%); }
+.map-pin.is-town .label { left: 13px; font-weight: 500; font-size: 11px; color: rgba(244,248,246,0.85); background: rgba(6,16,14,0.6); }
+.map-pin.is-got .label { color: var(--green-hi); }
 .map-pin.is-lm { z-index: 2; }
 .map-pin.is-fuel .dot { inset: 3px; border-radius: 3px; background: #ffb547; }
-.show-lm .map-pin.is-fuel .label { display: block; font-weight: 400; font-size: 0.7rem; }
+.map-pin.is-fuel .label { font-weight: 500; font-size: 11px; color: #ffd08a; }
 /* You: a blue arrow with a white rim, a pulsing halo and a "You" tag, unlike any landmark dot. */
 .map-me { position: absolute; left: 0; top: 0; width: 0; height: 0; z-index: 4; pointer-events: none; }
 .map-me-arrow { position: absolute; left: -15px; top: -15px; width: 30px; height: 30px; transform: rotate(var(--turn, 0rad)); filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.55));
@@ -1580,14 +1582,14 @@ body.pre-start .sheet-tabs [data-page='map'], body.pre-start .sheet-tabs [data-p
   body:not(.has-touch) :is(#intro, #gg) .month-card dd { height: 40px; font: 800 28px/40px var(--sans); font-stretch: 112%; text-transform: uppercase; }
   /* Start Drive: the big slanted button, with Enter. */
   body:not(.has-touch) :is(#intro, #gg) .gx-go { width: 420px; right: calc(60px + var(--safe-r)); bottom: calc(44px + var(--safe-b)); }
-  body:not(.has-touch) :is(#intro, #gg) .btn-start { height: 80px; font-size: 24px !important; letter-spacing: 0.1em; }
+  body:not(.has-touch) :is(#intro, #gg) .btn-start { height: 80px; font-size: 20px !important; letter-spacing: 0.1em; }
   body:not(.has-touch) :is(#intro, #gg) .btn-start:not(.is-loading):not(.is-failed) .start-key { display: inline-grid; place-items: center; min-width: 34px; height: 32px; margin-left: 18px; border: 0; border-radius: 6px;
     box-shadow: none; font: 700 16px/1 var(--sans); color: var(--green-hi); background: var(--green-ink); }
 }
 @media (min-width: 1000px) and (max-width: 1300px), (min-width: 1000px) and (max-height: 760px) {
   body:not(.has-touch) :is(#intro, #gg) .gx-box { width: 500px; } body:not(.has-touch) :is(#intro, #gg) .gx-box h2 { font-size: 42px; }
   body:not(.has-touch) :is(#intro, #gg) .gx-stats { width: 270px; } body:not(.has-touch) :is(#intro, #gg) .gx-v { font-size: 32px; } body:not(.has-touch) :is(#intro, #gg) .gx-in { gap: 32px; }
-  body:not(.has-touch) :is(#intro, #gg) .gx-go { width: 360px; } body:not(.has-touch) :is(#intro, #gg) .btn-start { height: 70px; font-size: 20px !important; }
+  body:not(.has-touch) :is(#intro, #gg) .gx-go { width: 360px; } body:not(.has-touch) :is(#intro, #gg) .btn-start { height: 70px; font-size: 17px !important; }
 }
 
 /* ---------- Start screen: one settings button ---------- */
@@ -1620,12 +1622,11 @@ body.has-touch .gx-menu svg { width: 20px; height: 20px; }
   background: radial-gradient(70% 60% at 50% 55%, rgba(2,8,7,0.35), rgba(2,8,7,0.7)); transition: opacity 0.7s ease, transform 0.7s ease; outline: none; }
 .sp-title { display: grid; justify-items: center; gap: 18px; margin: 0; font-weight: 400; font-family: var(--serif); text-transform: uppercase; white-space: nowrap; }
 /* CHASING, smaller, tracks in from wide letters; GREEN, larger, is wiped on in the aurora green. */
-.sp-a { font-size: clamp(26px, 3.8vw, 58px); line-height: 1; letter-spacing: 0.32em; padding-left: 0.32em; color: var(--ink);
-  animation: sp-track 1.4s cubic-bezier(0.2, 0.7, 0.2, 1) 0.1s both; }
+.sp-a { font-size: clamp(22px, 3.2vw, 48px); line-height: 1; color: var(--ink); animation: sp-rise 1.2s cubic-bezier(0.2, 0.7, 0.2, 1) 0.1s both; }
 .sp-b { position: relative; font-size: clamp(44px, 7.6vw, 116px); line-height: 1; letter-spacing: 0.14em; padding-left: 0.14em; color: var(--green);
   background: linear-gradient(90deg, #66dfb0 0%, #a2f6d3 45%, #66dfb0 60%, #43ab83 100%) 0 0 / 220% 100%; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
   animation: sp-wipe 1.3s cubic-bezier(0.6, 0, 0.2, 1) 0.6s both, sp-sheen 6s ease-in-out 2s infinite; }
-@keyframes sp-track { from { opacity: 0; letter-spacing: 0.7em; padding-left: 0.7em; } }
+@keyframes sp-rise { from { opacity: 0; transform: translateY(10px); } }
 @keyframes sp-wipe { from { clip-path: inset(0 100% 0 0); opacity: 0.4; } to { clip-path: inset(0 0 0 0); opacity: 1; } }
 @keyframes sp-sheen { 50% { background-position: 100% 0; } }
 .sp-line { max-width: 36em; text-wrap: balance; margin: 34px 0 0; font: 500 clamp(16px, 1.6vw, 21px)/1.5 var(--sans); color: var(--ink-2); animation: sp-in 1.2s cubic-bezier(0.2, 0.7, 0.2, 1) 1.3s both; }
@@ -1656,4 +1657,72 @@ body.has-touch .gx-menu svg { width: 20px; height: 20px; }
   .hx-side { top: 4%; width: auto; } .hx-side.l { left: 6%; } .hx-side.r { right: 6%; }
   .hx-spd { top: -2%; } .hx-spd b { font-size: 56px; } .hx-spd span { margin-top: 8px; }
   .hx-gear { top: -24px; }
+}
+
+/* ---------- The opening shot ---------- */
+.opening { position: fixed; inset: 0; z-index: 6; pointer-events: none; }
+.op-bar { position: absolute; left: 0; right: 0; height: 11vh; background: #000; transform: scaleY(0); transition: transform 0.7s cubic-bezier(0.6, 0, 0.2, 1); }
+.op-top { top: 0; transform-origin: top; } .op-bottom { bottom: 0; transform-origin: bottom; }
+body.is-opening .op-bar { transform: scaleY(1); }
+.op-card { position: absolute; left: calc(64px + var(--safe-l)); bottom: calc(11vh + 44px); opacity: 0; transform: translateX(-16px); transition: opacity 0.6s ease, transform 0.6s ease; }
+body.is-opening .op-card { opacity: 1; transform: none; transition-delay: 0.9s; }
+.op-kick { display: flex; align-items: center; gap: 12px; margin: 0; font: 600 13px var(--sans); font-stretch: 125%; letter-spacing: 0.3em; text-transform: uppercase; color: var(--green-hi); }
+.op-kick::after { content: ''; width: 60px; height: 1px; background: currentColor; }
+.op-place { margin: 14px 0 0; font: 400 clamp(30px, 4.4vw, 60px)/1.1 var(--serif); color: var(--ink); }
+.op-sub { margin: 10px 0 0; font: 600 13px var(--sans); letter-spacing: 0.26em; text-transform: uppercase; color: var(--ink-2); }
+/* The HUD stays away during the shot and comes up after it. */
+body.is-opening #hud { opacity: 0; }
+#hud { transition: opacity 0.8s ease 0.1s; }
+body.has-touch .op-card { left: calc(20px + var(--safe-l)); bottom: calc(11vh + 18px); }
+@media (prefers-reduced-motion: reduce) { .op-bar, .op-card { transition: none; } }
+
+/* ---------- Text that cuts off with an ellipsis keeps room for its descenders ----------
+   overflow: hidden clips at the line box, and Michroma and Saira draw below it (g, j, p, y, the
+   comma), so each of these gets a taller line and a little room underneath. */
+.where, .clock { line-height: 1.35; padding-bottom: 1px; }
+:is(#intro, #gg) .gx-box h2 { line-height: 1.3 !important; padding-bottom: 0.06em; }
+.hx-place { line-height: 1.34 !important; padding-bottom: 0.04em; }
+.st-val, .hx-small, .info-btn, .map-pin .label, .car-card h3 { line-height: 1.35; }
+.infocard h2 { line-height: 1.16; padding-bottom: 0.04em; }
+
+.hx-gauge.is-alt .hx-fuel { stroke: url(#hx-g-alt); }
+.hx-small { padding-bottom: 2px; }
+
+/* ---------- One layout for every menu page ----------
+   Journey, Notebook, Learn and Settings share three columns: a section rail on the left, the
+   content in the middle and a panel on the right, at the same edges and starting on the same line.
+   The rail items, panels and their headings are the same everywhere. */
+.page-note, .jr-rail { display: none; }
+@media (min-width: 1000px) and (min-height: 600px) {
+  body:not(.has-touch) #sheet :is(#journey, #notebook, #learn, #settings).sheet-page { width: min(1440px, 100%); padding: 40px 80px 48px; }
+  body:not(.has-touch) #sheet #map.sheet-page { padding: 40px 80px 14px; }
+  body:not(.has-touch) :is(#notebook, #learn):not([hidden]), body:not(.has-touch) #journey:not([hidden]) .jr, body:not(.has-touch) #settings:not([hidden]) {
+    display: grid; grid-template-columns: 220px minmax(0, 1fr) 320px; column-gap: 40px; align-content: start; align-items: start; }
+  body:not(.has-touch) #journey .jr { max-width: none; margin: 0; }
+  /* The rail */
+  body:not(.has-touch) :is(#notebook, #learn) > .seg-tabs, body:not(.has-touch) .jr-rail {
+    grid-column: 1; grid-row: 1 / span 6; position: sticky; top: 0; display: grid; gap: 4px; align-content: start; max-width: none; margin: 0; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; }
+  body:not(.has-touch) :is(#notebook, #learn) > .seg-tabs .tab, body:not(.has-touch) .jr-rail button, body:not(.has-touch) .set-cats button {
+    display: flex; align-items: center; gap: 14px; width: 100%; height: 50px; min-height: 0; padding: 0 18px; border: 0; border-radius: 0; background: none; box-shadow: none;
+    font: 700 17px var(--sans); color: var(--ink-3); text-align: left; cursor: pointer; transition: color 140ms ease-out; }
+  body:not(.has-touch) :is(#notebook, #learn) > .seg-tabs .tab:hover, body:not(.has-touch) .jr-rail button:hover { color: var(--ink-2); }
+  body:not(.has-touch) :is(#notebook, #learn) > .seg-tabs .tab.is-on, body:not(.has-touch) .jr-rail button.is-on, body:not(.has-touch) .set-cats button.is-on {
+    color: var(--ink); background: linear-gradient(90deg, rgba(102,223,176,0.14), rgba(102,223,176,0)); box-shadow: inset 3px 0 0 var(--green); }
+  body:not(.has-touch) :is(#notebook, #learn) > .seg-tabs svg, body:not(.has-touch) .jr-rail svg { flex: none; width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  body:not(.has-touch) #notebook .tab span[id^='nb-n-'] { margin-left: auto; font-weight: 600; font-size: 14px; color: var(--ink-3); }
+  /* The middle */
+  body:not(.has-touch) :is(#notebook, #learn) > .tab-body, body:not(.has-touch) .jr-mid { grid-column: 2; grid-row: 1; min-width: 0; }
+  body:not(.has-touch) .jr-mid { display: grid; gap: 6px; }
+  body:not(.has-touch) .jr-mid .jr-grid { grid-template-columns: repeat(2, 1fr); }
+  body:not(.has-touch) #learn > .tab-body { padding: 24px 28px; background: rgba(6,16,14,0.62); }
+  body:not(.has-touch) .badges { grid-template-columns: repeat(auto-fill, minmax(124px, 1fr)); }
+  body:not(.has-touch) #notebook .sightings li, body:not(.has-touch) #notebook .challenge-card { background: rgba(6,16,14,0.62); border: 0; border-radius: 0; }
+  body:not(.has-touch) #notebook .stamps { padding: 22px; background: rgba(6,16,14,0.62); }
+  /* The panel */
+  body:not(.has-touch) .page-note, body:not(.has-touch) .set-note { display: block; grid-column: 3; grid-row: 1 / span 6; position: sticky; top: 0; padding: 24px; background: rgba(6,16,14,0.62); text-align: left; }
+  body:not(.has-touch) .page-note .jr-bar { margin-top: 16px; }
+  body:not(.has-touch) #nb-detail:has(.nbd-medal) { text-align: center; }
+  .kp-scale { display: grid; grid-template-columns: repeat(10, 1fr); gap: 3px; margin-top: 18px; }
+  .kp-scale i { height: 12px; background: rgba(244,248,246,0.16); transform: skewX(-18deg); } .kp-scale i.a { background: var(--green); } .kp-scale i.s { background: #ff8a6b; }
+  .kp-lbl { display: flex; justify-content: space-between; margin-top: 6px; font: 600 11px var(--sans); color: var(--ink-3); }
 }

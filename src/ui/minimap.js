@@ -251,22 +251,28 @@ export class MapUI {
   buildPins() {
     this.layer.innerHTML = '';
     this.pins = [];
-    const add = (x, z, label, cls, face) => {
+    // Which names show when zoomed out: the famous sights and the two cities first, then the
+    // other places, then towns, then fuel stations; never two labels on top of each other.
+    const FAMOUS = ['gullfoss', 'strokkur', 'thingvellir', 'jokulsarlon', 'kirkjufell', 'skogafoss', 'seljalandsfoss', 'reynisfjara', 'dettifoss', 'myvatn', 'bluelagoon', 'studlagil', 'landmannalaugar', 'dynjandi', 'godafoss'];
+    const CITIES = ['Reykjavík', 'Akureyri', 'Reykjavik'];
+    const add = (x, z, label, cls, face, pri = 2) => {
       const btn = document.createElement('button');
       btn.className = `map-pin ${cls}`;
       btn.innerHTML = `<span class="dot"></span><span class="label">${label}</span>`;
       btn.setAttribute('aria-label', `Choose ${label}`);
       btn.addEventListener('click', (e) => { e.stopPropagation(); if (this.suppressClick) return; this.pick(x, z, label, face); });
       this.layer.appendChild(btn);
-      this.pins.push({ el: btn, x, z });
+      this.pins.push({ el: btn, x, z, pri, w: label.length * 6.6 + 18 });
     };
     // Towns first, so landmark pins sit on top; skip towns that would crowd a landmark.
     for (const p of PLACES) {
       if (this.landmarks.list.some((lm) => Math.hypot(lm.x - p.x, lm.z - p.z) < 60)) continue;
-      add(p.x, p.z, p.name, 'is-town', false);
+      add(p.x, p.z, p.name, 'is-town', false, CITIES.includes(p.name) ? 1 : 3);
     }
-    for (const st of this.stations) add(st.x, st.z, `${st.name} fuel`, 'is-fuel', false);
-    for (const lm of this.landmarks.list) add(lm.x, lm.z, lm.name, store.data.stamps[lm.id] ? 'is-lm is-got' : 'is-lm', true);
+    for (const st of this.stations) add(st.x, st.z, `${st.name} fuel`, 'is-fuel', false, 4);
+    for (const lm of this.landmarks.list) add(lm.x, lm.z, lm.name, store.data.stamps[lm.id] ? 'is-lm is-got' : 'is-lm', true, FAMOUS.includes(lm.id) ? 1 : 2);
+    // Most important first, so they win any overlap.
+    this.pins.sort((a, b) => a.pri - b.pri);
     const me = document.createElement('div');
     me.className = 'map-me';
     me.setAttribute('aria-hidden', 'true');
@@ -294,15 +300,25 @@ export class MapUI {
     g.drawImage(img, 0, 0);
     g.setTransform(1, 0, 0, 1, 0, 0);
     if (this.route) this.strokeRoute(g, (x) => (x - left) * k * dpr, (z) => (z - top) * k * dpr, dpr, true);
-    // Pins and labels: landmark names once zoomed a little, towns once zoomed further.
-    const r = k / this.fitK;
-    this.layer.classList.toggle('show-lm', r > 1.7 || this.vw > 900);
-    this.layer.classList.toggle('show-town', r > 3.2);
+    // Pins and labels. Each kind of place gets its name from a zoom level of its own (the famous
+    // sights always, other places a little closer, towns closer still, fuel last), and a label that
+    // would overlap one already placed waits until there is room. Labels fade in and out.
+    const r = k / this.fitK, big = this.vw > 900 ? 0.6 : 0;
+    const NAME_AT = { 1: 0, 2: 1.9 - big, 3: 3 - big, 4: 4.5 - big };
+    const DOT_AT = { 1: 0, 2: 0, 3: 1.4, 4: 1.6 };
+    const taken = [];
+    const free = (a) => taken.every((b) => a.x2 < b.x1 || a.x1 > b.x2 || a.y2 < b.y1 || a.y1 > b.y2);
     for (const p of this.pins) {
       const x = (p.x - left) * k, y = (p.z - top) * k;
-      const off = x < -40 || y < -40 || x > this.vw + 40 || y > this.vh + 40;
+      const off = x < -40 || y < -40 || x > this.vw + 40 || y > this.vh + 40 || r < DOT_AT[p.pri];
       p.el.style.visibility = off ? 'hidden' : '';
-      if (!off) p.el.style.transform = `translate(${x}px, ${y}px)`;
+      if (off) continue;
+      p.el.style.transform = `translate(${x}px, ${y}px)`;
+      let named = r >= NAME_AT[p.pri];
+      const box = { x1: x - 8, y1: y - 11, x2: x + 14 + p.w, y2: y + 11 };
+      if (named && !free(box)) named = false;
+      if (named) taken.push(box); else taken.push({ x1: x - 7, y1: y - 7, x2: x + 7, y2: y + 7 });
+      if (p.named !== named) { p.named = named; p.el.classList.toggle('is-named', named); }
     }
     if (this.me && this.player) {
       const x = (this.player.x - left) * k, y = (this.player.z - top) * k;

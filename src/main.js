@@ -504,6 +504,8 @@ function insideCamera(dt, l) {
   if (Math.abs(camera.fov - fov) > 0.05) { camera.fov += (fov - camera.fov) * Math.min(1, dt * 3); camera.updateProjectionMatrix(); }
   camHeading = jeep.heading; // so switching back to the chase view does not swing round
 }
+let openingCam = null;
+const _openLook = new THREE.Vector3();
 function updateCamera(dt) {
   const l = input.consumeLook();
   if (mode === 'photo') return; // camera placed by hand from the console
@@ -530,6 +532,15 @@ function updateCamera(dt) {
     camera.position.lerp(desired, Math.min(1, dt * (jeep.model.camFollow || 4)));
     if (jeep.speed < 0.3 && camera.position.distanceTo(desired) < 0.08) camera.position.copy(desired);
     camTarget.set(jeep.pos.x + Math.sin(h) * 14, jeep.pos.y + ch * 0.7, jeep.pos.z + Math.cos(h) * 14);
+    // The opening shot: from high over the land, off to one side, the camera sweeps round and
+    // down onto the car and settles behind it.
+    if (openingCam) {
+      const u = Math.min(1, (performance.now() - openingCam.t0) / openingCam.dur), e = u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2;
+      const a = h + (1 - e) * 1.9, d = cd + (1 - e) * 70, y = ch + (1 - e) * 46;
+      camera.position.set(jeep.pos.x - Math.sin(a) * d, Math.max(jeep.pos.y + y, groundAt(jeep.pos.x - Math.sin(a) * d, jeep.pos.z - Math.cos(a) * d, jeep.pos.y + y) + 3), jeep.pos.z - Math.cos(a) * d);
+      camTarget.lerpVectors(_openLook.set(jeep.pos.x, jeep.pos.y + 1, jeep.pos.z), camTarget, e);
+      if (u >= 1) openingCam = null;
+    }
     camera.lookAt(camTarget);
     // Knocks from rocks and walls shake the camera briefly.
     if (shake > 0.01) { camera.position.x += (Math.random() - 0.5) * shake; camera.position.y += (Math.random() - 0.5) * shake; }
@@ -1056,17 +1067,26 @@ function renderJourney() {
   const got = Object.keys(store.data.badges || {}).length, rec = store.data.challenges[challenge.key];
   const win = clock.midnightSun ? 'Midnight sun: no aurora this month' : hud.nextWindowText ? `Lights likely around ${hud.nextWindowText}` : `${clock.m.name}: aurora chance ${clock.m.chance.toLowerCase()}`;
   $('journey-body').innerHTML = `
-    <div class="jr-hero"><p class="jr-k">Places found</p><p class="jr-big"><b>${found}</b> / ${total}</p><i class="jr-bar"><b style="width:${((found / total) * 100).toFixed(1)}%"></b></i></div>
-    <div class="jr-grid">
-      <div><p class="jr-k">Aurora sightings</p><b>${lights}</b></div>
-      <div><p class="jr-k">Postcards</p><b>${store.data.sightings.length}</b></div>
-      <div><p class="jr-k">Badges</p><b>${got} / ${badges.total}</b></div>
-      <div><p class="jr-k">Trips</p><b>${store.data.trips || 1}</b></div>
-    </div>
-    <div class="jr-row">
+    <nav class="jr-rail" aria-label="Journey sections">
+      <button type="button" class="is-on"><svg viewBox="0 0 24 24"><path d="M4 19c3-1 4-6 8-6s5 3 8 1"/></svg>Overview</button>
+      <button type="button" data-go="stamps"><svg viewBox="0 0 24 24"><path d="M3 19L10 6l4 7 2-3 5 9z"/></svg>Places</button>
+      <button type="button" data-go="badges"><svg viewBox="0 0 24 24"><path d="M12 3l7 4v10l-7 4-7-4V7z"/></svg>Badges</button>
+      <button type="button" data-go="sightings"><svg viewBox="0 0 24 24"><path d="M3 17C6 8 10 14 12 9s6-4 9 3"/></svg>Sightings</button>
+    </nav>
+    <div class="jr-mid">
+      <div class="jr-hero"><p class="jr-k">Places found</p><p class="jr-big"><b>${found}</b> / ${total}</p><i class="jr-bar"><b style="width:${((found / total) * 100).toFixed(1)}%"></b></i></div>
+      <div class="jr-grid">
+        <div><p class="jr-k">Aurora sightings</p><b>${lights}</b></div>
+        <div><p class="jr-k">Postcards</p><b>${store.data.sightings.length}</b></div>
+        <div><p class="jr-k">Badges</p><b>${got} / ${badges.total}</b></div>
+        <div><p class="jr-k">Trips</p><b>${store.data.trips || 1}</b></div>
+      </div>
       <div class="jr-card"><p class="jr-k">Today's challenge</p><h4>${challenge.title}</h4><p>${challenge.detail}</p><p class="jr-done">${rec?.done ? 'Done. Stamp in your notebook.' : 'Not done yet'}</p></div>
-      <div class="jr-card"><p class="jr-k">Tonight</p><h4>${clock.m.name}</h4><p>${win}.</p><p class="jr-done">Dark for ${clock.darkHours().toFixed(1)} hours</p></div>
-    </div>`;
+    </div>
+    <aside class="page-note"><p class="sn-kick">Tonight</p><h4 class="sn-title">${clock.m.name}</h4><p class="sn-text">${win}.</p>
+      <div class="sn-three"><div><span>Dark</span><b>${clock.darkHours().toFixed(1)} h</b></div><div><span>Aurora</span><b class="g">${clock.m.chance}</b></div><div><span>Kp now</span><b>${(lastAurora?.kp ?? 0).toFixed(1)}</b></div></div>
+      <p class="sn-tip">${clock.m.tip}</p></aside>`;
+  for (const b of $('journey-body').querySelectorAll('[data-go]')) b.addEventListener('click', () => { sfx.whoosh(); notebook.open(b.dataset.go); });
   sheet.show('journey');
 }
 sheet.register('journey', renderJourney);
@@ -1313,13 +1333,27 @@ function closeSplash() {
   if (!$('intro').classList.contains('is-splash')) return;
   wakeUiSfx();
   // Every car's arrival sound, fetched now so a switch never waits for it.
-  for (const k of VEHICLE_ORDER) preloadArrival(k);
   $('intro').classList.remove('is-splash');
   $('intro').classList.add('is-garage-in');
   clearInterval(spBar);
   setTimeout(() => { $('splash').hidden = true; }, 700);
-  setTimeout(() => { const k = coverKind(); cover.show(k, true); if (cover.car) sfx.arrive(k); }, 450);
+  setTimeout(() => { const k = coverKind(); cover.show(k, true); if (cover.car && k === 'heli') sfx.arrive(k); }, 450);
 }
+// CHASING is set exactly as wide as GREEN below it: its letter spacing is worked out from both widths.
+function fitSplashTitle() {
+  const a = document.querySelector('.sp-a'), b = document.querySelector('.sp-b');
+  if (!a || !b) return;
+  // The ink of each word (first letter's left to last letter's right), so spacing after the last
+  // letter never counts.
+  const ink = (el) => { const t = el.firstChild, r = document.createRange(); r.setStart(t, 0); r.setEnd(t, 1); const l = r.getBoundingClientRect().left; r.setStart(t, t.length - 1); r.setEnd(t, t.length); const rt = r.getBoundingClientRect(); return rt.right - l; };
+  a.style.letterSpacing = '0px'; a.style.marginRight = '0px';
+  const lastB = (() => { const t = b.firstChild, r = document.createRange(); r.setStart(t, t.length - 1); r.setEnd(t, t.length); return r.getBoundingClientRect().width - parseFloat(getComputedStyle(b).letterSpacing); })();
+  const wb = ink(b) - (parseFloat(getComputedStyle(b).letterSpacing) || 0) + 0 * lastB, wa = ink(a);
+  const n = a.textContent.length, sp = Math.max(0, (wb - wa) / (n - 1));
+  a.style.letterSpacing = `${sp}px`; a.style.marginRight = `${-sp}px`;
+}
+document.fonts.ready.then(fitSplashTitle);
+addEventListener('resize', fitSplashTitle);
 $('splash').addEventListener('pointerdown', (e) => { e.preventDefault(); closeSplash(); });
 addEventListener('keydown', (e) => { if ($('intro').classList.contains('is-splash') && !e.metaKey && !e.ctrlKey) { e.preventDefault(); e.stopImmediatePropagation(); closeSplash(); } }, true);
 loadCarModels((kind) => {
@@ -1336,7 +1370,7 @@ for (const [id, step] of [['cv-prev', -1], ['cv-next', 1]]) $(id).addEventListen
   setVehicle(kind, false);
   sfx.switcher();
   cover.show(kind, true);
-  if (cover.car) setTimeout(() => sfx.arrive(kind), 120);
+  if (cover.car && kind === 'heli') setTimeout(() => sfx.arrive(kind), 120);
 });
 const startBtn = $('start');
 startBtn.disabled = true;
@@ -1361,12 +1395,27 @@ startBtn.addEventListener('click', () => {
   setTimeout(() => { $('intro').hidden = true; cover.dispose(); introSky.stop(); }, 900);
   hud.show();
   syncTouch();
+  playOpening();
   if (settings.steering === 'tilt') Input.askTilt().then(applySteering);
   if (isTouch) { touchLayout(); goLandscape(); }
   canvas.focus();
   hud.toast('Watch the Kp on the aurora radio. Tap the (i) next to it to learn what it means.', { seconds: 7 });
   setTimeout(showReverseTip, 8000);
 });
+
+// The opening, like a game's first shot: widescreen bars, the camera sweeping down onto the car, a
+// title card with where and when you are, then the bars lift, the HUD comes up and the gauges wake.
+function playOpening() {
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const dur = reduce ? 0 : 3400;
+  if (dur) openingCam = { t0: performance.now(), dur };
+  const p = activePos(), where = describePlace(p.x, p.z).label;
+  $('op-kick').textContent = `Day ${clock.day + 1} · ${clock.m.name} · ${clock.label()}`;
+  $('op-place').textContent = where;
+  document.body.classList.add('is-opening');
+  hud.boot = performance.now() + dur - 600; // the gauges wake as the camera settles
+  setTimeout(() => document.body.classList.remove('is-opening'), dur + 400);
+}
 
 function snapPostcard() { if (lastAurora && performance.now() - lastShot > 1200) logSighting(lastAurora, { manual: true }); }
 $('mo-look').addEventListener('click', () => { if (mode === 'chase' || mode === 'walk') toggleLookUp(); });
@@ -1736,7 +1785,7 @@ function ggStep(d) {
   const kind = COVER_ORDER[(i + d + COVER_ORDER.length) % COVER_ORDER.length];
   sfx.switcher();
   ggShow(kind, true);
-  if (gg.cover?.car) setTimeout(() => sfx.arrive(kind), 120);
+  if (gg.cover?.car && kind === 'heli') setTimeout(() => sfx.arrive(kind), 120);
 }
 $('gg-prev').addEventListener('click', () => ggStep(-1));
 $('gg-next').addEventListener('click', () => ggStep(1));
@@ -2103,6 +2152,7 @@ function frame(now) {
       dayText: `${clock.m.name} · ${a.summer ? 'Midnight sun' : a.active ? 'Aurora out now' : hud.nextWindowText ? `Lights likely ${hud.nextWindowText}` : a.dark < CONFIG.aurora.minDarkness ? 'Waiting for dark' : 'Dark sky'}`,
       nitro: jeep.nitro, boosting: jeep.boosting,
       fuel: fuel.on && ride === 'car' && mode !== 'walk' ? { level: fuel.level(jeep.kind), litres: fuel.litres(jeep.kind) } : null,
+      agl: mode === 'fly' ? Math.max(0, heli.agl) : mode === 'sky' ? Math.max(0, diver.agl) : null,
     });
   }
 
