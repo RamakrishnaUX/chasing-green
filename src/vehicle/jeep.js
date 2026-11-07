@@ -362,7 +362,9 @@ export class Jeep {
       // Afloat the seabed does not tilt it: the bow lifts with speed, it rocks on the swell
       // and leans out of a turn.
       const t = this.bobT, plane = clamp(this.vF / 14, 0, 1.4);
-      pitchT = lerp(pitchT, -plane * 0.06 + Math.sin(t * 1.1) * 0.018, hull);
+      // Climbing onto the plane the bow rises most (the hump, about 7 m/s), then settles a little.
+      const hump = Math.sin(Math.PI * clamp(this.vF / 14, 0, 1));
+      pitchT = lerp(pitchT, -plane * 0.045 - hump * 0.07 + Math.sin(t * 1.1) * 0.018, hull);
       rollT = lerp(rollT, -this.steerVis * clamp(this.vF / 12, -1, 1) * 0.1 + Math.sin(t * 0.8 + 1) * 0.025 + (this.windSide || 0) * 0.02, hull);
       rate = lerp(rate, 2, hull);
     }
@@ -396,7 +398,9 @@ export class Jeep {
       w.spin.rotation.x += (this.vF * (dt || 0)) / (R * MS) * (1 - fold);
       if (w.front) w.pivot.rotation.y = this.steerVis * (1 - fold);
     });
-    K.bucket.rotation.y = -this.steerVis * 0.9;
+    K.bucket.rotation.y = -this.steerVis * 0.6;
+    // The propeller turns with the throttle and the speed, once the motor is down in the water.
+    if (K.prop) K.prop.rotation.z += (dt || 0) * stages(this.boat).jet * (10 + Math.abs(this.vF) * 4 + (this.boosting ? 20 : 0));
     // On the water nitro shows in the jet's plume (BoatWater), not as exhaust flames and streaks.
     this.nitroFx.update(dt, this.boosting && this.boat < 0.5, Math.abs(this.vF));
   }

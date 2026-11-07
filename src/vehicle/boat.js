@@ -3,7 +3,7 @@ import { clamp, lerp } from '../world/noise.js';
 import { waterLevelAt } from '../world/terrain.js';
 
 // Boat mode. In water too deep to wade, a hull drops out from under the car, the wheels fold up
-// flat onto its deck, and a water jet and navigation lights come out at the stern. In the
+// flat onto its deck, and an outboard motor trims down at the stern with navigation lights on. In the
 // shallows it all folds away again. One kit fits every vehicle: it is sized from the wheels and
 // the body's length, in world units (a model built small and scaled up keeps its wheel pivots
 // in its own units, so the fold is divided by that scale).
@@ -13,34 +13,143 @@ const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t
 // The order things happen in as the morph runs from 0 (car) to 1 (boat).
 export const stages = (t) => ({ hull: smooth(0, 0.5, t), fold: smooth(0.3, 0.8, t), jet: smooth(0.6, 1, t), flare: 1 - smooth(0.25, 0.55, t) });
 
-// A hard-chine V-hull with a flat deck the car sits in: orange rubbing strake, white topsides,
-// dark bottom. Origin at the gunwale, so scaling y grows it downward from under the body.
-function hullGeometry(halfW, z0, z1, depth) {
-  const N = 28, pos = [], col = [];
-  const C = { o: new THREE.Color(0xe2532a), w: new THREE.Color(0xeeefeb), n: new THREE.Color(0x1a2632), d: new THREE.Color(0x2a2d31) };
-  const segCol = ['o', 'w', 'n', 'n', 'n', 'n', 'w', 'o'];
-  const rings = [];
+// The hull's paint, as horizontal bands up its side (see hullGeometry for how v is laid out):
+// antifouling below the water, a mint boot stripe at the waterline, navy topsides, a mint
+// pinstripe, a white sheer band and a charcoal rub rail along the top.
+function paintTexture() {
+  const c = document.createElement('canvas'); c.width = 4; c.height = 512;
+  const g = c.getContext('2d');
+  const band = (v0, v1, col) => { g.fillStyle = col; g.fillRect(0, Math.round((1 - v1) * 512), 4, Math.round((v1 - v0) * 512)); };
+  band(0, 0.47, '#6e2620'); band(0.47, 0.535, '#66dfb0'); band(0.535, 0.79, '#14263a');
+  band(0.79, 0.81, '#a2f6d3'); band(0.81, 0.955, '#eef0ec'); band(0.955, 1, '#2a2d31');
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace; t.magFilter = THREE.LinearFilter; t.anisotropy = 4;
+  return t;
+}
+
+// A planing hull: deep-V aft, a raked bow that rises and narrows to a point, a chine flat and a
+// spray rail each side, and a rubbing strake. The car sits on a flat cockpit floor at the
+// gunwale, and a crowned foredeck covers the bow ahead of it.
+// bowAt: where (0 to 1, transom to stem) the bow starts to narrow and rise. Origin at the
+// gunwale amidships, so scaling y grows it downward from under the body. wl: the waterline.
+function hullGeometry(halfW, z0, z1, depth, wl, bowAt) {
+  const N = 44, rings = [];
+  const shape = (u) => {
+    const b = Math.max(0, (u - bowAt) / (1 - bowAt));
+    const w = halfW * Math.pow(Math.cos(b * Math.PI / 2), 0.7) * (u < 0.04 ? 0.97 + u * 0.75 : 1);
+    const sweep = clamp((u - 0.3) / 0.7, 0, 1);
+    const top = 0.02 + 0.1 * sweep * sweep + 0.34 * Math.pow(b, 1.5);
+    const keel = lerp(-depth, top - 0.1, Math.pow(b, 1.35));
+    const chine = Math.max(keel, lerp(-depth * 0.66, top - 0.16, Math.pow(b, 1.15)));
+    return { b, w, top, keel, chine };
+  };
   for (let i = 0; i <= N; i++) {
-    const u = i / N, z = z0 + (z1 - z0) * u, b = Math.max(0, (u - 0.66) / 0.34);
-    const w = halfW * (1 - Math.pow(b, 1.7) * 0.95) * (u < 0.06 ? 0.97 + u / 2 : 1);
-    const top = 0.16 * b * b, keel = -depth + (depth + 0.08) * Math.pow(b, 1.5), ch = lerp(keel, top, 0.4);
-    const boot = Math.max(ch + 0.01, Math.min(-depth * 0.55, top - 0.1));
-    rings.push([[-w, top], [-w * 0.995, top - 0.09], [-w * 0.965, boot], [-w * 0.93, ch], [0, keel], [w * 0.93, ch], [w * 0.965, boot], [w * 0.995, top - 0.09], [w, top]]
-      .map(([x, y]) => new THREE.Vector3(x, y, z)));
+    const u = i / N, z = z0 + (z1 - z0) * u, { w, top, keel, chine } = shape(u);
+    const wly = clamp(wl, chine, top - 0.12), rail = (chine + keel) / 2;
+    // Port side, gunwale down to the keel (the starboard side mirrors it).
+    const side = [[w, top], [w * 1.012, top - 0.045], [w * 0.995, top - 0.1], [w * 0.955, wly], [w * 0.93, chine],
+      [w * 0.83, chine - 0.012], [w * 0.5, rail + 0.01], [w * 0.45, rail - 0.012], [0, keel]];
+    // v: the paint bands. Below the waterline it runs 0 to 0.5 from keel to water; above, 0.5 to 1
+    // from water to gunwale, so the stripes keep to the sheer as it sweeps up to the bow.
+    const v = (y) => (y <= wly ? 0.5 * clamp((y - keel) / Math.max(1e-3, wly - keel), 0, 1) : 0.5 + 0.5 * clamp((y - wly) / Math.max(1e-3, top - wly), 0, 1));
+    const pts = [...side.map(([x, y]) => [-x, y]), ...side.slice(0, -1).reverse().map(([x, y]) => [x, y])];
+    rings.push(pts.map(([x, y]) => ({ p: new THREE.Vector3(x, y, z), v: v(y), u })));
   }
-  const tri = (a, b, c, k) => { for (const v of [a, b, c]) { pos.push(v.x, v.y, v.z); col.push(C[k].r, C[k].g, C[k].b); } };
+  const pos = [], uv = [], push = (q) => { pos.push(q.p.x, q.p.y, q.p.z); uv.push(0.5, q.v); };
+  const M = rings[0].length;
   for (let i = 0; i < N; i++) {
     const A = rings[i], B = rings[i + 1];
-    for (let j = 0; j < 8; j++) { tri(A[j], A[j + 1], B[j + 1], segCol[j]); tri(A[j], B[j + 1], B[j], segCol[j]); }
-    tri(A[0], A[8], B[8], 'd'); tri(A[0], B[8], B[0], 'd'); // deck
+    for (let j = 0; j < M - 1; j++) { push(A[j]); push(A[j + 1]); push(B[j + 1]); push(A[j]); push(B[j + 1]); push(B[j]); }
   }
-  const T = rings[0], ctr = new THREE.Vector3(0, -depth * 0.12, T[0].z);
-  for (let j = 0; j < 8; j++) tri(ctr, T[j + 1], T[j], 'w'); // transom
+  // Transom: strips across between matching points each side, so its paint lines up with the sides.
+  const T = rings[0], H = (M - 1) / 2;
+  for (let j = 0; j < H; j++) { const a = T[j], b = T[j + 1], c = T[M - 2 - j], d = T[M - 1 - j]; push(a); push(d); push(c); push(a); push(c); push(b); }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.computeVertexNormals();
+  return { geo: g, shape };
+}
+
+// A surface across the hull's top between two stations: flat (the cockpit floor) or crowned
+// (the foredeck), following the sheer.
+function deckGeometry(shape, z0, z1, u0, u1, crown, inset, flat = null) {
+  const pos = [], N = 24, K = 8;
+  const at = (u, k) => { const s = shape(u), x = (k / K * 2 - 1) * s.w * inset; return new THREE.Vector3(x, (flat ?? s.top) + crown * (1 - (x / Math.max(1e-3, s.w)) ** 2), z0 + (z1 - z0) * u); };
+  for (let i = 0; i < N; i++) for (let k = 0; k < K; k++) {
+    const ua = u0 + (u1 - u0) * i / N, ub = u0 + (u1 - u0) * (i + 1) / N;
+    const a = at(ua, k), b = at(ua, k + 1), c = at(ub, k + 1), d = at(ub, k);
+    for (const q of [a, c, b, a, d, c]) pos.push(q.x, q.y, q.z);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.computeVertexNormals();
   return g;
+}
+
+// The cockpit's inner sides: white, from the floor up to the gunwale, each side.
+function linerGeometry(shape, z0, z1, u1, floor) {
+  const pos = [], N = 30;
+  for (const sx of [-1, 1]) for (let i = 0; i < N; i++) {
+    const ua = u1 * i / N, ub = u1 * (i + 1) / N, A = shape(ua), B = shape(ub), za = z0 + (z1 - z0) * ua, zb = z0 + (z1 - z0) * ub;
+    const a = [sx * A.w * 0.975, floor, za], b = [sx * A.w * 0.975, A.top - 0.005, za], c = [sx * B.w * 0.975, B.top - 0.005, zb], d = [sx * B.w * 0.975, floor, zb];
+    for (const q of [a, b, c, a, c, d]) pos.push(...q);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.computeVertexNormals();
+  return g;
+}
+
+// A box with rounded edges and corners (radius r), for the cowling.
+function roundedBox(w, h, d, r) {
+  const g = new THREE.BoxGeometry(w, h, d, 6, 6, 6), p = g.attributes.position, v = new THREE.Vector3(), c = new THREE.Vector3();
+  const hx = w / 2 - r, hy = h / 2 - r, hz = d / 2 - r;
+  for (let i = 0; i < p.count; i++) {
+    v.fromBufferAttribute(p, i);
+    c.set(clamp(v.x, -hx, hx), clamp(v.y, -hy, hy), clamp(v.z, -hz, hz));
+    v.sub(c).normalize().multiplyScalar(r).add(c);
+    p.setXYZ(i, v.x, v.y, v.z);
+  }
+  g.computeVertexNormals();
+  return g;
+}
+
+// An outboard motor, built at size s: a glossy black cowling with a mint stripe, the
+// midsection, the leg down to the gearcase, the anti-ventilation plate, a skeg and a
+// three-blade propeller. Its origin is the clamp bracket on the transom; it hangs aft (-z).
+function outboard(s, drop) {
+  const g = new THREE.Group();
+  const black = new THREE.MeshPhysicalMaterial({ color: 0x0f1216, roughness: 0.3, metalness: 0.1, clearcoat: 1, clearcoatRoughness: 0.08 });
+  const grey = new THREE.MeshStandardMaterial({ color: 0x2b3036, roughness: 0.45, metalness: 0.5 });
+  const mint = new THREE.MeshStandardMaterial({ color: 0x66dfb0, roughness: 0.4, emissive: 0x0d3326 });
+  const steel = new THREE.MeshStandardMaterial({ color: 0xc9ced3, roughness: 0.18, metalness: 1 });
+  const mesh = (geo, mat, x, y, z) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = true; g.add(m); return m; };
+  // Cowling: a tall rounded pod, its back swept round, with a mint stripe and a grey lower pan.
+  const cw = 0.4 * s, ch = 0.52 * s, cl = 0.6 * s, cy = 0.3 * s, cz = -0.36 * s;
+  mesh(roundedBox(cw, ch, cl, 0.14 * s), black, 0, cy, cz);
+  mesh(roundedBox(cw * 1.04, 0.12 * s, cl * 1.03, 0.05 * s), grey, 0, cy - ch / 2 + 0.03 * s, cz);
+  mesh(new THREE.BoxGeometry(cw * 1.005, 0.03 * s, cl * 0.62), mint, 0, cy + 0.06 * s, cz - 0.04 * s);
+  // Clamp bracket on the transom.
+  mesh(new THREE.BoxGeometry(0.2 * s, 0.22 * s, 0.1 * s), grey, 0, 0, -0.05 * s);
+  // Midsection and leg down to the gearcase, deep enough to reach below the hull.
+  const legTop = cy - ch / 2 - 0.02 * s, legLen = legTop + drop - 0.06;
+  const leg = mesh(new THREE.BoxGeometry(0.11 * s, legLen, 0.2 * s), grey, 0, legTop - legLen / 2, -0.33 * s);
+  leg.geometry = roundedBox(0.11 * s, legLen, 0.22 * s, 0.05 * s);
+  // Anti-ventilation plate, gearcase torpedo and skeg.
+  mesh(new THREE.BoxGeometry(0.3 * s, 0.016, 0.34 * s), grey, 0, -drop + 0.11, -0.35 * s);
+  const torp = new THREE.CapsuleGeometry(0.06 * s, 0.24 * s, 6, 14); torp.rotateX(Math.PI / 2);
+  mesh(torp, grey, 0, -drop, -0.34 * s);
+  mesh(new THREE.BoxGeometry(0.022 * s, 0.15 * s, 0.16 * s), grey, 0, -drop - 0.11 * s, -0.31 * s);
+  // Propeller: a hub and three pitched blades, spun about the shaft.
+  const prop = new THREE.Group(); prop.position.set(0, -drop, -0.56 * s); g.add(prop);
+  const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.03 * s, 0.045 * s, 0.09 * s, 12).rotateX(Math.PI / 2), steel); prop.add(hub);
+  for (let k = 0; k < 3; k++) {
+    const blade = new THREE.Mesh(new THREE.SphereGeometry(1, 10, 6), steel);
+    blade.scale.set(0.045 * s, 0.11 * s, 0.01 * s); blade.position.set(0, 0.1 * s, 0); blade.rotation.y = 0.55;
+    const arm = new THREE.Group(); arm.rotation.z = k * Math.PI * 2 / 3; arm.add(blade); prop.add(arm);
+  }
+  return { g, prop };
 }
 
 export function buildBoatKit(model) {
@@ -57,25 +166,53 @@ export function buildBoatKit(model) {
   });
   const track = Math.max(...model.wheels.map((w) => Math.abs(w.x)));
   const halfW = Math.max(track + 0.22, body.max.x + 0.14), depth = R * 1.8, gunwale = R + R * 0.9;
-  const z0 = box.min.z + 0.15, z1 = box.max.z + 0.3;
+  // The hull runs from just behind the car's tail to a bow well ahead of its nose.
+  const z0 = box.min.z + 0.05, z1 = box.max.z + Math.max(1.5, halfW * 1.5);
+  const nose = (box.max.z + 0.04 - z0) / (z1 - z0), bowAt = Math.max(0.5, nose - 0.04);
+  const wlLocal = -depth * 0.58;
 
   const group = new THREE.Group();
   group.userData.dynamic = true; // never merged: it scales and moves
-  const hull = new THREE.Mesh(hullGeometry(halfW, z0, z1, depth), new THREE.MeshPhysicalMaterial({ vertexColors: true, roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.12, side: THREE.DoubleSide }));
-  hull.position.y = gunwale; hull.castShadow = hull.receiveShadow = true;
-  group.add(hull);
-  // Water jet with a steering bucket.
-  const jet = new THREE.Group(), metal = new THREE.MeshStandardMaterial({ color: 0x9aa0a6, metalness: 1, roughness: 0.3 });
-  const casing = new THREE.CylinderGeometry(0.15, 0.19, 0.42, 18); casing.rotateX(Math.PI / 2);
-  const noz = new THREE.CylinderGeometry(0.1, 0.14, 0.2, 18); noz.rotateX(Math.PI / 2);
-  const jb = new THREE.Mesh(casing, new THREE.MeshStandardMaterial({ color: 0x1b1d20, roughness: 0.5, metalness: 0.4 })); jb.castShadow = true; jet.add(jb);
-  const bucket = new THREE.Mesh(noz, metal); bucket.position.z = -0.28; jet.add(bucket);
-  group.add(jet);
-  // Navigation lights: red to port, green to starboard, white at the stern.
-  const nav = [[-halfW * 0.93, gunwale + 0.05, z1 - 1.1, 0xff2a2a], [halfW * 0.93, gunwale + 0.05, z1 - 1.1, 0x2aff5c], [0, gunwale + 0.1, z0 + 0.12, 0xffffff]].map(([x, y, z, c]) => {
-    const m = new THREE.Mesh(new THREE.SphereGeometry(0.055, 10, 6), new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: 0 }));
-    m.position.set(x, y, z); group.add(m); return m;
+  const hullG = new THREE.Group(); hullG.position.y = gunwale; group.add(hullG);
+  const { geo, shape } = hullGeometry(halfW, z0, z1, depth, wlLocal, bowAt);
+  const hull = new THREE.Mesh(geo, new THREE.MeshPhysicalMaterial({ map: paintTexture(), roughness: 0.32, clearcoat: 1, clearcoatRoughness: 0.1, side: THREE.DoubleSide }));
+  hull.castShadow = hull.receiveShadow = true; hullG.add(hull);
+  // Teak cockpit floor under the car, and a white crowned foredeck ahead of it.
+  const floor = new THREE.Mesh(deckGeometry(shape, z0, z1, 0, nose, 0, 0.97, 0.02), new THREE.MeshStandardMaterial({ color: 0x8a6440, roughness: 0.75 }));
+  floor.receiveShadow = true; hullG.add(floor);
+  const liner = new THREE.Mesh(linerGeometry(shape, z0, z1, nose, 0.02), new THREE.MeshStandardMaterial({ color: 0xe9ebe6, roughness: 0.4, side: THREE.DoubleSide }));
+  liner.receiveShadow = true; hullG.add(liner);
+  const fore = new THREE.Mesh(deckGeometry(shape, z0, z1, nose, 1, 0.07, 1.0), new THREE.MeshPhysicalMaterial({ color: 0xf1f2ee, roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.12 }));
+  fore.castShadow = fore.receiveShadow = true; hullG.add(fore);
+  // A stainless bow rail round the foredeck on short stanchions.
+  const steel = new THREE.MeshStandardMaterial({ color: 0xd5dade, roughness: 0.15, metalness: 1 });
+  const railPts = [], stan = [];
+  for (let k = 0; k <= 16; k++) {
+    const t = k / 16, side = t < 0.5 ? -1 : 1, f = t < 0.5 ? t * 2 : (1 - t) * 2; // 0 at the aft ends, 1 at the stem
+    const u = lerp(nose + 0.02, 0.97, f), sh = shape(u);
+    const p = new THREE.Vector3(side * sh.w * 0.86 * (f > 0.98 ? 0 : 1), sh.top + 0.3, z0 + (z1 - z0) * u);
+    if (k === 8) p.x = 0;
+    railPts.push(p);
+    if (k % 4 === 0) stan.push(p);
+  }
+  const rail = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(railPts), 48, 0.016, 6), steel); rail.castShadow = true; hullG.add(rail);
+  for (const p of stan) { const m = new THREE.Mesh(new THREE.CylinderGeometry(0.013, 0.013, 0.3, 6), steel); m.position.set(p.x, p.y - 0.15, p.z); hullG.add(m); }
+  // The outboard, on the transom, sized to the boat. It tilts up out of the way while the hull
+  // folds out, then trims down into the water.
+  const os = clamp(halfW / 1.05, 0.8, 1.25);
+  const ob = outboard(os, depth + 0.1), bucket = new THREE.Group(); // bucket: steered with the wheel (jeep.js)
+  bucket.add(ob.g); const tilt = new THREE.Group(); tilt.add(bucket); group.add(tilt);
+  tilt.position.set(0, gunwale + 0.02, z0 - 0.02);
+  // Navigation lights: red to port, green to starboard on the foredeck, white on a short mast at
+  // the stern.
+  const nav = [[-1, 0xff2a2a], [1, 0x2aff5c]].map(([sx, c]) => {
+    const u = lerp(nose, 1, 0.45), sh = shape(u);
+    const m = new THREE.Mesh(new THREE.SphereGeometry(0.05, 10, 6), new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: 0 }));
+    m.position.set(sx * sh.w * 0.9, gunwale + sh.top + 0.05, z0 + (z1 - z0) * u); group.add(m); return m;
   });
+  const sternLight = new THREE.Mesh(new THREE.SphereGeometry(0.045, 10, 6), new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0 }));
+  sternLight.position.set(halfW * 0.7, gunwale + 0.62, z0 + 0.12); group.add(sternLight); nav.push(sternLight);
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.6, 6), steel); mast.position.set(halfW * 0.7, gunwale + 0.31, z0 + 0.12); group.add(mast);
   model.group.add(group);
   for (const w of model.wheels) w.baseX = w.pivot.position.x;
   // Fender flares, when the model marks them, tuck away as the wheels fold.
@@ -85,18 +222,19 @@ export function buildBoatKit(model) {
   const apply = (t) => {
     const s = stages(t);
     group.visible = t > 0.005;
-    hull.visible = s.hull > 0.01;
-    hull.scale.set(lerp(0.78, 1, s.hull), lerp(0.04, 1, s.hull), lerp(0.9, 1, s.hull));
-    jet.visible = s.jet > 0.01;
-    jet.position.set(0, lerp(gunwale - 0.2, gunwale - depth * 0.72, s.jet), lerp(z0 + 0.3, z0 - 0.15, s.jet));
+    hullG.visible = s.hull > 0.01;
+    hullG.scale.set(lerp(0.78, 1, s.hull), lerp(0.04, 1, s.hull), lerp(0.9, 1, s.hull));
+    tilt.visible = s.jet > 0.01;
+    tilt.rotation.x = lerp(1.25, 0, s.jet); // tilted up, then trimmed down
     for (const n of nav) n.material.emissiveIntensity = s.jet * 4;
+    mast.visible = sternLight.visible = s.jet > 0.01;
     for (const f of flares) { f.visible = s.flare > 0.01; f.scale.setScalar(Math.max(s.flare, 0.01)); }
   };
   apply(0);
   return {
-    group, apply, bucket, R, MS, halfW, z0, z1,
+    group, apply, bucket, prop: ob.prop, R, MS, halfW, z0, z1,
     // Where the water sits on the hull, as a height above the car's ground line.
-    waterline: gunwale - depth * 0.58,
+    waterline: gunwale + wlLocal,
     // Height of the car's top above its ground line.
     height: box.max.y,
     // How far the wheel pivots rise to lie flat on the deck, in the model's own units.

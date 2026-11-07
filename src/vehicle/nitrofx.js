@@ -154,6 +154,10 @@ export class NitroFX {
       const r = (0.25 - t * 0.15) * fade, g = (0.95 - t * 0.3) * fade, bl = (0.75 + t * 0.25) * fade;
       col[o] = col[o + 3] = r; col[o + 1] = col[o + 4] = g; col[o + 2] = col[o + 5] = bl;
     }
+    // Draw only the joined-up points. The unused slots sit at the world's origin, and a strip
+    // reaching them would stretch a thin streak from the car across the map as a boost starts.
+    mesh.geometry.setDrawRange(0, n < 2 ? 0 : (n - 1) * 6);
+    mesh.visible = n >= 2;
     mesh.geometry.attributes.position.needsUpdate = true;
     mesh.geometry.attributes.color.needsUpdate = true;
   }

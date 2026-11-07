@@ -149,7 +149,9 @@ export class Hud {
     const VX = 350, VY = -480;
     const mid = (x) => x <= 232 || x >= 468 ? 67 : x >= 286 && x <= 414 ? 107 : x < 286 ? 67 + (x - 232) / 54 * 40 : 107 - (x - 414) / 54 * 40;
     const cut = (x) => { const y0 = mid(x), k = (x - VX) / (y0 - VY); return (y) => (x + k * (y - y0)).toFixed(1); };
-    const PARTS = { 'hx-fuelbar': [300, 24, -0.6], 'hx-nitro-l': [350, 300, -0.6, 0], 'hx-nitro-r': [350, 400, 0.6, 0], 'hx-kpbar': [400, 676, 0.6] };
+    // Fuel runs from the dip out to the left end, the Kp from the dip out to the right, and nitro
+    // has the dip to itself, so the three meet edge to edge with no gap of bare track between them.
+    const PARTS = { 'hx-fuelbar': [286, 24, -0.6], 'hx-kpbar': [414, 676, 0.6] };
     const dash = (el, f) => {
       f = Math.max(0, Math.min(1, f));
       if (el.dataset.f === f.toFixed(3)) return;
@@ -158,7 +160,7 @@ export class Hud {
       const poly0 = el._poly ??= document.querySelector(`${el.getAttribute('clip-path').slice(4, -1)} polygon`);
       // Nitro: one piece in the dip, widening from the centre to both sides, each side at its slant.
       if (el.id === 'hx-nitro-l') {
-        const w = 4 + 46 * f, L = cut(350 - w), R = cut(350 + w);
+        const w = 4 + 60 * f, L = cut(350 - w), R = cut(350 + w);
         poly0.setAttribute('points', `${L(-20)},-20 ${R(-20)},-20 ${R(150)},150 ${L(150)},150`);
         return;
       }
@@ -171,7 +173,12 @@ export class Hud {
       poly.setAttribute('points', `${a(-20)},-20 ${b(-20)},-20 ${tip} ${b(150)},150 ${a(150)},150`);
     };
     const nb = (s.nitro || 0) * ramp(1.5, 0.9);
-    dash(h['nitro-l'], nb); h['nitro-r'].style.display = 'none';
+    dash(h['nitro-l'], nb);
+    // Under the nitro, the empty part of the dip is a dim nitro colour rather than bare grey track,
+    // so a part-used tank never leaves a thin grey sliver between the fuel and the nitro.
+    const bed = h['nitro-r'];
+    if (!bed._set) { bed._set = true; const L = cut(286), R = cut(414); document.querySelector('#hx-c-nr polygon').setAttribute('points', `${L(-20)},-20 ${R(-20)},-20 ${R(150)},150 ${L(150)},150`); bed.classList.add('is-bed'); }
+    bed.style.opacity = (0.3 * ramp(1.3, 0.5)).toFixed(3);
     this.gauge.classList.toggle('is-boost', !!s.boosting);
     set(h.kp, kp.toFixed(1));
     dash(h.kpbar, Math.max(0.03, kp / 9) * ramp(2.0, 0.9));

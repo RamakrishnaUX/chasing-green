@@ -2092,3 +2092,5 @@ body.land-on .hx-spot, body.land-on .toast { opacity: 0 !important; pointer-even
 @keyframes sp-sharp { from { -webkit-mask-position: 100% 0; mask-position: 100% 0; } to { -webkit-mask-position: 0 0; mask-position: 0 0; } }
 @keyframes sp-focus { from { -webkit-mask-position: 100% 0; mask-position: 100% 0; } to { -webkit-mask-position: 0 0; mask-position: 0 0; } }
 @media (prefers-reduced-motion: reduce) { .sp-blur { display: none; } .sp-b { animation: none !important; -webkit-mask-image: none; mask-image: none; } }
+/* The nitro's empty bed: the dip in a dim nitro colour, under the fill. */
+.hx-band.hx-nitro.is-bed { filter: none !important; transition: opacity 0.3s; }

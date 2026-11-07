@@ -95,6 +95,19 @@ export class AudioEngine {
     this.nitroGain = ctx.createGain(); this.nitroGain.gain.value = 0;
     loop(this.white).connect(this.nitroBand).connect(this.nitroGain).connect(car);
 
+    // Boat: an outboard heard from on board (real recordings, see boatUpdate), with the hull
+    // slapping the chop and the bow washing through the water.
+    this.boatLP = ctx.createBiquadFilter(); this.boatLP.type = 'lowpass'; this.boatLP.Q.value = 0.6; this.boatLP.frequency.value = 2200;
+    this.boatGain = ctx.createGain(); this.boatGain.gain.value = 0;
+    this.boatLP.connect(this.boatGain).connect(car);
+    this.boatSrc = null; this.boatLoad = null; this.nextSlap = 0;
+    this.washBand = ctx.createBiquadFilter(); this.washBand.type = 'bandpass'; this.washBand.frequency.value = 900; this.washBand.Q.value = 0.5;
+    this.washGain = ctx.createGain(); this.washGain.gain.value = 0;
+    loop(this.white).connect(this.washBand).connect(this.washGain).connect(car);
+    this.washLow = ctx.createBiquadFilter(); this.washLow.type = 'lowpass'; this.washLow.frequency.value = 260;
+    this.washLowGain = ctx.createGain(); this.washLowGain.gain.value = 0;
+    loop(this.brown).connect(this.washLow).connect(this.washLowGain).connect(car);
+
     // Helicopter. The rotor: low noise chopped into a beat at the blade-passing rate (four
     // blades at about 6.6 turns a second), the deep "whop" of each blade's wake. The turbines: a
     // high whine that rises as they spool up. The Fenestron: a band of hiss near 900 Hz.
@@ -237,7 +250,7 @@ export class AudioEngine {
     const R = this.recSrc ? V.rec : null, lp = R ? R.lp : V.lp;
     if (R) this.recMix(t, rpm); else this.engSrc.playbackRate.setTargetAtTime(rpm / V.ref, t, 0.07);
     this.engLP.frequency.setTargetAtTime(lp[0] + rpm * lp[1] + load * lp[2], t, 0.08);
-    const vol = on ? (0.16 + Math.min(1, rpm / V.red) * 0.12 + load * 0.1) * (R ? R.gain : V.gain) * dip * (CONFIG.engineVolume ?? 1) : 0;
+    const vol = on && this.afloat < 1 ? (1 - (this.afloat || 0)) * (0.16 + Math.min(1, rpm / V.red) * 0.12 + load * 0.1) * (R ? R.gain : V.gain) * dip * (CONFIG.engineVolume ?? 1) : 0;
     this.engGain.gain.setTargetAtTime(vol, t, dip < 1 ? 0.025 : 0.08);
     // Pops: a run of them as the throttle closes, the odd one while coasting at high revs.
     if (!on || throttle > 0) this.popsLeft = 0;
@@ -310,7 +323,59 @@ export class AudioEngine {
     s.start(t, Math.random() * 1.5, dur + 0.05);
   }
 
-  update(dt, { speed, wind, exposure, waterProx, iceProx, inCar, wade = 0, nitro = false, heli = null, throttle = 0, voice = null, surface = 'paved', grounded = true }) {
+  // The outboard, from three loops cut from Freesound recordings made on board (README):
+  // exhaust bubbling at idle, a low throb pushing through the water, and the run up on the
+  // plane. Each is sped up with the throttle and speed, and they hand over as the boat climbs
+  // onto the plane, the way a real hull changes its note. Fetched the first time you float.
+  loadBoat() {
+    const url = (f) => `${import.meta.env.BASE_URL}sounds/engines/${f}.wav`;
+    return (this.boatLoad ||= Promise.all(['boat_bubble', 'boat_low', 'boat_high'].map((f) => fetch(url(f))
+      .then((r) => { if (!r.ok) throw new Error(f); return r.arrayBuffer(); })
+      .then((b) => this.ctx.decodeAudioData(b))))
+      .then((bufs) => {
+        const t = this.ctx.currentTime;
+        this.boatSrc = bufs.map((buf) => {
+          const src = this.ctx.createBufferSource(), g = this.ctx.createGain();
+          src.buffer = buf; src.loop = true; g.gain.value = 0;
+          src.connect(g).connect(this.boatLP); src.start(t, Math.random() * buf.duration * 0.9);
+          return { src, g };
+        });
+      })
+      .catch(() => { this.boatLoad = null; }));
+  }
+  boatUpdate(t, dt, on, speed, throttle, nitro) {
+    if (on > 0 && !this.boatLoad) this.loadBoat();
+    const sp = Math.max(0, speed), thr = Math.max(0, throttle), boost = nitro ? 1 : 0;
+    // How far up on the plane: none below 6 m/s, fully from 13.
+    const plane = Math.min(1, Math.max(0, (sp - 6) / 7));
+    this.boatGain.gain.setTargetAtTime(on * (0.75 + thr * 0.35 + boost * 0.2) * (CONFIG.engineVolume ?? 1), t, 0.12);
+    this.boatLP.frequency.setTargetAtTime(1400 + thr * 1800 + plane * 1600 + boost * 1500, t, 0.1);
+    if (this.boatSrc) {
+      const [bub, low, high] = this.boatSrc;
+      const idle = Math.max(0, 1 - sp / 3.5 - thr * 0.6);
+      bub.src.playbackRate.setTargetAtTime(0.9 + thr * 0.25, t, 0.15);
+      bub.g.gain.setTargetAtTime(0.55 * idle, t, 0.15);
+      low.src.playbackRate.setTargetAtTime(0.72 + Math.min(1, sp / 9) * 0.38 + thr * 0.12, t, 0.12);
+      low.g.gain.setTargetAtTime(Math.cos(plane * Math.PI / 2) * (0.35 + 0.65 * Math.min(1, sp / 2.5 + thr)), t, 0.12);
+      high.src.playbackRate.setTargetAtTime(0.86 + Math.min(1, Math.max(0, sp - 6) / 16) * 0.24 + thr * 0.05 + boost * 0.08, t, 0.12);
+      high.g.gain.setTargetAtTime(Math.sin(plane * Math.PI / 2), t, 0.12);
+    }
+    // The bow washing through the water: a hiss that brightens with speed, and a low churn.
+    const run = Math.min(1, sp / 18);
+    this.washGain.gain.setTargetAtTime(on * (0.02 + run * 0.12), t, 0.2);
+    this.washBand.frequency.setTargetAtTime(500 + run * 1800, t, 0.3);
+    this.washLowGain.gain.setTargetAtTime(on * (0.05 + run * 0.14), t, 0.2);
+    // The hull slapping the chop: a knock now and then at rest, a quick run of them at speed,
+    // and the odd hard slam with spray off the bow once it is flying over the waves.
+    if (on > 0.5 && t > this.nextSlap) {
+      const hard = plane > 0.6 && Math.random() < 0.18;
+      this.burst(110 + Math.random() * 90, 1.4, hard ? 0.32 : 0.16, (hard ? 0.5 : 0.18 + run * 0.18) * on, 'lowpass', this.bus.car);
+      if (hard || Math.random() < run * 0.4) this.burst(1200 + Math.random() * 1600, 0.8, 0.35, (hard ? 0.12 : 0.05) * on, 'bandpass', this.bus.car);
+      this.nextSlap = t + (sp < 2 ? 0.9 + Math.random() * 1.8 : 0.16 + Math.random() * 0.5 / (0.4 + run));
+    }
+  }
+
+  update(dt, { speed, wind, exposure, waterProx, iceProx, inCar, wade = 0, nitro = false, heli = null, throttle = 0, voice = null, surface = 'paved', grounded = true, boat = 0 }) {
     if (!this.ready) return;
     const t = this.ctx.currentTime;
     // The helicopter replaces the car engine: rotor, turbines and fan, louder under load and
@@ -332,14 +397,17 @@ export class AudioEngine {
     this.waterGain.gain.setTargetAtTime(0.45 * waterProx, t, 0.3);
     const v = heli ? null : voice;
     if (v !== this.voiceName) this.setVoice(v);
+    // Afloat, the outboard takes over from the car's engine.
+    this.afloat = heli ? 0 : boat;
     this.engineUpdate(t, dt, inCar && !heli, speed, throttle, nitro);
+    this.boatUpdate(t, dt, inCar && !heli ? boat : 0, speed, throttle, nitro);
     // Tyres: only rolling on the ground, not in the air or on the water.
     const roll = inCar && !heli && grounded && wade < 0.3 && surface !== 'ford' ? Math.min(1, speed / 35) : 0;
     const rough = surface === 'paved' ? 0 : surface === 'gravel' ? 1 : 0.6;
     this.tyreGain.gain.setTargetAtTime(roll * (0.07 + rough * 0.05), t, 0.15);
     this.tyreLP.frequency.setTargetAtTime(300 + roll * 250 + rough * 200, t, 0.3);
     this.gritGain.gain.setTargetAtTime(roll * rough * 0.035 * (0.5 + Math.random()), t, 0.03);
-    this.wadeGain.gain.setTargetAtTime(0.32 * Math.min(1, wade), t, 0.15);
+    this.wadeGain.gain.setTargetAtTime(0.32 * Math.min(1, wade) * (1 - this.afloat), t, 0.15);
     this.nitroGain.gain.setTargetAtTime(nitro ? 0.12 : 0, t, nitro ? 0.08 : 0.3);
     this.nitroBand.frequency.setTargetAtTime(nitro ? 2600 : 1200, t, 0.5);
     if (this.music) {
