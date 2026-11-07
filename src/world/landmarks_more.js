@@ -673,7 +673,7 @@ export function buildGodafoss(kit) {
       g.add(f);
     }
   }
-  const pool = M(new THREE.CircleGeometry(R * 0.95, 40), createWaterMaterial(0x1d4f58, { roughness: 0.08, ripple: 1.2, shallow: [0.2, 0.46, 0.48], deep: [0.03, 0.13, 0.17], foam: 0.8 }), 0, 0.3, -2);
+  const pool = M(new THREE.CircleGeometry(R * 0.95, 40), createWaterMaterial(0x1d4f58, { roughness: 0.08, ripple: 1.2, shallow: [0.2, 0.46, 0.48], deep: [0.03, 0.13, 0.17], foam: 0.8, bowl: 4 }), 0, 0.3, -2);
   pool.rotation.x = -Math.PI / 2;
   g.add(pool);
   const mist = kit.makeMist(70, R * 1.4, 6);
@@ -812,7 +812,7 @@ export function buildAsbyrgi(kit) {
     cr.scale.y = 1.5;
     g.add(cr);
   }
-  const pond = M(new THREE.CircleGeometry(6, 28), createWaterMaterial(0x203d38, { shallow: [0.2, 0.36, 0.3], deep: [0.03, 0.1, 0.09], foam: 0.3 }), 0, kit.ground(0, -58) + 0.3, -58);
+  const pond = M(new THREE.CircleGeometry(6, 28), createWaterMaterial(0x203d38, { shallow: [0.2, 0.36, 0.3], deep: [0.03, 0.1, 0.09], foam: 0.3, bowl: 1.5 }), 0, kit.ground(0, -58) + 0.3, -58);
   pond.rotation.x = -Math.PI / 2;
   g.add(pond);
   return g;

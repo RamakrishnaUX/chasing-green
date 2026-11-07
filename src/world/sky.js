@@ -12,6 +12,13 @@ float hash13(vec3 p3){ p3 = fract(p3 * .1031); p3 += dot(p3, p3.zyx + 31.32); re
 float vnoise(vec2 p){ vec2 i = floor(p); vec2 f = fract(p); vec2 u = f*f*(3.0-2.0*f);
   return mix(mix(hash12(i), hash12(i+vec2(1,0)), u.x), mix(hash12(i+vec2(0,1)), hash12(i+vec2(1,1)), u.x), u.y); }
 float fbm2(vec2 p){ float s = 0.0, a = 0.5; for(int i=0;i<4;i++){ s += a*vnoise(p); p = p*2.03 + 17.1; a *= 0.5; } return s; }
+// A colour by the sun's elevation, keyed at 10, 4, 0.5, -2, -5 and -10 degrees.
+vec3 elRamp(float e, vec3 c0, vec3 c1, vec3 c2, vec3 c3, vec3 c4, vec3 c5){
+  vec3 c = c0;
+  c = mix(c, c1, sstep(10.0, 4.0, e)); c = mix(c, c2, sstep(4.0, 0.5, e)); c = mix(c, c3, sstep(0.5, -2.0, e));
+  c = mix(c, c4, sstep(-2.0, -5.0, e)); c = mix(c, c5, sstep(-5.0, -10.0, e));
+  return c;
+}
 `;
 
 // Sky palette, shared by the sky shader and the fog so the horizon and distant hills always match.
@@ -36,23 +43,36 @@ void main(){
   float hor = pow(1.0 - y, 4.0);
   float el = uSunEl;
   float sunF = max(dot(normalize(vec3(d.x, 0.0, d.z)), normalize(vec3(uSunDir.x, 0.0, uSunDir.z))), 0.0);
-  // Day: deep blue overhead fading to a pale hazy horizon.
-  vec3 day = mix(${v3(PAL.dayZen)}, ${v3(PAL.dayMid)}, sstep(0.0, 0.7, 1.0 - y));
-  day = mix(day, ${v3(PAL.dayHor)}, hor);
-  // Low winter sun warms the horizon on the sun side.
-  float golden = sstep(16.0, 1.0, el) * sstep(-4.0, 0.0, el);
-  day = mix(day, ${v3(PAL.goldSun)}, golden * pow(sunF, 2.5) * hor * 0.85);
-  // Twilight: lilac and pink, hottest toward the set sun.
-  vec3 tw = mix(${v3(PAL.twZen)}, ${v3(PAL.twHor)}, pow(1.0 - y, 2.2));
-  tw = mix(tw, ${v3(PAL.twSun)}, pow(sunF, 3.0) * pow(1.0 - y, 5.0));
-  float wTw = sstep(-10.0, -3.0, el) * sstep(6.0, 0.0, el);
-  vec3 col = mix(day, tw, wTw);
+  // A low sun, as it really goes: by golden hour the horizon under the sun turns gold, then
+  // orange, and at sunset a fiery red-orange band, with a peach glow above it fading through a
+  // hint of green-cyan into deepening blue. Opposite the sun the horizon blushes pink, and as the
+  // sun goes down the Earth's shadow rises there as a blue-grey band under the pink belt of Venus.
+  // Above 10 degrees the physical sky (Preetham) shows instead; this blends in below 12.
+  float s = dot(normalize(vec3(d.x, 0.0, d.z) + 1e-5), normalize(vec3(uSunDir.x, 0.0, uSunDir.z) + 1e-5));
+  float side = sstep(-0.35, 1.0, s); side *= side;
+  vec3 Z  = elRamp(el, vec3(0.2, 0.38, 0.66), vec3(0.22, 0.36, 0.62), vec3(0.2, 0.3, 0.56), vec3(0.15, 0.22, 0.46), vec3(0.07, 0.11, 0.28), vec3(0.02, 0.035, 0.09));
+  vec3 HS = elRamp(el, vec3(0.95, 0.88, 0.74), vec3(1.0, 0.72, 0.42), vec3(1.0, 0.47, 0.15), vec3(0.95, 0.31, 0.1), vec3(0.62, 0.2, 0.14), vec3(0.12, 0.08, 0.12));
+  vec3 GS = elRamp(el, vec3(0.88, 0.88, 0.82), vec3(1.0, 0.83, 0.57), vec3(1.0, 0.7, 0.42), vec3(0.98, 0.62, 0.42), vec3(0.6, 0.42, 0.45), vec3(0.1, 0.08, 0.15));
+  vec3 HA = elRamp(el, vec3(0.78, 0.84, 0.9), vec3(0.84, 0.79, 0.8), vec3(0.86, 0.67, 0.68), vec3(0.78, 0.55, 0.63), vec3(0.4, 0.36, 0.5), vec3(0.07, 0.09, 0.15));
+  vec3 GA = elRamp(el, vec3(0.6, 0.72, 0.86), vec3(0.58, 0.66, 0.82), vec3(0.6, 0.58, 0.74), vec3(0.5, 0.48, 0.66), vec3(0.24, 0.26, 0.42), vec3(0.04, 0.06, 0.12));
+  vec3 horC = mix(HA, HS, side), glow = mix(GA, GS, side);
+  vec3 col = mix(glow, Z, sstep(0.04, 0.62, y));
+  col = mix(col, horC, exp(-y * 13.0));
+  // A thin greenish band where the warm glow meets the blue, just after sunset.
+  col = mix(col, vec3(0.56, 0.74, 0.72), sstep(0.5, -2.5, el) * sstep(-9.0, -4.0, el) * side * exp(-pow((y - 0.28) / 0.1, 2.0)) * 0.22);
+  // Earth's shadow and the belt of Venus, opposite the sun from just before sunset to dusk.
+  float shW = sstep(1.0, -1.0, el) * sstep(-8.0, -4.5, el), anti = sstep(0.1, -0.7, s);
+  float shH = 0.012 + clamp(-el, 0.0, 6.0) * 0.012;
+  col = mix(col, vec3(0.3, 0.34, 0.5), anti * shW * (1.0 - sstep(shH * 0.5, shH, y)) * 0.8);
+  col = mix(col, vec3(0.9, 0.6, 0.66), anti * shW * exp(-pow((y - shH * 1.7) / (shH + 0.02), 2.0)) * 0.55);
   vec3 night = mix(${v3(PAL.nightZen)}, ${v3(PAL.nightHor)}, hor);
   col = mix(col, night, sstep(-5.0, -11.0, el));
-  // Sun disk and glow.
+  // Sun disk and its glow, both reddening as it nears the horizon; the glow lingers after it sets.
   float sd = dot(d, uSunDir);
-  col += vec3(1.0, 0.92, 0.78) * sstep(0.9993, 0.9997, sd) * (1.0 - uDark);
-  col += vec3(1.0, 0.8, 0.55) * pow(max(sd, 0.0), 40.0) * 0.35 * (1.0 - uDark);
+  vec3 disk = elRamp(el, vec3(1.0, 0.93, 0.8), vec3(1.0, 0.8, 0.55), vec3(1.0, 0.56, 0.26), vec3(1.0, 0.4, 0.16), vec3(0.8, 0.3, 0.15), vec3(0.0));
+  vec3 aure = elRamp(el, vec3(1.0, 0.86, 0.66), vec3(1.0, 0.7, 0.42), vec3(1.0, 0.5, 0.2), vec3(0.95, 0.38, 0.14), vec3(0.5, 0.2, 0.12), vec3(0.0));
+  col += disk * sstep(0.9993, 0.9997, sd) * (1.0 - uDark) * sstep(-1.0, 0.3, el);
+  col += aure * (pow(max(sd, 0.0), 10.0) * 0.32 + pow(max(sd, 0.0), 90.0) * 0.5) * sstep(-9.0, -1.0, el) * (1.0 - uDark * 0.6);
   // City light pollution.
   float cityFacing = pow(max(dot(normalize(vec3(d.x, 0.0, d.z)), uCityDir), 0.0), 5.0);
   vec3 glowCol = vec3(0.55, 0.36, 0.2);
@@ -180,15 +200,24 @@ vec4 cloudAt(vec3 d){
   // Lit tops and grey bellies by day, gold near a low sun, pink at twilight.
   vec3 dayCol = mix(vec3(0.62, 0.66, 0.74), vec3(1.0, 0.99, 0.97), shade) * (1.0 - dens * 0.18) + vec3(1.0, 0.9, 0.75) * lining;
   dayCol *= mix(vec3(1.0), vec3(1.0, 0.8, 0.6), golden * (0.35 + 0.65 * sunF));
-  vec3 twCol = mix(vec3(0.6, 0.5, 0.66), vec3(1.0, 0.58, 0.52), clamp(sunF * 1.5 + 0.25, 0.0, 1.0)) * (1.0 - dens * 0.35);
+  // Low sun: undersides lit gold, then orange, then crimson and pink and last violet as the sun
+  // sinks, hottest toward the sun; the side away from it stays cool lilac-grey.
+  vec3 litC = elRamp(el, vec3(1.0, 0.95, 0.88), vec3(1.0, 0.76, 0.48), vec3(1.0, 0.5, 0.24), vec3(0.96, 0.34, 0.3), vec3(0.72, 0.3, 0.46), vec3(0.22, 0.18, 0.28));
+  vec3 shadC = elRamp(el, vec3(0.62, 0.66, 0.74), vec3(0.56, 0.52, 0.6), vec3(0.46, 0.38, 0.48), vec3(0.4, 0.3, 0.44), vec3(0.24, 0.21, 0.34), vec3(0.05, 0.06, 0.09));
+  float toward = pow(max(dot(normalize(d.xz + 1e-5), normalize(uSunDir.xz + 1e-5)), 0.0) * 0.5 + 0.5, 2.0);
+  // Under a full deck the low sun only reaches the cloud near the horizon on its own side; broken
+  // cloud catches it everywhere.
+  float reach = mix(1.0, exp(-d.y * 5.0) * toward, clamp(cov * 1.3 - 0.2, 0.0, 1.0));
+  vec3 twCol = mix(shadC, litC, clamp((toward * (0.55 + 0.45 * shade) + sunF * 0.4) * reach, 0.0, 1.0)) * (1.0 - dens * 0.25);
+  float lowW = sstep(12.0, 3.0, el) * (1.0 - sstep(-6.0, -11.0, el));
   vec3 nightCol = vec3(0.035, 0.045, 0.06) + vec3(0.18, 0.12, 0.07) * uCityOverhead + uAuroraTint * uAurora * 0.04;
-  vec3 col = mix(dayCol, twCol, wTw);
+  vec3 col = mix(dayCol, twCol, lowW);
   col = mix(col, nightCol, wNight);
   float a = max(dens * 0.95, wisp * 0.6 * (1.0 - wNight * 0.85) * (1.0 - dens));
 #ifdef HD_CLOUDS
-  vec3 sunCol = vec3(1.0, 0.97, 0.92) * mix(vec3(1.0), vec3(1.0, 0.72, 0.48), golden);
-  vec4 v = volClouds(d, cov, sunCol * 1.15, vec3(0.5, 0.56, 0.66));
-  vec3 vcol = mix(v.rgb, twCol, wTw * 0.75);
+  vec3 sunCol = mix(vec3(1.0, 0.97, 0.92), litC, lowW);
+  vec4 v = volClouds(d, cov, sunCol * 1.15, mix(vec3(0.5, 0.56, 0.66), shadC, lowW));
+  vec3 vcol = mix(v.rgb, twCol, lowW * 0.55);
   vcol = mix(vcol, nightCol, wNight);
   // Low in the sky the march grows too long for its steps, so hand over to the flat layer.
   float vw = sstep(0.06, 0.22, d.y) * (1.0 - sstep(370.0, 420.0, uCam.y)); // and hand over as you climb into the deck
@@ -239,10 +268,18 @@ const sm = (e0, e1, x) => smoothstep(e0, e1, x);
 const mixA = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t);
 
 // Horizon colour away from the sun, matching the sky shader. Used for fog.
+const ramp6 = (e, c) => {
+  let r = c[0];
+  for (const [k, e0, e1] of [[1, 10, 4], [2, 4, 0.5], [3, 0.5, -2], [4, -2, -5], [5, -5, -10]]) r = mixA(r, c[k], sm(e0, e1, e));
+  return r;
+};
+// The horizon's colour all round (fog takes it, so distant hills fade into the sunset): mostly
+// the side away from the sun, warmed a little toward the sun side's glow.
+const HOR_ANTI = [[0.78, 0.84, 0.9], [0.84, 0.79, 0.8], [0.86, 0.67, 0.68], [0.78, 0.55, 0.63], [0.4, 0.36, 0.5], [0.07, 0.09, 0.15]];
+const HOR_SUN = [[0.95, 0.88, 0.74], [1.0, 0.72, 0.42], [1.0, 0.47, 0.15], [0.95, 0.31, 0.1], [0.62, 0.2, 0.14], [0.12, 0.08, 0.12]];
 function horizonColor(el) {
-  let c = PAL.dayHor;
-  const tw = mixA(PAL.twZen, PAL.twHor, 0.9);
-  c = mixA(c, tw, sm(-10, -3, el) * sm(6, 0, el));
+  const low = mixA(ramp6(el, HOR_ANTI), ramp6(el, HOR_SUN), 0.28);
+  let c = mixA(PAL.dayHor, low, sm(14, 6, el));
   c = mixA(c, PAL.nightHor, sm(-5, -11, el));
   return c;
 }
@@ -296,6 +333,8 @@ export class Sky {
     this.sky.renderOrder = -5;
     this.sky.frustumCulled = false;
     scene.add(this.sky);
+    // The reflections see the painted low-sun sky too, laid over the physical one as on screen.
+    if (this.envScene) { const envDome = new THREE.Mesh(skyGeo, this.skyMat); envDome.renderOrder = 1; envDome.frustumCulled = false; this.envScene.add(envDome); }
 
     this.cloudMat = new THREE.ShaderMaterial({
       vertexShader: DOME_VERT, fragmentShader: CLOUD_FRAG, side: THREE.BackSide, depthWrite: false, transparent: true,
@@ -362,7 +401,8 @@ export class Sky {
       this.envCloud = cloud;
       this.envTimer = 30;
     }
-    this.scene.environmentIntensity = 2.1 * this.light.env * (1 - overlay) * (1 - cloud * 0.15);
+    // Sky light and reflections fade through dusk (by the sun, not by which sky is drawn).
+    this.scene.environmentIntensity = 2.1 * this.light.env * (1 - sm(-1.5, -8, elDeg)) * (1 - cloud * 0.15);
   }
 
   setRGB(target, a) { return target.setRGB(a[0], a[1], a[2], THREE.SRGBColorSpace); }
@@ -423,7 +463,7 @@ export class Sky {
     this.scatter.position.copy(camera.position);
     this.scatter.material.uniforms.sunPosition.value.copy(sunDir);
     // Night sky takes over once the sun is well below the horizon.
-    const overlay = sm(-1.5, -8, elDeg);
+    const overlay = sm(12, 5, elDeg);
     u.uOverlay.value = overlay;
     this.scatter.visible = overlay < 0.999;
     // Overcast skies are greyer and dimmer.
@@ -434,7 +474,7 @@ export class Sky {
     // Sun: warm and low most of the winter day, whiter when high.
     const f = focus || camera.position;
     const sunUp = smoothstep(-3, 4, elDeg);
-    this.setRGB(this.sun.color, mixA([1.0, 0.76, 0.55], [1.0, 0.95, 0.88], sm(2, 22, elDeg)));
+    this.setRGB(this.sun.color, mixA(mixA([1.0, 0.55, 0.3], [1.0, 0.76, 0.55], sm(0, 5, elDeg)), [1.0, 0.95, 0.88], sm(5, 24, elDeg)));
     this.sun.intensity = 4.2 * this.light.sun * sunUp * (1 - cloud * 0.55);
     // Snap the shadow box to whole units so shadows don't shimmer as you drive.
     const fx = Math.round(f.x), fz = Math.round(f.z);

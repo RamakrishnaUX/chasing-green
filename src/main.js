@@ -311,6 +311,36 @@ async function buildWorld(progress) {
   console.info(`World built in ${Math.round(performance.now() - t0)} ms`, stageTimes);
 }
 
+// ---------- Water surfaces ----------
+// Pools, crater lakes and plunge pools are drawn by the landmarks, apart from the sea and the
+// big lakes the land knows about (waterLevelAt). Every mesh in a water material is found here,
+// so wheels ring and splash in them and the rotor wash ruffles them like the sea.
+let poolSurfaces = [], poolScanAt = -1e9;
+function scanPools() {
+  poolSurfaces = [];
+  const box = new THREE.Box3(), c = new THREE.Vector3(), sz = new THREE.Vector3();
+  scene.traverse((o) => {
+    if (!o.isMesh || !o.material?.userData?.water) return;
+    box.setFromObject(o); box.getCenter(c); box.getSize(sz);
+    const r = Math.max(sz.x, sz.z) / 2;
+    if (r > 250 || r < 0.5 || sz.y > 3) return; // the sea and big lakes come from waterLevelAt
+    poolSurfaces.push({ x: c.x, z: c.z, r: r * 0.92, y: box.max.y });
+  });
+}
+function poolSurfaceAt(x, z) {
+  if (performance.now() - poolScanAt > 8000) { poolScanAt = performance.now(); scanPools(); }
+  for (const s of poolSurfaces) if ((x - s.x) ** 2 + (z - s.z) ** 2 < s.r * s.r) return s;
+  return null;
+}
+function poolAt(x, z) { return poolSurfaceAt(x, z)?.y ?? null; }
+// The water surface at (x, z), or null over dry land.
+function waterAt(x, z) {
+  const p = poolAt(x, z);
+  if (p != null) return p;
+  const wl = waterLevelAt(x, z);
+  return wl > heightAt(x, z) + 0.3 ? wl : null;
+}
+
 // ---------- Rotor wash ----------
 // The helicopter's downwash: strongest with the rotor at full speed close to the ground, gone by
 // about 25 m up. The air comes straight down under the rotor, turns at the ground and runs out
@@ -324,8 +354,10 @@ function rotorWash(dt) {
   const agl = heli.landed ? 0 : Math.max(0, heli.agl);
   const strength = heli.rpm * heli.rpm * (1 - smoothstep(4, 26, agl));
   if (strength < 0.02) return null;
-  const x = heli.pos.x, z = heli.pos.z, radius = 12 + 14 * strength;
-  const wl = waterLevelAt(x, z), onWater = wl > heightAt(x, z) + 0.3;
+  const x = heli.pos.x, z = heli.pos.z, pool = poolSurfaceAt(x, z);
+  // Over a small pool the wash on the water stops at its edge.
+  const radius = Math.min(12 + 14 * strength, pool ? Math.max(4, pool.r - Math.hypot(x - pool.x, z - pool.z)) : 1e9);
+  const wAt = waterAt(x, z), onWater = wAt != null, wl = onWater ? wAt : waterLevelAt(x, z);
   // The dust takes the colour of the ground: black volcanic sand on the beaches, grey grit on
   // gravel, a pale dun from dry grass and earth.
   const surf = surfaceAt(x, z);
@@ -337,8 +369,8 @@ function rotorWash(dt) {
       // close in, slowing as it spreads.
       const a = Math.random() * Math.PI * 2, rr = radius * (0.2 + 0.45 * Math.random());
       const px = x + Math.cos(a) * rr, pz = z + Math.sin(a) * rr, out = (5 + 10 * strength) * (1.2 - rr / radius);
-      const pwl = waterLevelAt(px, pz), gy = heightAt(px, pz);
-      if (pwl > gy + 0.2) { if (!onWater) spray.emit(px, pwl + 0.1, pz, Math.cos(a) * out, 1.2, Math.sin(a) * out, 2, 1.2, 0.8); }
+      const pw = waterAt(px, pz), gy = heightAt(px, pz), pwl = pw ?? 0;
+      if (pw != null) { if (!onWater) spray.emit(px, pwl + 0.1, pz, Math.cos(a) * out, 1.2, Math.sin(a) * out, 2, 1.2, 0.8); }
       else if (snowAt(px, pz) > 0.5) powder.emit(px, gy + 0.2, pz, Math.cos(a) * out, 1.0 + Math.random(), Math.sin(a) * out, 3, 1.4, 1.2);
       else washDust.emit(px, gy + 0.6, pz, Math.cos(a) * out, 0.2 + Math.random() * 0.6, Math.sin(a) * out, 2, 2.4, 2.4);
     }
@@ -1967,6 +1999,16 @@ function vehicleEffects(dt) {
   // Splash on the way in.
   if (inPuddle && !wasInPuddle && sp > 3) { audio.splash(Math.min(1, sp / 30), 'puddle'); haptics.play('light'); }
   if (inWater && !wasInWater && sp > 2) { audio.splash(Math.min(1, sp / 18 + jeep.depth * 0.4)); haptics.play(sp > 10 ? 'heavy' : 'medium'); }
+  // Pools the land does not know about (a waterfall's plunge pool, a crater lake): wheels in
+  // one splash, throw spray and send rings across it.
+  const pool = !inWater && dt ? poolAt(jeep.pos.x, jeep.pos.z) : null;
+  const inPool = pool != null && Math.abs(pool - jeep.pos.y) < 1.2;
+  if (inPool && !wasInPool && sp > 1.5) { audio.splash(Math.min(1, sp / 18)); haptics.play('medium'); }
+  wasInPool = inPool;
+  if (inPool && dt) {
+    if (Math.random() < dt * (1.5 + sp * 0.4)) { const [x, z] = wheelsWorld[Math.floor(Math.random() * wheelsWorld.length)]; waterFx.ring(x, pool, z, Math.min(1, 0.35 + sp / 12), { r0: 0.8, speed: 1.4 + sp * 0.15, life: 2.8 }); }
+    if (sp > 1.5) for (const [x, z, side] of wheelsWorld) { const out = Math.sign(side) * (1.2 + sp * 0.08); spray.emit(x, pool + 0.1, z, rx * out - fx * sp * 0.15, 2.2 + sp * 0.12, rz * out - fz * sp * 0.15, Math.ceil(Math.min(1, sp / 15) * 3), 1.4, 0.8); }
+  }
   // Rings: across a puddle from each wheel in it, and over open water from a wading car.
   if (inPuddle && sp > 0.8 && dt) for (const [x, z] of wheelsWorld) if ((!wasPuddleRing || Math.random() < dt * 5) && puddles.at(x, z)) puddles.ripple(x, z, Math.min(1, 0.4 + sp / 20));
   wasPuddleRing = inPuddle;
@@ -2021,7 +2063,7 @@ function vehicleEffects(dt) {
 }
 
 // Boat mode: say when it changes; the wake, foam and spray are drawn by BoatWater.
-let boatToldOnce = false, wasPuddleRing = false;
+let boatToldOnce = false, wasPuddleRing = false, wasInPool = false;
 function boatEffects(dt) {
   const ev = jeep.boatEvent; jeep.boatEvent = null;
   if (ev === 'boat') {
@@ -2393,6 +2435,7 @@ window.chasingGreen = {
   snowAt: (x, z) => snowAt(x, z),
   waterLevelAt: (x, z) => waterLevelAt(x, z),
   get kerid() { return KERID; },
+  poolAt: (x, z) => poolAt(x, z), get pools() { return poolSurfaces; },
   get bridges() { return bridges; },
   get jumps() { return JUMPS; },
   // Debug switches for tracking down rendering problems.

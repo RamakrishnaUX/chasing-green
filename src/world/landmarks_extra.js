@@ -563,7 +563,7 @@ export const EXTRA = {
     const pg = new THREE.CircleGeometry(1, 40), pp = pg.attributes.position;
     for (let i = 1; i < pp.count; i++) { const a = Math.atan2(pp.getY(i), pp.getX(i)), r = 1 + 0.12 * Math.sin(a * 3 + 1) + 0.07 * Math.sin(a * 7 + 2); pp.setXY(i, Math.cos(a) * r * (wBot * 0.62 + 2), Math.sin(a) * r * 7); }
     let py = base; for (let x = -18; x <= 18; x += 6) py = Math.max(py, kit.ground(x, zFoot + 3));
-    const pool = M(pg, createWaterMaterial(0x0f3036, { roughness: 0.1, ripple: 1.4 }), 0, py + 0.12, zFoot + 3);
+    const pool = M(pg, createWaterMaterial(0x0f3036, { roughness: 0.1, ripple: 1.4, bowl: 3, shallow: [0.16, 0.4, 0.4], deep: [0.015, 0.07, 0.085], foam: 0.7 }), 0, py + 0.12, zFoot + 3);
     pool.rotation.x = -Math.PI / 2; pool.castShadow = false; g.add(pool);
     const boil = M(new THREE.PlaneGeometry(wBot + 4, 5), kit.fallMaterial(0xf2f6f8, 3.6, 0), 0, py + 0.2, zFoot + 1.5);
     boil.rotation.x = -Math.PI / 2; boil.castShadow = false; g.add(boil);

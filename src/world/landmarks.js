@@ -439,7 +439,7 @@ function iceGeometry(size, rand) {
 const basalt = new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0,  color: 0x2b2f33, flatShading: true });
 const basaltLight = new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0,  color: 0x3c4247, flatShading: true });
 const moss = new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0,  color: 0x46553f, flatShading: true });
-const poolMat = createWaterMaterial(0x16424a, { roughness: 0.08, ripple: 1.4 });
+const poolMat = createWaterMaterial(0x16424a, { roughness: 0.08, ripple: 1.4, bowl: 3, shallow: [0.16, 0.4, 0.4], deep: [0.015, 0.07, 0.085], foam: 0.7 });
 
 // Soft round sprite drawn on a canvas, so particles read as spray rather than squares.
 let softSprite = null;

@@ -132,7 +132,7 @@ export class WaterFx {
       const R = wash.radius, s = wash.strength, y = wash.y;
       this.wash.position.set(wash.x, y + 0.04, wash.z); this.wash.scale.setScalar(R);
       // Rings from under the rotor, a few a second, quicker and stronger the closer it hovers.
-      for (let k = this.count('ring', 2.5 * s, dt); k > 0; k--) this.ring(wash.x, y, wash.z, 0.5 + 0.5 * s, { r0: R * 0.15, speed: 3 + 4 * s, life: 3.2 });
+      for (let k = this.count('ring', 2.5 * s, dt); k > 0; k--) this.ring(wash.x, y, wash.z, 0.5 + 0.5 * s, { r0: R * 0.15, speed: 3 + 4 * s, life: Math.min(3.2, (R * 1.5) / (3 + 4 * s)) });
       // Mist and spray thrown out flat along the water from the ring where the wash turns.
       for (let k = this.count('mist', 26 * s, dt); k > 0; k--) {
         const a = Math.random() * Math.PI * 2, rr = R * (0.3 + 0.35 * Math.random()), out = 5 + 9 * s;
