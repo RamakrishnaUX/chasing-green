@@ -2011,3 +2011,9 @@ body.has-touch.pre-start #sheet .sheet-close { top: calc(12px + var(--safe-t)); 
   body:not(.has-touch) .hx-side.l .fuel-act.is-tow { color: #ff8a6b; } body:not(.has-touch) .hx-side.l .fuel-act.is-tow kbd { background: #ff8a6b; }
   body:not(.has-touch) .hx-side.l { pointer-events: auto; }
 }
+
+/* The fuel line sits under the band's fuel side, not under the number. */
+@media (min-width: 1000px) and (min-height: 600px) {
+  body:not(.has-touch) .hx-side.l { height: 100%; }
+  body:not(.has-touch) .hx-side.l .fuel-act { position: absolute; left: 4%; right: auto; bottom: auto; top: calc(100% * 112 / 130 - 4px); height: 20px; margin: 0; }
+}

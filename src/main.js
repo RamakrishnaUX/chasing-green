@@ -1677,10 +1677,12 @@ function fuelTick(dt) {
   // The button: refuel under a roof, or a tow once the tank is dry and the car has stopped.
   const m = here && lvl < 0.995 ? 'refuel' : driving && lvl <= 0 && Math.abs(jeep.vF) < 0.5 ? 'tow' : '';
   const b = $('fuel-act');
-  if (m !== fuelMode) { if (m === 'refuel') fuelStart = lvl; fuelMode = m; b.hidden = !m; document.body.classList.toggle('fuel-prompt', !!m); b.classList.toggle('is-tow', m === 'tow'); if (m === 'tow') hud.toast('Out of fuel. The engine has stopped.', { seconds: 3, priority: 3 }); }
+  if (m !== fuelMode) { if (m === 'refuel') fuelStart = lvl; fuelMode = m; b.hidden = !m; document.body.classList.toggle('fuel-prompt', !!m); b.classList.toggle('is-tow', m === 'tow'); }
   if (!m) return;
   const n = m === 'tow' ? stations?.nearest(jeep.pos.x, jeep.pos.z) : null;
-  const text = m === 'tow' ? `<span class="fa-lead">Out of fuel · </span>Tow to ${n?.station.name || 'a station'}` : fuel.filling ? `Filling · ${fuel.litres(kind)} L` : `Refuel · ${fuel.litres(kind, 1 - lvl)} L`;
+  // Short: what is wrong and the key; the button's own key label follows (F), touch shows no key.
+  const press = document.body.classList.contains('has-touch') ? '' : ' · Press';
+  const text = m === 'tow' ? `Out of fuel${press}` : fuel.filling ? `Filling · ${fuel.litres(kind)} L` : `Refuel${press}`;
   if (text !== fuelText) { fuelText = text; $('fuel-act-text').innerHTML = text; b.setAttribute('aria-label', m === 'tow' ? `Out of fuel. Get a tow to the fuel station at ${n?.station.name}` : fuel.filling ? 'Stop filling' : 'Refuel the car'); }
   b.style.setProperty('--p', m === 'refuel' ? lvl.toFixed(3) : '0');
 }
