@@ -1,7 +1,7 @@
 // A looping aurora over dark mountains, drawn with one fragment shader on its own canvas. It needs
 // nothing from the game, so it can play from the first frame while the island is still loading.
-const vs = 'attribute vec2 p; void main(){ gl_Position = vec4(p, 0.0, 1.0); }';
-const fs = `
+export const vs = 'attribute vec2 p; void main(){ gl_Position = vec4(p, 0.0, 1.0); }';
+export const fs = `
 precision highp float;
 uniform vec2 uRes; uniform float uT;
 float h(vec2 p){ p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
@@ -63,32 +63,67 @@ void main(){
   gl_FragColor = vec4(pow(col, vec3(0.92)), 1.0);
 }`;
 
-// Draws until stop() is called. Pauses while the page is hidden. Returns { stop }.
-export function startAuroraSky(canvas, { start = 40, maxDpr = 1.5 } = {}) {
+// Sets up the shader on a WebGL context and returns draw(w, h, t), which resizes if needed and
+// draws one frame. Used both on the page and inside the worker.
+export function makeSky(canvas) {
   const gl = canvas.getContext('webgl', { alpha: false, antialias: false, powerPreference: 'low-power' });
-  if (!gl) return { stop() {} };
+  if (!gl) return null;
   const sh = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); return s; };
   const prog = gl.createProgram();
   gl.attachShader(prog, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, fs)); gl.linkProgram(prog); gl.useProgram(prog);
   const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
   const loc = gl.getAttribLocation(prog, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
   const uRes = gl.getUniformLocation(prog, 'uRes'), uT = gl.getUniformLocation(prog, 'uT');
+  return {
+    draw(w, h, t) {
+      if (w < 1 || h < 1) return;
+      if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; gl.viewport(0, 0, w, h); }
+      gl.uniform2f(uRes, w, h); gl.uniform1f(uT, t); gl.drawArrays(gl.TRIANGLES, 0, 3);
+    },
+    lose() { gl.getExtension('WEBGL_lose_context')?.loseContext(); },
+  };
+}
+
+// Sky time moves on by the real time between frames, but never more than a short step, so a
+// frame that comes late (the island loading, say) holds the sky still instead of jumping it.
+export function skyClock(start, reduce) {
+  let t = start, last = 0;
+  return (now) => { if (!reduce && last) t += Math.min(0.05, (now - last) / 1000); last = now; return t; };
+}
+
+// Draws until stop() is called. Returns { stop, pause, resume }. Where the browser allows it the
+// sky runs on its own thread, so the island loading on the page can never make it stutter.
+export function startAuroraSky(canvas, { start = 40, maxDpr = 1.5 } = {}) {
   const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const t0 = performance.now();
+  const size = () => { const dpr = Math.min(devicePixelRatio, maxDpr); return { w: Math.round(canvas.clientWidth * dpr), h: Math.round(canvas.clientHeight * dpr) }; };
+  if (canvas.transferControlToOffscreen && typeof Worker !== 'undefined') {
+    try {
+      const off = canvas.transferControlToOffscreen();
+      const worker = new Worker(new URL('./auroraWorker.js', import.meta.url), { type: 'module' });
+      worker.postMessage({ type: 'init', canvas: off, start, reduce, ...size() }, [off]);
+      const ro = new ResizeObserver(() => worker.postMessage({ type: 'size', ...size() }));
+      ro.observe(canvas);
+      let stopped = false;
+      return {
+        stop() { if (stopped) return; stopped = true; ro.disconnect(); worker.postMessage({ type: 'stop' }); setTimeout(() => worker.terminate(), 200); },
+        pause() { worker.postMessage({ type: 'pause' }); },
+        resume() { worker.postMessage({ type: 'resume', ...size() }); },
+      };
+    } catch (e) { console.warn('Sky worker unavailable; drawing on the page.', e); return { stop() {}, pause() {}, resume() {} }; }
+  }
+  const sky = makeSky(canvas);
+  if (!sky) return { stop() {}, pause() {}, resume() {} };
+  const clock = skyClock(start, reduce);
   let raf = 0, running = true;
-  const draw = () => {
+  const draw = (now = performance.now()) => {
     if (!running) return;
-    const dpr = Math.min(devicePixelRatio, maxDpr), w = Math.round(canvas.clientWidth * dpr), h = Math.round(canvas.clientHeight * dpr);
-    if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; gl.viewport(0, 0, w, h); }
-    gl.uniform2f(uRes, w, h);
-    // With reduced motion the sky holds still.
-    gl.uniform1f(uT, start + (reduce ? 0 : (performance.now() - t0) / 1000));
-    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    const { w, h } = size();
+    sky.draw(w, h, clock(now));
     raf = requestAnimationFrame(draw);
   };
   draw();
   return {
-    stop() { running = false; cancelAnimationFrame(raf); gl.getExtension('WEBGL_lose_context')?.loseContext(); },
+    stop() { running = false; cancelAnimationFrame(raf); sky.lose(); },
     pause() { running = false; cancelAnimationFrame(raf); },
     resume() { if (running) return; running = true; draw(); },
   };

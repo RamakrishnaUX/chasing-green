@@ -1351,6 +1351,7 @@ const COVER_ORDER = [...VEHICLE_ORDER, 'heli'];
 const gg = { cover: null, sky: null, kind: null }; // the menu's garage view (below)
 const introSky = startAuroraSky($('intro-sky'));
 const cover = new Cover($('intro-hero'), { spot: document.querySelector('.cv-spot'), small: isTouch });
+cover.paused = true; // nothing to draw behind the splash; it starts when the splash lifts
 const coverKind = () => (settings.vehicle === 'heli' ? 'heli' : VEHICLES[settings.vehicle] ? settings.vehicle : 'jeep');
 introInfo(coverKind());
 // The splash comes first; the garage (and the vehicle rolling in) only once you press a key or tap,
@@ -1362,6 +1363,7 @@ function closeSplash() {
   wakeUiSfx();
   // Every car's arrival sound, fetched now so a switch never waits for it.
   $('intro').classList.remove('is-splash');
+  cover.paused = false;
   $('intro').classList.add('is-garage-in');
   clearInterval(spBar);
   setTimeout(() => { $('splash').hidden = true; }, 700);
