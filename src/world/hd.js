@@ -299,12 +299,19 @@ void hdDetail(vec3 m, vec3 p, vec3 N, float dist){
   vec3 a, n; vec2 ra;
   hdTop(0, p, 3.2, N, v, a, n, ra);
   vec3 A = hdRatio(a, 0), Nn = n; vec2 RA = ra;
-  if (tEarthW > 0.01) { hdTop(1, p, 7.0, N, v, a, n, ra); hdMix(A, Nn, RA, hdRatio(a, 1), n, ra, tEarthW); }
-  if (tRockW > 0.01) { hdTri(2, p, 11.0, N, a, n, ra); hdMix(A, Nn, RA, hdRatio(a, 2), n, ra, tRockW); }
-  if (tSnowW > 0.01) { hdTop(5, p, 6.0, N, v, a, n, ra); hdMix(A, Nn, RA, hdRatio(a, 5), n, ra, tSnowW); }
-  if (m.r > 0.01) { hdTop(4, p, 3.0, N, v, a, n, ra); hdMix(A, Nn, RA, hdRatio(a, 4), n, ra, m.r); }
-  if (tLavaW > 0.01) { hdTop(3, p, 3.5, N, v, a, n, ra); hdMix(A, Nn, RA, hdRatio(a, 3), n, ra, tLavaW); }
-  if (m.b > 0.01) { hdTop(5, p, 9.0, N, v, a, n, ra); hdMix(A, Nn, RA, hdRatio(a, 5), n, ra, m.b); }
+  // The other layers, each laid over what came before: (texture layer, scale in metres, weight).
+  // One loop rather than six copies of the sampling code: the same result, but a much smaller
+  // shader, and the shader's size (not the samples it takes) is what made the ground slow.
+  vec3 hdL[6] = vec3[6](vec3(1.0, 7.0, tEarthW), vec3(2.0, 11.0, tRockW), vec3(5.0, 6.0, tSnowW),
+    vec3(4.0, 3.0, m.r), vec3(3.0, 3.5, tLavaW), vec3(5.0, 9.0, m.b));
+  for (int i = 0; i < 6; i++) {
+    float w = hdL[i].z;
+    if (w <= 0.01) continue;
+    int li = int(hdL[i].x);
+    // Rock is mapped from three sides, for cliffs; the rest from above.
+    if (li == 2) hdTri(li, p, hdL[i].y, N, a, n, ra); else hdTop(li, p, hdL[i].y, N, v, a, n, ra);
+    hdMix(A, Nn, RA, hdRatio(a, li), n, ra, w);
+  }
   hdA = mix(vec3(1.0), A * mix(1.0, RA.x, 0.6), fade) * macro;
   hdN = normalize(mix(N, Nn, fade));
   hdR = mix(tRough, RA.y, fade * 0.8);
