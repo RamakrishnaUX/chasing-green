@@ -43,10 +43,10 @@ import { BoatWater } from './vehicle/boat.js';
 import { Wildlife, WILDLIFE_NOTES } from './world/wildlife.js';
 import { Input } from './vehicle/input.js';
 import { Hud } from './ui/hud.js';
-import { Notebook, stampSvg } from './ui/notebook.js';
+import { Notebook, stampSvg, GLYPHS } from './ui/notebook.js';
 import { Badges } from './ui/badges.js';
 import { AudioEngine } from './audio/audio.js';
-import { sfx, bindUiSfx } from './audio/uisfx.js';
+import { sfx, bindUiSfx, wakeUiSfx } from './audio/uisfx.js';
 import { drawPostcard, sharePostcard, canvasBlob, download, captionFor } from './share/postcard.js';
 import { linkFor, readSharedSighting } from './share/link.js';
 import { ClipRecorder } from './share/recorder.js';
@@ -417,44 +417,48 @@ function worldMark(el, pick) {
 }
 // The Kp in the cluster opens the full aurora radio, and K does too.
 document.querySelector('.hx-side.r').addEventListener('click', () => { sfx.tick(); $('radio').classList.toggle('is-open'); });
-// Every quarter second, choose what to mark: the two nearest places in view that you have not
-// found yet (or, if none, the nearest places in view), and the nearest fuel station in view.
-let marks = { places: [], fuel: null }, markTimer = 0;
+// Every quarter second, choose what to mark. Only things within a kilometre that are in view;
+// one in front (the nearest place you have not found, else the nearest place, else fuel), and at
+// most one more behind it, smaller and lighter, so the two never compete.
+let marks = { main: null, back: null }, markTimer = 0;
+const MARK_RANGE = 1000;
 function chooseMarks() {
   const p = activePos(), seen = [];
   for (const l of landmarks.list) {
     const d = Math.hypot(l.x - p.x, l.z - p.z);
-    if (d < 80 || d > 14000) continue;
+    if (d < 80 || d > MARK_RANGE) continue;
     const lift = LIFT[l.kind] ?? 20;
     if (!onScreen(l.x, l.z, lift)) continue;
-    seen.push({ x: l.x, z: l.z, lift, name: l.name, d, got: !!store.data.stamps[l.id] });
+    seen.push({ x: l.x, z: l.z, lift, name: l.name, d, got: !!store.data.stamps[l.id], el: 'place' });
   }
   seen.sort((a, b) => (a.got - b.got) || (a.d - b.d));
-  // Two markers never sit on top of each other.
-  const keep = [];
-  for (const m of seen) {
-    if (keep.length === 2) break;
-    const a = onScreen(m.x, m.z, m.lift);
-    if (keep.every((k) => { const b = onScreen(k.x, k.z, k.lift); return Math.abs(a.x - b.x) * innerWidth > 220 || Math.abs(a.y - b.y) * innerHeight > 90; })) keep.push(m);
-  }
-  marks.places = keep;
   let fuelPick = null;
   if (fuel.on && ride === 'car' && stations) {
-    let bd = Infinity;
     for (const st of stations.list) {
       const d = Math.hypot(st.x - p.x, st.z - p.z);
-      if (d < 60 || d > 12000 || d > bd || !onScreen(st.x, st.z, 8)) continue;
-      bd = d; fuelPick = { x: st.x, z: st.z, lift: 8, name: null };
+      if (d < 60 || d > MARK_RANGE || (fuelPick && d > fuelPick.d) || !onScreen(st.x, st.z, 8)) continue;
+      fuelPick = { x: st.x, z: st.z, lift: 8, name: null, d, el: 'fuel' };
     }
   }
-  marks.fuel = fuelPick;
+  const main = seen[0] || fuelPick || null;
+  let back = main === fuelPick ? null : fuelPick || seen[1] || null;
+  // The one behind never sits on top of the one in front.
+  if (main && back) {
+    const a = onScreen(main.x, main.z, main.lift), c = onScreen(back.x, back.z, back.lift);
+    if (!(Math.abs(a.x - c.x) * innerWidth > 200 || Math.abs(a.y - c.y) * innerHeight > 80)) back = null;
+  }
+  marks = { main, back };
 }
 function worldMarks(dt = 0.016) {
   markTimer -= dt;
   if (markTimer <= 0) { markTimer = 0.25; chooseMarks(); }
-  worldMark($('hx-mark-place'), marks.places[0]);
-  worldMark($('hx-mark-place2'), marks.places[1]);
-  worldMark($('hx-mark-fuel'), marks.fuel);
+  // Places use the place marker, fuel its own; whichever is behind is drawn back.
+  const placeMain = marks.main?.el === 'place' ? marks.main : null, placeBack = marks.back?.el === 'place' ? marks.back : null;
+  const fuelPick = marks.main?.el === 'fuel' ? marks.main : marks.back?.el === 'fuel' ? marks.back : null;
+  worldMark($('hx-mark-place'), placeMain);
+  worldMark($('hx-mark-place2'), placeBack);
+  worldMark($('hx-mark-fuel'), fuelPick);
+  $('hx-mark-fuel').classList.toggle('is-back', !!fuelPick && marks.back === fuelPick);
 }
 // What the gear readout says: a gear from the speed when driving, R reversing, N standing.
 function gearText() {
@@ -941,7 +945,7 @@ function updateLandmarks(p) {
       track('landmark_stamp', { landmark: lm.id, landmark_name: lm.name, stamps_total: Object.keys(store.data.stamps).length });
       hud.toast(`New stamp: ${lm.name}.`, { seconds: 4, priority: 2 });
       haptics.play('success', 0);
-      if (card.current === lm) { card.stamp.innerHTML = stampSvg(lm.name, lm.glyph, true, 'card'); card.found.textContent = foundText(); }
+      if (card.current === lm) { card.stamp.innerHTML = stampSvg(lm.name, lm.glyph, true, 'card'); card.found.textContent = foundText(); $('info-found2').textContent = `${foundText()} found`; }
       badges.check();
     }
   }
@@ -957,6 +961,9 @@ function updateLandmarks(p) {
       card.kick.textContent = unstamped ? 'New place found' : 'Back again';
       card.found.textContent = foundText();
       card.kind.textContent = KIND_NAME[lm.kind] || 'Place';
+      $('info-kind2').textContent = KIND_NAME[lm.kind] || 'Place';
+      $('info-found2').textContent = `${foundText()} found`;
+      $('info-glyph').innerHTML = GLYPHS[lm.glyph] || GLYPHS.peak;
       card.el.classList.toggle('is-long', lm.name.length > 13);
       card.shownAt = null;
       // Decided once per visit, so a card shown for a new place stays up after its stamp lands.
@@ -1297,8 +1304,22 @@ const gg = { cover: null, sky: null, kind: null }; // the menu's garage view (be
 const introSky = startAuroraSky($('intro-sky'));
 const cover = new Cover($('intro-hero'), { spot: document.querySelector('.cv-spot'), small: isTouch });
 const coverKind = () => (settings.vehicle === 'heli' ? 'heli' : VEHICLES[settings.vehicle] ? settings.vehicle : 'jeep');
-cover.show(coverKind());
 introInfo(coverKind());
+// The splash comes first; the garage (and the vehicle rolling in) only once you press a key or tap,
+// which also lets the sound play. The island keeps loading the whole time.
+$('intro').classList.add('is-splash');
+const spBar = setInterval(() => { $('sp-bar').style.width = `${startBtn.getAttribute('aria-valuenow') || 0}%`; if (!startBtn.disabled) $('sp-bar').style.width = '100%'; }, 200);
+function closeSplash() {
+  if (!$('intro').classList.contains('is-splash')) return;
+  wakeUiSfx();
+  $('intro').classList.remove('is-splash');
+  $('intro').classList.add('is-garage-in');
+  clearInterval(spBar);
+  setTimeout(() => { $('splash').hidden = true; }, 700);
+  setTimeout(() => { const k = coverKind(); cover.show(k, true); if (cover.car) sfx.arrive(k); }, 450);
+}
+$('splash').addEventListener('pointerdown', (e) => { e.preventDefault(); closeSplash(); });
+addEventListener('keydown', (e) => { if ($('intro').classList.contains('is-splash') && !e.metaKey && !e.ctrlKey) { e.preventDefault(); e.stopImmediatePropagation(); closeSplash(); } }, true);
 loadCarModels((kind) => {
   cover.refresh(kind);
   gg.cover?.refresh(kind);
@@ -1311,7 +1332,9 @@ for (const [id, step] of [['cv-prev', -1], ['cv-next', 1]]) $(id).addEventListen
   const kind = COVER_ORDER[(i + step + COVER_ORDER.length) % COVER_ORDER.length];
   haptics.play('light');
   setVehicle(kind, false);
+  sfx.switcher();
   cover.show(kind, true);
+  if (cover.car) setTimeout(() => sfx.arrive(kind), 120);
 });
 const startBtn = $('start');
 startBtn.disabled = true;
@@ -1707,8 +1730,11 @@ function ggOpen() {
 function ggClose() { gg.cover?.dispose(); gg.sky?.stop(); gg.cover = gg.sky = null; }
 function ggStep(d) {
   const i = COVER_ORDER.indexOf(gg.kind);
-  sfx.clack(); haptics.play('light');
-  ggShow(COVER_ORDER[(i + d + COVER_ORDER.length) % COVER_ORDER.length], true);
+  haptics.play('light');
+  const kind = COVER_ORDER[(i + d + COVER_ORDER.length) % COVER_ORDER.length];
+  sfx.switcher();
+  ggShow(kind, true);
+  if (gg.cover?.car) setTimeout(() => sfx.arrive(kind), 120);
 }
 $('gg-prev').addEventListener('click', () => ggStep(-1));
 $('gg-next').addEventListener('click', () => ggStep(1));

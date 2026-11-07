@@ -2,7 +2,7 @@ import { LANDMARKS } from '../world/landmarks.js';
 import { CHALLENGES } from '../challenges.js';
 import { store } from '../storage.js';
 
-const GLYPHS = {
+export const GLYPHS = {
   falls: '<path d="M30 26v24M38 24v28M46 26v24" />',
   columns: '<path d="M26 52V34h6v18M35 52V28h6v24M44 52V36h6v16" />',
   ice: '<path d="M38 22l12 14-12 18-12-18z M26 36h24" />',

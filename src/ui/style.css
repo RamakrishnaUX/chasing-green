@@ -205,12 +205,25 @@ body.has-touch .fuel-act { left: 50%; }
 @keyframes card-in { from { opacity: 0; transform: translateX(-18px); } }
 .info-kick { display: flex; align-items: center; gap: 12px; margin: 0; font: 600 12px var(--sans); font-stretch: 125%; letter-spacing: 0.3em; text-transform: uppercase; color: var(--green-hi); }
 .info-kick::after { content: ''; width: 60px; height: 1px; background: currentColor; }
-.info-board { position: relative; display: inline-flex; align-items: center; gap: 18px; max-width: 100%; margin-top: 14px; padding: 14px 40px 12px 22px;
-  background: linear-gradient(90deg, rgba(32,99,76,0.94), rgba(32,99,76,0.6) 70%, rgba(32,99,76,0)); box-shadow: inset 4px 0 0 var(--green); }
-.info-board::after { content: ''; position: absolute; left: 0; right: 0; bottom: -4px; height: 3px;
-  background: linear-gradient(90deg, #20634c, #43ab83 25%, #a2f6d3 50%, #43ab83 75%, #20634c) 0 0 / 200% 100%; animation: flow 3.5s linear infinite; }
-.infocard h2 { margin: 0; font: 400 38px/1.12 var(--serif); letter-spacing: 0; overflow-wrap: anywhere; }
-.infocard.is-long h2 { font-size: 27px; }
+.info-board { position: relative; display: inline-block; max-width: 100%; min-width: 420px; margin-top: 14px; padding: 6px; border-radius: 14px;
+  background: linear-gradient(180deg, #1e7556, #134f3c); box-shadow: inset 0 1px 0 rgba(255,255,255,0.28), inset 0 -2px 0 rgba(0,0,0,0.3), 0 20px 44px rgba(0,0,0,0.42), 0 3px 8px rgba(0,0,0,0.3);
+  animation: sign-in 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both; transform-origin: left center; }
+@keyframes sign-in { from { opacity: 0; transform: perspective(900px) rotateY(-24deg) translateX(-14px); } }
+/* The face of a real road sign: lit at the top and falling off toward the foot, a soft diagonal
+   sheen, a fine reflective grain, and a silver border with a little depth. */
+.ib-face { position: relative; overflow: hidden; padding: 14px 26px 12px; border: 3px solid transparent; border-radius: 9px;
+  background: radial-gradient(120% 90% at 22% 0%, rgba(255,255,255,0.16), rgba(255,255,255,0) 60%) padding-box,
+    linear-gradient(180deg, #23835f 0%, #1a6a4e 48%, #135240 100%) padding-box,
+    linear-gradient(180deg, #ffffff, #dfe7e3 40%, #b9c6c0) border-box; }
+.ib-face::before { content: ''; position: absolute; inset: 0; pointer-events: none; background: radial-gradient(rgba(255,255,255,0.05) 0.8px, transparent 1.2px) 0 0 / 4px 4px; }
+.ib-face::after { content: ''; position: absolute; inset: -40% -20%; pointer-events: none; background: linear-gradient(112deg, transparent 38%, rgba(255,255,255,0.09) 46%, rgba(255,255,255,0.02) 54%, transparent 60%); }
+.infocard h2 { position: relative; margin: 0; font: 700 56px/1.08 var(--sans); font-stretch: 100%; letter-spacing: -0.005em; color: #fbfdfc; overflow-wrap: anywhere; }
+.infocard.is-long h2 { font-size: 40px; }
+.ib-sub { position: relative; display: flex; align-items: center; gap: 12px; margin: 10px 0 0; padding-top: 10px; font: 600 18px var(--sans); color: #fbfdfc;
+  background: linear-gradient(90deg, rgba(255,255,255,0.9), rgba(255,255,255,0.75)) top / 100% 2px no-repeat; }
+.ib-sub svg { flex: none; width: 24px; height: 24px; fill: none; stroke: #fbfdfc; stroke-width: 3.6; stroke-linecap: round; stroke-linejoin: round; }
+.ib-sub em { margin-left: auto; padding-left: 20px; font-style: normal; font-weight: 700; white-space: nowrap; }
+.infocard .info-facts { display: none; }
 .stamp-badge { flex: none; width: 46px; height: 46px; }
 .info-desc { margin: 16px 0 0; max-width: 480px; font: 500 17px/1.4 var(--sans); }
 .info-facts { display: flex; gap: 36px; margin: 16px 0 0; }
@@ -230,7 +243,7 @@ body.has-touch .fuel-act { left: 50%; }
 /* Text over the open sky needs something behind it: a soft dark wash, wider than the panel. */
 .infocard::before { content: ''; position: absolute; inset: -60px -140px -60px -80px; z-index: -1; pointer-events: none;
   background: radial-gradient(closest-side, rgba(2,8,7,0.5), rgba(2,8,7,0)); }
-@media (max-height: 760px) { .infocard { bottom: calc(110px + var(--safe-b)); } .infocard h2 { font-size: 30px; } .info-desc { font-size: 15px; } .info-facts dd { font-size: 18px; } }
+@media (max-height: 760px) { .infocard { bottom: calc(110px + var(--safe-b)); } .infocard h2 { font-size: 44px; } .infocard.is-long h2 { font-size: 34px; } .info-desc { font-size: 15px; } .info-facts dd { font-size: 18px; } }
 
 /* ---------- Touch controls: glass pucks you can feel ---------- */
 .touch { position: absolute; inset: auto 0 0 0; padding: 0 calc(14px + var(--safe-r)) calc(14px + var(--safe-b)) calc(14px + var(--safe-l)); display: flex; justify-content: space-between; align-items: flex-end; }
@@ -315,9 +328,11 @@ body.has-touch .infocard { padding: 10px 40px 10px 0; background: linear-gradien
 body.has-touch .infocard::before { display: none; }
 body.has-touch .infocard:not(.is-expanded) { width: max-content !important; min-width: 0 !important; }
 body.has-touch .info-kick { padding-left: 12px; font-size: 9.5px; letter-spacing: 0.24em; gap: 8px; } body.has-touch .info-kick::after { width: 28px; }
-body.has-touch .info-board { margin-top: 6px; padding: 6px 22px 5px 12px; gap: 10px; }
-body.has-touch .info-board::after { height: 2px; bottom: -2px; }
-body.has-touch .infocard h2, body.has-touch .infocard.is-long h2 { font-size: 16px; }
+body.has-touch .info-board { min-width: 0; margin: 6px 0 0 12px; padding: 3px; border-radius: 9px; }
+body.has-touch .ib-face { padding: 6px 14px 6px; border-width: 2px; border-radius: 6px; }
+body.has-touch .infocard h2, body.has-touch .infocard.is-long h2 { font-size: 20px; }
+body.has-touch .ib-sub { margin-top: 4px; padding-top: 4px; gap: 8px; font-size: 12px; background-size: 100% 1.5px; }
+body.has-touch .ib-sub svg { width: 15px; height: 15px; }
 body.has-touch .infocard .info-facts, body.has-touch .infocard .info-desc, body.has-touch .infocard .info-legend, body.has-touch .infocard .info-fact { display: none; }
 body.has-touch .infocard.is-expanded .info-desc, body.has-touch .infocard.is-expanded .info-legend, body.has-touch .infocard.is-expanded .info-fact { display: block; margin: 8px 0 0 12px; font-size: 0.86rem; -webkit-line-clamp: unset; }
 body.has-touch .info-actions { margin: 8px 0 0 12px; gap: 6px; }
@@ -1345,15 +1360,16 @@ body.has-touch .bp-text p:last-child { font-size: 12px; white-space: normal; max
   .hx-val { margin: 0; white-space: nowrap; }
   .hx-val b { font: 300 30px/1 var(--sans); font-variant-numeric: tabular-nums; }
   .hx-val small { margin: 0 10px; font: 700 11px var(--sans); font-stretch: 112%; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-2); }
-  .hx-line { position: relative; display: block; height: 12px; margin: 4px 0 6px; }
-  .hx-line::before, .hx-line::after { content: ''; position: absolute; top: 0; height: 2px; background: rgba(244,248,246,0.75); }
-  .hx-line::before { width: 82%; } .hx-line::after { width: 22%; }
-  .hx-side.l .hx-line::before { left: 0; } .hx-side.l .hx-line::after { right: -3%; transform: rotate(18deg); transform-origin: left; }
-  .hx-side.r .hx-line::before { right: 0; } .hx-side.r .hx-line::after { left: -3%; transform: rotate(-18deg); transform-origin: right; }
-  .hx-bar { position: relative; display: block; height: 7px; background: rgba(244,248,246,0.16); }
-  .hx-side.l .hx-bar b { position: absolute; left: 0; top: 0; bottom: 0; background: linear-gradient(90deg, #ff6a50, #ffbe5c 45%, #ffe7a3); transition: width 0.4s; }
+  /* One line each side, running straight and then bending in toward the speed in a single curve. */
+  .hx-line { display: block; width: 100%; height: 22px; margin: 2px 0 3px; overflow: visible; }
+  .hx-line path { fill: none; stroke: rgba(244,248,246,0.82); stroke-width: 2; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+  .hx-bar { position: relative; display: block; width: 74%; height: 7px; background: rgba(244,248,246,0.16); }
+  .hx-side.l .hx-bar { margin-left: auto; margin-right: 8%; } .hx-side.r .hx-bar { margin-right: auto; margin-left: 8%; }
+  /* Both bars start at the centre: fuel grows out to the left, the Kp out to the right, and each
+     shrinks back toward the speed as it drops. */
+  .hx-side.l .hx-bar b { position: absolute; right: 0; top: 0; bottom: 0; background: linear-gradient(270deg, #ff6a50, #ffbe5c 45%, #ffe7a3); transition: width 0.4s; }
   .hx-side.l.is-low .hx-val b { color: #ff8a6b; }
-  .hx-side.r .hx-bar b { position: absolute; inset: 0; --k: 0%; clip-path: inset(0 0 0 calc(100% - var(--k))); transition: clip-path 0.8s;
+  .hx-side.r .hx-bar b { position: absolute; inset: 0; --k: 0%; clip-path: inset(0 calc(100% - var(--k)) 0 0); transition: clip-path 0.8s;
     background: linear-gradient(90deg, #20634c, #43ab83 25%, #a2f6d3 50%, #43ab83 75%, #20634c) 0 0 / 200% 100%; animation: flow 3.5s linear infinite; }
 
   /* The rest of the HUD in the same dress: dark panels, square corners, a green edge. */
@@ -1463,6 +1479,12 @@ body.badge-on #hud .toast { top: calc(250px + var(--safe-t)); }
   .hx-mark span { font: 700 12px var(--sans); letter-spacing: 0.2em; color: var(--ink); white-space: nowrap; }
   .hx-mark svg { width: 24px; height: 16px; margin-top: 2px; fill: none; stroke: var(--green); stroke-width: 3.5; }
   .hx-mark.is-fuel b { color: #ffbe5c; } .hx-mark.is-fuel svg { fill: #ffbe5c; stroke: none; }
+  /* The marker behind: smaller, lighter and quieter, so the one in front leads. */
+  .hx-mark.is-back.is-on { opacity: 0.55; }
+  .hx-mark.is-back b { font-size: 11px; font-weight: 600; letter-spacing: 0.12em; }
+  .hx-mark.is-back span { font-size: 10px; font-weight: 600; }
+  .hx-mark.is-back svg { width: 16px; height: 11px; stroke-width: 3; }
+  .hx-mark.is-back::before { opacity: 0.6; }
   /* The radio stays out of the way; the Kp in the cluster opens it. */
   body:not(.has-touch) #hud .radio:not(.is-open) { opacity: 0; pointer-events: none; transform: translateY(12px); }
   body:not(.has-touch) #hud .radio { transition: opacity 0.25s, transform 0.25s; bottom: calc(150px + var(--safe-b)); }
@@ -1593,3 +1615,24 @@ body.has-touch .gx-menu svg { width: 20px; height: 20px; }
   #gg .start-label { font: inherit; letter-spacing: inherit; }
   body:not(.has-touch) #sheet[data-page='garage'] { background: #04070c; }
 }
+
+/* ---------- Splash: the name and one line over the aurora, then the garage ---------- */
+.splash { position: absolute; inset: 0; z-index: 6; display: grid; place-content: center; justify-items: center; gap: 0; padding: 24px; text-align: center; cursor: pointer;
+  background: radial-gradient(70% 60% at 50% 55%, rgba(2,8,7,0.35), rgba(2,8,7,0.7)); transition: opacity 0.7s ease, transform 0.7s ease; outline: none; }
+.sp-title { margin: 0; font: 400 clamp(40px, 7vw, 104px)/1 var(--serif); letter-spacing: 0.16em; padding-left: 0.16em; text-transform: uppercase; color: var(--ink);
+  animation: sp-in 1.2s cubic-bezier(0.2, 0.7, 0.2, 1) 0.1s both; }
+.sp-title b { font-weight: 400; color: var(--green); }
+.sp-line { max-width: 36em; text-wrap: balance; margin: 26px 0 0; font: 500 clamp(16px, 1.6vw, 21px)/1.5 var(--sans); color: var(--ink-2); animation: sp-in 1.2s cubic-bezier(0.2, 0.7, 0.2, 1) 0.6s both; }
+.sp-go { margin: 56px 0 0; font: 600 13px var(--sans); letter-spacing: 0.34em; text-transform: uppercase; color: var(--green-hi); animation: sp-in 1s ease 1.4s both, sp-pulse 2.4s ease-in-out 2.4s infinite; }
+.sp-touch { display: none; } body.has-touch .sp-desk { display: none; } body.has-touch .sp-touch { display: inline; }
+@media (pointer: coarse) { .sp-desk { display: none; } .sp-touch { display: inline; } }
+.sp-load { width: min(260px, 60vw); height: 2px; margin-top: 22px; background: rgba(244,248,246,0.14); animation: sp-in 1s ease 1.4s both; }
+.sp-load i { display: block; width: 0; height: 100%; background: linear-gradient(90deg, var(--green-deep), var(--green)); transition: width 0.4s ease; }
+@keyframes sp-in { from { opacity: 0; transform: translateY(12px); letter-spacing: inherit; } }
+@keyframes sp-pulse { 50% { opacity: 0.45; } }
+/* While the splash shows, the garage waits; then it comes up underneath as the splash lifts. */
+#intro.is-splash > :not(.splash):not(#intro-sky):not(.cv-shade) { opacity: 0; pointer-events: none; }
+#intro:not(.is-splash) .splash { opacity: 0; transform: scale(1.04); pointer-events: none; }
+#intro.is-garage-in > :not(.splash):not(#intro-sky):not(.cv-shade):not(#intro-hero) { animation: gx-up 0.8s cubic-bezier(0.2, 0.7, 0.2, 1) 0.25s both; }
+@keyframes gx-up { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .sp-title, .sp-line, .sp-go, .sp-load { animation: none; } }

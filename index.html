@@ -42,6 +42,13 @@
     <!-- The garage: the aurora sky, then the chosen vehicle on a turntable (src/ui/cover.js). -->
     <canvas id="intro-sky" class="cv-layer" aria-hidden="true"></canvas>
     <canvas id="intro-hero" class="cv-layer" aria-hidden="true"></canvas>
+    <!-- Splash: the name and one line over the aurora while the island loads; a key or tap opens the garage. -->
+    <div class="splash" id="splash" role="button" tabindex="0" aria-label="Begin">
+      <h1 class="sp-title">Chasing <b>Green</b></h1>
+      <p class="sp-line">Follow the forecast, find a dark sky, and look up when the green comes out.</p>
+      <p class="sp-go"><span class="sp-desk">Press any key to begin</span><span class="sp-touch">Tap to begin</span></p>
+      <div class="sp-load" aria-hidden="true"><i id="sp-bar"></i></div>
+    </div>
     <div class="cv-shade" aria-hidden="true"></div>
     <div class="cv-spot" aria-hidden="true"></div>
     <header class="gx-top"><h1 id="intro-title" class="gx-brand">Chasing <b>Green</b></h1><p class="gx-tag">Drive. Wait. Look up.</p></header>
@@ -88,13 +95,13 @@
       <div class="hx-tl"><p class="hx-kick" id="hx-kick"></p><p class="hx-place" id="hx-place"></p><p class="hx-small" id="hx-next"></p></div>
       <div class="hx-tr"><p class="hx-clock" id="hx-clock"></p><p class="hx-small" id="hx-day"></p></div>
       <div class="hx-mark" id="hx-mark-place"><b></b><span></span><svg viewBox="0 0 30 20"><path d="M2 3 L15 16 L28 3"/></svg></div>
-      <div class="hx-mark" id="hx-mark-place2"><b></b><span></span><svg viewBox="0 0 30 20"><path d="M2 3 L15 16 L28 3"/></svg></div>
+      <div class="hx-mark is-back" id="hx-mark-place2"><b></b><span></span><svg viewBox="0 0 30 20"><path d="M2 3 L15 16 L28 3"/></svg></div>
       <div class="hx-mark is-fuel" id="hx-mark-fuel"><b>Fuel</b><span></span><svg viewBox="0 0 30 20"><path d="M15 2 L25 10 L15 18 L5 10 Z"/></svg></div>
       <div class="hx-cluster">
         <p class="hx-gear" id="hx-gear"></p>
-        <div class="hx-side l" id="hx-fuelside"><p class="hx-val"><b id="hx-fuel">0</b><small>L fuel</small></p><i class="hx-line"></i><i class="hx-bar"><b id="hx-fuelbar"></b></i></div>
+        <div class="hx-side l" id="hx-fuelside"><p class="hx-val"><b id="hx-fuel">0</b><small>L fuel</small></p><svg class="hx-line" viewBox="0 0 270 26" preserveAspectRatio="none" aria-hidden="true"><path d="M1 3 H 200 C 232 3, 240 23, 269 23"/></svg><i class="hx-bar"><b id="hx-fuelbar"></b></i></div>
         <div class="hx-spd"><b id="hx-speed">0</b><span id="hx-unit">km/h</span><i class="hx-nitro"><b id="hx-nitro"></b></i></div>
-        <div class="hx-side r"><p class="hx-val"><small>Aurora Kp</small><b id="hx-kp">0.0</b></p><i class="hx-line"></i><i class="hx-bar"><b id="hx-kpbar"></b></i></div>
+        <div class="hx-side r"><p class="hx-val"><small>Aurora Kp</small><b id="hx-kp">0.0</b></p><svg class="hx-line" viewBox="0 0 270 26" preserveAspectRatio="none" aria-hidden="true"><path d="M269 3 H 70 C 38 3, 30 23, 1 23"/></svg><i class="hx-bar"><b id="hx-kpbar"></b></i></div>
       </div>
     </div>
     <div class="hud-tl">
@@ -150,7 +157,8 @@
 
     <article id="infocard" class="infocard" hidden aria-live="polite">
       <p class="info-kick" id="info-kick">New place found</p>
-      <div class="info-board"><h2 id="info-name"></h2><div class="stamp-badge" id="info-stamp" aria-hidden="true"></div></div>
+      <div class="info-board"><div class="ib-face"><h2 id="info-name"></h2><p class="ib-sub"><svg id="info-glyph" viewBox="18 16 40 40" aria-hidden="true"></svg><span id="info-kind2"></span><em id="info-found2"></em></p></div></div>
+      <div class="stamp-badge" id="info-stamp" aria-hidden="true" hidden></div>
       <p class="info-desc" id="info-desc"></p>
       <dl class="info-facts">
         <div><dt>Found</dt><dd id="info-found"></dd></div>

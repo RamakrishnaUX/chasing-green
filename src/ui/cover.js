@@ -173,7 +173,23 @@ export class Cover {
     this.mirror.traverse((o) => { if (o.isSprite) o.visible = false; }); // no lamp glow in the reflection
     this.scene.add(this.mirror);
     this.wheels = model.wheels || [];
-    this.arrive = arrive && !this.reduce ? { t0: performance.now() } : null;
+    // The helicopter's rotors, each spun about its thinnest axis (flat main rotor, upright tail).
+    this.rotors = [];
+    if (kind === 'heli') {
+      for (const root of [car, this.mirror]) root.traverse((o) => {
+        if (!/rotor|blade/i.test(o.name) || /rotor|blade/i.test(o.parent?.name || '')) return;
+        const box = new THREE.Box3().setFromObject(o), sz = box.getSize(new THREE.Vector3());
+        const axis = sz.y <= sz.x && sz.y <= sz.z ? 'y' : sz.x <= sz.z ? 'x' : 'z';
+        // Only parts that turn about their own centre; one whose pivot sits elsewhere would swing
+        // round the helicopter instead of spinning.
+        const c = box.getCenter(new THREE.Vector3()), w = o.getWorldPosition(new THREE.Vector3());
+        const off = axis === 'y' ? Math.hypot(c.x - w.x, c.z - w.z) : axis === 'x' ? Math.hypot(c.y - w.y, c.z - w.z) : Math.hypot(c.x - w.x, c.y - w.y);
+        if (off > Math.max(sz.x, sz.y, sz.z) * 0.08) return;
+        this.rotors.push({ o, axis });
+      });
+    }
+    this.spin = arrive ? 1 : 0;
+    this.arrive = arrive && !this.reduce ? { t0: performance.now(), heli: kind === 'heli' } : null;
     this.setLights(this.arrive ? 0 : 1);
     if (arrive && this.reduce) this.lightsFrom = performance.now(); // no roll, just the lights
   }
@@ -216,15 +232,27 @@ export class Cover {
     const now = performance.now(), t = this.reduce ? 0 : (now - this.t0) / 1000;
     // Rolling in: from 7 m back along its own heading, slowing to a stop on its mark, the wheels
     // turning with the distance. Then the lights: a quick flicker as they catch, then full.
-    let off = 0;
-    if (this.arrive) {
+    let off = 0, lift = 0;
+    if (this.arrive?.heli) {
+      // The helicopter comes down from above onto the pad: quick at first, settling gently.
+      const u = Math.min(1, (now - this.arrive.t0) / 2600), ease = 1 - Math.pow(1 - u, 3);
+      lift = this.fit.h * 2.4 * (1 - ease);
+      if (u >= 1) this.arrive = null;
+    } else if (this.arrive) {
       const u = Math.min(1, (now - this.arrive.t0) / 1100), ease = 1 - Math.pow(1 - u, 3);
       off = -7 * (1 - ease);
       for (const w of this.wheels) if (w.spin) w.spin.rotation.x = (off / (w.R || 0.35)) % (Math.PI * 2);
       if (u >= 1) { this.arrive = null; this.lightsFrom = now; }
     }
-    this.car.position.set(Math.sin(YAW) * off, 0, Math.cos(YAW) * off);
-    this.mirror.position.copy(this.car.position);
+    // Rotors: full speed while it lands, then winding down.
+    if (this.rotors?.length) {
+      const dt = Math.min(0.05, (now - (this.lastT || now)) / 1000);
+      if (!this.arrive) this.spin = Math.max(0, this.spin - dt * 0.35);
+      for (const r of this.rotors) r.o.rotation[r.axis] += dt * 38 * this.spin;
+    }
+    this.lastT = now;
+    this.car.position.set(Math.sin(YAW) * off, lift, Math.cos(YAW) * off);
+    this.mirror.position.set(this.car.position.x, -lift, this.car.position.z);
     if (this.lightsFrom) {
       const l = (now - this.lightsFrom) / 1000;
       this.setLights(l < 0.07 ? 0.7 : l < 0.14 ? 0.05 : l < 0.2 ? 0.9 : l < 0.26 ? 0.3 : Math.min(1, 0.6 + (l - 0.26) * 2));
