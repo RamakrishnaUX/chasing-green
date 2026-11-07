@@ -399,24 +399,62 @@ function nextPlaceText(p) {
 // Markers floating over the world: the next place to find and the nearest fuel station, with
 // their distance, only while they are ahead of you and inside the screen.
 const markV = new THREE.Vector3();
-function worldMark(el, x, z, lift, text, dist) {
-  if (x == null || dist > 9000 || dist < 60 || lookingUp() || mode === 'sky') { el.classList.remove('is-on'); return; }
+const LIFT = { mountain: 70, waterfall: 30, canyon: 12, crater: 12, town: 18, building: 22, stadium: 24 };
+// Where a point is on screen, or null if it is behind you or off the edges.
+function onScreen(x, z, lift) {
   markV.set(x, heightAt(x, z) + lift, z).project(camera);
-  const on = markV.z < 1 && Math.abs(markV.x) < 0.82 && markV.y > -0.35 && markV.y < 0.8;
-  el.classList.toggle('is-on', on);
-  if (!on) return;
-  el.style.transform = `translate(${((markV.x + 1) / 2 * innerWidth).toFixed(0)}px, ${((1 - markV.y) / 2 * innerHeight).toFixed(0)}px) translate(-50%, -100%)`;
-  if (text != null && el.firstElementChild.textContent !== text) el.firstElementChild.textContent = text;
-  const d = formatDistance(dist).toUpperCase();
+  return markV.z < 1 && Math.abs(markV.x) < 0.84 && markV.y > -0.4 && markV.y < 0.86 ? { x: markV.x, y: markV.y } : null;
+}
+function worldMark(el, pick) {
+  const p = activePos();
+  const pos = pick && !lookingUp() && mode !== 'sky' ? onScreen(pick.x, pick.z, pick.lift) : null;
+  el.classList.toggle('is-on', !!pos);
+  if (!pos) return;
+  el.style.transform = `translate(${((pos.x + 1) / 2 * innerWidth).toFixed(0)}px, ${((1 - pos.y) / 2 * innerHeight).toFixed(0)}px) translate(-50%, -100%)`;
+  if (pick.name != null && el.firstElementChild.textContent !== pick.name) el.firstElementChild.textContent = pick.name;
+  const d = formatDistance(Math.hypot(pick.x - p.x, pick.z - p.z)).toUpperCase();
   if (el.children[1].textContent !== d) el.children[1].textContent = d;
 }
 // The Kp in the cluster opens the full aurora radio, and K does too.
 document.querySelector('.hx-side.r').addEventListener('click', () => { sfx.tick(); $('radio').classList.toggle('is-open'); });
-function worldMarks() {
-  const p = activePos(), lm = hud.nextLm;
-  worldMark($('hx-mark-place'), lm?.x, lm?.z, 30, lm?.name, lm ? Math.hypot(lm.x - p.x, lm.z - p.z) : Infinity);
-  const st = fuel.on && ride === 'car' && stations ? stations.nearest(p.x, p.z) : null;
-  worldMark($('hx-mark-fuel'), st?.station?.x ?? st?.x, st?.station?.z ?? st?.z, 8, null, st ? (st.dist ?? Infinity) : Infinity);
+// Every quarter second, choose what to mark: the two nearest places in view that you have not
+// found yet (or, if none, the nearest places in view), and the nearest fuel station in view.
+let marks = { places: [], fuel: null }, markTimer = 0;
+function chooseMarks() {
+  const p = activePos(), seen = [];
+  for (const l of landmarks.list) {
+    const d = Math.hypot(l.x - p.x, l.z - p.z);
+    if (d < 80 || d > 14000) continue;
+    const lift = LIFT[l.kind] ?? 20;
+    if (!onScreen(l.x, l.z, lift)) continue;
+    seen.push({ x: l.x, z: l.z, lift, name: l.name, d, got: !!store.data.stamps[l.id] });
+  }
+  seen.sort((a, b) => (a.got - b.got) || (a.d - b.d));
+  // Two markers never sit on top of each other.
+  const keep = [];
+  for (const m of seen) {
+    if (keep.length === 2) break;
+    const a = onScreen(m.x, m.z, m.lift);
+    if (keep.every((k) => { const b = onScreen(k.x, k.z, k.lift); return Math.abs(a.x - b.x) * innerWidth > 220 || Math.abs(a.y - b.y) * innerHeight > 90; })) keep.push(m);
+  }
+  marks.places = keep;
+  let fuelPick = null;
+  if (fuel.on && ride === 'car' && stations) {
+    let bd = Infinity;
+    for (const st of stations.list) {
+      const d = Math.hypot(st.x - p.x, st.z - p.z);
+      if (d < 60 || d > 12000 || d > bd || !onScreen(st.x, st.z, 8)) continue;
+      bd = d; fuelPick = { x: st.x, z: st.z, lift: 8, name: null };
+    }
+  }
+  marks.fuel = fuelPick;
+}
+function worldMarks(dt = 0.016) {
+  markTimer -= dt;
+  if (markTimer <= 0) { markTimer = 0.25; chooseMarks(); }
+  worldMark($('hx-mark-place'), marks.places[0]);
+  worldMark($('hx-mark-place2'), marks.places[1]);
+  worldMark($('hx-mark-fuel'), marks.fuel);
 }
 // What the gear readout says: a gear from the speed when driving, R reversing, N standing.
 function gearText() {
@@ -2024,7 +2062,7 @@ function frame(now) {
     nav.update(dt, activePos(), activeHeading(), t);
     mapUI.route = nav.route?.pts || null; mapUI.dest = nav.dest;
     mapUI.lineMode = !!document.querySelector('.hx')?.offsetParent;
-    if (mapUI.lineMode) worldMarks();
+    if (mapUI.lineMode) worldMarks(dt);
     mapUI.update(dt, activePos(), activeHeading());
     if (jeep.boatOn && started) badges.feat('boat');
     hud.update(dt, {

@@ -1458,7 +1458,8 @@ body.badge-on #hud .toast { top: calc(250px + var(--safe-t)); }
   body:not(.has-touch) #hud .minimap:hover canvas { filter: drop-shadow(0 0 6px rgba(102,223,176,0.6)); }
   .hx-mark { position: absolute; left: 0; top: 0; display: grid; justify-items: center; gap: 3px; opacity: 0; transition: opacity 0.4s; will-change: transform; }
   .hx-mark.is-on { opacity: 1; }
-  .hx-mark b { font: 800 15px var(--sans); font-stretch: 112%; letter-spacing: 0.1em; text-transform: uppercase; color: var(--green); white-space: nowrap; }
+  .hx-mark::before { content: ''; position: absolute; inset: -14px -34px -8px; z-index: -1; background: radial-gradient(closest-side, rgba(2,8,7,0.55), rgba(2,8,7,0)); }
+  .hx-mark b { font: 800 15px var(--sans); font-stretch: 112%; letter-spacing: 0.1em; text-transform: uppercase; color: var(--green-hi); white-space: nowrap; }
   .hx-mark span { font: 700 12px var(--sans); letter-spacing: 0.2em; color: var(--ink); white-space: nowrap; }
   .hx-mark svg { width: 24px; height: 16px; margin-top: 2px; fill: none; stroke: var(--green); stroke-width: 3.5; }
   .hx-mark.is-fuel b { color: #ffbe5c; } .hx-mark.is-fuel svg { fill: #ffbe5c; stroke: none; }
