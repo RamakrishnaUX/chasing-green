@@ -33,7 +33,10 @@ const FOREARM_TWIST = 1; // share of the wrist's twist taken by the forearm (a r
 // under the roof is used.
 const POSES = [];
 for (let l = -0.3; l < 0.81; l += 0.05) for (let f = 0; f < 0.37; f += 0.03) POSES.push([l, f]);
-const poseCost = ([l, f]) => Math.abs(l - 0.2) + f * 2 + Math.max(0, -l) * 3;
+// A low supercar: he may also lie well back, as its drivers do, so his head stays under the roof.
+const RECLINED = [...POSES];
+for (let l = -0.75; l < -0.29; l += 0.05) for (let f = 0; f < 0.37; f += 0.03) RECLINED.push([l, f]);
+const poseCost = ([l, f]) => Math.abs(l - 0.2) + f * 2 + Math.max(0, -l) * 3; // headroom outweighs comfort (x100)
 // Riding: forward lean (radians) and how far forward on the saddle (metres); the most natural is
 // the bike's own lean (upright behind flat bars, low over clip-ons), at the seat's own place.
 const RIDES = [];
@@ -213,6 +216,7 @@ export class Driver {
       this.rimR = Math.max(0.12, new THREE.Box3().setFromObject(steer, true).getSize(V()).x * 0.45);
       steer.rotation.z = z; steer.updateMatrixWorld(true);
       this.seat = this.seatOf(car, hubL, size);
+      if (cfg.drop && this.seat.hip) this.seat.hip.y -= cfg.drop; // a low car: he sits down in it
     }
     const toW = (x, y, z) => new THREE.Vector3(x, y, z).transformDirection(body.matrixWorld);
     const R = this.rimR, hub = wpos(mount), col = new THREE.Vector3(0, 0, 1).applyQuaternion(wquat(mount));
@@ -255,7 +259,8 @@ export class Driver {
       // Chosen once per car: the cheapest pose that fits, or the one that misses least.
       this.poseFor = steer;
       let best = null, bestCost = Infinity;
-      for (const pose of cfg.lean != null ? POSES.filter((q) => Math.abs(q[0] - cfg.lean) < 0.026) : POSES) {
+      const poses = cfg.recline ? RECLINED : POSES;
+      for (const pose of cfg.lean != null ? poses.filter((q) => Math.abs(q[0] - cfg.lean) < 0.026) : poses) {
         place(...pose);
         const c = short() * 100 + poseCost(pose);
         if (c < bestCost) { bestCost = c; best = pose; }

@@ -162,6 +162,7 @@ export function buildInterior(kind, model) {
   if ((model.glb && model.cockpit) || model.bike) return modelCabin(model);
   const i = kind === 'vintage' ? vintage(model) : kind === 'camper' ? camper() : kind === 'race' ? race() : jeep();
   // A model body with the built cabin moved along to fit it.
+  if (model.seat && !i.seat) i.seat = model.seat; // driver settings from the model (the supercar: smaller, reclined)
   if (model.cabinShift) { i.group.position.z += model.cabinShift; if (i.outside) i.outside.position.z += model.cabinShift; for (const v of Object.values(i.views)) v.eye = [v.eye[0], v.eye[1], v.eye[2] + model.cabinShift]; }
   for (const grp of [i.group, i.outside]) grp?.traverse((o) => { if (o.isMesh) o.castShadow = false; });
   return i;

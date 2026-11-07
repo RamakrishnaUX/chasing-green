@@ -1474,7 +1474,6 @@ body.badge-on #hud .toast { top: calc(250px + var(--safe-t)); }
   body:not(.has-touch) #hud .minimap:hover canvas { filter: drop-shadow(0 0 6px rgba(102,223,176,0.6)); }
   .hx-mark { position: absolute; left: 0; top: 0; display: grid; justify-items: center; gap: 3px; opacity: 0; transition: opacity 0.4s; will-change: transform; }
   .hx-mark.is-on { opacity: 1; }
-  .hx-mark::before { content: ''; position: absolute; inset: -14px -34px -8px; z-index: -1; background: radial-gradient(closest-side, rgba(2,8,7,0.55), rgba(2,8,7,0)); }
   .hx-mark b { font: 800 15px var(--sans); font-stretch: 112%; letter-spacing: 0.1em; text-transform: uppercase; color: var(--green-hi); white-space: nowrap; }
   .hx-mark span { font: 700 12px var(--sans); letter-spacing: 0.2em; color: var(--ink); white-space: nowrap; }
   .hx-mark svg { width: 24px; height: 16px; margin-top: 2px; fill: none; stroke: var(--green); stroke-width: 3.5; }
@@ -1484,7 +1483,7 @@ body.badge-on #hud .toast { top: calc(250px + var(--safe-t)); }
   .hx-mark.is-back b { font-size: 11px; font-weight: 600; letter-spacing: 0.12em; }
   .hx-mark.is-back span { font-size: 10px; font-weight: 600; }
   .hx-mark.is-back svg { width: 16px; height: 11px; stroke-width: 3; }
-  .hx-mark.is-back::before { opacity: 0.6; }
+
   /* The radio stays out of the way; the Kp in the cluster opens it. */
   body:not(.has-touch) #hud .radio:not(.is-open) { opacity: 0; pointer-events: none; transform: translateY(12px); }
   body:not(.has-touch) #hud .radio { transition: opacity 0.25s, transform 0.25s; bottom: calc(150px + var(--safe-b)); }
@@ -1636,3 +1635,18 @@ body.has-touch .gx-menu svg { width: 20px; height: 20px; }
 #intro.is-garage-in > :not(.splash):not(#intro-sky):not(.cv-shade):not(#intro-hero) { animation: gx-up 0.8s cubic-bezier(0.2, 0.7, 0.2, 1) 0.25s both; }
 @keyframes gx-up { from { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .sp-title, .sp-line, .sp-go, .sp-load { animation: none; } }
+
+/* ---------- The speed cluster as one ribbon (after a scooter dash) ---------- */
+@media (min-width: 1000px) and (min-height: 600px) {
+  .hx-cluster { width: min(700px, calc(100vw - 600px)); height: auto; aspect-ratio: 700 / 130; bottom: calc(30px + var(--safe-b)); }
+  .hx-gauge { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+  .hx-track path, .hx-shadow path, .hx-fill { fill: none; stroke-width: 14; stroke-linecap: butt; stroke-linejoin: round; }
+  .hx-track path { stroke: rgba(244,248,246,0.16); }
+  .hx-shadow path { stroke: rgba(244,248,246,0.06); }
+  .hx-fill { stroke-dasharray: 0 100; transition: stroke-dasharray 0.35s ease-out; }
+  .hx-fuel { stroke: url(#hx-g-fuel); } .hx-kp { stroke: url(#hx-g-kp); } .hx-nitro { stroke: url(#hx-g-nitro); }
+  .hx-gauge.is-boost .hx-nitro { filter: drop-shadow(0 0 6px rgba(162,246,211,0.85)); }
+  .hx-side { top: 4%; width: auto; } .hx-side.l { left: 6%; } .hx-side.r { right: 6%; }
+  .hx-spd { top: -2%; } .hx-spd b { font-size: 56px; } .hx-spd span { margin-top: 8px; }
+  .hx-gear { top: -24px; }
+}

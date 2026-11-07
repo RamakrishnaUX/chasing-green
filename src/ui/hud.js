@@ -16,7 +16,8 @@ export class Hud {
     this.toastTimer = 0;
     this.toastPriority = 0;
     this.lastStatus = '';
-    this.hx = Object.fromEntries(['tape', 'kick', 'place', 'next', 'clock', 'day', 'gear', 'fuel', 'fuelbar', 'fuelside', 'speed', 'unit', 'nitro', 'kp', 'kpbar'].map((k) => [k, $(`hx-${k}`)]));
+    this.hx = Object.fromEntries(['tape', 'kick', 'place', 'next', 'clock', 'day', 'gear', 'fuel', 'fuelbar', 'fuelside', 'speed', 'unit', 'nitro-l', 'nitro-r', 'kp', 'kpbar'].map((k) => [k, $(`hx-${k}`)]));
+    this.gauge = document.querySelector('.hx-gauge');
     this.buildTape();
     // The aurora moment: a big title when the lights first come out, once per display.
     this.mo = { el: $('moment'), edge: $('mo-edge'), time: $('mo-time'), kp: $('mo-kp'), level: $('mo-level'), fill: $('mo-fill'), t: 0, cool: 0, was: false };
@@ -131,14 +132,17 @@ export class Hud {
     set(h.gear, s.gear || '');
     set(h.speed, s.walking ? '0' : String(s.kmh));
     set(h.unit, s.altitude != null ? `km/h · ${Math.max(0, Math.round(s.altitude))} m` : 'km/h');
-    h.nitro.style.transform = `scaleX(${(s.nitro || 0).toFixed(3)})`;
-    h.nitro.parentElement.classList.toggle('is-on', !!s.boosting);
+    // The ribbon: each part filled from the centre out (pathLength 100, so a dash of n is n%).
+    const dash = (el, f) => { const v = `${Math.max(0, Math.min(100, f * 100)).toFixed(1)} 100`; if (el.dataset.d !== v) { el.dataset.d = v; el.style.strokeDasharray = v; } };
+    dash(h['nitro-l'], s.nitro || 0); dash(h['nitro-r'], s.nitro || 0);
+    this.gauge.classList.toggle('is-boost', !!s.boosting);
     set(h.kp, kp.toFixed(1));
-    h.kpbar.style.setProperty('--k', `${Math.min(100, Math.max(3, (kp / 9) * 100)).toFixed(1)}%`);
+    dash(h.kpbar, Math.max(0.03, kp / 9));
     h.fuelside.hidden = s.fuel == null;
+    h.fuelbar.style.visibility = s.fuel == null ? 'hidden' : '';
     if (s.fuel != null) {
       set(h.fuel, String(s.fuel.litres));
-      h.fuelbar.style.width = `${(s.fuel.level * 100).toFixed(1)}%`;
+      dash(h.fuelbar, s.fuel.level);
       h.fuelside.classList.toggle('is-low', s.fuel.level < 0.2);
     }
   }

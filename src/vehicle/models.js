@@ -689,7 +689,7 @@ const GLB = {
   // the skyline are seen through the glass, not cut by the frame.
   jeep: { scale: 1.25, camDist: 9.5, camHeight: 3.2, eye: 2.0, cockpit: [0.3, 1.5, -0.55], pitch: -0.06, hood: [0, 1.62, 0.5], mirrors: [{ min: [0.64, 1.23, 0.16], max: [0.81, 1.4, 0.22] }] }, // open-topped: a wide sky from the seat
   // The supercar has no cabin of its own: it keeps the one built in code, moved to sit in this body.
-  race: { camDist: 8.5, camHeight: 2.4, eye: 1.25, rims: 0x2a2c30, cabinShift: 0.42 }, // painted body, dark wheels
+  race: { camDist: 8.5, camHeight: 2.4, eye: 1.25, rims: 0x2a2c30, cabinShift: 0.42, seat: { size: 0.9, recline: true, drop: 0.16 } }, // painted body, dark wheels
   vintage: { scale: 1, camDist: 9.6, camHeight: 3.2, eye: 2.0, cockpit: [0.38, 1.6, -0.15], hood: [0, 1.75, 1.0], mirrors: [{ min: [0.62, 1.33, 0.63], max: [0.78, 1.49, 0.7] }] },
   // Its cab is mirrored to left-hand drive (tools/cars); the seat is behind the wheel, looking down a little to show it.
   camper: { scale: 1.4, camDist: 8.8, camHeight: 3.7, eye: 3.2, cockpit: [0.28, 1.46, 1.18], pitch: -0.14, hood: [0, 1.95, 1.05],

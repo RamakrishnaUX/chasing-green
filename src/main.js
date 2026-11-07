@@ -421,7 +421,7 @@ document.querySelector('.hx-side.r').addEventListener('click', () => { sfx.tick(
 // one in front (the nearest place you have not found, else the nearest place, else fuel), and at
 // most one more behind it, smaller and lighter, so the two never compete.
 let marks = { main: null, back: null }, markTimer = 0;
-const MARK_RANGE = 1000;
+const MARK_RANGE = 800; // only what is close enough to matter
 function chooseMarks() {
   const p = activePos(), seen = [];
   for (const l of landmarks.list) {

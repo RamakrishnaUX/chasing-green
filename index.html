@@ -98,11 +98,34 @@
       <div class="hx-mark is-back" id="hx-mark-place2"><b></b><span></span><svg viewBox="0 0 30 20"><path d="M2 3 L15 16 L28 3"/></svg></div>
       <div class="hx-mark is-fuel" id="hx-mark-fuel"><b>Fuel</b><span></span><svg viewBox="0 0 30 20"><path d="M15 2 L25 10 L15 18 L5 10 Z"/></svg></div>
       <div class="hx-cluster">
+        <!-- One ribbon, as on a scooter dash: flat on both sides, dipping under the speed. Fuel fills
+             the left out from the centre, nitro the dip, the Kp the right out from the centre. -->
+        <svg class="hx-gauge" viewBox="0 0 700 130" aria-hidden="true">
+          <defs>
+            <clipPath id="hx-clip"><polygon points="70,0 630,0 704,130 -4,130"/></clipPath>
+            <linearGradient id="hx-g-fuel" gradientUnits="userSpaceOnUse" x1="300" y1="0" x2="24" y2="0"><stop offset="0" stop-color="#ff6a50"/><stop offset="0.45" stop-color="#ffbe5c"/><stop offset="1" stop-color="#ffe7a3"/></linearGradient>
+            <linearGradient id="hx-g-kp" gradientUnits="userSpaceOnUse" x1="400" y1="0" x2="676" y2="0" spreadMethod="reflect"><stop offset="0" stop-color="#20634c"/><stop offset="0.5" stop-color="#66dfb0"/><stop offset="1" stop-color="#a2f6d3"/>
+              <animate attributeName="x1" values="400;676;400" dur="5s" repeatCount="indefinite"/><animate attributeName="x2" values="676;952;676" dur="5s" repeatCount="indefinite"/></linearGradient>
+            <linearGradient id="hx-g-nitro" gradientUnits="userSpaceOnUse" x1="350" y1="0" x2="250" y2="0" spreadMethod="reflect"><stop offset="0" stop-color="#a2f6d3"/><stop offset="1" stop-color="#43ab83"/></linearGradient>
+          </defs>
+          <g clip-path="url(#hx-clip)">
+            <g class="hx-shadow" transform="translate(0 12)">
+              <path d="M300 104 C268 104, 262 70, 228 70 H 24"/><path d="M300 104 H 400"/><path d="M400 104 C432 104, 438 70, 472 70 H 676"/>
+            </g>
+            <g class="hx-track">
+              <path d="M300 104 C268 104, 262 70, 228 70 H 24"/><path d="M300 104 H 400"/><path d="M400 104 C432 104, 438 70, 472 70 H 676"/>
+            </g>
+            <path id="hx-fuelbar" class="hx-fill hx-fuel" pathLength="100" d="M300 104 C268 104, 262 70, 228 70 H 24"/>
+            <path id="hx-nitro-l" class="hx-fill hx-nitro" pathLength="100" d="M350 104 H 300"/>
+            <path id="hx-nitro-r" class="hx-fill hx-nitro" pathLength="100" d="M350 104 H 400"/>
+            <path id="hx-kpbar" class="hx-fill hx-kp" pathLength="100" d="M400 104 C432 104, 438 70, 472 70 H 676"/>
+          </g>
+        </svg>
         <p class="hx-gear" id="hx-gear"></p>
-        <div class="hx-side l" id="hx-fuelside"><p class="hx-val"><b id="hx-fuel">0</b><small>L fuel</small></p><svg class="hx-line" viewBox="0 0 270 26" preserveAspectRatio="none" aria-hidden="true"><path d="M1 3 H 200 C 232 3, 240 23, 269 23"/></svg><i class="hx-bar"><b id="hx-fuelbar"></b></i></div>
-        <div class="hx-spd"><b id="hx-speed">0</b><span id="hx-unit">km/h</span><i class="hx-nitro"><b id="hx-nitro"></b></i></div>
-        <div class="hx-side r"><p class="hx-val"><small>Aurora Kp</small><b id="hx-kp">0.0</b></p><svg class="hx-line" viewBox="0 0 270 26" preserveAspectRatio="none" aria-hidden="true"><path d="M269 3 H 70 C 38 3, 30 23, 1 23"/></svg><i class="hx-bar"><b id="hx-kpbar"></b></i></div>
-      </div>
+        <div class="hx-side l" id="hx-fuelside"><p class="hx-val"><b id="hx-fuel">0</b><small>L fuel</small></p></div>
+        <div class="hx-spd"><b id="hx-speed">0</b><span id="hx-unit">km/h</span></div>
+        <div class="hx-side r"><p class="hx-val"><small>Aurora Kp</small><b id="hx-kp">0.0</b></p></div>
+    </div>
     </div>
     <div class="hud-tl">
       <div class="compass glass" aria-label="Compass"><svg viewBox="0 0 64 64" aria-hidden="true"><g id="compass-rose"><path d="M32 9 L37 32 L32 28 L27 32 Z" class="c-n"/><path d="M32 55 L27 32 L32 36 L37 32 Z" class="c-s"/><text x="32" y="8" class="c-label">N</text></g><g id="wind-arrow"><path d="M32 46 L32 20 M26 26 L32 20 L38 26" class="c-wind"/></g></svg></div>
