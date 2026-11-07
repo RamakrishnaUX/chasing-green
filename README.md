@@ -75,7 +75,7 @@ The interiors and the eye position for each view are built in `src/vehicle/inter
 
 ## Splash
 
-The game opens on a splash over the aurora: CHASING GREEN and one line, "Follow the forecast, find a dark sky, and look up when the green comes out.", with a thin loading line. The island loads from the first frame, behind the splash and then the garage. Any key or a tap opens the garage, and that same press lets the sound play: the chosen vehicle rolls onto the turntable with its engine and its lights click on.
+The game opens on a splash over the aurora: CHASING, smaller, tracking in from wide letters, and GREEN below it, wiped on in the aurora green; then one line, "Follow the forecast, find a dark sky, and look up when the green comes out.", with a thin loading line. The island loads from the first frame, behind the splash and then the garage. Any key or a tap opens the garage, and that same press lets the sound play: the chosen vehicle rolls onto the turntable with its own recorded engine (idling in, one blip of the revs as it stops, then fading) and its lights click on. The turntable grows or shrinks smoothly to each vehicle. When the drive starts the gauges power up: fuel sweeps in, then nitro from the centre out to both sides, then the Kp.
 
 ## Start screen
 

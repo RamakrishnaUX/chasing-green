@@ -133,16 +133,22 @@ export class Hud {
     set(h.speed, s.walking ? '0' : String(s.kmh));
     set(h.unit, s.altitude != null ? `km/h · ${Math.max(0, Math.round(s.altitude))} m` : 'km/h');
     // The ribbon: each part filled from the centre out (pathLength 100, so a dash of n is n%).
+    // Power-up when the drive starts: fuel sweeps in first, then nitro from the centre out to both
+    // sides, then the Kp, like a dash waking up.
+    this.boot ??= performance.now();
+    const bt = (performance.now() - this.boot) / 1000;
+    const ramp = (from, len) => { const u = Math.min(1, Math.max(0, (bt - from) / len)); return 1 - Math.pow(1 - u, 3); };
     const dash = (el, f) => { const v = `${Math.max(0, Math.min(100, f * 100)).toFixed(1)} 100`; if (el.dataset.d !== v) { el.dataset.d = v; el.style.strokeDasharray = v; } };
-    dash(h['nitro-l'], s.nitro || 0); dash(h['nitro-r'], s.nitro || 0);
+    const nb = (s.nitro || 0) * ramp(1.5, 0.9);
+    dash(h['nitro-l'], nb); dash(h['nitro-r'], nb);
     this.gauge.classList.toggle('is-boost', !!s.boosting);
     set(h.kp, kp.toFixed(1));
-    dash(h.kpbar, Math.max(0.03, kp / 9));
+    dash(h.kpbar, Math.max(0.03, kp / 9) * ramp(2.0, 0.9));
     h.fuelside.hidden = s.fuel == null;
     h.fuelbar.style.visibility = s.fuel == null ? 'hidden' : '';
     if (s.fuel != null) {
       set(h.fuel, String(s.fuel.litres));
-      dash(h.fuelbar, s.fuel.level);
+      dash(h.fuelbar, s.fuel.level * ramp(0.9, 1.1));
       h.fuelside.classList.toggle('is-low', s.fuel.level < 0.2);
     }
   }

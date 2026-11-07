@@ -46,7 +46,7 @@ import { Hud } from './ui/hud.js';
 import { Notebook, stampSvg, GLYPHS } from './ui/notebook.js';
 import { Badges } from './ui/badges.js';
 import { AudioEngine } from './audio/audio.js';
-import { sfx, bindUiSfx, wakeUiSfx } from './audio/uisfx.js';
+import { sfx, bindUiSfx, wakeUiSfx, preloadArrival } from './audio/uisfx.js';
 import { drawPostcard, sharePostcard, canvasBlob, download, captionFor } from './share/postcard.js';
 import { linkFor, readSharedSighting } from './share/link.js';
 import { ClipRecorder } from './share/recorder.js';
@@ -1312,6 +1312,8 @@ const spBar = setInterval(() => { $('sp-bar').style.width = `${startBtn.getAttri
 function closeSplash() {
   if (!$('intro').classList.contains('is-splash')) return;
   wakeUiSfx();
+  // Every car's arrival sound, fetched now so a switch never waits for it.
+  for (const k of VEHICLE_ORDER) preloadArrival(k);
   $('intro').classList.remove('is-splash');
   $('intro').classList.add('is-garage-in');
   clearInterval(spBar);

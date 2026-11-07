@@ -44,26 +44,52 @@ function noise(ctx, t0, dur, { f = 1200, q = 1, gain = 0.1, to, type = 'bandpass
 }
 
 let lastTick = 0;
-// An engine voice: a sawtooth and its octave through a low-pass, the pitch following rpm points
-// [time, Hz] and the level following gain points [time, gain].
-function engineVoice(ctx, pitch, level, { cutoff = 700, q = 2 } = {}) {
-  const t = ctx.currentTime, a = ctx.createOscillator(), b = ctx.createOscillator(), lp = ctx.createBiquadFilter(), g = ctx.createGain();
-  a.type = 'sawtooth'; b.type = 'square';
-  lp.type = 'lowpass'; lp.frequency.value = cutoff; lp.Q.value = q;
-  for (const [k, [at, f]] of pitch.entries()) { (k ? a.frequency.linearRampToValueAtTime(f, t + at) : a.frequency.setValueAtTime(f, t + at)); (k ? b.frequency.linearRampToValueAtTime(f / 2, t + at) : b.frequency.setValueAtTime(f / 2, t + at)); }
-  g.gain.setValueAtTime(0, t);
-  for (const [at, v] of level) g.gain.linearRampToValueAtTime(v, t + at);
-  const end = level[level.length - 1][0] + 0.05;
-  a.connect(lp); b.connect(lp); lp.connect(g).connect(dest);
-  a.start(t); b.start(t); a.stop(t + end); b.stop(t + end);
+// Each car's idle and a higher loop from its own recordings (public/sounds/engines), its level, and
+// a pitch for the cafe racer, which borrows the flat four, played higher, for its twin.
+const ARRIVE = {
+  jeep: ['jeep_1090', 'jeep_1450', 2.2, 1], vintage: ['old_0645', 'old_1010', 1.9, 1], camper: ['flat4_0700', 'flat4_2590', 2.1, 1],
+  race: ['race_0820', 'race_2780', 1.8, 1], bike: ['flat4_0700', 'flat4_2590', 2.0, 1.45],
+};
+const bufs = {};
+function loadLoop(ctx, f) {
+  return (bufs[f] ||= fetch(`${import.meta.env.BASE_URL}sounds/engines/${f}.wav`).then((r) => r.arrayBuffer()).then((b) => ctx.decodeAudioData(b)).catch(() => { delete bufs[f]; return null; }));
+}
+export function preloadArrival(kind) { const ctx = out(); const a = ARRIVE[kind]; if (ctx && a) { loadLoop(ctx, a[0]); loadLoop(ctx, a[1]); } }
+let arrivalStop = null;
+async function playArrival(kind) {
+  const ctx = out(), a = ARRIVE[kind];
+  if (!ctx || !a) return;
+  const asked = performance.now();
+  const [idleBuf, revBuf] = await Promise.all([loadLoop(ctx, a[0]), loadLoop(ctx, a[1])]);
+  if (!idleBuf || !revBuf || performance.now() - asked > 900) return; // too late to match the picture
+  arrivalStop?.(); // a quick second switch cuts the first short
+  const t = ctx.currentTime, k = a[3], level = 0.16 * a[2];
+  const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 3200; lp.Q.value = 0.4;
+  const master = ctx.createGain(); master.gain.value = level;
+  lp.connect(master).connect(dest);
+  const voice = (buf, rate, env) => {
+    const src = ctx.createBufferSource(), g = ctx.createGain();
+    src.buffer = buf; src.loop = true;
+    src.playbackRate.setValueAtTime(rate[0][1] * k, t);
+    for (const [at, r] of rate.slice(1)) src.playbackRate.linearRampToValueAtTime(r * k, t + at);
+    g.gain.setValueAtTime(0, t);
+    for (const [at, v] of env) g.gain.linearRampToValueAtTime(v, t + at);
+    src.connect(g).connect(lp); src.start(t, Math.random() * buf.duration * 0.5); src.stop(t + 3.2);
+    return { src, g };
+  };
+  // Idle under a little throttle while it rolls, easing off as it stops.
+  const idle = voice(idleBuf, [[0, 1.12], [0.9, 1.02], [1.5, 1.0]], [[0.3, 0.9], [1.0, 0.8], [1.12, 0.35], [1.5, 0.75], [2.4, 0.6], [3.0, 0]]);
+  // The blip: the higher loop rises in for a moment as the lights come on.
+  const rev = voice(revBuf, [[0, 0.85], [1.0, 0.9], [1.2, 1.08], [1.5, 0.9]], [[0.95, 0], [1.12, 0.95], [1.5, 0]]);
+  arrivalStop = () => { const n = ctx.currentTime; for (const v of [idle, rev]) { v.g.gain.cancelScheduledValues(n); v.g.gain.setTargetAtTime(0, n, 0.06); v.src.stop(n + 0.3); } };
 }
 
 export const sfx = {
   // Changing vehicle on the turntable: a heavy clunk, a short servo whirr and a latch click.
   switcher() {
     const ctx = out(); if (!ctx) return;
-    tone(ctx, 120, 0, 0.18, { gain: 0.18, to: 55 });
-    noise(ctx, 0, 0.06, { f: 900, q: 1.5, gain: 0.12, peak: 0.1 });
+    tone(ctx, 110, 0, 0.16, { gain: 0.12, to: 55 });
+    noise(ctx, 0, 0.05, { f: 900, q: 1.5, gain: 0.08, peak: 0.1 });
     tone(ctx, 180, 0.04, 0.28, { type: 'sawtooth', gain: 0.025, to: 420, attack: 0.03 });
     noise(ctx, 0.3, 0.035, { f: 4200, q: 4, gain: 0.08, peak: 0.1 });
   },
@@ -85,12 +111,9 @@ export const sfx = {
       tone(ctx, 900, 0, 4.2, { gain: 0.012, to: 520, attack: 0.8 });
       return;
     }
-    const v = { jeep: [42, 1], vintage: [38, 0.9], camper: [34, 1], race: [62, 1.1], bike: [70, 0.9] }[kind] || [42, 1];
-    const f = v[0], L = 0.12 * v[1];
-    // Rolling in under a little throttle, a blip as it stops, then idle fading out.
-    engineVoice(ctx, [[0, f * 1.5], [0.9, f * 1.2], [1.15, f * 2.1], [1.45, f], [2.4, f]], [[0, 0], [0.25, L], [0.95, L * 0.7], [1.2, L * 1.25], [1.6, L * 0.55], [2.6, 0]], { cutoff: kind === 'race' ? 1400 : 750 });
-    noise(ctx, 0, 1.0, { f: 260, q: 0.7, gain: 0.05, type: 'lowpass', peak: 0.4 }); // tyres on the deck
-    noise(ctx, 1.12, 0.04, { f: 3000, q: 3, gain: 0.05, peak: 0.1 }); // the lights clicking on
+    // A car: its own recorded engine (the same files it drives with), rolling in on a little
+    // throttle, one blip of the revs as it stops, then idling and fading away.
+    playArrival(kind);
   },
   // Moving between rows: a short, dry click.
   tick() {

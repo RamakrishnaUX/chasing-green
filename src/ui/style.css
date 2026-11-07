@@ -1618,14 +1618,21 @@ body.has-touch .gx-menu svg { width: 20px; height: 20px; }
 /* ---------- Splash: the name and one line over the aurora, then the garage ---------- */
 .splash { position: absolute; inset: 0; z-index: 6; display: grid; place-content: center; justify-items: center; gap: 0; padding: 24px; text-align: center; cursor: pointer;
   background: radial-gradient(70% 60% at 50% 55%, rgba(2,8,7,0.35), rgba(2,8,7,0.7)); transition: opacity 0.7s ease, transform 0.7s ease; outline: none; }
-.sp-title { margin: 0; font: 400 clamp(40px, 7vw, 104px)/1 var(--serif); letter-spacing: 0.16em; padding-left: 0.16em; text-transform: uppercase; color: var(--ink);
-  animation: sp-in 1.2s cubic-bezier(0.2, 0.7, 0.2, 1) 0.1s both; }
-.sp-title b { font-weight: 400; color: var(--green); }
-.sp-line { max-width: 36em; text-wrap: balance; margin: 26px 0 0; font: 500 clamp(16px, 1.6vw, 21px)/1.5 var(--sans); color: var(--ink-2); animation: sp-in 1.2s cubic-bezier(0.2, 0.7, 0.2, 1) 0.6s both; }
-.sp-go { margin: 56px 0 0; font: 600 13px var(--sans); letter-spacing: 0.34em; text-transform: uppercase; color: var(--green-hi); animation: sp-in 1s ease 1.4s both, sp-pulse 2.4s ease-in-out 2.4s infinite; }
+.sp-title { display: grid; justify-items: center; gap: 18px; margin: 0; font-weight: 400; font-family: var(--serif); text-transform: uppercase; white-space: nowrap; }
+/* CHASING, smaller, tracks in from wide letters; GREEN, larger, is wiped on in the aurora green. */
+.sp-a { font-size: clamp(26px, 3.8vw, 58px); line-height: 1; letter-spacing: 0.32em; padding-left: 0.32em; color: var(--ink);
+  animation: sp-track 1.4s cubic-bezier(0.2, 0.7, 0.2, 1) 0.1s both; }
+.sp-b { position: relative; font-size: clamp(44px, 7.6vw, 116px); line-height: 1; letter-spacing: 0.14em; padding-left: 0.14em; color: var(--green);
+  background: linear-gradient(90deg, #66dfb0 0%, #a2f6d3 45%, #66dfb0 60%, #43ab83 100%) 0 0 / 220% 100%; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  animation: sp-wipe 1.3s cubic-bezier(0.6, 0, 0.2, 1) 0.6s both, sp-sheen 6s ease-in-out 2s infinite; }
+@keyframes sp-track { from { opacity: 0; letter-spacing: 0.7em; padding-left: 0.7em; } }
+@keyframes sp-wipe { from { clip-path: inset(0 100% 0 0); opacity: 0.4; } to { clip-path: inset(0 0 0 0); opacity: 1; } }
+@keyframes sp-sheen { 50% { background-position: 100% 0; } }
+.sp-line { max-width: 36em; text-wrap: balance; margin: 34px 0 0; font: 500 clamp(16px, 1.6vw, 21px)/1.5 var(--sans); color: var(--ink-2); animation: sp-in 1.2s cubic-bezier(0.2, 0.7, 0.2, 1) 1.3s both; }
+.sp-go { margin: 56px 0 0; font: 600 13px var(--sans); letter-spacing: 0.34em; text-transform: uppercase; color: var(--green-hi); animation: sp-in 1s ease 2s both, sp-pulse 2.4s ease-in-out 3s infinite; }
 .sp-touch { display: none; } body.has-touch .sp-desk { display: none; } body.has-touch .sp-touch { display: inline; }
 @media (pointer: coarse) { .sp-desk { display: none; } .sp-touch { display: inline; } }
-.sp-load { width: min(260px, 60vw); height: 2px; margin-top: 22px; background: rgba(244,248,246,0.14); animation: sp-in 1s ease 1.4s both; }
+.sp-load { width: min(260px, 60vw); height: 2px; margin-top: 22px; background: rgba(244,248,246,0.14); animation: sp-in 1s ease 2s both; }
 .sp-load i { display: block; width: 0; height: 100%; background: linear-gradient(90deg, var(--green-deep), var(--green)); transition: width 0.4s ease; }
 @keyframes sp-in { from { opacity: 0; transform: translateY(12px); letter-spacing: inherit; } }
 @keyframes sp-pulse { 50% { opacity: 0.45; } }
@@ -1634,7 +1641,7 @@ body.has-touch .gx-menu svg { width: 20px; height: 20px; }
 #intro:not(.is-splash) .splash { opacity: 0; transform: scale(1.04); pointer-events: none; }
 #intro.is-garage-in > :not(.splash):not(#intro-sky):not(.cv-shade):not(#intro-hero) { animation: gx-up 0.8s cubic-bezier(0.2, 0.7, 0.2, 1) 0.25s both; }
 @keyframes gx-up { from { opacity: 0; } }
-@media (prefers-reduced-motion: reduce) { .sp-title, .sp-line, .sp-go, .sp-load { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .sp-a, .sp-b, .sp-line, .sp-go, .sp-load { animation: none; } }
 
 /* ---------- The speed cluster as one ribbon (after a scooter dash) ---------- */
 @media (min-width: 1000px) and (min-height: 600px) {
