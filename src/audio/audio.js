@@ -337,7 +337,7 @@ export class AudioEngine {
       // Fast, it is the full loud hiss of a sheet of water.
       const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 500 + 11000 * Math.pow(s, 1.4); lp.Q.value = 0.5;
       const len = 0.35 + 2.6 * s;
-      g.gain.setValueAtTime(0.03 + 0.72 * Math.pow(s, 1.5), t);
+      g.gain.setValueAtTime(0.008 + 0.3 * Math.pow(s, 2), t); // at most about a third as loud as before, and barely there when slow
       g.gain.setTargetAtTime(0, t + len * 0.5, len * 0.25);
       src.connect(lp).connect(g).connect(this.bus.car); src.start(t); src.stop(t + len + 0.5);
       return;
