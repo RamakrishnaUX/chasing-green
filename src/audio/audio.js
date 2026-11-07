@@ -179,15 +179,16 @@ export class AudioEngine {
     const t = this.ctx.currentTime;
     this.engGain.gain.cancelScheduledValues(t); this.engGain.gain.setValueAtTime(0, t);
     if (this.engSrc) { this.engSrc.stop(t + 0.02); this.engSrc = null; }
-    if (this.recSrc) { for (const s of this.recSrc) s.src.stop(t + 0.02); this.recSrc = null; }
+    if (this.engSrcB) { this.engSrcB.stop(t + 0.02); this.engSrcB = null; }
+    this.engHeads = null;
+    if (this.recSrc) { for (const s of this.recSrc) { s.src.stop(t + 0.02); s.srcB.stop(t + 0.02); } this.recSrc = null; }
     this.gear = 1; this.popsLeft = 0;
     if (!V) return;
     if (V.rec) this.loadRec(name, V).then((bufs) => { if (bufs && this.voice === V && !this.recSrc) this.startRec(V, bufs); });
-    const src = this.ctx.createBufferSource();
-    src.buffer = this.voiceBufs[name] ||= pulseBuffer(this.ctx, V);
-    src.loop = true; src.playbackRate.value = V.idle / V.ref;
-    src.connect(this.engBody); src.start();
-    this.engSrc = src;
+    const buf = this.voiceBufs[name] ||= pulseBuffer(this.ctx, V);
+    const [a, b] = this.heads(buf, this.engBody, t);
+    a.src.playbackRate.value = b.src.playbackRate.value = V.idle / V.ref;
+    this.engSrc = a.src; this.engSrcB = b.src; this.engHeads = [a, b];
     this.engBody.frequency.value = V.body[0]; this.engBody.gain.value = V.body[1];
   }
 
@@ -199,17 +200,40 @@ export class AudioEngine {
       .then((r) => { if (!r.ok) throw new Error(f); return r.arrayBuffer(); })
       .then((b) => this.ctx.decodeAudioData(b)))).catch(() => { delete this.recLoads[name]; return null; }));
   }
+  // Two players on one loop, the second half a loop behind and a hair faster, so the two drift
+  // against each other. Played fast (high revs) a short loop comes round several times a second
+  // and its ends can be heard; blended with its twin, the seams never line up and the pattern
+  // never quite repeats. Returns [head A, head B], each { src, g }.
+  heads(buf, out, t) {
+    return [0, 0.5].map((off) => {
+      const src = this.ctx.createBufferSource(), g = this.ctx.createGain();
+      src.buffer = buf; src.loop = true; g.gain.value = off ? 0 : 1;
+      src.connect(g).connect(out); src.start(t, ((Math.random() * 0.2 + off) % 1) * buf.duration);
+      return { src, g };
+    });
+  }
+  // Set both heads' speed, and blend in the second once the loop repeats faster than every
+  // 1.6 s (both at equal power by 0.8 s).
+  headMix(H, rate, dur, t) {
+    H[0].src.playbackRate.setTargetAtTime(rate, t, 0.07);
+    H[1].src.playbackRate.setTargetAtTime(rate * 1.0073, t, 0.07);
+    const b = Math.min(1, Math.max(0, (1.6 - dur / rate) / 0.8));
+    H[0].g.gain.setTargetAtTime(Math.cos(b * Math.PI / 4), t, 0.1);
+    H[1].g.gain.setTargetAtTime(Math.sin(b * Math.PI / 4), t, 0.1);
+  }
+
   // Swap the built voice for the recordings: every loop runs all the time, silent until the revs
   // come near the speed it was recorded at.
   startRec(V, bufs) {
     const t = this.ctx.currentTime;
     if (this.engSrc) { this.engSrc.stop(t + 0.05); this.engSrc = null; }
     this.engBody.gain.value = 0; // the recordings need no body boost
+    if (this.engSrcB) { this.engSrcB.stop(t + 0.05); this.engSrcB = null; }
+    this.engHeads = null;
     this.recSrc = bufs.map((buf, i) => {
-      const src = this.ctx.createBufferSource(), g = this.ctx.createGain();
-      src.buffer = buf; src.loop = true; g.gain.value = 0;
-      src.connect(g).connect(this.engBody); src.start(t, Math.random() * buf.duration * 0.9);
-      return { src, g, rpm: V.rec.loops[i][1] };
+      const g = this.ctx.createGain(); g.gain.value = 0; g.connect(this.engBody);
+      const [a, b] = this.heads(buf, g, t);
+      return { src: a.src, srcB: b.src, heads: [a, b], g, rpm: V.rec.loops[i][1], dur: buf.duration };
     });
   }
   // The two loops either side of the revs, crossfaded (equal power, over the middle of the gap on a
@@ -223,7 +247,7 @@ export class AudioEngine {
     const x = hi === lo || rpm <= lo.rpm ? 0 : Math.log(rpm / lo.rpm) / Math.log(hi.rpm / lo.rpm);
     const m = Math.min(1, Math.max(0, (x - 0.2) / 0.6));
     for (const s of S) {
-      s.src.playbackRate.setTargetAtTime(Math.min(3, Math.max(0.35, rpm / s.rpm)), t, 0.07);
+      this.headMix(s.heads, Math.min(3, Math.max(0.35, rpm / s.rpm)), s.dur, t);
       s.g.gain.setTargetAtTime(s === lo ? Math.cos(m * Math.PI / 2) : s === hi ? Math.sin(m * Math.PI / 2) : 0, t, 0.06);
     }
   }
@@ -233,11 +257,13 @@ export class AudioEngine {
   // dip in the sound as the clutch goes in). Louder and brighter on the throttle. Lift off at
   // speed and the exhaust pops and crackles, how readily and how hard set by the voice: the bike
   // nearly every time, the supercar often, the old cars only now and then.
-  engineUpdate(t, dt, on, speed, throttle, nitro) {
+  engineUpdate(t, dt, on, speed, throttle, nitro, gear = 0, shifting = false) {
     const V = this.voice;
     if (!V) return;
     const T = V.tops, P = V.pops, was = this.gear;
-    if (speed > T[this.gear - 1] * 0.97 && this.gear < T.length) this.gear++;
+    // The car's own gearbox (jeep.js) when it has one, so the sound changes gear with the car.
+    if (gear) this.gear = Math.min(T.length, gear);
+    else if (speed > T[this.gear - 1] * 0.97 && this.gear < T.length) this.gear++;
     else if (this.gear > 1 && speed < T[this.gear - 2] * 0.45) this.gear--;
     if (this.gear !== was) {
       this.shiftT = t;
@@ -246,9 +272,9 @@ export class AudioEngine {
     }
     const load = Math.max(0, throttle) + (nitro ? 0.4 : 0);
     const rpm = Math.min(V.red * 1.04, speed < 0.4 ? V.idle + load * (V.red - V.idle) * 0.15 : Math.max(V.idle * 1.5, V.red * speed / T[this.gear - 1]) + load * 250);
-    const dip = t - this.shiftT < 0.11 ? 0.6 : 1;
+    const dip = shifting || (!gear && t - this.shiftT < 0.11) ? 0.6 : 1;
     const R = this.recSrc ? V.rec : null, lp = R ? R.lp : V.lp;
-    if (R) this.recMix(t, rpm); else this.engSrc.playbackRate.setTargetAtTime(rpm / V.ref, t, 0.07);
+    if (R) this.recMix(t, rpm); else if (this.engHeads) this.headMix(this.engHeads, rpm / V.ref, this.engSrc.buffer.duration, t);
     this.engLP.frequency.setTargetAtTime(lp[0] + rpm * lp[1] + load * lp[2], t, 0.08);
     const vol = on && this.afloat < 1 ? (1 - (this.afloat || 0)) * (0.16 + Math.min(1, rpm / V.red) * 0.12 + load * 0.1) * (R ? R.gain : V.gain) * dip * (CONFIG.engineVolume ?? 1) : 0;
     this.engGain.gain.setTargetAtTime(vol, t, dip < 1 ? 0.025 : 0.08);
@@ -375,7 +401,7 @@ export class AudioEngine {
     }
   }
 
-  update(dt, { speed, wind, exposure, waterProx, iceProx, inCar, wade = 0, nitro = false, heli = null, throttle = 0, voice = null, surface = 'paved', grounded = true, boat = 0 }) {
+  update(dt, { speed, wind, exposure, waterProx, iceProx, inCar, wade = 0, nitro = false, heli = null, throttle = 0, voice = null, surface = 'paved', grounded = true, boat = 0, gear = 0, shifting = false }) {
     if (!this.ready) return;
     const t = this.ctx.currentTime;
     // The helicopter replaces the car engine: rotor, turbines and fan, louder under load and
@@ -399,7 +425,7 @@ export class AudioEngine {
     if (v !== this.voiceName) this.setVoice(v);
     // Afloat, the outboard takes over from the car's engine.
     this.afloat = heli ? 0 : boat;
-    this.engineUpdate(t, dt, inCar && !heli, speed, throttle, nitro);
+    this.engineUpdate(t, dt, inCar && !heli, speed, throttle, nitro, gear, shifting);
     this.boatUpdate(t, dt, inCar && !heli ? boat : 0, speed, throttle, nitro);
     // Tyres: only rolling on the ground, not in the air or on the water.
     const roll = inCar && !heli && grounded && wade < 0.3 && surface !== 'ford' ? Math.min(1, speed / 35) : 0;

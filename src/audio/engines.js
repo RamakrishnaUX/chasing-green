@@ -83,12 +83,13 @@ export const VOICES = {
   },
 };
 
-// The twin's loop: twelve cycles at 1,500 rpm, two firing pulses per cycle at 0 and 270 degrees.
+// The twin's loop: forty cycles at 1,500 rpm (long, so at the redline it still takes most of a
+// second to come round), two firing pulses per cycle at 0 and 270 degrees.
 // Each pulse: a crack of exhaust noise ringing in the pipe near 110 Hz, over a deeper thump; a
 // little variation between pulses so the loop does not drone.
 export const TWIN_RPM = 1500;
 export function twinBuffer(ctx) {
-  const sr = ctx.sampleRate, CYCLES = 12, cyc = 120 / TWIN_RPM, n = Math.round(CYCLES * cyc * sr);
+  const sr = ctx.sampleRate, CYCLES = 40, cyc = 120 / TWIN_RPM, n = Math.round(CYCLES * cyc * sr);
   const buf = ctx.createBuffer(1, n, sr), d = buf.getChannelData(0);
   let seed = 7; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
   const len = Math.round(0.07 * sr);
@@ -110,12 +111,13 @@ export function twinBuffer(ctx) {
 // Any other voice's loop, from its firing order and pipes (see the top).
 export function pulseBuffer(ctx, V) {
   if (V.twin) return twinBuffer(ctx);
-  const sr = ctx.sampleRate, cyc = 120 / V.ref, n = Math.round(V.cycles * cyc * sr);
+  // At least 32 cycles, so the loop is long enough not to be heard coming round at high revs.
+  const cycles = Math.max(V.cycles, 32), sr = ctx.sampleRate, cyc = 120 / V.ref, n = Math.round(cycles * cyc * sr);
   const buf = ctx.createBuffer(1, n, sr), d = buf.getChannelData(0);
   let seed = 11; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
   const len = Math.round(V.len * sr), TAU = 2 * Math.PI;
   const [tf, tTau, tAmp] = V.thump, [cAmp, cTau] = V.crack;
-  for (let c = 0; c < V.cycles; c++) for (const [deg, bank] of V.fire) {
+  for (let c = 0; c < cycles; c++) for (const [deg, bank] of V.fire) {
     const P = V.pipes[bank];
     const start = Math.round((c + deg / 720 + (rnd() - 0.5) * V.jit) * cyc * sr + n) % n;
     const amp = P.amp * (1 + (rnd() * 2 - 1) * V.vary), df = 1 + (rnd() - 0.5) * 0.06, ph = rnd() * 6;

@@ -10,6 +10,11 @@ import { solidStep, solidTopAt, solidRoofAt } from '../world/solids.js';
 import { buildInterior } from './interiors.js';
 import { HD, weatherCar, carGround } from '../world/hd.js';
 import { buildBoatKit, stages } from './boat.js';
+import { VOICES } from '../audio/engines.js';
+
+// How long the drive is cut at each change up, by engine: a quick-shifting supercar and bike,
+// a 4x4 and camper with ordinary manual boxes, an old car with a slow crash box.
+const SHIFT_TIME = { race: 0.11, twin: 0.13, v8: 0.26, flat4: 0.3, six: 0.36 };
 
 // The top of the car, so it can pass beneath a sea arch rather than treating the arch's roof as
 // ground. Set as each update and sync begins. Rock more than a little above the car is a wall
@@ -139,7 +144,7 @@ export class Jeep {
     this.air = false; this.vy = 0; this.vyPrev = 0; this.lastGround = null; this.lastSyncY = null; this.groundVy = 0;
     this.pos.set(x, y, z);
     this.heading = heading;
-    this.vF = 0; this.vL = 0;
+    this.vF = 0; this.vL = 0; this.gear = 1; this.shiftT = 0; this.biteT = 0;
     this.boat = 0; this.boatOn = false; this.kit.apply(0);
     this.sync(0);
   }
@@ -191,11 +196,43 @@ export class Jeep {
 
     // In the air there is no grip: no engine, brakes or steering, just momentum.
     const air = !!this.air;
+
+    // The gearbox: the same gears as the engine's sound (engines.js `tops`), so what you hear
+    // and what the car does change together. Changing up under power, the drive is cut while the
+    // clutch is in: the car stops pulling for a moment and the nose dips as the weight comes
+    // forward. Then it bites: a shove in the back as it pulls on in the next gear, the tail
+    // squatting. Quick in the supercar and on the bike, slower in the old cars. Lower gears
+    // shove hardest.
+    const GV = VOICES[S.engine?.voice];
+    this.gear ||= 1;
+    if (GV && !wet) {
+      const T = GV.tops, sp = Math.abs(this.vF), was = this.gear;
+      if (sp > T[this.gear - 1] * 0.97 && this.gear < T.length) this.gear++;
+      else if (this.gear > 1 && sp < T[this.gear - 2] * 0.45) this.gear--;
+      if (this.gear > was && throttle > 0.2 && this.vF > 0 && !air && dt) {
+        this.shiftDur = SHIFT_TIME[S.engine.voice] ?? 0.25;
+        this.shiftT = this.shiftDur;
+        this.shiftKick = 0.5 / Math.sqrt(was) * (S.bike ? 0.5 : S.engine.voice === 'race' ? 0.7 : 1) * (this.spec.susp?.roll ?? 1);
+        this.rockV = (this.rockV || 0) + this.shiftKick; // nose dips as the drive goes
+      }
+    } else if (wet) this.gear = 1;
+    let drive = 1;
+    if (this.shiftT > 0) {
+      drive = 0;
+      this.shiftT -= dt || 0;
+      if (this.shiftT <= 0) { this.shiftT = 0; this.biteT = 0.3; this.rockV = (this.rockV || 0) - this.shiftKick * 1.4; } // it bites: the tail squats
+    } else if (this.biteT > 0) {
+      drive = 1 + 0.35 * (this.biteT / 0.3); // the shove as the clutch bites
+      this.biteT = Math.max(0, this.biteT - (dt || 0));
+    }
+    if (throttle <= 0) { this.shiftT = 0; this.biteT = 0; drive = 1; }
+    this.shifting = this.shiftT > 0;
     // Engine and brakes.
     this.braking = 0;
     if (air) { /* coasting */ } else if (throttle > 0) {
       if (this.vF < -0.5) { this.vF += S.brake * dt; this.braking = 1; }
-      else this.vF += accel * throttle * this.power * dt * clamp(1.05 - this.vF / (maxV + 0.01), 0, 1);
+      else if (drive > 0) this.vF += accel * throttle * this.power * drive * dt * clamp(1.05 - this.vF / (maxV + 0.01), 0, 1);
+      else this.vF -= Math.min(this.vF, 1.6 * dt); // clutch in: no drive, a little drag
     } else if (throttle < 0) {
       if (this.vF > 0.5) { this.vF -= S.brake * dt; this.braking = 1; }
       else this.vF = Math.max(this.vF - S.accel * 0.6 * this.power * dt, -S.reverseMax);
