@@ -293,6 +293,9 @@ function lakeLevel(k) {
 }
 
 export function waterLevelAt(x, z) {
+  // Kerið's crater lake: the same surface the landmark draws (17.8 m below the crater's base),
+  // so a car that gets down to it floats as a boat instead of driving about on the lake bed.
+  if (KERID.base != null && keridU(x, z) < 0.46) return KERID.base - 17.8;
   for (const k of LAKES) {
     const s = k.stretch || 1;
     if (Math.hypot((x - k.x) / s, z - k.z) < k.r * 1.1) return lakeLevel(k);

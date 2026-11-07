@@ -324,6 +324,7 @@ function scanPools() {
     box.setFromObject(o); box.getCenter(c); box.getSize(sz);
     const r = Math.max(sz.x, sz.z) / 2;
     if (r > 250 || r < 0.5 || sz.y > 3) return; // the sea and big lakes come from waterLevelAt
+    if (waterLevelAt(c.x, c.z) > heightAt(c.x, c.z) + 0.3) return; // so does Kerið's lake
     poolSurfaces.push({ x: c.x, z: c.z, r: r * 0.92, y: box.max.y });
   });
 }
