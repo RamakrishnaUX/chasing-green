@@ -31,7 +31,7 @@ Push the repo to GitHub and import it in Vercel. Vercel detects Vite on its own,
 | Change view (chase, hood, cockpit) | C | Steering-wheel button, top right |
 | Step out and get back in | E | Menu, Step out / Get in |
 | Look up (quick toggle) | L | Look button (glows green when the aurora is out) |
-| Capture a postcard | Click the shutter while looking up | Tap the shutter while looking up (postcards also save on their own when the aurora is out, again at each new place) |
+| Capture a postcard | Click the shutter while looking up, or press P | Tap the shutter while looking up (postcards also save on their own when the aurora is out, again at each new place) |
 | Sit down (on foot) | X | Sit button |
 | Look around | Drag with the mouse | Drag with a finger |
 | Switch vehicle (the cars in turn, then the helicopter) | V, or click the car | Tap the car, or Menu, Cars |
@@ -88,6 +88,10 @@ Coming near a place shows its panel on the left: "New place found" (or "Back aga
 When the lights first come out, AURORA spans the top of the screen with the time, the Kp on a single flowing gradient bar, and three round actions: Look up (L), Record (R) and Postcard (P, which takes the photo). It stays about nine seconds, goes the moment you look up, and the screen edge keeps a soft green glow while the aurora is out.
 
 Badges (`src/ui/badges.js`) come from what the notebook already keeps and a few feats: first aurora, five and all thirteen waterfalls, hot springs, geology, ten, thirty and all places, a corona, a red aurora, five sightings, flying the helicopter, a parachute jump, walking, floating the car and a daily challenge. A new badge spins in like a coin at the top of the screen and catches the light. The notebook has a Badges tab with every medal, earned ones first, and progress on the rest.
+
+## Postcards
+
+Every photo becomes a postcard (`src/share/postcard.js`), drawn like a real one: the photo on the left with "Greetings from Iceland" across its foot, and the back on the right. The back has a green aurora stamp in the corner, perforated evenly on all four sides; a round Reykjavík postmark with the date and wavy cancellation lines running onto the stamp; a handwritten note in Caveat about what you saw and where; three address lines; and a small line of trip details (place, time, Kp). On a computer the card sits tilted on the blurred road with Share (Enter), Save image (S) and Copy link (L) beside it.
 
 ## Menus
 

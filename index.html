@@ -320,10 +320,11 @@
       <button class="icon-btn glass sheet-close" data-close aria-label="Close postcard"><svg viewBox="0 0 24 24"><path d="M7 7l10 10M17 7L7 17"/></svg></button>
     </header>
     <div class="postcard-frame"><canvas id="postcard-canvas" width="1500" height="1000" aria-label="Sighting postcard"></canvas></div>
+    <div class="pc-side" aria-hidden="true"><p class="pc-kick">Postcard</p><p class="pc-big">Send it home</p></div>
     <div class="panel-actions">
-      <button class="btn btn-primary" id="pc-share">Share</button>
-      <button class="btn" id="pc-save">Save image</button>
-      <button class="btn" id="pc-link">Copy link</button>
+      <button class="btn btn-primary" id="pc-share"><span>Share</span><kbd>&crarr;</kbd></button>
+      <button class="btn" id="pc-save"><span>Save image</span><kbd>S</kbd></button>
+      <button class="btn" id="pc-link"><span>Copy link</span><kbd>L</kbd></button>
       <button class="btn" id="pc-play" hidden>Start your own trip</button>
     </div>
   </dialog>

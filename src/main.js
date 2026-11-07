@@ -750,10 +750,19 @@ $('pc-share').addEventListener('click', async () => {
 $('pc-link').addEventListener('click', async () => {
   const link = linkFor(pcSighting);
   track('postcard_link_copy');
-  try { await navigator.clipboard.writeText(link); $('pc-link').textContent = 'Link copied'; }
+  const label = $('pc-link').querySelector('span');
+  try { await navigator.clipboard.writeText(link); label.textContent = 'Link copied'; }
   catch { prompt('Copy this link', link); }
-  setTimeout(() => ($('pc-link').textContent = 'Copy link'), 2000);
+  setTimeout(() => (label.textContent = 'Copy link'), 2000);
 });
+// Keys on the postcard: Enter shares, S saves, L copies the link.
+pcDialog.addEventListener('keydown', (e) => {
+  if (e.metaKey || e.ctrlKey || e.altKey || e.target.matches?.('button')) return;
+  const k = e.key.toLowerCase();
+  const b = k === 'enter' ? $('pc-share') : k === 's' ? $('pc-save') : k === 'l' ? $('pc-link') : null;
+  if (b) { e.preventDefault(); b.click(); }
+});
+pcDialog.addEventListener('click', (e) => { if (e.target.closest('.panel-actions button')) sfx.confirm(); });
 $('pc-play').addEventListener('click', () => { pcDialog.close(); history.replaceState(null, '', location.pathname); });
 
 // A shared link renders that sighting's sky at its spot, then shows the postcard.
