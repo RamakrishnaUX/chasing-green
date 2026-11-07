@@ -2076,3 +2076,4 @@ body.is-flying #coach-reverse { display: none !important; }
 @media (orientation: portrait) and (max-width: 600px) { .land-acts { top: calc(120px + var(--safe-t)); flex-direction: column; align-items: stretch; } }
 body.has-touch #t-jump[data-act='call'] { display: none; }
 body.land-on .hx-spot, body.land-on .toast { opacity: 0 !important; pointer-events: none; }
+@media (orientation: portrait) and (max-width: 600px) { .land-acts { top: calc(158px + var(--safe-t)); flex-direction: row; gap: 8px; } .land-acts button { height: 44px; padding: 0 14px 0 12px; font-size: 13px; gap: 7px; } .land-acts button svg { width: 18px; height: 18px; } }
