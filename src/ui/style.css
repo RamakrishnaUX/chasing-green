@@ -196,17 +196,39 @@ body.has-touch .fuel-act { left: 50%; }
 .info-i { width: 17px; height: 17px; padding: 0; border-radius: 50%; border: 1px solid var(--ink-3); background: transparent; color: var(--ink-2); font: italic 700 10px/15px var(--sans); vertical-align: middle; margin-left: 3px; }
 .info-i:hover { border-color: var(--green); color: var(--green); }
 
-/* ---------- Landmark card ---------- */
-.infocard { position: absolute; left: calc(14px + var(--safe-l)); bottom: calc(14px + var(--safe-b)); width: min(340px, calc(100vw - 28px)); padding: 0.9rem 1rem; border-radius: var(--r-lg); z-index: 2; }
-.infocard h2 { font-family: var(--serif); font-weight: 400; font-size: 1.3rem; margin: 0 0 0.4rem; padding-right: 54px; }
-.info-desc { margin: 0 0 0.5rem; font-weight: 700; font-size: 0.9rem; line-height: 1.4; }
-.info-legend { font-family: var(--serif); line-height: 1.5; margin: 0 0 0.6rem; font-size: 0.95rem; }
-.info-fact { color: var(--ink-2); line-height: 1.5; margin: 0 0 0.8rem; font-size: 0.9rem; }
-/* Closed, the card is the name and one short line; More opens the legend and the fact. */
+/* ---------- Place panel: the name on a dark-green board that fades out to the right ---------- */
+@keyframes flow { to { background-position: -200% 0; } }
+.infocard { position: absolute; left: calc(40px + var(--safe-l)); bottom: calc(150px + var(--safe-b)); width: min(560px, calc(100vw - 80px)); z-index: 2; color: var(--ink);
+  animation: card-in 0.6s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+@keyframes card-in { from { opacity: 0; transform: translateX(-18px); } }
+.info-kick { display: flex; align-items: center; gap: 12px; margin: 0; font: 600 12px var(--sans); font-stretch: 125%; letter-spacing: 0.3em; text-transform: uppercase; color: var(--green-hi); }
+.info-kick::after { content: ''; width: 60px; height: 1px; background: currentColor; }
+.info-board { position: relative; display: inline-flex; align-items: center; gap: 18px; max-width: 100%; margin-top: 14px; padding: 14px 40px 12px 22px;
+  background: linear-gradient(90deg, rgba(32,99,76,0.94), rgba(32,99,76,0.6) 70%, rgba(32,99,76,0)); box-shadow: inset 4px 0 0 var(--green); }
+.info-board::after { content: ''; position: absolute; left: 0; right: 0; bottom: -4px; height: 3px;
+  background: linear-gradient(90deg, #20634c, #43ab83 25%, #a2f6d3 50%, #43ab83 75%, #20634c) 0 0 / 200% 100%; animation: flow 3.5s linear infinite; }
+.infocard h2 { margin: 0; font: 400 38px/1.12 var(--serif); letter-spacing: 0; overflow-wrap: anywhere; }
+.infocard.is-long h2 { font-size: 27px; }
+.stamp-badge { flex: none; width: 46px; height: 46px; }
+.info-desc { margin: 16px 0 0; max-width: 480px; font: 500 17px/1.4 var(--sans); }
+.info-facts { display: flex; gap: 36px; margin: 16px 0 0; }
+.info-facts dt { font: 600 11px var(--sans); font-stretch: 125%; letter-spacing: 0.26em; text-transform: uppercase; color: var(--ink-2); }
+.info-facts dd { margin: 4px 0 0; font: 600 22px var(--sans); font-stretch: 125%; }
+.info-legend, .info-fact { max-width: 480px; margin: 14px 0 0; font: 500 15px/1.5 var(--sans); }
+.info-legend { font-style: italic; }
+.info-fact { color: var(--ink-2); }
+/* Closed, the panel is the name, one line and the facts; More opens the legend and the fact. */
 .infocard:not(.is-expanded) .info-legend, .infocard:not(.is-expanded) .info-fact { display: none; }
-.infocard:not(.is-expanded) .info-desc { font-weight: 400; color: var(--ink-2); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.info-actions { display: flex; gap: 6px; }
-.stamp-badge { position: absolute; top: 12px; right: 12px; width: 44px; height: 44px; }
+.infocard:not(.is-expanded) .info-desc { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.info-actions { display: flex; gap: 8px; margin-top: 20px; }
+.info-btn { height: 34px; padding: 0 16px; border: 0; border-radius: 6px; background: rgba(6,16,14,0.66); box-shadow: inset 0 0 0 1px rgba(162,246,211,0.32);
+  color: var(--ink); font: 600 14px var(--sans); letter-spacing: 0.04em; cursor: pointer; transition: box-shadow 120ms ease-out, color 120ms ease-out, transform 100ms ease-out; }
+.info-btn:hover { box-shadow: inset 0 0 0 1px var(--green); color: var(--green-hi); }
+.info-btn:active { transform: scale(0.97); }
+/* Text over the open sky needs something behind it: a soft dark wash, wider than the panel. */
+.infocard::before { content: ''; position: absolute; inset: -60px -140px -60px -80px; z-index: -1; pointer-events: none;
+  background: radial-gradient(closest-side, rgba(2,8,7,0.5), rgba(2,8,7,0)); }
+@media (max-height: 760px) { .infocard { bottom: calc(110px + var(--safe-b)); } .infocard h2 { font-size: 30px; } .info-desc { font-size: 15px; } .info-facts dd { font-size: 18px; } }
 
 /* ---------- Touch controls: glass pucks you can feel ---------- */
 .touch { position: absolute; inset: auto 0 0 0; padding: 0 calc(14px + var(--safe-r)) calc(14px + var(--safe-b)) calc(14px + var(--safe-l)); display: flex; justify-content: space-between; align-items: flex-end; }
@@ -287,13 +309,18 @@ body.has-touch .toast { font-size: 0.84rem; padding: 0.5rem 0.8rem; }
 @media (min-width: 601px) and (max-width: 1000px) and (min-height: 521px) {
   body.has-touch .toast, body.has-touch.sky-on .toast { top: calc(110px + var(--safe-t)); }
 }
-body.has-touch .infocard { padding: 0.6rem 0.75rem; }
-body.has-touch .infocard h2 { font-size: 1.02rem; margin: 0; padding-right: 40px; }
-body.has-touch .infocard .info-desc, body.has-touch .infocard .info-legend, body.has-touch .infocard .info-fact { display: none; }
-body.has-touch .infocard.is-expanded .info-desc, body.has-touch .infocard.is-expanded .info-legend, body.has-touch .infocard.is-expanded .info-fact { display: block; margin-top: 0.4rem; font-size: 0.86rem; }
-body.has-touch .info-actions { margin-top: 0.45rem; }
-
-body.has-touch .stamp-badge { width: 32px; height: 32px; top: 8px; right: 8px; }
+body.has-touch .infocard { padding: 10px 40px 10px 0; background: linear-gradient(90deg, rgba(4,14,11,0.86), rgba(4,14,11,0.72) 60%, rgba(4,14,11,0)); border-radius: 4px 0 0 4px; }
+body.has-touch .infocard::before { display: none; }
+body.has-touch .infocard:not(.is-expanded) { width: max-content !important; min-width: 0 !important; }
+body.has-touch .info-kick { padding-left: 12px; font-size: 9.5px; letter-spacing: 0.24em; gap: 8px; } body.has-touch .info-kick::after { width: 28px; }
+body.has-touch .info-board { margin-top: 6px; padding: 6px 22px 5px 12px; gap: 10px; }
+body.has-touch .info-board::after { height: 2px; bottom: -2px; }
+body.has-touch .infocard h2, body.has-touch .infocard.is-long h2 { font-size: 16px; }
+body.has-touch .infocard .info-facts, body.has-touch .infocard .info-desc, body.has-touch .infocard .info-legend, body.has-touch .infocard .info-fact { display: none; }
+body.has-touch .infocard.is-expanded .info-desc, body.has-touch .infocard.is-expanded .info-legend, body.has-touch .infocard.is-expanded .info-fact { display: block; margin: 8px 0 0 12px; font-size: 0.86rem; -webkit-line-clamp: unset; }
+body.has-touch .info-actions { margin: 8px 0 0 12px; gap: 6px; }
+body.has-touch .info-btn { height: 30px; padding: 0 12px; font-size: 13px; }
+body.has-touch .stamp-badge { width: 30px; height: 30px; }
 
 /* Phones upright: readout top left, buttons and radio top right, minimap and tips below,
    and a two-row pedal cluster so Go always fits. */
@@ -1059,10 +1086,8 @@ body.has-touch #intro .keys-hint { display: none; }
 }
 
 /* ---------- Type: Michroma headings, scaled for its width ---------- */
-.month-card h3, .radio-title, .infocard h2, .sheet-title, .map-pick-text b, .car-card h3, .challenge-card h3, .learn-entry h3, .lesson h3 { letter-spacing: 0.01em; }
+.month-card h3, .radio-title, .sheet-title, .map-pick-text b, .car-card h3, .challenge-card h3, .learn-entry h3, .lesson h3 { letter-spacing: 0.01em; }
 .radio-title { font-size: 0.82rem; }
-.infocard h2 { font-size: 1.08rem; line-height: 1.25; }
-.info-legend { font-family: var(--sans); font-style: italic; }
 .sheet-title { font-size: 1.08rem; }
 .map-pick-text b { font-size: 0.86rem; }
 .car-card h3, .learn-entry h3, .lesson h3 { font-size: 0.96rem; }
@@ -1077,3 +1102,95 @@ kbd { font-family: var(--sans) !important; }
   .settings-grid .seg button { padding: 0 0.55rem; font-size: 0.8rem; }
 }
 .seg button { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+
+/* ---------- The aurora moment: AURORA across the top when the lights first come out ---------- */
+.moment { position: absolute; left: 50%; top: calc(70px + var(--safe-t)); transform: translateX(-50%); z-index: 3; width: min(900px, calc(100vw - 32px)); text-align: center;
+  pointer-events: none; color: var(--ink); animation: mo-in 1s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+.moment.is-out { animation: mo-out 0.6s ease-in both; }
+@keyframes mo-in { from { opacity: 0; transform: translate(-50%, -14px); letter-spacing: 0; } }
+@keyframes mo-out { to { opacity: 0; transform: translate(-50%, -10px); } }
+.moment::before { content: ''; position: absolute; inset: -40px -10% -30px; z-index: -1; background: radial-gradient(closest-side, rgba(2,10,8,0.42), rgba(2,10,8,0)); }
+.mo-kick { margin: 0; font: 700 13px var(--sans); letter-spacing: 0.42em; text-transform: uppercase; color: var(--green-hi); }
+.mo-title { margin: 16px 0 0; font: 400 84px/0.9 var(--serif); letter-spacing: 0.3em; padding-left: 0.3em; text-transform: uppercase; }
+.mo-meter { width: min(520px, 92%); margin: 26px auto 0; }
+.mo-row { display: flex; justify-content: space-between; align-items: baseline; font: 600 12px var(--sans); letter-spacing: 0.24em; text-transform: uppercase; color: var(--ink-2); }
+.mo-row b { margin-right: 12px; font: 300 34px var(--sans); letter-spacing: 0.02em; text-transform: none; color: var(--green-hi); }
+.mo-row em { font-style: normal; }
+/* One gradient the length of the whole bar, flowing; the Kp only uncovers more of it. */
+.mo-bar { position: relative; height: 8px; margin-top: 10px; background: rgba(244,248,246,0.18); transform: skewX(-18deg); }
+.mo-bar b { position: absolute; inset: 0; --k: 0%; clip-path: inset(0 calc(100% - var(--k)) 0 0); transition: clip-path 0.8s cubic-bezier(0.2, 0.7, 0.2, 1);
+  background: linear-gradient(90deg, #20634c, #43ab83 25%, #a2f6d3 50%, #43ab83 75%, #20634c) 0 0 / 200% 100%; animation: flow 3.5s linear infinite; }
+.mo-acts { display: flex; justify-content: center; gap: 22px; margin-top: 30px; }
+.mo-act { pointer-events: auto; display: grid; justify-items: center; gap: 10px; width: 120px; padding: 0; border: 0; background: none; color: var(--ink); cursor: pointer; }
+.mo-act i { display: grid; place-items: center; width: 64px; height: 64px; border-radius: 50%; background: rgba(6,14,12,0.55); box-shadow: inset 0 0 0 2px rgba(162,246,211,0.75);
+  transition: background 140ms ease-out, transform 100ms ease-out; }
+.mo-act:hover i { background: rgba(32,99,76,0.75); }
+.mo-act:active i { transform: scale(0.94); }
+.mo-act svg { width: 26px; height: 26px; fill: none; stroke: var(--green-hi); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.mo-act svg .dot { fill: var(--green-hi); stroke: none; }
+.mo-act span { display: inline-flex; align-items: center; font: 600 13px var(--sans); letter-spacing: 0.12em; }
+.mo-act kbd, .badge-pop kbd { display: inline-grid; place-items: center; min-width: 24px; height: 22px; margin-right: 7px; padding: 0 6px; border: 0; border-radius: 5px;
+  font: 700 12px/1 var(--sans); color: var(--green-ink); background: var(--green); box-shadow: none; }
+.mo-edge { position: absolute; inset: 0; z-index: 1; pointer-events: none; opacity: 0; transition: opacity 1.4s ease;
+  box-shadow: inset 0 0 140px rgba(67,171,131,0.45), inset 0 0 40px rgba(102,223,176,0.25); }
+.mo-edge.is-on { opacity: 1; }
+body.moment-on .sky-hint, body.moment-on .toast { opacity: 0; pointer-events: none; }
+body.is-looking #hud .moment { opacity: 0; }
+body.has-touch .mo-act kbd { display: none; }
+body.has-touch .moment { top: calc(12px + var(--safe-t)); }
+body.has-touch .mo-kick { font-size: 10px; letter-spacing: 0.3em; }
+body.has-touch .mo-title { margin-top: 8px; font-size: clamp(30px, 7vw, 56px); }
+body.has-touch .mo-meter { width: min(360px, 80%); margin-top: 14px; }
+body.has-touch .mo-row b { font-size: 24px; }
+body.has-touch .mo-acts { margin-top: 16px; gap: 10px; }
+body.has-touch .mo-act { width: 84px; gap: 6px; }
+body.has-touch .mo-act i { width: 48px; height: 48px; }
+body.has-touch .mo-act svg { width: 22px; height: 22px; }
+body.has-touch .mo-act span { font-size: 12px; letter-spacing: 0.06em; }
+@media (min-width: 700px) and (min-height: 600px) { body.has-touch .moment { top: calc(64px + var(--safe-t)); } }
+@media (orientation: portrait) and (max-width: 600px) { body.has-touch .moment { top: calc(250px + var(--safe-t)); } }
+@media (max-height: 520px) { body.has-touch .mo-meter { display: none; } body.has-touch .mo-acts { margin-top: 10px; } }
+
+/* ---------- Badge earned: the medal spins in like a coin, then catches the light ---------- */
+.badge-pop { position: absolute; left: 50%; top: calc(96px + var(--safe-t)); transform: translateX(-50%); z-index: 4; display: flex; align-items: center; gap: 18px;
+  perspective: 600px; pointer-events: none; color: var(--ink); white-space: nowrap; }
+.badge-pop.is-out { animation: bp-out 0.45s ease-in both; }
+@keyframes bp-out { to { opacity: 0; transform: translate(-50%, -12px); } }
+.bp-medal { position: relative; flex: none; width: 84px; height: 93px; transform-style: preserve-3d; filter: drop-shadow(0 0 22px rgba(102,223,176,0.6));
+  animation: coin 1.8s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+.bp-medal svg { display: block; width: 100%; height: 100%; }
+@keyframes coin { 0% { transform: rotateY(-540deg) scale(0.4); opacity: 0; } 15% { opacity: 1; } 100% { transform: rotateY(0) scale(1); } }
+.bp-medal::after { content: ''; position: absolute; inset: 0; -webkit-mask: var(--hexmask) center / 100% 100%; mask: var(--hexmask) center / 100% 100%;
+  background: linear-gradient(115deg, transparent 35%, rgba(255,255,255,0.55) 50%, transparent 65%) -150% 0 / 300% 100% no-repeat; animation: shine 1.4s ease-out 1.5s both; }
+@keyframes shine { to { background-position: 150% 0; } }
+.bp-text { padding: 10px 46px 12px 18px; background: linear-gradient(90deg, rgba(20,70,54,0.94), rgba(20,70,54,0.6) 70%, rgba(20,70,54,0)); box-shadow: inset 3px 0 0 var(--green);
+  animation: slidein 0.6s ease-out 0.9s both; }
+@keyframes slidein { from { opacity: 0; transform: translateX(-14px); } }
+.bp-kick { margin: 0; font: 700 12px var(--sans); letter-spacing: 0.34em; text-transform: uppercase; color: var(--green-hi); }
+.bp-text h3 { margin: 6px 0 0; font: 400 24px/1.1 var(--serif); }
+.bp-text p:last-child { margin: 6px 0 0; font: 500 14px var(--sans); color: rgba(244,248,246,0.82); }
+body.has-touch .badge-pop { top: calc(64px + var(--safe-t)); gap: 10px; }
+body.has-touch .bp-medal { width: 54px; height: 60px; }
+body.has-touch .bp-text { padding: 7px 26px 8px 12px; }
+body.has-touch .bp-kick { font-size: 9.5px; letter-spacing: 0.24em; }
+body.has-touch .bp-text h3 { font-size: 15px; }
+body.has-touch .bp-text p:last-child { font-size: 12px; white-space: normal; max-width: 56vw; }
+@media (orientation: portrait) and (max-width: 600px) { body.has-touch .badge-pop { top: calc(250px + var(--safe-t)); } }
+@media (prefers-reduced-motion: reduce) {
+  .bp-medal, .bp-medal::after, .bp-text, .moment, .infocard { animation: none; }
+  .info-board::after, .mo-bar b { animation: none; }
+}
+
+/* ---------- Badges in the notebook ---------- */
+.badges-count { margin: 0 0 14px; font: 600 12px var(--sans); letter-spacing: 0.22em; text-transform: uppercase; color: var(--ink-2); }
+.badges { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 20px 12px; }
+.badge { display: grid; justify-items: center; align-content: start; gap: 6px; text-align: center; }
+.badge .medal { width: 74px; height: 82px; margin-bottom: 2px; }
+.badge.is-got .medal { filter: drop-shadow(0 0 10px rgba(102,223,176,0.35)); }
+.badge b { font: 700 14px var(--sans); }
+.badge:not(.is-got) b { color: var(--ink-2); }
+.badge span { font: 500 12.5px/1.35 var(--sans); color: var(--ink-3); }
+.badge.is-got span { color: var(--ink-2); }
+.bprog { display: block; width: 88px; height: 4px; margin-top: 2px; background: rgba(244,248,246,0.14); }
+.bprog i { display: block; height: 100%; background: var(--green); }

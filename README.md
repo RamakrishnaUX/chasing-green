@@ -81,6 +81,14 @@ The vehicle's name sits in brackets at the top with arrows either side, and what
 
 The arrows step through every car and the helicopter and change your vehicle the same way the garage does. The one you pick rolls in onto its mark, then its headlights flicker on. Car models start loading at once; a vehicle appears only once its real model is in, never as a code-built stand-in. On phones held upright the stats sit in two columns under the vehicle.
 
+## Places, the aurora and badges
+
+Coming near a place shows its panel on the left: "New place found" (or "Back again"), the name on a dark-green board with a flowing green underline and its stamp, one line about it, how many places you have found and what kind of place it is. More opens the legend and a fact; the panel tucks itself away after a while of driving.
+
+When the lights first come out, AURORA spans the top of the screen with the time, the Kp on a single flowing gradient bar, and three round actions: Look up (L), Record (R) and Postcard (P, which takes the photo). It stays about nine seconds, goes the moment you look up, and the screen edge keeps a soft green glow while the aurora is out.
+
+Badges (`src/ui/badges.js`) come from what the notebook already keeps and a few feats: first aurora, five and all thirteen waterfalls, hot springs, geology, ten, thirty and all places, a corona, a red aurora, five sightings, flying the helicopter, a parachute jump, walking, floating the car and a daily challenge. A new badge spins in like a coin at the top of the screen and catches the light. The notebook has a Badges tab with every medal, earned ones first, and progress on the rest.
+
 ## Cars
 
 | Car | Looks | Handling | Deepest water |

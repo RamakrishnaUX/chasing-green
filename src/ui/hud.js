@@ -16,6 +16,8 @@ export class Hud {
     this.toastTimer = 0;
     this.toastPriority = 0;
     this.lastStatus = '';
+    // The aurora moment: a big title when the lights first come out, once per display.
+    this.mo = { el: $('moment'), edge: $('mo-edge'), time: $('mo-time'), kp: $('mo-kp'), level: $('mo-level'), fill: $('mo-fill'), t: 0, cool: 0, was: false };
     this.el.radioToggle.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); this.el.radioToggle.click(); } });
     this.el.radioToggle.addEventListener('click', (ev) => {
       if (ev.target.closest('[data-learn]')) return;
@@ -77,6 +79,7 @@ export class Hud {
     document.body.classList.toggle('sky-on', callUp);
     if (callUp && !this.wasCall) haptics.play('aurora', 0);
     this.wasCall = callUp;
+    this.moment(dt, s, kp);
     e.cloud.textContent = `${Math.round(s.aurora.cloud * 100)}%`;
     e.dark.textContent = `${Math.round(s.aurora.dark * 100)}%`;
     const glow = s.aurora.city.overhead;
@@ -93,6 +96,28 @@ export class Hud {
 
     this.graphTimer -= dt;
     if (this.graphTimer <= 0) { this.drawGraph(s); this.graphTimer = 0.5; }
+  }
+
+  // The lights come out: AURORA across the top with the Kp, and Look up, Record and Postcard. It
+  // stays about nine seconds, goes the moment you look up, and comes back only for a new display.
+  moment(dt, s, kp) {
+    const m = this.mo, active = !!s.aurora.active;
+    m.cool = active ? Math.max(m.cool, 0) : m.cool - dt;
+    const rise = active && !m.was;
+    m.was = active;
+    const blocked = s.lookingUp || s.busy;
+    if (rise && m.cool <= 0 && !blocked) { m.t = 9; m.cool = 90; m.el.hidden = false; m.el.classList.remove('is-out'); void m.el.offsetWidth; }
+    if (m.t > 0) {
+      m.t = blocked ? 0 : m.t - dt;
+      if (m.t <= 0) { m.el.classList.add('is-out'); setTimeout(() => { if (this.mo.t <= 0) m.el.hidden = true; }, 600); }
+      m.time.textContent = `· ${s.clockLabel}`;
+      m.kp.textContent = `Kp ${kp.toFixed(1)}`;
+      m.level.textContent = kp < 3 ? 'Quiet' : kp < 5 ? 'Active' : kp < 7 ? 'Strong' : 'Storm';
+      m.fill.style.setProperty('--k', `${Math.min(100, Math.max(4, (kp / 9) * 100)).toFixed(1)}%`);
+    }
+    document.body.classList.toggle('moment-on', m.t > 0);
+    // A soft green glow round the screen edge while the lights are out and you are not looking up.
+    m.edge.classList.toggle('is-on', active && !s.lookingUp && !s.busy);
   }
 
   statusLine(s) {

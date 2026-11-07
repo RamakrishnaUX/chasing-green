@@ -42,7 +42,8 @@ export function stampSvg(label, glyph, got, id) {
 const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 export class Notebook {
-  constructor({ onPostcard, getChallenge }) {
+  constructor({ onPostcard, getChallenge, badges }) {
+    this.badges = badges;
     this.dialog = document.getElementById('notebook');
     this.list = document.getElementById('sightings-list');
     this.stamps = document.getElementById('stamps-list');
@@ -81,6 +82,12 @@ export class Notebook {
       return `<li class="is-got">${stampSvg(key, 'star', true, 'c' + key)}${esc(c ? c.title : 'Daily challenge')}</li>`;
     });
     this.stamps.innerHTML = lm.join('') + ch.join('');
+
+    if (this.badges) {
+      const got = Object.keys(store.data.badges || {}).length;
+      document.getElementById('badges-list').innerHTML = this.badges.html();
+      document.getElementById('badges-count').textContent = `${got} of ${this.badges.total} earned`;
+    }
 
     const c = this.getChallenge();
     const rec = store.data.challenges[c.key];

@@ -44,6 +44,7 @@ import { Wildlife, WILDLIFE_NOTES } from './world/wildlife.js';
 import { Input } from './vehicle/input.js';
 import { Hud } from './ui/hud.js';
 import { Notebook, stampSvg } from './ui/notebook.js';
+import { Badges } from './ui/badges.js';
 import { AudioEngine } from './audio/audio.js';
 import { drawPostcard, sharePostcard, canvasBlob, download } from './share/postcard.js';
 import { linkFor, readSharedSighting } from './share/link.js';
@@ -630,7 +631,7 @@ function stepOut() {
   }
   if (jeep.boatOn || jeep.boat > 0) { hud.toast('You are on the water. Head back to the shore to step out.', { seconds: 2.5 }); return; }
   if (jeep.speed > 2.5) { hud.toast('Slow down to step out.', { seconds: 2.5 }); return; }
-  mode = 'walk'; walkTilt = false; walker.enter(jeep); track('step_out'); look.walkYaw = 0;
+  mode = 'walk'; walkTilt = false; walker.enter(jeep); track('step_out'); look.walkYaw = 0; badges.feat('walk');
   hud.toast(isTouch ? 'On foot. Hold Go to walk, then run; slide up from Go to jump. Run into a rock to climb it.' : 'On foot. Up walks; hold it or tap it again to run (Shift keeps walking). Space jumps; run into a rock to climb it. E gets back in.', { seconds: 4.5 });
   syncLookButton();
 }
@@ -696,6 +697,7 @@ function logSighting(a, { manual = false } = {}) {
       if (r > cr) { sw = img.height * cr; sx = (img.width - sw) / 2; } else { sh = img.width / cr; sy = (img.height - sh) / 2; }
       ctx.drawImage(img, sx, sy, sw, sh, 0, 0, 320, 200);
       store.addSighting(s, tc.toDataURL('image/jpeg', 0.72));
+      badges.check();
     };
     img.src = dataUrl;
   };
@@ -714,6 +716,7 @@ function checkChallenge(s) {
     track('challenge_complete', { challenge: challenge.id });
     haptics.play('success', 0);
     store.save();
+    badges.check();
     setTimeout(() => hud.toast(`Daily challenge done: ${challenge.title}. Stamp added to your notebook.`, { seconds: 6, priority: 3 }), 7200);
   }
 }
@@ -783,7 +786,9 @@ function renderSharedSighting(s) {
 }
 
 // ---------- Landmarks ----------
-const card = { el: $('infocard'), name: $('info-name'), desc: $('info-desc'), legend: $('info-legend'), fact: $('info-fact'), stamp: $('info-stamp'), current: null };
+const card = { el: $('infocard'), name: $('info-name'), desc: $('info-desc'), legend: $('info-legend'), fact: $('info-fact'), stamp: $('info-stamp'), kick: $('info-kick'), found: $('info-found'), kind: $('info-kind'), current: null };
+const KIND_NAME = { waterfall: 'Waterfall', beach: 'Beach', bridge: 'Bridge', building: 'Landmark', canyon: 'Canyon', cave: 'Cave', crater: 'Crater', geothermal: 'Hot ground', geyser: 'Geyser', headland: 'Headland', horseshoe: 'Canyon', lagoon: 'Glacier lagoon', lake: 'Lake', lava: 'Lava field', mountain: 'Mountain', park: 'National park', pool: 'Hot pool', rift: 'Rift', sculpture: 'Sculpture', stadium: 'Stadium', town: 'Town', wreck: 'Wreck' };
+const foundText = () => `${Object.keys(store.data.stamps).filter((id) => landmarks.list.some((l) => l.id === id)).length} / ${landmarks.list.length}`;
 // How often the place card pops up: for every place, only for places not yet stamped, or never
 // (the stamp toast still says where you are). Phones default to new places only.
 const placeCards = () => settings.placeCards || (isTouch ? 'new' : 'all');
@@ -821,7 +826,8 @@ function updateLandmarks(p) {
       track('landmark_stamp', { landmark: lm.id, landmark_name: lm.name, stamps_total: Object.keys(store.data.stamps).length });
       hud.toast(`New stamp: ${lm.name}.`, { seconds: 4, priority: 2 });
       haptics.play('success', 0);
-      if (card.current === lm) card.stamp.innerHTML = stampSvg(lm.name, lm.glyph, true, 'card');
+      if (card.current === lm) { card.stamp.innerHTML = stampSvg(lm.name, lm.glyph, true, 'card'); card.found.textContent = foundText(); }
+      badges.check();
     }
   }
   if (dist < reach * 2.6) {
@@ -833,6 +839,10 @@ function updateLandmarks(p) {
       card.legend.hidden = !lm.legend;
       card.fact.textContent = lm.fact;
       card.stamp.innerHTML = stampSvg(lm.name, lm.glyph, !!store.data.stamps[lm.id], 'card');
+      card.kick.textContent = unstamped ? 'New place found' : 'Back again';
+      card.found.textContent = foundText();
+      card.kind.textContent = KIND_NAME[lm.kind] || 'Place';
+      card.el.classList.toggle('is-long', lm.name.length > 13);
       card.shownAt = null;
       // Decided once per visit, so a card shown for a new place stays up after its stamp lands.
       card.wanted = placeCards() === 'all' || (placeCards() === 'new' && unstamped);
@@ -854,7 +864,8 @@ function updateLandmarks(p) {
 }
 
 // ---------- UI wiring ----------
-const notebook = new Notebook({ onPostcard: (n) => openPostcard(n), getChallenge: () => challenge });
+const badges = new Badges({ onEarn: (b) => { haptics.play('success', 0); audio.chime?.(); track('badge_earned', { badge: b.id }); } });
+const notebook = new Notebook({ onPostcard: (n) => openPostcard(n), getChallenge: () => challenge, badges });
 $('btn-notebook').addEventListener('click', () => notebook.open());
 $('btn-camera').addEventListener('click', cycleView);
 $('btn-mute').addEventListener('click', () => setMuted(!audio.muted));
@@ -1176,6 +1187,11 @@ startBtn.addEventListener('click', () => {
   setTimeout(showReverseTip, 8000);
 });
 
+function snapPostcard() { if (lastAurora && performance.now() - lastShot > 1200) logSighting(lastAurora, { manual: true }); }
+$('mo-look').addEventListener('click', () => { if (mode === 'chase' || mode === 'walk') toggleLookUp(); });
+$('mo-rec').addEventListener('click', () => toggleRecording());
+$('mo-card').addEventListener('click', () => snapPostcard());
+
 addEventListener('keydown', (e) => {
   if (!started || document.querySelector('dialog[open]')) return;
   const k = e.key.toLowerCase();
@@ -1189,6 +1205,7 @@ addEventListener('keydown', (e) => {
   else if (k === 'v') cycleVehicle();
   else if (k === 'n') notebook.open();
   else if (k === 'r') toggleRecording();
+  else if (k === 'p') snapPostcard();
   else if (k === 'x') toggleSit();
   else if (k === 'h') learn.open();
   else if (k === 'f') fuelAction();
@@ -1242,6 +1259,7 @@ function jump() {
   document.body.classList.add('is-skydiving');
   haptics.play('medium');
   track('skydive_jump', { agl: Math.round(heli.agl) });
+  badges.feat('jump');
   hud.toast(isTouch ? 'Out of the door! Arrows turn, Go glides forward, Brake slows your fall. Tap Open for your parachute.' : 'Out of the door! Left and Right turn, Up glides forward, Down slows your fall. Space opens your parachute.', { seconds: 6, priority: 3 });
   syncLookButton();
 }
@@ -1545,7 +1563,7 @@ function flyFeedback(dt) {
   const wmsg = heli.warning;
   if (wmsg && HELI_SAYS[wmsg] && !(clock.realSeconds - (heliSaid[wmsg] ?? -99) < 5)) { heliSaid[wmsg] = clock.realSeconds; hud.toast(HELI_SAYS[wmsg], { seconds: 2.5, priority: 1 }); }
   if (heli.touchdown) { heli.touchdown = false; haptics.play(heli.impact > 0.25 ? 'heavy' : 'medium'); if (heli.impact <= 0.25 && !wasLanded) hud.toast('Landed. Press E to step out.', { seconds: 2.2, priority: 1 }); audio.thud?.(2 + heli.impact * 8); }
-  if (wasLanded && !heli.landed) haptics.play('light');
+  if (wasLanded && !heli.landed) { haptics.play('light'); badges.feat('fly'); }
   wasLanded = heli.landed;
   // Downwash: the ground under the rotor kicks up dust or spray within about two rotor widths.
   if (!heli.landed && heli.rpm > 0.8 && heli.agl < 22) {
@@ -1851,10 +1869,11 @@ function frame(now) {
     nav.update(dt, activePos(), activeHeading(), t);
     mapUI.route = nav.route?.pts || null; mapUI.dest = nav.dest;
     mapUI.update(dt, activePos(), activeHeading());
+    if (jeep.boatOn && started) badges.feat('boat');
     hud.update(dt, {
       kmh: mode === 'sky' ? diver.kmh : ride === 'heli' ? heli.kmh : jeep.kmh, walking: mode === 'walk', altitude: mode === 'fly' ? heli.pos.y : mode === 'sky' ? diver.agl : null, where: hud.whereText || '', clockLabel: clock.label(), season: clock.season, monthName: clock.m.name, aurora: a,
       bearingDeg: THREE.MathUtils.radToDeg(bearing), windBearingDeg: THREE.MathUtils.radToDeg(Math.atan2(w.x, -w.z)), windStrength: w.strength,
-      lookingUp: up, lookingUpWrongWay: upAnyDir && !up, lookTimer, loggedThisWindow,
+      lookingUp: up, lookingUpWrongWay: upAnyDir && !up, lookTimer, loggedThisWindow, busy: !started || paused || mode === 'sky' || !!document.querySelector('dialog[open]'),
       now: clock.gameHours, nightStart: clock.nightIndex * 24 + 12 + 4, history: forecast.history.get(clock.nightIndex),
       predict: (h) => forecast.predictedAt(h, clock.gameHours), nextWindow: hud.nextWindowText,
     });
@@ -1968,7 +1987,7 @@ requestAnimationFrame(() => setTimeout(async () => {
 
 // Handy for tuning from the browser console.
 window.chasingGreen = {
-  clock, forecast, CONFIG, store, linkFor, scene, renderer, camera, mirrors, driver, setVehicle, fastTravel, input,
+  clock, forecast, CONFIG, store, linkFor, scene, renderer, camera, mirrors, driver, setVehicle, fastTravel, input, badges, hud, notebook,
   get obstacles() { return obstacles; }, get scene() { return scene; }, Vec3: THREE.Vector3, get puddles() { return puddles; }, get mapUI() { return mapUI; }, get snow() { return snow; },
   nearestRoad: (x, z, r) => nearestRoad(x, z, r), coastAt, roadDistAt, shoreDistAt, groundAt, solidTopAt, get wildlife() { return wildlife; },
   roadPaths: () => roadPaths, fuel, putCar, get stations() { return stations; }, stageTimes,
