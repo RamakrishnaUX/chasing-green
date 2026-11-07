@@ -89,6 +89,12 @@ When the lights first come out, AURORA spans the top of the screen with the time
 
 Badges (`src/ui/badges.js`) come from what the notebook already keeps and a few feats: first aurora, five and all thirteen waterfalls, hot springs, geology, ten, thirty and all places, a corona, a red aurora, five sightings, flying the helicopter, a parachute jump, walking, floating the car and a daily challenge. A new badge spins in like a coin at the top of the screen and catches the light. The notebook has a Badges tab with every medal, earned ones first, and progress on the rest.
 
+## Menus
+
+On a computer the menu fills the screen over the blurred road, like a console game's front end: a dark tab bar across the top with Q and E either side and a green line under the open section, and the keys along the foot. Settings and Sound are rows on dark panels; the chosen row is lighter with a green edge. Up and down choose a row, left and right change it, Q and E change section and Esc goes back to the road; the mouse works too. On phones and tablets the menu stays a sheet with the sections down the side (or across the top when upright), with the same green for whatever is chosen.
+
+The menus have their own sounds, made on the spot (`src/audio/uisfx.js`): a dry tick moving between rows, a clack changing a value, a whoosh and a low thud changing section, and a short engine blip with a chime for buttons that do something. A badge gets three bright rising notes. They follow the game's mute and All sound volume.
+
 ## Cars
 
 | Car | Looks | Handling | Deepest water |

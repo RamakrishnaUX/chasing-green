@@ -187,13 +187,16 @@
   <!-- One sheet for everything: map, cars, notebook, learn and settings -->
   <dialog id="sheet" class="sheet glass" aria-label="Menu">
     <header class="sheet-head">
+      <p class="sheet-brand" aria-hidden="true">Chasing <b>Green</b></p>
       <nav class="sheet-tabs" role="tablist" aria-label="Sections">
+        <kbd class="tab-key" aria-hidden="true">Q</kbd>
         <button role="tab" data-page="map" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M3.5 6.5l5-2 7 2 5-2v13l-5 2-7-2-5 2zM8.5 4.5v13M15.5 6.5v13"/></svg><span>Map</span></button>
         <button role="tab" data-page="garage" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M5 15.5l1.6-5.2A2 2 0 0 1 8.5 9h7a2 2 0 0 1 1.9 1.3l1.6 5.2M3.5 15.5h17v2.5a1 1 0 0 1-1 1h-15a1 1 0 0 1-1-1z"/></svg><span>Cars</span></button>
         <button role="tab" data-page="notebook" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M6.5 3.5h10a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2h-10zM6.5 3.5v17M9.5 8h6M9.5 11.5h6"/></svg><span>Notebook</span></button>
         <button role="tab" data-page="learn" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M3 15c3-6 6-9 9-9s6 3 9 9M6 18c2-4 4-6 6-6s4 2 6 6"/></svg><span>Learn</span></button>
         <button role="tab" data-page="sound" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9.5a3.5 3.5 0 0 1 0 5M18 7a7 7 0 0 1 0 10"/></svg><span>Sound</span></button>
         <button role="tab" data-page="settings" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M10.3 3h3.4l.5 2.4 1.6.9 2.3-.8 1.7 2.9-1.8 1.6v1.9l1.8 1.6-1.7 2.9-2.3-.8-1.6.9-.5 2.4h-3.4l-.5-2.4-1.6-.9-2.3.8-1.7-2.9L6 12.9V11L4.2 9.4l1.7-2.9 2.3.8 1.6-.9z"/><circle cx="12" cy="12" r="2.8"/></svg><span>Settings</span></button>
+        <kbd class="tab-key" aria-hidden="true">E</kbd>
       </nav>
       <button class="icon-btn glass sheet-close" id="sheet-close" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M7 7l10 10M17 7L7 17"/></svg></button>
     </header>
@@ -304,6 +307,10 @@
         <button class="btn btn-danger" id="set-reset">Clear notebook</button>
       </div>
     </section>
+    <footer class="sheet-foot" aria-hidden="true">
+      <div><span><kbd>&uarr;&darr;</kbd>Choose</span><span><kbd>&larr;&rarr;</kbd>Change</span><span><kbd>Q</kbd><kbd>E</kbd>Section</span></div>
+      <div><span><kbd>Esc</kbd>Back to the road</span></div>
+    </footer>
   </dialog>
 
   <!-- Postcard -->

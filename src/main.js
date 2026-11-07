@@ -46,6 +46,7 @@ import { Hud } from './ui/hud.js';
 import { Notebook, stampSvg } from './ui/notebook.js';
 import { Badges } from './ui/badges.js';
 import { AudioEngine } from './audio/audio.js';
+import { sfx, bindUiSfx } from './audio/uisfx.js';
 import { drawPostcard, sharePostcard, canvasBlob, download } from './share/postcard.js';
 import { linkFor, readSharedSighting } from './share/link.js';
 import { ClipRecorder } from './share/recorder.js';
@@ -115,6 +116,7 @@ const hud = new Hud();
 const sheet = new Sheet();
 haptics.enabled = settings.haptics !== 'off';
 const audio = new AudioEngine();
+bindUiSfx(audio);
 audio.muted = !!settings.muted;
 // Volumes for the Sound tab. Anyone who had switched music off keeps it silent.
 const volumes = settings.volumes || (settings.volumes = { master: 1, music: settings.music === 'off' ? 0 : 1, car: 1, ambience: 1 });
@@ -864,7 +866,7 @@ function updateLandmarks(p) {
 }
 
 // ---------- UI wiring ----------
-const badges = new Badges({ onEarn: (b) => { haptics.play('success', 0); audio.chime?.(); track('badge_earned', { badge: b.id }); } });
+const badges = new Badges({ onEarn: (b) => { haptics.play('success', 0); sfx.chime(); track('badge_earned', { badge: b.id }); } });
 const notebook = new Notebook({ onPostcard: (n) => openPostcard(n), getChallenge: () => challenge, badges });
 $('btn-notebook').addEventListener('click', () => notebook.open());
 $('btn-camera').addEventListener('click', cycleView);
@@ -2085,4 +2087,14 @@ for (const sel of document.querySelectorAll('.settings-grid select:not(.month-se
   sel.after(seg);
   settingsDialog.addEventListener('sync', sync);
   sync();
+}
+// Each setting becomes one row (a label and its control), so the menu can light the chosen row.
+// On phones the row box drops away (display: contents) and the grid lays the parts out as before.
+for (const label of [...document.querySelectorAll('.settings-grid > label')]) {
+  const row = document.createElement('div');
+  row.className = ['srow', ...['desk-only', 'touch-only'].filter((c) => label.classList.contains(c))].join(' ');
+  label.before(row);
+  let n = label.nextElementSibling;
+  row.append(label);
+  while (n && n.tagName !== 'LABEL') { const next = n.nextElementSibling; row.append(n); n = next; }
 }

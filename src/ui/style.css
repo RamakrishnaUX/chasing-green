@@ -515,7 +515,8 @@ body.has-touch .car-card h3 { font-size: 1rem; }
 .tile:active { transform: scale(0.95); }
 .tile svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .settings-grid { display: grid; grid-template-columns: auto 1fr; gap: 12px 18px; align-items: center; }
-.settings-grid > label { font-size: 0.9rem; color: var(--ink-2); }
+.settings-grid label { font-size: 0.9rem; color: var(--ink-2); }
+.srow { display: contents; }
 .settings-grid select:not(.month-select) { display: none; }
 .settings-grid .seg { max-width: 360px; }
 .settings-grid .select-wrap { max-width: 360px; }
@@ -1196,3 +1197,73 @@ body.has-touch .bp-text p:last-child { font-size: 12px; white-space: normal; max
 .badge.is-got span { color: var(--ink-2); }
 .bprog { display: block; width: 88px; height: 4px; margin-top: 2px; background: rgba(244,248,246,0.14); }
 .bprog i { display: block; height: 100%; background: var(--green); }
+
+/* ---------- Menus: the aurora green for whatever is chosen ---------- */
+#sheet .seg button.is-on { background: var(--green); color: var(--green-ink); box-shadow: none; }
+#sheet .seg { border-radius: 8px; } #sheet .seg button { border-radius: 6px; }
+.sheet-tabs button.is-on { color: var(--ink); background: linear-gradient(90deg, rgba(102,223,176,0.16), rgba(102,223,176,0.04)); box-shadow: inset 3px 0 0 var(--green); }
+@media (orientation: portrait) and (max-width: 700px) { .sheet-tabs button.is-on { box-shadow: inset 0 -3px 0 var(--green); background: rgba(102,223,176,0.12); } }
+.sheet-brand, .tab-key, .sheet-foot { display: none; }
+
+/* ---------- Game menu on computers: full screen over the blurred road ----------
+   A dark tab bar across the top with Q and E either side and a green line under the open
+   section; rows on dark panels, the chosen row lighter with a green edge; keys along the foot. */
+@media (min-width: 1000px) and (min-height: 600px) {
+  body:not(.has-touch) #sheet[data-page] { width: 100vw; height: 100dvh; max-width: none; max-height: none; margin: 0; inset: 0; border: 0; border-radius: 0;
+    background: rgba(3,10,8,0.32); -webkit-backdrop-filter: blur(22px) brightness(0.5) saturate(115%); backdrop-filter: blur(22px) brightness(0.5) saturate(115%); box-shadow: none; }
+  body:not(.has-touch) #sheet::backdrop { background: transparent; -webkit-backdrop-filter: none; backdrop-filter: none; }
+  body:not(.has-touch) #sheet[open] { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto; animation: menu-in 0.3s ease-out; }
+  @keyframes menu-in { from { opacity: 0; } }
+  body:not(.has-touch) #sheet .sheet-head { grid-column: 1; grid-row: 1; position: relative; display: flex; flex-direction: row; align-items: center; justify-content: center; padding: 34px 80px 0; border: 0; }
+  body:not(.has-touch) .sheet-brand { display: block; position: absolute; left: 80px; top: 34px; height: 56px; margin: 0; line-height: 56px; font: 400 15px/56px var(--serif); letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink); }
+  body:not(.has-touch) .sheet-brand b { font-weight: 400; color: var(--green); }
+  body:not(.has-touch) .sheet-tabs { flex: none; flex-direction: row; align-items: center; gap: 2px; height: 56px; padding: 0 14px; margin: 0; max-width: none; border: 0; border-radius: 0;
+    background: rgba(6,14,12,0.62); box-shadow: inset 0 1px 0 rgba(162,246,211,0.12), inset 0 -1px 0 rgba(244,248,246,0.08); }
+  body:not(.has-touch) .sheet-tabs button { position: relative; flex: none; height: 56px; min-height: 0; padding: 0 18px; border-radius: 0; background: none; box-shadow: none;
+    font: 600 14px var(--sans); font-stretch: 112%; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-3); transition: color 140ms ease-out; }
+  body:not(.has-touch) .sheet-tabs button svg { display: none; }
+  body:not(.has-touch) .sheet-tabs button:hover { color: var(--ink-2); }
+  body:not(.has-touch) .sheet-tabs button.is-on { color: var(--ink); background: none; box-shadow: none; }
+  body:not(.has-touch) .sheet-tabs button.is-on::after { content: ''; position: absolute; left: 14px; right: 14px; bottom: 0; height: 3px; background: var(--green); box-shadow: 0 0 14px rgba(102,223,176,0.7); }
+  body:not(.has-touch) .tab-key, body:not(.has-touch) .sheet-foot kbd { display: inline-grid; place-items: center; min-width: 28px; height: 24px; margin: 0 6px; padding: 0 7px; border: 0; border-radius: 5px; box-shadow: none;
+    font: 700 12px/1 var(--sans); color: var(--green-ink); background: var(--green); }
+  body:not(.has-touch) #sheet .sheet-close { position: absolute; top: 43px; right: 80px; width: 38px; height: 38px; }
+  body:not(.has-touch) #sheet .sheet-page { grid-column: 1; grid-row: 2; justify-self: center; width: min(1180px, 100%); min-height: 0; padding: 40px 80px 24px; }
+  body:not(.has-touch) #sheet .sheet-page.page-map { padding: 28px 80px 14px; }
+  body:not(.has-touch) .sheet-foot { grid-column: 1; grid-row: 3; display: flex; justify-content: space-between; margin: 0 80px; padding: 16px 0 26px; border-top: 1px solid rgba(244,248,246,0.16);
+    font: 600 14px var(--sans); color: var(--ink-2); }
+  body:not(.has-touch) .sheet-foot span { display: inline-flex; align-items: center; margin-right: 26px; }
+  body:not(.has-touch) .sheet-foot div:last-child span { margin: 0; }
+  body:not(.has-touch) .sheet-foot kbd { margin: 0 8px 0 0; }
+  body:not(.has-touch) .sheet-foot kbd + kbd { margin-left: -4px; }
+  body:not(.has-touch) #sheet .sheet-page > .seg-tabs { margin: 0 0 22px; max-width: 520px; }
+
+  /* Settings: quick actions, then one dark row per setting */
+  body:not(.has-touch) #settings .quick-actions { max-width: 920px; gap: 6px; margin-bottom: 22px; }
+  body:not(.has-touch) #settings .tile { flex-direction: row; gap: 12px; min-height: 60px; border: 0; border-radius: 0; background: rgba(6,16,14,0.62); box-shadow: none; font: 600 15px var(--sans); }
+  body:not(.has-touch) #settings .tile svg { color: var(--green-hi); }
+  body:not(.has-touch) #settings .tile:hover { background: rgba(22,52,43,0.88); box-shadow: inset 0 -3px 0 var(--green); }
+  body:not(.has-touch) .settings-grid { display: block; max-width: 920px; }
+  body:not(.has-touch) .srow, body:not(.has-touch) .sound-row { display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 60px; margin: 0 0 6px; padding: 0 14px 0 22px;
+    border: 0; border-radius: 0; background: rgba(6,16,14,0.62); transition: background 120ms ease-out, box-shadow 120ms ease-out; }
+  body:not(.has-touch) .srow > label { font: 600 17px var(--sans); color: var(--ink); }
+  body:not(.has-touch) .srow.is-sel, body:not(.has-touch) .sound-row.is-sel { background: rgba(24,58,47,0.9); box-shadow: inset 3px 0 0 var(--green); }
+  body:not(.has-touch) .srow .seg { flex: none; width: 400px; max-width: none; padding: 3px; border: 0; border-radius: 6px; background: rgba(244,248,246,0.07); box-shadow: none; }
+  body:not(.has-touch) .srow .seg button { min-height: 34px; border-radius: 4px; font: 700 14px var(--sans); color: var(--ink-3); }
+  body:not(.has-touch) .srow .seg button:hover:not(.is-on) { color: var(--ink); }
+  body:not(.has-touch) .srow.is-sel .seg button:not(.is-on) { color: var(--ink-2); }
+  body:not(.has-touch) .srow .select-wrap { flex: none; width: 400px; max-width: none; }
+  body:not(.has-touch) .srow.is-sel .month-select { color: var(--green-hi); }
+  body:not(.has-touch) #settings .settings-month { max-width: 920px; margin-top: 22px; }
+  body:not(.has-touch) #settings .credits, body:not(.has-touch) #settings .panel-actions { max-width: 920px; }
+  body:not(.has-touch) .sound-list { max-width: 920px; }
+  body:not(.has-touch) .sound-row { min-height: 72px; }
+  body:not(.has-touch) .sound-row label { flex: 1 1 auto; }
+  body:not(.has-touch) .sound-row input[type=range] { flex: none; width: 400px; }
+  body:not(.has-touch) .sound-row output { flex: none; width: 4em; }
+  body:not(.has-touch) .srow .month-select { border-radius: 6px; border: 0; background-color: rgba(244,248,246,0.07); box-shadow: none; font: 700 15px var(--sans); }
+  /* Not enough room for the name beside the tab bar on smaller laptops. */
+  @media (max-width: 1360px) { body:not(.has-touch) .sheet-brand { display: none; } }
+  /* Rows scroll under the foot and fade out instead of being cut. */
+  body:not(.has-touch) #sheet .sheet-page:not(.page-map) { -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 48px), transparent); mask-image: linear-gradient(180deg, #000 calc(100% - 48px), transparent); padding-bottom: 48px; }
+}
