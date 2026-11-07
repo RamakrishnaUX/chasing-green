@@ -103,7 +103,7 @@ export class Cover {
     this.onResize = () => this.resize();
     addEventListener('resize', this.onResize);
     this.resize();
-    const loop = () => { if (this.done) return; this.render(); this.raf = requestAnimationFrame(loop); };
+    const loop = () => { if (this.done) return; if (!this.paused) this.render(); this.raf = requestAnimationFrame(loop); };
     this.raf = requestAnimationFrame(loop);
   }
 

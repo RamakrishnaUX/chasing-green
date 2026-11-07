@@ -103,7 +103,7 @@
              the left out from the centre, nitro the dip, the Kp the right out from the centre. -->
         <svg class="hx-gauge" viewBox="0 0 700 130" aria-hidden="true">
           <defs>
-            <clipPath id="hx-clip"><polygon points="62.4,0 637.6,0 714.4,130 -14.4,130"/></clipPath>
+            <clipPath id="hx-clip"><polygon points="63.9,0 636.1,0 713.5,130 -13.5,130"/></clipPath>
             <linearGradient id="hx-g-fuel" gradientUnits="userSpaceOnUse" x1="300" y1="0" x2="24" y2="0"><stop offset="0" stop-color="#ff6a50"/><stop offset="0.45" stop-color="#ffbe5c"/><stop offset="1" stop-color="#ffe7a3"/></linearGradient>
             <linearGradient id="hx-g-kp" gradientUnits="userSpaceOnUse" x1="400" y1="0" x2="676" y2="0" spreadMethod="reflect"><stop offset="0" stop-color="#20634c"/><stop offset="0.5" stop-color="#66dfb0"/><stop offset="1" stop-color="#a2f6d3"/>
               <animate attributeName="x1" values="400;676;400" dur="5s" repeatCount="indefinite"/><animate attributeName="x2" values="676;952;676" dur="5s" repeatCount="indefinite"/></linearGradient>
@@ -238,10 +238,9 @@
       <p class="sheet-brand" aria-hidden="true">Chasing <b>Green</b></p>
       <nav class="sheet-tabs" role="tablist" aria-label="Sections">
         <kbd class="tab-key" aria-hidden="true">Q</kbd>
-        <button role="tab" data-page="journey" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M4 19c3-1 4-6 8-6s5 3 8 1M6 7.5a2 2 0 1 0 0-.01M18 5.5l-2 3h4z"/></svg><span>Journey</span></button>
         <button role="tab" data-page="map" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M3.5 6.5l5-2 7 2 5-2v13l-5 2-7-2-5 2zM8.5 4.5v13M15.5 6.5v13"/></svg><span>Map</span></button>
         <button role="tab" data-page="garage" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M5 15.5l1.6-5.2A2 2 0 0 1 8.5 9h7a2 2 0 0 1 1.9 1.3l1.6 5.2M3.5 15.5h17v2.5a1 1 0 0 1-1 1h-15a1 1 0 0 1-1-1z"/></svg><span>Garage</span></button>
-        <button role="tab" data-page="notebook" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M6.5 3.5h10a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2h-10zM6.5 3.5v17M9.5 8h6M9.5 11.5h6"/></svg><span>Notebook</span></button>
+        <button role="tab" data-page="notebook" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M6.5 3.5h10a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2h-10zM6.5 3.5v17M9.5 8h6M9.5 11.5h6"/></svg><span>Journey</span></button>
         <button role="tab" data-page="learn" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M3 15c3-6 6-9 9-9s6 3 9 9M6 18c2-4 4-6 6-6s4 2 6 6"/></svg><span>Learn</span></button>
         <button role="tab" data-page="sound" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9.5a3.5 3.5 0 0 1 0 5M18 7a7 7 0 0 1 0 10"/></svg><span>Sound</span></button>
         <button role="tab" data-page="settings" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M10.3 3h3.4l.5 2.4 1.6.9 2.3-.8 1.7 2.9-1.8 1.6v1.9l1.8 1.6-1.7 2.9-2.3-.8-1.6.9-.5 2.4h-3.4l-.5-2.4-1.6-.9-2.3.8-1.7-2.9L6 12.9V11L4.2 9.4l1.7-2.9 2.3.8 1.6-.9z"/><circle cx="12" cy="12" r="2.8"/></svg><span>Settings</span></button>
@@ -250,8 +249,6 @@
       <button class="icon-btn glass sheet-close" id="sheet-close" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M7 7l10 10M17 7L7 17"/></svg></button>
     </header>
 
-    <!-- Journey: the trip so far -->
-    <section id="journey" class="sheet-page" data-page="journey" hidden aria-label="Journey"><div class="jr" id="journey-body"></div></section>
 
     <!-- Map -->
     <section id="map" class="sheet-page page-map" data-page="map" hidden aria-label="Map">
@@ -300,14 +297,16 @@
     </section>
 
     <!-- Field notebook -->
-    <section id="notebook" class="sheet-page" data-page="notebook" hidden aria-label="Field notebook">
+    <section id="notebook" class="sheet-page" data-page="notebook" hidden aria-label="Journey">
       <div class="seg seg-tabs" role="tablist">
-        <button role="tab" class="tab is-on" aria-selected="true" data-tab="stamps"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 19L10 6l4 7 2-3 5 9z"/></svg>Places <span id="nb-n-places"></span></button>
+        <button role="tab" class="tab is-on" aria-selected="true" data-tab="overview"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19c3-1 4-6 8-6s5 3 8 1"/></svg>Overview</button>
+        <button role="tab" class="tab" aria-selected="false" data-tab="stamps"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 19L10 6l4 7 2-3 5 9z"/></svg>Places <span id="nb-n-places"></span></button>
         <button role="tab" class="tab" aria-selected="false" data-tab="badges"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 4v10l-7 4-7-4V7z"/></svg>Badges <span id="nb-n-badges"></span></button>
         <button role="tab" class="tab" aria-selected="false" data-tab="sightings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17C6 8 10 14 12 9s6-4 9 3"/></svg>Sightings <span id="nb-n-sightings"></span></button>
         <button role="tab" class="tab" aria-selected="false" data-tab="today"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2"/></svg>Today</button>
       </div>
-      <div class="tab-body" data-body="stamps"><ul class="stamps" id="stamps-list"></ul></div>
+      <div class="tab-body" data-body="overview"><div class="jr" id="journey-body"></div></div>
+      <div class="tab-body" data-body="stamps" hidden><ul class="stamps" id="stamps-list"></ul></div>
       <div class="tab-body" data-body="badges" hidden><p class="badges-count" id="badges-count"></p><ul class="badges" id="badges-list"></ul></div>
       <div class="tab-body" data-body="sightings" hidden><ol class="sightings" id="sightings-list"></ol></div>
       <div class="tab-body" data-body="today" hidden><div id="challenge-card" class="challenge-card"></div></div>

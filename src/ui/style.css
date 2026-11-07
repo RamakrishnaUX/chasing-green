@@ -1854,7 +1854,6 @@ body.sky-on .hx-tape, body.sky-on .hx-tape + .hx-caret, body.moment-on .hx-tape 
 .hx-tape { transition: opacity 0.8s; }
 /* Refuel and tow sit just under the fuel gauge, on the left of the cluster. */
 @media (min-width: 1000px) and (min-height: 600px) {
-  body:not(.has-touch).fuel-prompt .hx-cluster { bottom: calc(76px + var(--safe-b)); }
   body:not(.has-touch) .fuel-act { left: calc(50% - min(700px, 100vw - 600px) / 2 + 2%); bottom: calc(22px + var(--safe-b)); transform: none; border-radius: 4px; }
   .hx-cluster { transition: bottom 0.35s ease; }
 }
@@ -1975,7 +1974,40 @@ body.has-touch.pre-start #sheet .sheet-close { top: calc(12px + var(--safe-t)); 
 /* ---------- The band in perspective ----------
    Tilted back like a strip of road seen from the driver's seat: the far edge narrower than the near
    one, every cut and slant foreshortened with it. The faint band below becomes its front edge. */
-.hx-gauge { transform: perspective(640px) rotateX(30deg); transform-origin: 50% 90%; }
+.hx-gauge { transform: none; }
 .hx-band.hx-shadow { fill: rgba(244,248,246,0.1); }
 .hx-gauge .hx-shadow { transform: translate(0, 11px); }
 .hx-band.hx-track { fill: rgba(244,248,246,0.2); }
+
+/* ---------- Settings and close buttons: black with white, not green ---------- */
+#hud #btn-settings, .gx-menu, #sheet .sheet-close, body:not(.has-touch) #sheet .sheet-close, body.has-touch #sheet .sheet-close {
+  color: #fff; background: rgba(0,0,0,0.62); box-shadow: inset 0 0 0 1.5px rgba(255,255,255,0.28); }
+#hud #btn-settings:hover, .gx-menu:hover, #sheet .sheet-close:hover { background: rgba(0,0,0,0.8); box-shadow: inset 0 0 0 1.5px rgba(255,255,255,0.6); }
+
+/* ---------- Start Driving: the fill moves at the button's slant; the button stands up off the page ---------- */
+:is(#intro, #gg) .btn-start .start-fill { transform: none !important;
+  clip-path: polygon(0 0, calc(var(--p, 0) * 106%) 0, calc(var(--p, 0) * 106% - 6%) 100%, 0 100%);
+  transition: clip-path var(--dur, 600ms) linear; }
+/* A raised base under the slanted button (it follows the button's shape), and it presses down. */
+:is(#intro, #gg) .gx-go { filter: drop-shadow(0 7px 0 #1b6a4f) drop-shadow(0 16px 22px rgba(0,0,0,0.55)); transition: filter 120ms ease-out; }
+:is(#intro, #gg) .gx-go:has(.btn-start.is-loading) { filter: drop-shadow(0 7px 0 rgba(20,60,48,0.9)) drop-shadow(0 16px 22px rgba(0,0,0,0.5)); }
+:is(#intro, #gg) .btn-start { transition: transform 120ms ease-out, filter 140ms ease-out; }
+:is(#intro, #gg) .btn-start:not(.is-loading):hover { filter: brightness(1.08); transform: translateY(-1px); }
+:is(#intro, #gg) .gx-go:has(.btn-start:not(.is-loading):active) { filter: drop-shadow(0 2px 0 #1b6a4f) drop-shadow(0 6px 10px rgba(0,0,0,0.5)); }
+:is(#intro, #gg) .btn-start:not(.is-loading):active { transform: translateY(5px) !important; }
+/* A thin light along the top edge, as on a raised key. */
+:is(#intro, #gg) .btn-start:not(.is-loading):not(.is-here) { background-image: linear-gradient(180deg, rgba(255,255,255,0.5) 0, rgba(255,255,255,0) 3px), linear-gradient(180deg, var(--green-hi), #4fc898) !important; }
+#gg .gx-go:has(.is-here) { filter: none; }
+
+/* Refuel and tow on a computer: one line of text under the fuel reading, nothing moves. */
+@media (min-width: 1000px) and (min-height: 600px) {
+  body:not(.has-touch) .hx-side.l .fuel-act { position: static; transform: none; display: inline-flex; align-items: center; gap: 8px; margin-top: 6px; padding: 0; height: auto; min-height: 0;
+    border: 0; border-radius: 0; background: none !important; box-shadow: none !important; -webkit-backdrop-filter: none; backdrop-filter: none; pointer-events: auto; cursor: pointer;
+    font: 700 12px var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: #ffbe5c; white-space: nowrap; animation: none; }
+  body:not(.has-touch) .hx-side.l .fuel-act[hidden] { display: none; }
+  body:not(.has-touch) .hx-side.l .fuel-act svg, body:not(.has-touch) .hx-side.l .fuel-act .fuel-act-fill { display: none; }
+  body:not(.has-touch) .hx-side.l .fuel-act kbd { display: inline-grid; place-items: center; min-width: 20px; height: 18px; padding: 0 5px; border: 0; border-radius: 4px; box-shadow: none; font: 800 11px/1 var(--sans); color: #1a1406; background: #ffbe5c; }
+  body:not(.has-touch) .hx-side.l .fuel-act:hover { color: #ffd690; }
+  body:not(.has-touch) .hx-side.l .fuel-act.is-tow { color: #ff8a6b; } body:not(.has-touch) .hx-side.l .fuel-act.is-tow kbd { background: #ff8a6b; }
+  body:not(.has-touch) .hx-side.l { pointer-events: auto; }
+}

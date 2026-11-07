@@ -87,5 +87,9 @@ export function startAuroraSky(canvas, { start = 40, maxDpr = 1.5 } = {}) {
     raf = requestAnimationFrame(draw);
   };
   draw();
-  return { stop() { running = false; cancelAnimationFrame(raf); gl.getExtension('WEBGL_lose_context')?.loseContext(); } };
+  return {
+    stop() { running = false; cancelAnimationFrame(raf); gl.getExtension('WEBGL_lose_context')?.loseContext(); },
+    pause() { running = false; cancelAnimationFrame(raf); },
+    resume() { if (running) return; running = true; draw(); },
+  };
 }

@@ -1023,7 +1023,7 @@ function updateLandmarks(p) {
 
 // ---------- UI wiring ----------
 const badges = new Badges({ onEarn: (b) => { haptics.play('success', 0); sfx.chime(); track('badge_earned', { badge: b.id }); } });
-const notebook = new Notebook({ onPostcard: (n) => openPostcard(n), getChallenge: () => challenge, badges });
+const notebook = new Notebook({ onPostcard: (n) => openPostcard(n), getChallenge: () => challenge, badges, overview: () => journeyOverview() });
 $('btn-notebook').addEventListener('click', () => notebook.open());
 $('btn-camera').addEventListener('click', cycleView);
 $('btn-mute').addEventListener('click', () => setMuted(!audio.muted));
@@ -1087,19 +1087,13 @@ function openSettings() {
 $('btn-settings').addEventListener('click', openSettings);
 sheet.register('settings', openSettings);
 // Journey: the trip so far at a glance.
-function renderJourney() {
+// Journey's overview: the trip so far, and tonight on the right.
+function journeyOverview() {
   const total = landmarks?.list.length || 57, found = Object.keys(store.data.stamps).filter((id) => !landmarks || landmarks.list.some((l) => l.id === id)).length;
   const lights = store.data.sightings.filter((x) => x.type !== 'Sky' && x.type !== 'Night sky').length;
   const got = Object.keys(store.data.badges || {}).length, rec = store.data.challenges[challenge.key];
   const win = clock.midnightSun ? 'Midnight sun: no aurora this month' : hud.nextWindowText ? `Lights likely around ${hud.nextWindowText}` : `${clock.m.name}: aurora chance ${clock.m.chance.toLowerCase()}`;
-  $('journey-body').innerHTML = `
-    <nav class="jr-rail" aria-label="Journey sections">
-      <button type="button" class="is-on"><svg viewBox="0 0 24 24"><path d="M4 19c3-1 4-6 8-6s5 3 8 1"/></svg>Overview</button>
-      <button type="button" data-go="stamps"><svg viewBox="0 0 24 24"><path d="M3 19L10 6l4 7 2-3 5 9z"/></svg>Places</button>
-      <button type="button" data-go="badges"><svg viewBox="0 0 24 24"><path d="M12 3l7 4v10l-7 4-7-4V7z"/></svg>Badges</button>
-      <button type="button" data-go="sightings"><svg viewBox="0 0 24 24"><path d="M3 17C6 8 10 14 12 9s6-4 9 3"/></svg>Sightings</button>
-    </nav>
-    <div class="jr-mid">
+  const mid = `<div class="jr-mid">
       <div class="jr-hero"><p class="jr-k">Places found</p><p class="jr-big"><b>${found}</b> / ${total}</p><i class="jr-bar"><b style="width:${((found / total) * 100).toFixed(1)}%"></b></i></div>
       <div class="jr-grid">
         <div><p class="jr-k">Aurora sightings</p><b>${lights}</b></div>
@@ -1108,14 +1102,12 @@ function renderJourney() {
         <div><p class="jr-k">Trips</p><b>${store.data.trips || 1}</b></div>
       </div>
       <div class="jr-card"><p class="jr-k">Today's challenge</p><h4>${challenge.title}</h4><p>${challenge.detail}</p><p class="jr-done">${rec?.done ? 'Done. Stamp in your notebook.' : 'Not done yet'}</p></div>
-    </div>
-    <aside class="page-note"><p class="sn-kick">Tonight</p><h4 class="sn-title">${clock.m.name}</h4><p class="sn-text">${win}.</p>
+    </div>`;
+  const note = `<p class="sn-kick">Tonight</p><h4 class="sn-title">${clock.m.name}</h4><p class="sn-text">${win}.</p>
       <div class="sn-three"><div><span>Dark</span><b>${clock.darkHours().toFixed(1)} h</b></div><div><span>Aurora</span><b class="g">${clock.m.chance}</b></div><div><span>Kp now</span><b>${(lastAurora?.kp ?? 0).toFixed(1)}</b></div></div>
-      <p class="sn-tip">${clock.m.tip}</p></aside>`;
-  for (const b of $('journey-body').querySelectorAll('[data-go]')) b.addEventListener('click', () => { sfx.whoosh(); notebook.open(b.dataset.go); });
-  sheet.show('journey');
+      <p class="sn-tip">${clock.m.tip}</p>`;
+  return { mid, note };
 }
-sheet.register('journey', renderJourney);
 sheet.register('notebook', () => notebook.open());
 pcDialog.addEventListener('click', (e) => { if (e.target === pcDialog) pcDialog.close(); });
 $('set-places').addEventListener('change', (e) => {
@@ -1432,6 +1424,9 @@ startBtn.addEventListener('click', () => {
   hud.show();
   syncTouch();
   playOpening();
+  setTimeout(() => { if (!document.getElementById('sheet').open) ggPrewarm(); }, 9000);
+  // On a computer the refuel line sits under the fuel reading, as text, and nothing moves for it.
+  if (!document.body.classList.contains('has-touch')) $('hx-fuelside').append($('fuel-act'));
   if (settings.steering === 'tilt') Input.askTilt().then(applySteering);
   if (isTouch) { touchLayout(); goLandscape(); }
   canvas.focus();
@@ -1809,12 +1804,26 @@ function ggShow(kind, arrive) {
   $('gg-drive-label').textContent = here ? (kind === 'heli' ? 'Flying this' : 'Driving this') : kind === 'heli' ? 'Fly this' : 'Drive this';
   $('gg-drive').classList.toggle('is-here', here);
 }
+// Built once and kept (paused while the page is shut), so the garage opens straight away; it is
+// first made a few seconds into the drive, in the background.
+function ggMake() {
+  if (gg.cover) return;
+  gg.sky = startAuroraSky($('gg-sky'));
+  gg.cover = new Cover($('gg-hero'), { spot: $('gg-spot') });
+}
 function ggOpen() {
   if (!ggDesk()) return;
-  if (!gg.cover) { gg.sky = startAuroraSky($('gg-sky')); gg.cover = new Cover($('gg-hero'), { spot: $('gg-spot') }); }
-  ggShow(ggCurrent(), false);
+  ggMake();
+  gg.cover.paused = false; gg.sky.resume?.();
+  if (gg.kind !== ggCurrent() || !gg.cover.car) ggShow(ggCurrent(), false); else ggShow(gg.kind, false);
 }
-function ggClose() { gg.cover?.dispose(); gg.sky?.stop(); gg.cover = gg.sky = null; }
+function ggClose() { if (gg.cover) gg.cover.paused = true; gg.sky?.pause?.(); }
+function ggPrewarm() {
+  ggMake();
+  ggShow(ggCurrent(), false);
+  // Draw it once out of sight so its shaders are ready, then rest.
+  requestAnimationFrame(() => { try { gg.cover.render(); } catch { /* ignore */ } ggClose(); });
+}
 function ggStep(d) {
   const i = COVER_ORDER.indexOf(gg.kind);
   haptics.play('light');

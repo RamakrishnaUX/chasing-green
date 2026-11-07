@@ -141,14 +141,12 @@ export class Hud {
     // The ribbon is one band (index.html). Each fill is that band cut by two lines at the band's
     // own slant, the same as its ends: one fixed where the part starts, one moving with the value.
     // Left of centre the lines lean one way, right of centre the other.
-    // The band's height and its slope (smoothed through the bends), so a cut on the incline keeps
-    // the same angle to the band as it has on the flat.
-    const slope = (x) => (mid(x + 14) - mid(x - 14)) / 28;
+    // Perspective: every cut across the band (its ends, each fill's start and its moving edge) is a
+    // line running to one vanishing point above the middle, like the edges of a road. Near the ends
+    // they lean in hard; near the centre they stand almost upright.
+    const VX = 350, VY = -480;
     const mid = (x) => x <= 232 || x >= 468 ? 67 : x >= 286 && x <= 414 ? 107 : x < 286 ? 67 + (x - 232) / 54 * 40 : 107 - (x - 414) / 54 * 40;
-    const cut = (x, k) => {
-      const t = Math.atan(slope(x)), c = Math.cos(t), sn = Math.sin(t), vx = k * c - sn, vy = k * sn + c;
-      return (y) => (x + (vx / vy) * (y - mid(x))).toFixed(1);
-    };
+    const cut = (x) => { const y0 = mid(x), k = (x - VX) / (y0 - VY); return (y) => (x + k * (y - y0)).toFixed(1); };
     const PARTS = { 'hx-fuelbar': [300, 24, -0.6], 'hx-nitro-l': [350, 300, -0.6, 0], 'hx-nitro-r': [350, 400, 0.6, 0], 'hx-kpbar': [400, 676, 0.6] };
     const dash = (el, f) => {
       f = Math.max(0, Math.min(1, f));
@@ -158,14 +156,17 @@ export class Hud {
       const poly0 = el._poly ??= document.querySelector(`${el.getAttribute('clip-path').slice(4, -1)} polygon`);
       // Nitro: one piece in the dip, widening from the centre to both sides, each side at its slant.
       if (el.id === 'hx-nitro-l') {
-        const w = 10 + 40 * f, L = (y) => (350 - w - 0.6 * (y - 107)).toFixed(1), R = (y) => (350 + w + 0.6 * (y - 107)).toFixed(1);
+        const w = 4 + 46 * f, L = cut(350 - w), R = cut(350 + w);
         poly0.setAttribute('points', `${L(-20)},-20 ${R(-20)},-20 ${R(150)},150 ${L(150)},150`);
         return;
       }
-      const [from, to, k, kFrom = k] = PARTS[el.id], lead = from + (to - from) * f;
-      const a = cut(from, kFrom), b = cut(lead, k);
+      const [from, to] = PARTS[el.id], lead = from + (to - from) * f;
+      const a = cut(from), b0 = cut(lead), dir = Math.sign(to - from), y0 = mid(lead);
+      // The tip bows out toward the side it is filling, most at the band's middle, like a wave front.
+      const b = (y) => (+b0(y) + dir * 7 * Math.max(0, 1 - ((y - y0) / 16) ** 2)).toFixed(1);
       const poly = el._poly ??= document.querySelector(`${el.getAttribute('clip-path').slice(4, -1)} polygon`);
-      poly.setAttribute('points', `${a(-20)},-20 ${b(-20)},-20 ${b(150)},150 ${a(150)},150`);
+      const tip = [y0 - 20, y0 - 15, y0 - 10, y0 - 5, y0, y0 + 5, y0 + 10, y0 + 15, y0 + 20].map((y) => `${b(y)},${y}`).join(' ');
+      poly.setAttribute('points', `${a(-20)},-20 ${b(-20)},-20 ${tip} ${b(150)},150 ${a(150)},150`);
     };
     const nb = (s.nitro || 0) * ramp(1.5, 0.9);
     dash(h['nitro-l'], nb); h['nitro-r'].style.display = 'none';

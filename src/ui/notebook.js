@@ -42,7 +42,8 @@ export function stampSvg(label, glyph, got, id) {
 const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 export class Notebook {
-  constructor({ onPostcard, getChallenge, badges }) {
+  constructor({ onPostcard, getChallenge, badges, overview }) {
+    this.overview = overview;
     this.badges = badges;
     this.dialog = document.getElementById('notebook');
     this.list = document.getElementById('sightings-list');
@@ -66,6 +67,7 @@ export class Notebook {
   note(name) {
     if (name === 'badges') return;
     const el = document.getElementById('nb-detail');
+    if (name === 'overview') { el.innerHTML = this.overview?.().note || ''; return; }
     const got = Object.keys(store.data.stamps).filter((id) => LANDMARKS.some((l) => l.id === id)).length;
     const n = store.data.sightings.length, lights = store.data.sightings.filter((x) => x.type !== 'Sky' && x.type !== 'Night sky').length;
     const k = (t) => `<p class="sn-kick">${t}</p>`;
@@ -82,7 +84,7 @@ export class Notebook {
     if (this.badges) document.getElementById('nb-detail').innerHTML = this.badges.detail(li.dataset.id);
   }
 
-  open(tab = this.last || 'stamps') { this.render(); this.tab(tab); this.dialog.showModal(); }
+  open(tab = this.last || 'overview') { this.render(); this.tab(tab); this.dialog.showModal(); }
 
   nextTab() {
     const tabs = [...this.dialog.querySelectorAll('.tab')].filter((t) => t.offsetParent).map((t) => t.dataset.tab);
@@ -91,6 +93,7 @@ export class Notebook {
   }
 
   render() {
+    if (this.overview) document.getElementById('journey-body').innerHTML = this.overview().mid;
     const sightings = [...store.data.sightings].reverse();
     if (!sightings.length) {
       this.list.innerHTML = '<li class="empty">No sightings yet. When the radio says the aurora is active, find a dark spot away from town and look up for a few seconds.</li>';
