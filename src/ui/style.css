@@ -112,6 +112,8 @@ svg { overflow: visible; }
 /* ---------- HUD ---------- */
 #hud { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
 #hud > * { pointer-events: auto; }
+#hud > .mo-edge, #hud > .moment, #hud > .badge-pop { pointer-events: none; }
+#hud > .moment .mo-act { pointer-events: auto; }
 #hud > .touch, #hud > .hud-tl, #hud > .lookup-meter { pointer-events: none; }
 .hud-tl { position: absolute; top: calc(14px + var(--safe-t)); left: calc(14px + var(--safe-l)); display: flex; gap: 10px; align-items: flex-start; }
 .compass { width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; }
