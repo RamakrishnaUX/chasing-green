@@ -24,6 +24,8 @@ const EYES = [new THREE.Vector3(), new THREE.Vector3()];
 // shy: how close someone walking gets before they amble a few steps away. stride: ground covered in
 // one walk cycle, so far-off ones step in time. body: half its length and its girth, in metres,
 // which nobody on foot walks through. A horse flees in a fast tölt.
+// Eyeshine colours by animal.
+const EYESHINE = { fox: [0.55, 1.1, 0.3], sheep: [0.6, 1.0, 0.55], horse: [0.35, 0.95, 0.85], reindeer: [0.3, 0.55, 1.2] };
 const HERD = {
   sheep: { cap: 140, walk: 0.8, run: 3.2, flee: 14, shy: 5, stride: 0.42, body: [0.55, 0.32],
     looks: [[0xf1ece0, 0xe9e4d9], [0xf1ece0, 0xe9e4d9], [0xf1ece0, 0xe9e4d9], [0xf1ece0, 0x2e2824], [0x2a2522, 0x1e1a18], [0x6d4c33, 0x4b3322], [0x9a948b, 0x3b3633]] },
@@ -57,8 +59,8 @@ export class Wildlife {
       const gr = g.createRadialGradient(8, 8, 0, 8, 8, 8); gr.addColorStop(0, '#fff'); gr.addColorStop(0.35, 'rgba(255,255,255,0.8)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
       g.fillStyle = gr; g.fillRect(0, 0, 16, 16);
       const geo = new THREE.BufferGeometry();
-      geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(28 * 3), 3));
-      geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(28 * 3), 3));
+      geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(120 * 3), 3));
+      geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(120 * 3), 3));
       this.eyes = new THREE.Points(geo, new THREE.PointsMaterial({ size: 10, sizeAttenuation: false, vertexColors: true, map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
       this.eyes.frustumCulled = false;
       scene.add(this.eyes);
@@ -334,13 +336,17 @@ export class Wildlife {
       else if (list.length) this.rigs.drawHerd(sp, list, dt, G.cap);
       else this.rigs.hideHerd(sp);
       for (const a of list) {
-        // Eyeshine: a fox caught in the headlights looks back with two bright green-gold eyes.
-        if (sp === 'fox' && eye < 26 && this.rigs.eyesAt('fox', a, EYES)) {
-          const fx = a.x - pos.x, fz = a.z - pos.z, fd = Math.hypot(fx, fz) || 1;
-          const inBeam = car ? clamp(((fx * hx + fz * hz) / fd - 0.85) / 0.12, 0, 1) * (1 - clamp((fd - 25) / 60, 0, 1)) : 0;
+        // Eyeshine: an animal caught in the headlights looking back shows two bright points, each
+        // in its own colour (the mirror behind the retina): green-gold for a fox, pale green for a
+        // sheep, blue-green for a horse, and a reindeer's turn deep blue in the winter dark.
+        // Full beam reaches twice as far down the road.
+        const tint = EYESHINE[sp];
+        if (tint && eye < 118 && a.dist < 200 && this.rigs.eyesAt(sp, a, EYES)) {
+          const fx = a.x - pos.x, fz = a.z - pos.z, fd = Math.hypot(fx, fz) || 1, reach = ctx.highBeam ? 150 : 70;
+          const inBeam = car ? clamp(((fx * hx + fz * hz) / fd - (ctx.highBeam ? 0.9 : 0.85)) / 0.1, 0, 1) * (1 - clamp((fd - reach * 0.4) / (reach * 0.6), 0, 1)) : 0;
           const look = Math.max(0, Math.cos(Math.atan2(-fx, -fz) - a.heading - (a.hy || 0)));
           const glow = Math.min(1.5, inBeam * look * dark * 3);
-          for (const e of EYES) { ep.setXYZ(eye, e.x, e.y, e.z); ec.setXYZ(eye, 0.55 * glow, 1.1 * glow, 0.3 * glow); eye++; }
+          if (glow > 0.02) for (const e of EYES) { ep.setXYZ(eye, e.x, e.y, e.z); ec.setXYZ(eye, tint[0] * glow, tint[1] * glow, tint[2] * glow); eye++; }
         }
         if (this.rigs.ready(sp)) this.noticed(sp, a.x, a.y + 0.6, a.z, ctx, 90);
       }

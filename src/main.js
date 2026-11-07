@@ -12,7 +12,7 @@ import { carThumbs, resetCarThumbs } from './ui/carthumbs.js';
 import { Props } from './world/props.js';
 import { Towns } from './world/towns.js';
 import { Obstacles } from './world/obstacles.js';
-import { Puddles, Particles, SnowFall } from './world/effects.js';
+import { Puddles, Particles, SnowFall, RainFall, Windscreen } from './world/effects.js';
 import { MapUI } from './ui/minimap.js';
 import { Cover } from './ui/cover.js';
 import { startAuroraSky } from './ui/auroraSky.js';
@@ -124,7 +124,7 @@ const volumes = settings.volumes || (settings.volumes = { master: 1, music: sett
 audio.setLevels(volumes);
 
 let world = null, sky, aurora, landmarks, jeep, walker, heli, diver, scatter, grass, props, post = null;
-let obstacles, puddles, spray, boatWater, waterFx, washDust, wildlife, dust, powder, powderCloud, mapUI, towns, snow, nav, stations, stationSites = [];
+let obstacles, puddles, spray, boatWater, waterFx, washDust, rain, windscreen, wetness = 0, forceRain = null, wildlife, dust, powder, powderCloud, mapUI, towns, snow, nav, stations, stationSites = [];
 let lastPostState = { aurora: 0, dark: 0 };
 const snowNoise = createNoise2D(4040);
 let wasInPuddle = false, wasInWater = false, shake = 0, sitting = false, sitSpeedBefore = 1, camHeading = null;
@@ -164,15 +164,35 @@ function applyPixelRatio() {
   renderer.setSize(innerWidth, innerHeight, false);
   post?.setSize();
 }
+// Changing the pixel ratio or the quality wipes the canvas and the next frame can take a while
+// (a resize, a rebuilt pipeline, shaders to compile), which showed as a flash of black. Instead,
+// the frame on screen is copied to a still that covers the canvas while the change is made, then
+// fades away once new frames are coming through.
+let frameHold = null;
+function holdFrame(change) {
+  const c = renderer.domElement;
+  if (!world || !started || frameHold || !c.width) { change(); return; }
+  const o = document.createElement('canvas');
+  o.width = c.width; o.height = c.height; o.className = 'frame-hold';
+  try {
+    if (post) post.render(clock.realSeconds, lastPostState); else renderer.render(scene, camera);
+    o.getContext('2d').drawImage(c, 0, 0);
+  } catch { change(); return; }
+  c.after(o); frameHold = o;
+  change();
+  let n = 0;
+  const wait = () => { if (++n < 6) { requestAnimationFrame(wait); return; } o.classList.add('is-gone'); setTimeout(() => { o.remove(); frameHold = null; }, 450); };
+  requestAnimationFrame(wait);
+}
 function adaptResolution(fps) {
   const now = performance.now();
   if (fps < (isTouch ? 26 : 48) && resScale > RES_MIN) {
     resScale = Math.max(RES_MIN, Math.round((resScale - 0.15) * 100) / 100);
     lastResDrop = now;
-    applyPixelRatio();
+    holdFrame(applyPixelRatio);
   } else if (fps > (isTouch ? 29 : 57) && resScale < 1 && now - lastResDrop > 20000) {
     resScale = Math.min(1, Math.round((resScale + 0.1) * 100) / 100);
-    applyPixelRatio();
+    holdFrame(applyPixelRatio);
   }
 }
 
@@ -220,12 +240,13 @@ async function buildWorld(progress) {
   await stage('Placing landmarks', 0.67, 220);
   // Pads under built landmarks, by kind (radius in world units). Natural sites keep their shape.
   const PAD = { building: 32, town: 30, sculpture: 12, pool: 26, geothermal: 24, cave: 16, bridge: 18, waterfall: 34, geyser: 18, wreck: 18, stadium: 80 };
-  landmarks = new Landmarks(scene, { quality: qualityName, beforeBake: (root, lm) => naturalize(root, lm.kind), beforeBuild: (list) => {
+  landmarks = new Landmarks(scene, { quality: qualityName, defer: true, beforeBake: (root, lm) => naturalize(root, lm.kind), beforeBuild: (list) => {
     const pads = list.filter((l) => PAD[l.kind] && l.id !== 'seydisfjordur').map((l) => ({ x: l.x, z: l.z, r: l.id === 'hallgrimskirkja' ? 58 : PAD[l.kind], cap: l.id === 'hallgrimskirkja' || l.id === 'laugavegur' ? 2.5 : null }));
     // Fuel stations beside the Ring Road get level forecourts too.
     stationSites = siteStations(list);
     flattenPads(pads.concat(stationSites.map((s) => s.pad)), world.mesh);
   } });
+  await landmarks.buildAll(() => new Promise((r) => setTimeout(r, 0)));
   landmarks.onEvent = (type, lm) => {
     const pp = activePos(), d = Math.hypot(pp.x - lm.x, pp.z - lm.z);
     if (d > 160 || !started) return;
@@ -259,6 +280,8 @@ async function buildWorld(progress) {
   stations = new Stations(scene, stationSites, { obstacles });
   towns = new Towns(scene, { landmarks: landmarks.list, obstacles, scale: qualityName === 'low' ? 0.6 : 1, clear: stationSites.map((st) => ({ x: st.pad.x, z: st.pad.z, r: 34 })).concat(landmarks.list.filter((l) => l.kind === 'stadium').map((l) => ({ x: l.x, z: l.z, r: 84 }))) });
   snow = new SnowFall(scene, qualityName === 'low' ? 900 : 2200);
+  rain = new RainFall(scene, qualityName === 'low' ? 1300 : 2800);
+  windscreen = new Windscreen($('rain-glass'));
   puddles = new Puddles(scene, qualityName === 'low' ? 100 : 180);
   spray = new Particles(scene, { count: qualityName === 'low' ? 260 : 600, color: 0xe6f0f4, size: 0.5, opacity: 0.75, gravity: 9.5, drag: 1.2 });
   boatWater = new BoatWater(scene, { low: qualityName === 'low' });
@@ -779,6 +802,15 @@ canvas.addEventListener('wheel', (e) => {
 
 // C or the view button: Chase, Hood, Cockpit in turn. On foot it gets you back in the car.
 const VIEW_TOASTS = { chase: 'Chase view.', hood: 'Hood view.', cockpit: 'Cockpit view. Drag to look around.' };
+// Dipped or full beam (B, or the beam button on a phone at night).
+function toggleBeam() {
+  if (ride !== 'car') return;
+  jeep.highBeam = !jeep.highBeam;
+  $('t-beam')?.setAttribute('aria-pressed', String(jeep.highBeam));
+  hud.toast(jeep.highBeam ? 'Full beam.' : 'Dipped beam.', { seconds: 1.4, priority: 2 });
+  sfx.tick?.();
+}
+$('t-beam')?.addEventListener('click', () => toggleBeam());
 function cycleView() {
   if (mode === 'sky') { skyView = skyView === 'eyes' ? 'chase' : 'eyes'; hud.toast(skyView === 'eyes' ? 'Through your own eyes. Drag to look around.' : 'Chase view.', { seconds: 2, priority: 2 }); return; }
   if (mode === 'walk') { getIn(); return; }
@@ -1232,7 +1264,7 @@ $('set-haptics').addEventListener('change', (e) => {
   haptics.enabled = settings.haptics !== 'off';
   haptics.play('medium');
 });
-$('set-quality').addEventListener('change', (e) => { setQuality(e.target.value, true); track('setting_change', { setting: 'graphics', setting_value: e.target.value }); });
+$('set-quality').addEventListener('change', (e) => { holdFrame(() => setQuality(e.target.value, true)); track('setting_change', { setting: 'graphics', setting_value: e.target.value }); });
 function setQuality(name, save) {
   qualityName = name; Q = qualityFor(name);
   renderer.setPixelRatio(Math.min(devicePixelRatio, Q.pixelRatio) * resScale);
@@ -1548,6 +1580,7 @@ addEventListener('keydown', (e) => {
   else if (k === 'h') learn.open();
   else if (k === 'f') fuelAction();
   else if (k === 'k') $('radio').classList.toggle('is-open');
+  else if (k === 'b') toggleBeam();
 });
 
 // ---------- Learn, sitting, nitro option ----------
@@ -2219,12 +2252,19 @@ function frame(now) {
   if (HD.on) updateAtmosphere(sunDir, surfaceUniforms.uSunUp.value);
   surfaceUniforms.uSunUp.value = smoothstep(-2, 8, clock.sunElevation()) * (1 - dark);
   surfaceUniforms.uTime.value = t;
-  if (postReflectorMat) postReflectorMat.emissiveIntensity = dark * 0.8;
+  if (postReflectorMat) {
+    postReflectorMat.emissiveIntensity = dark * 0.8;
+    const B = postReflectorMat.userData.beam, inCar = ride === 'car' && mode !== 'walk' && mode !== 'sky';
+    B.uBeam.value = inCar ? dark : 0; B.uReach.value = jeep.highBeam ? 190 : 90;
+    B.uCarPos.value.copy(jeep.pos); B.uCarDir.value.set(Math.sin(jeep.heading), Math.cos(jeep.heading));
+  }
+  // The beam button shows on phones once it is dark enough for headlights.
+  { const tb = $('t-beam'); if (tb) tb.hidden = !(ride === 'car' && dark > 0.35 && mode === 'chase'); }
   if (lakeMat) lakeMat.emissive.copy(aurora.tint).multiplyScalar(auroraVisSmoothed * 0.1 * dark);
 
   landmarks.update(dt, t, { wind: w, dark, auroraTint: aurora.tint, auroraVis: auroraVisSmoothed, player: p });
   // Wildlife, and a word about each species the first time you see it.
-  for (const sp of wildlife.update(paused ? 0 : dt, { pos: p, car: ride === 'heli' ? null : jeep, camera, clock, dark, walking: mode === 'walk', walkSpeed: walker.speedSmooth })) {
+  for (const sp of wildlife.update(paused ? 0 : dt, { pos: p, car: ride === 'heli' ? null : jeep, camera, clock, dark, highBeam: !!jeep.highBeam, walking: mode === 'walk', walkSpeed: walker.speedSmooth })) {
     const seen = store.data.wildlife || (store.data.wildlife = {});
     if (seen[sp]) continue;
     seen[sp] = new Date().toISOString(); store.save();
@@ -2239,6 +2279,18 @@ function frame(now) {
   const inside = mode === 'chase' && driveView === 'cockpit';
   snow.update(dt, camera, snowTarget, w, inside ? jeep.interior.views.cockpit.snowFade ?? 0.6 : 0.4);
   if (snow.intensity > 0.02) { sky.fog.density += snow.intensity * 0.0012; sky.fog.color.lerp(new THREE.Color(0xd9dfe4), snow.intensity * 0.5); }
+  // Rain: under thick cloud, in drifting bands of showers, where it is not cold enough to snow.
+  // The ground gets wet within half a minute of rain and takes a few minutes to dry.
+  const rainBand = snowNoise(p.x * 0.0018 - clock.realSeconds * 0.005 + 40, p.z * 0.0018 + 17) * 0.5 + 0.5;
+  let rainTarget = a.cloud > 0.55 ? clamp((rainBand - 0.42) * 3.2, 0, 1) * clamp((a.cloud - 0.55) * 4, 0, 1) * (1 - clamp(snowTarget * 2, 0, 1)) : 0;
+  if (forceRain != null) rainTarget = forceRain;
+  rain.update(paused ? 0 : dt, camera.position, rainTarget, w, inside ? 1.4 : 0.5, 1 - dark * 0.8, (x, z) => waterAt(x, z) ?? heightAt(x, z));
+  const R = rain.intensity;
+  wetness = clamp(wetness + (R > 0.05 ? dt / 25 : -dt / 200), 0, 1);
+  surfaceUniforms.uRain.value = R; surfaceUniforms.uWet.value = wetness;
+  puddles.update(t, R);
+  if (R > 0.02) { sky.fog.density += R * 0.0007; sky.fog.color.lerp(new THREE.Color(0x8d969e), R * 0.35); }
+  windscreen.update(paused ? 0 : dt, R, jeep.speed, inside && ride === 'car' && jeep.boat < 0.5 && started);
   // Up in the helicopter the air between you and the land thins out: the haze is in the lowest
   // few hundred metres, so the farther coast stays in view.
   if (mode === 'fly' || mode === 'sky') sky.fog.density /= 1 + Math.max(0, camera.position.y - Math.max(0, heightAt(camera.position.x, camera.position.z)) - 60) / 220;
@@ -2248,7 +2300,6 @@ function frame(now) {
   const wash = rotorWash(dt);
   grass?.update(camera, w, mode === 'walk' || mode === 'sky' ? null : ride === 'heli' ? (heli.landed ? { x: heli.pos.x, z: heli.pos.z, r: 3.2 } : null) : { x: jeep.pos.x, z: jeep.pos.z, r: jeep.model.bike ? 1.1 : 2.3 }, wash);
   waterFx?.update(paused ? 0 : dt, camera, renderer.domElement.height, 1 - dark * 0.85, wash?.onWater ? wash : null);
-  puddles?.update(t);
   scatter?.hdRocks?.update(dt, camera.position);
   props?.setNight(dark);
   towns?.setNight(dark);
@@ -2294,7 +2345,7 @@ function frame(now) {
     }
     void near;
   }
-  audio.update(dt, { heli: ride === 'heli' ? { rpm: heli.rpm, load: heli.thrust / 9.81, inside: mode === 'fly' && driveView === 'cockpit', near: mode === 'walk' ? Math.hypot(walker.pos.x - heli.pos.x, walker.pos.z - heli.pos.z) : mode === 'sky' ? Math.max(1, diver.pos.distanceTo(heli.pos)) : 0 } : null, speed: mode === 'walk' ? 0 : mode === 'sky' ? diver.speed : ride === 'heli' ? heli.speed * 0.5 : jeep.speed, wind: w.strength, exposure: exposureAt(p.x, p.z), waterProx, iceProx, inCar: mode !== 'walk' && mode !== 'sky' && started, wade: mode === 'walk' || mode === 'sky' ? 0 : jeep.wadeLevel || 0, nitro: mode !== 'walk' && mode !== 'sky' && jeep.boosting, throttle: mode === 'chase' ? input.throttle : 0, voice: ride === 'car' ? jeep.spec.engine?.voice : null, surface: jeep.surface, grounded: !jeep.air, gear: ride === 'car' ? jeep.gear || 0 : 0, shifting: ride === 'car' && !!jeep.shifting, boat: ride === 'car' && mode !== 'walk' && mode !== 'sky' ? Math.max(0, Math.min(1, (jeep.boat - 0.4) / 0.4)) : 0 });
+  audio.update(dt, { heli: ride === 'heli' ? { rpm: heli.rpm, load: heli.thrust / 9.81, inside: mode === 'fly' && driveView === 'cockpit', near: mode === 'walk' ? Math.hypot(walker.pos.x - heli.pos.x, walker.pos.z - heli.pos.z) : mode === 'sky' ? Math.max(1, diver.pos.distanceTo(heli.pos)) : 0 } : null, speed: mode === 'walk' ? 0 : mode === 'sky' ? diver.speed : ride === 'heli' ? heli.speed * 0.5 : jeep.speed, wind: w.strength, exposure: exposureAt(p.x, p.z), waterProx, iceProx, inCar: mode !== 'walk' && mode !== 'sky' && started, wade: mode === 'walk' || mode === 'sky' ? 0 : jeep.wadeLevel || 0, nitro: mode !== 'walk' && mode !== 'sky' && jeep.boosting, throttle: mode === 'chase' ? input.throttle : 0, voice: ride === 'car' ? jeep.spec.engine?.voice : null, surface: jeep.surface, grounded: !jeep.air, gear: ride === 'car' ? jeep.gear || 0 : 0, shifting: ride === 'car' && !!jeep.shifting, rain: rain?.intensity || 0, boat: ride === 'car' && mode !== 'walk' && mode !== 'sky' ? Math.max(0, Math.min(1, (jeep.boat - 0.4) / 0.4)) : 0 });
 
   if (started) {
     if (jeep.warning && mode !== 'walk' && mode !== 'sky') hud.toast(jeep.warning, { seconds: 2.5, priority: 1 });
@@ -2359,7 +2410,7 @@ function frame(now) {
     if (started && !paused) adaptResolution(fps);
     if (started && fps < (isTouch ? 24 : 40) && resScale <= RES_MIN && !autoDowngraded && !settings.quality && qualityName !== 'low') {
       autoDowngraded = true;
-      setQuality(qualityName === 'high' ? 'medium' : 'low', false);
+      holdFrame(() => setQuality(qualityName === 'high' ? 'medium' : 'low', false));
       settings.autoQuality = qualityName; store.save();
       track('graphics_auto_lowered', { to: qualityName, fps: Math.round(fps) });
       hud.toast('Lowered graphics quality to keep things smooth, and it stays lower next time. You can change it in Settings.', { seconds: 5 });
@@ -2446,6 +2497,8 @@ window.chasingGreen = {
   snowAt: (x, z) => snowAt(x, z),
   waterLevelAt: (x, z) => waterLevelAt(x, z),
   get kerid() { return KERID; },
+  // Make it rain (0 to 1), or null to let the weather decide.
+  set rain(v) { forceRain = v; }, get rain() { return rain?.intensity || 0; }, get wetness() { return wetness; }, set wetness(v) { wetness = v; },
   poolAt: (x, z) => poolAt(x, z), get pools() { return poolSurfaces; },
   get bridges() { return bridges; },
   get jumps() { return JUMPS; },

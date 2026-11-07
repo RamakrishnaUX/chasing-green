@@ -1266,6 +1266,20 @@ function buildPosts(scene, posts) {
   tipGeo.translate(0, 1.04, 0);
   const postMat = new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0,  color: 0xe0b324 });
   postReflectorMat = new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0,  color: 0x1a1a1a, emissive: 0xfff2d0, emissiveIntensity: 0 });
+  // Reflectors send headlight back toward the car: faint at night on their own, blazing where
+  // the beam falls on them, further down the road on full beam (main.js sets the uniforms).
+  postReflectorMat.userData.beam = { uCarPos: { value: new THREE.Vector3(0, -1e5, 0) }, uCarDir: { value: new THREE.Vector2(0, 1) }, uReach: { value: 90 }, uBeam: { value: 0 } };
+  postReflectorMat.onBeforeCompile = (sh) => {
+    Object.assign(sh.uniforms, postReflectorMat.userData.beam);
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vRWp;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvRWp = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 vRWp; uniform vec3 uCarPos; uniform vec2 uCarDir; uniform float uReach; uniform float uBeam;')
+      .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+        vec2 dd = vRWp.xz - uCarPos.xz; float dist = max(length(dd), 0.01);
+        float cone = smoothstep(0.82, 0.95, dot(dd / dist, uCarDir));
+        float lit = cone * (1.0 - smoothstep(uReach * 0.45, uReach, dist)) * uBeam;
+        totalEmissiveRadiance *= 0.22 + lit * 4.0;`);
+  };
   const a = new THREE.InstancedMesh(postGeo, postMat, posts.length);
   const b = new THREE.InstancedMesh(tipGeo, postReflectorMat, posts.length);
   const m = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), sc = new THREE.Vector3(1, 1, 1), v = new THREE.Vector3();

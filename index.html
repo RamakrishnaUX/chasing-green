@@ -36,6 +36,7 @@
 </head>
 <body>
   <canvas id="game" aria-label="Chasing Green game view"></canvas>
+  <canvas id="rain-glass" class="rain-glass" aria-hidden="true" hidden></canvas>
 
   <!-- Intro -->
   <section id="intro" class="screen" aria-labelledby="intro-title">
@@ -217,6 +218,7 @@
       <div class="touch-right">
         <button class="pad pad-small pad-jump" id="t-jump" aria-label="Jump out with a parachute" hidden><svg viewBox="0 0 24 24"><path d="M3.5 11.5a8.5 7 0 0 1 17 0"/><path d="M3.5 11.5L12 19l8.5-7.5M8.2 11.5L12 19l3.8-7.5"/></svg><span>Jump</span></button>
         <button class="pad pad-small" id="t-sit" aria-label="Sit down" aria-pressed="false" hidden><svg viewBox="0 0 24 24"><path d="M7 4v8h8l2 7M7 12v7"/></svg><span>Sit</span></button>
+        <button class="pad pad-small" id="t-beam" aria-label="Full beam" aria-pressed="false" hidden><svg viewBox="0 0 24 24"><path d="M9 6c-4 0-6 3-6 6s2 6 6 6c2 0 3-2 3-6s-1-6-3-6zM15 8h6M15 12h6M15 16h6"/></svg><span>Beam</span></button>
         <button class="pad pad-look" id="t-look" aria-label="Look up at the sky" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></svg><span>Look</span></button>
         <button class="pad pad-brake" id="t-brake" aria-label="Brake. Keep holding to reverse"><svg class="ico-brake" viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="2.6" class="fill"/></svg><svg class="ico-rev" viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></svg><span class="lbl-brake">Brake</span><span class="lbl-rev">Reverse</span><small class="pad-sub">&amp; reverse</small></button>
         <button class="pad pad-gas" id="t-gas" aria-label="Go. Hold to drive, slide up for nitro"><i class="go-ring" aria-hidden="true"></i><i class="go-hint" aria-hidden="true"></i><svg viewBox="0 0 24 24"><path d="M6.6 4.9v14.2a1 1 0 0 0 1.53.85l10.3-7.1a1 1 0 0 0 0-1.7L8.13 4.05A1 1 0 0 0 6.6 4.9z" class="fill"/></svg></button>

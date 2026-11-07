@@ -271,8 +271,11 @@ export class AudioEngine {
       if (on && this.gear > was && throttle > 0 && Math.random() < P.upshift) this.pop(V, 0.5);
       if (on && this.gear < was && throttle <= 0 && Math.random() < P.chance) this.popsLeft = Math.max(this.popsLeft, 1 + (Math.random() < 0.5 ? 1 : 0));
     }
-    const load = Math.max(0, throttle) + (nitro ? 0.4 : 0);
-    const rpm = Math.min(V.red * 1.04, speed < 0.4 ? V.idle + load * (V.red - V.idle) * 0.15 : Math.max(V.idle * 1.5, V.red * speed / T[this.gear - 1]) + load * 250);
+    // Changing down: a quick blip of the throttle to match the revs, heard as a short rise.
+    if (this.gear < was && speed > 3) this.blipT = t;
+    const blip = t - (this.blipT ?? -9) < 0.2 ? 1 - (t - this.blipT) / 0.2 : 0;
+    const load = Math.max(0, throttle) + (nitro ? 0.4 : 0) + blip * 0.7;
+    const rpm = Math.min(V.red * 1.04, (speed < 0.4 ? V.idle + load * (V.red - V.idle) * 0.15 : Math.max(V.idle * 1.5, V.red * speed / T[this.gear - 1]) + load * 250) * (1 + 0.16 * blip));
     const dip = shifting || (!gear && t - this.shiftT < 0.11) ? 0.6 : 1;
     const R = this.recSrc ? V.rec : null, lp = R ? R.lp : V.lp;
     if (R) this.recMix(t, rpm); else if (this.engHeads) this.headMix(this.engHeads, rpm / V.ref, this.engSrc.buffer.duration, t);
@@ -430,7 +433,26 @@ export class AudioEngine {
     }
   }
 
-  update(dt, { speed, wind, exposure, waterProx, iceProx, inCar, wade = 0, nitro = false, heli = null, throttle = 0, voice = null, surface = 'paved', grounded = true, boat = 0, gear = 0, shifting = false }) {
+  // Rain (recordings in public/sounds/water, credited in the README): falling all round you
+  // outside, and drumming on the roof when you are in a vehicle, where the rain outside is
+  // muffled by the glass.
+  rainUpdate(t, level, inCar) {
+    if (level > 0.01 && !this.rainLoad) {
+      this.rainLoad = Promise.all(['rain', 'rain_car'].map((f) => fetch(`${import.meta.env.BASE_URL}sounds/water/${f}.wav`).then((r) => r.arrayBuffer()).then((b) => this.ctx.decodeAudioData(b))))
+        .then(([out, roof]) => {
+          const mk = (buf, filter) => { const s = this.ctx.createBufferSource(), g = this.ctx.createGain(); s.buffer = buf; s.loop = true; g.gain.value = 0; s.connect(filter || g); if (filter) filter.connect(g); s.start(this.ctx.currentTime, Math.random() * buf.duration); return g; };
+          this.rainLP = this.ctx.createBiquadFilter(); this.rainLP.type = 'lowpass'; this.rainLP.frequency.value = 12000;
+          this.rainOut = mk(out, this.rainLP); this.rainOut.connect(this.bus.ambience);
+          this.rainRoof = mk(roof); this.rainRoof.connect(this.bus.car);
+        }).catch(() => { this.rainLoad = null; });
+    }
+    if (!this.rainOut) return;
+    this.rainOut.gain.setTargetAtTime(level * (inCar ? 0.14 : 0.32), t, 0.4);
+    this.rainLP.frequency.setTargetAtTime(inCar ? 1600 : 12000, t, 0.3);
+    this.rainRoof.gain.setTargetAtTime(inCar ? level * 0.3 : 0, t, 0.4);
+  }
+
+  update(dt, { speed, wind, exposure, waterProx, iceProx, inCar, wade = 0, nitro = false, heli = null, throttle = 0, voice = null, surface = 'paved', grounded = true, boat = 0, gear = 0, shifting = false, rain = 0 }) {
     if (!this.ready) return;
     const t = this.ctx.currentTime;
     // The helicopter replaces the car engine: rotor, turbines and fan, louder under load and
@@ -455,6 +477,7 @@ export class AudioEngine {
     // Afloat, the outboard takes over from the car's engine.
     this.afloat = heli ? 0 : boat;
     this.engineUpdate(t, dt, inCar && !heli, speed, throttle, nitro, gear, shifting);
+    this.rainUpdate(t, rain, inCar);
     this.boatUpdate(t, dt, inCar && !heli ? boat : 0, speed, throttle, nitro);
     // Tyres: only rolling on the ground, not in the air or on the water.
     const roll = inCar && !heli && grounded && wade < 0.3 && surface !== 'ford' ? Math.min(1, speed / 35) : 0;

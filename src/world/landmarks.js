@@ -405,6 +405,64 @@ function rockBox(w, h, d, rough = 0.6) {
   return new THREE.Mesh(g, rockMaterial());
 }
 
+// A taller, rougher rock step: its sides lean back as they rise (taper, 0 to 0.5) and its faces
+// carry the ledges of stacked lava flows, so it reads as a crag and not a block.
+function rockStep(w, h, d, taper = 0.25) {
+  const m = rockBox(w, h, d, 1.1), p = m.geometry.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i), k = (y + h / 2) / h;
+    const ledge = (Math.sin(y * 1.6 + rockNoise(x * 0.2, z * 0.2) * 2) * 0.5 + 0.5) * 0.45;
+    p.setXYZ(i, x * (1 - taper * k) + Math.sign(x) * ledge, y, z * (1 - taper * 0.6 * k) + Math.sign(z) * ledge);
+  }
+  m.geometry.computeVertexNormals();
+  return m;
+}
+
+// The rock a waterfall pours over: not a box standing on the plain, but the broken edge of a
+// lava plateau. The face curves round the pool (its ends come forward), is built of stacked
+// flows with ledges and columns and bulges, and keeps calm only where the water falls; the top
+// runs back level, then slopes down to the land, and both ends slope away to nothing.
+// cw: width of the full-height face; top: the lip's height; below: how far it runs into the
+// ground; water: the falls' width (the face stays smooth behind it).
+function escarpment(cw, top, below, depth, water, seed = 1) {
+  const NU = 72, NV = 36, W = cw / 2 + top * 1.6;
+  const pos = [], idx = [];
+  const n = (x, y) => rockNoise(x + seed * 13.1, y - seed * 7.3);
+  for (let i = 0; i <= NU; i++) {
+    const u = i / NU * 2 - 1, x = u * W, ax = Math.abs(x);
+    // Full height across the face, falling away over the ends.
+    const hu = 1 - THREE.MathUtils.smoothstep(ax, cw / 2 * 0.85, W);
+    const lip = -below + (top + below) * Math.pow(hu, 0.8) + n(x * 0.08, 3) * 1.2 * hu;
+    const zf = 5.5 * Math.pow(ax / W, 2); // the ends come forward round the pool
+    const calm = THREE.MathUtils.smoothstep(ax, water / 2 + 1, water / 2 + 6);
+    const back = depth * (0.7 + 0.25 * n(x * 0.05, 9)), fall = (lip + below) * 1.7 + 4;
+    for (let j = 0; j <= NV; j++) {
+      const v = j / NV;
+      let y, z;
+      if (v <= 0.55) { // the face, base to lip, leaning back a little
+        const t = v / 0.55; y = -below + (lip + below) * t; z = zf + 1.4 * (1 - t) * (1 - t) - 0.9 * t;
+        const yw = y + n(x * 0.1, 11) * 2;
+        const relief = Math.sin(yw * 1.3) * 0.45 + Math.abs(Math.sin(x * 0.9 + n(x * 0.05, y * 0.05) * 3)) * 0.7 + n(x * 0.12, y * 0.12) * 1.6;
+        z += relief * (0.2 + 0.8 * calm) * hu * Math.min(1, t * 6) * Math.min(1, (1 - t) * 8 + 0.3);
+      } else if (v <= 0.75) { // the top, running back
+        const t = (v - 0.55) / 0.2; y = lip + n(x * 0.07, t * 2) * 0.6 * hu; z = zf - 0.9 - back * t;
+      } else { // down the back to the land
+        const t = (v - 0.75) / 0.25; y = lip + (-below - lip) * t * t * (3 - 2 * t); z = zf - 0.9 - back - fall * t;
+      }
+      pos.push(x, y, z);
+    }
+  }
+  for (let i = 0; i < NU; i++) for (let j = 0; j < NV; j++) {
+    const a = i * (NV + 1) + j, b = a + NV + 1;
+    idx.push(a, b, a + 1, a + 1, b, b + 1);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(pos.length), 3));
+  g.setIndex(idx); g.computeVertexNormals();
+  return new THREE.Mesh(g, rockMaterial());
+}
+
 // Irregular ice: a subdivided sphere pushed in and out, flattened, with a sharp waterline.
 // Glacier ice: a faceted crystal. Starts from a subdivided sphere, then every face is pushed
 // in or out by its own amount and the mesh is split so each facet keeps a hard edge.
@@ -513,9 +571,13 @@ function makeWaterfall({ width, height, walkBehind = false, color, cliffWidth, b
     [l, r, back].forEach((m) => (m.userData.collide = true));
     g.add(l, r, back, lip);
   } else {
+    // What you see is the plateau's broken edge; what stops you is the same block as before.
+    const face = escarpment(cw, height + 3, below, depth, width, width + height);
+    face.castShadow = face.receiveShadow = true;
+    g.add(face);
     const c = rockBox(cw, ch, depth);
     c.position.set(0, cy, -depth / 2);
-    c.userData.collide = true;
+    c.userData.collide = true; c.visible = false;
     g.add(c);
   }
   const rand = mulberry32(Math.round(width * 131 + height * 17));
@@ -647,7 +709,7 @@ function makeRift() {
 }
 
 export class Landmarks {
-  constructor(scene, { quality = 'medium', beforeBuild = null, beforeBake = null } = {}) {
+  constructor(scene, { quality = 'medium', beforeBuild = null, beforeBake = null, defer = false } = {}) {
     this.quality = quality;
     this.beforeBake = beforeBake;
     this.scene = scene;
@@ -695,7 +757,20 @@ export class Landmarks {
       return { ...def, desc: def.desc || DESC[def.id] || '', x, z, facing };
     });
     beforeBuild?.(this.list);
-    for (const lm of this.list) this.build(lm, rand);
+    this.rand = rand;
+    if (!defer) for (const lm of this.list) this.build(lm, rand);
+  }
+  // Build them a few at a time, handing back to the page (pause()) after every 30 ms or so of
+  // work, so the loading screen keeps moving instead of freezing for seconds.
+  async buildAll(pause) {
+    let t0 = performance.now();
+    this.buildTimes = {};
+    for (const lm of this.list) {
+      const t1 = performance.now();
+      this.build(lm, this.rand);
+      this.buildTimes[lm.id] = Math.round(performance.now() - t1);
+      if (performance.now() - t0 > 30) { await pause(); t0 = performance.now(); }
+    }
   }
 
   build(lm, rand) {
@@ -714,9 +789,9 @@ export class Landmarks {
         upper.group.position.set(0, 9, -10);
         // The upper step stands on rock down to the ground: under its cliff, and a ledge in front
         // that holds its pool, kept clear of the lower falls.
-        const base = rockBox(34, 12, 14);
+        const base = rockStep(34, 12, 14, 0.18);
         base.position.set(0, -6, -7);
-        const ledge = rockBox(24, 12, 11);
+        const ledge = rockStep(24, 12, 11, 0.3);
         ledge.position.set(0, -6.01, 5.5);
         for (const m of [base, ledge]) { m.userData.collide = true; upper.group.add(m); }
         for (const m of upper.group.children) if (m.geometry?.type === 'CircleGeometry') m.scale.set(0.26, 0.26, 1);

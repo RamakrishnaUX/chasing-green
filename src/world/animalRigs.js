@@ -25,11 +25,11 @@ const SPECS = {
   // pts: lower legs (fraction of height) and face (beyond this z, in model units) that take the
   // third colour; tint: meshes coloured with the coat or hair colour; gain: darkens the coat;
   // wide: broader than the model (the Icelandic horse is stockier than this one).
-  horse: { scale: 0.85, wide: 1.1, speed: { walk: 1.25 }, neck: ['neckOff_01', 'neck_01', 'neck_02', 'neck_03', 'neck_04', 'neck_05'], head: 'head', tint: { M_Body: 'coat', M_Hair: 'hair' }, pts: { legs: 0.27 }, near: 6 },
-  sheep: { scale: 1.4, speed: {}, neck: ['Neck'], head: 'Head', tint: { '*': 'coat' }, pts: { legs: 0.36, face: 0.3 }, near: 14, stride: 0.42,
+  horse: { scale: 0.85, eyeAt: [0.1, 0.3],  wide: 1.1, speed: { walk: 1.25 }, neck: ['neckOff_01', 'neck_01', 'neck_02', 'neck_03', 'neck_04', 'neck_05'], head: 'head', tint: { M_Body: 'coat', M_Hair: 'hair' }, pts: { legs: 0.27 }, near: 6 },
+  sheep: { scale: 1.4, eyeAt: [0.06, 0.12],  speed: {}, neck: ['Neck'], head: 'Head', tint: { '*': 'coat' }, pts: { legs: 0.36, face: 0.3 }, near: 14, stride: 0.42,
     legs: { up: ['FrontUpLegL', 'FrontUpLegR', 'BackUpLegL', 'BackUpLegR'], low: ['FrontLowLegL', 'FrontLowLegR', 'BackLowLegL', 'BackLowLegR'] } },
   fox: { scale: 0.62, speed: { walk: 1.3 }, neck: ['Neck1', 'Neck2', 'Neck3'], head: 'Head', tint: { '*': 'coat' }, eyes: ['EyeL', 'EyeR'], near: 3 },
-  reindeer: { scale: 0.8, speed: { walk: 1.68, trot: 7.84, run: 12.6 }, root: 'RigRoot', neck: ['RigNeck1', 'RigNeck2', 'RigNeck3'], head: 'RigHead', tint: { Head: 'coat', Body: 'coat' }, gain: 1.35, near: 8 },
+  reindeer: { scale: 0.8, eyeAt: [0.08, 0.22],  speed: { walk: 1.68, trot: 7.84, run: 12.6 }, root: 'RigRoot', neck: ['RigNeck1', 'RigNeck2', 'RigNeck3'], head: 'RigHead', tint: { Head: 'coat', Body: 'coat' }, gain: 1.35, near: 8 },
   seal: { scale: 0.84, yaw: -Math.PI / 2 },
   puffin: { scale: 0.12 }, // a scan of a standing bird, about 29 cm tall
   humpback: { scale: 0.47, yaw: -Math.PI / 2, center: true, shade: 0.5 }, // its texture is pale for a humpback
@@ -243,6 +243,12 @@ class Kind {
     }
     // Eyes (fox eyeshine), at rest, in the animal's own frame.
     if (S.eyes) { holder.updateMatrixWorld(true); this.eyes = S.eyes.map((n) => bone(n)?.getWorldPosition(new THREE.Vector3())).filter(Boolean); }
+    // Animals without eye bones: two points either side, a little ahead of the head bone.
+    else if (S.eyeAt && S.head && bone(S.head)) {
+      holder.updateMatrixWorld(true);
+      const h = bone(S.head).getWorldPosition(new THREE.Vector3()), [half, fwd] = S.eyeAt;
+      this.eyes = [new THREE.Vector3(h.x - half, h.y, h.z + fwd), new THREE.Vector3(h.x + half, h.y, h.z + fwd)];
+    }
     if (mixer) { mixer.stopAllAction(); mixer.uncacheRoot(src); }
     this.bent = [...this.neck, ...(this.head ? [this.head] : []), ...(this.legUp || []), ...(this.legLow || [])];
     this.actors = [];

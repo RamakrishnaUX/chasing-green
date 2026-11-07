@@ -19,6 +19,9 @@ export const surfaceUniforms = {
   uSummer: { value: 0 },
   uTime: { value: 0 },
   uNight: { value: 0 },
+  // Rain: how hard it is falling now (0 to 1), and how wet the ground is (it lags the rain).
+  uRain: { value: 0 },
+  uWet: { value: 0 },
 };
 
 export const NOISE = /* glsl */ `
@@ -26,6 +29,21 @@ float g_h(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * .1031); p3 += dot(p3, p3.yzx + 
 float g_n(vec2 p){ vec2 i = floor(p); vec2 f = fract(p); vec2 u = f*f*(3.0-2.0*f);
   return mix(mix(g_h(i), g_h(i+vec2(1,0)), u.x), mix(g_h(i+vec2(0,1)), g_h(i+vec2(1,1)), u.x), u.y); }
 float g_f(vec2 p){ float s = 0.0, a = 0.5; for(int i=0;i<4;i++){ s += a*g_n(p); p = p*2.07 + 13.7; a *= 0.5; } return s; }
+uniform float uWet; uniform float uRain;
+// Raindrop rings: in every cell a drop lands at its own moment and a ring spreads and fades.
+// Returns a slope (x, z) to tilt the water's normal by.
+vec2 rainRings(vec2 p, float t){
+  vec2 g = vec2(0.0);
+  for (int k = 0; k < 2; k++) {
+    vec2 q = p * 2.3 + float(k) * 0.37, c = floor(q), f = fract(q) - 0.5;
+    float h = g_h(c + float(k) * 7.0);
+    vec2 o = vec2(g_h(c + 3.1), g_h(c + 5.7)) - 0.5;
+    float ph = fract(t * 1.4 + h);
+    vec2 d = f - o * 0.6; float r = length(d), e = r - ph * 0.45;
+    g += (r > 1e-3 ? d / r : vec2(0.0)) * exp(-e * e * 900.0) * sin(e * 90.0) * (1.0 - ph);
+  }
+  return g;
+}
 `;
 
 // Colours below are written in sRGB (as you would pick them from a photo) and converted at the end.
@@ -208,7 +226,7 @@ export function createTerrainMaterial() {
         ? 'vec3 tCol = terrainColor(vColor, vWPos, normalize(vWNrm), length(vViewPosition));\nhdDetail(vColor, vWPos, normalize(vWNrm), length(vViewPosition));\ndiffuseColor.rgb = tCol * hdA * cloudShade(vWPos);'
         : 'diffuseColor.rgb = terrainColor(vColor, vWPos, normalize(vWNrm), length(vViewPosition)) * cloudShade(vWPos);')
       .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vec3(0.9, 0.95, 1.0) * tSpark * uSunUp * 1.5;')
-      .replace('#include <roughnessmap_fragment>', hd ? 'float roughnessFactor = hdR;' : 'float roughnessFactor = tRough;')
+      .replace('#include <roughnessmap_fragment>', (hd ? 'float roughnessFactor = hdR;' : 'float roughnessFactor = tRough;') + '\n// Wet ground: darker and a little glossier.\nroughnessFactor = mix(roughnessFactor, 0.45, uWet * 0.5);\ndiffuseColor.rgb *= mix(1.0, 0.7, uWet);')
       .replace('#include <normal_fragment_maps>', hd
         ? `#include <normal_fragment_maps>
           normal = normalize((viewMatrix * vec4(hdN, 0.0)).xyz);
@@ -285,7 +303,7 @@ export function createRoadMaterial({ paved, halfWidth }) {
         vec3 rg = rdRatio(grAlb, grMean, vRoad / 4.0, 0.2, lG);
         diffuseColor.rgb *= mix(vec3(1.0), mix(ra, rg, shoulder), (1.0 - hdPaint) * hdFade);
         rBump += (mix(lA, lG, shoulder) - 1.0) * 0.035 * fine;` : ''}`)
-      .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = rRough;')
+      .replace('#include <roughnessmap_fragment>', '// Wet tarmac: darker, and smooth enough to mirror lights and the sky.\nfloat roughnessFactor = mix(rRough, 0.34, uWet * 0.85);\ndiffuseColor.rgb *= mix(1.0, 0.42, uWet);')
       .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\nnormal = bumpNormal(normal, rBump, 1.0);');
   };
   return mat;
@@ -372,6 +390,7 @@ float wDepth; float wFoam;`)
           float e = 0.35;
           float h0 = wv(vWPos.xz), hx = wv(vWPos.xz + vec2(e, 0.0)), hz = wv(vWPos.xz + vec2(0.0, e));
           vec3 nw = normalize(vec3(-(hx - h0) / e * k, 1.0, -(hz - h0) / e * k));
+          if (uRain > 0.01) { vec2 rr = rainRings(vWPos.xz, uTime) * uRain * 0.5 * (1.0 - smoothstep(15.0, 45.0, dist)); nw = normalize(nw + vec3(-rr.x, 0.0, -rr.y)); }
           normal = normalize((viewMatrix * vec4(nw, 0.0)).xyz);
         }`);
   };

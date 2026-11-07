@@ -118,7 +118,7 @@ export class Puddles {
     // The game's own physical material, so it reflects the real sky (the scene's environment,
     // clouds and all) with the right Fresnel, and is lit and fogged like everything else. On
     // top: the ragged outline, the damp halo, a breeze ruffling it and rings from wheels.
-    this.uniforms = { uTime: { value: 0 }, uRip: { value: this.ripples } };
+    this.uniforms = { uTime: { value: 0 }, uRip: { value: this.ripples }, uRainP: { value: 0 } };
     const mat = new THREE.MeshStandardMaterial({ color: 0x050607, roughness: 0.03, metalness: 0, envMapIntensity: 1.15, transparent: true, depthWrite: false,
       polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -6 });
     mat.onBeforeCompile = (sh) => {
@@ -131,7 +131,14 @@ export class Puddles {
           uniform float uTime; uniform vec4 uRip[${MAX_RIPPLES}]; varying vec2 vLocal; varying float vSeed; varying vec3 vWp;
           float pH(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
           float pN(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
-            return mix(mix(pH(i), pH(i + vec2(1, 0)), f.x), mix(pH(i + vec2(0, 1)), pH(i + vec2(1, 1)), f.x), f.y); }`)
+            return mix(mix(pH(i), pH(i + vec2(1, 0)), f.x), mix(pH(i + vec2(0, 1)), pH(i + vec2(1, 1)), f.x), f.y); }
+          uniform float uRainP;
+          vec2 pRain(vec2 p, float t) { vec2 g = vec2(0.0);
+            for (int k = 0; k < 2; k++) { vec2 q = p * 2.6 + float(k) * 0.37, c = floor(q), f = fract(q) - 0.5;
+              float h = pH(c + float(k) * 7.0); vec2 o = vec2(pH(c + 3.1), pH(c + 5.7)) - 0.5;
+              float ph = fract(t * 1.4 + h); vec2 d = f - o * 0.6; float r = length(d), e = r - ph * 0.4;
+              g += (r > 1e-3 ? d / r : vec2(0.0)) * exp(-e * e * 1000.0) * sin(e * 95.0) * (1.0 - ph); }
+            return g; }`)
         .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
           // The outline: an ellipse made ragged by a few lobes and some noise.
           float pAng = atan(vLocal.y, vLocal.x);
@@ -152,6 +159,7 @@ export class Puddles {
               vec2 dv = vWp.xz - R.xy; float r = length(dv), k = r - age * 1.7;
               g += (r > 0.001 ? dv / r : vec2(0.0)) * exp(-k * k * 10.0) * sin(k * 16.0) * R.w * (1.0 - age / 2.2) * 0.12;
             }
+            g += pRain(vWp.xz, uTime) * uRainP * 0.35;
             normal = normalize(normal + (viewMatrix * vec4(-g.x, 0.0, -g.y, 0.0)).xyz * pWater);
           }`)
         .replace('#include <opaque_fragment>', `
@@ -172,7 +180,7 @@ export class Puddles {
     R.set(x, z, this.uniforms.uTime.value, strength);
   }
   // Each frame: the time, for the breeze and the rings.
-  update(t) { this.uniforms.uTime.value = t; }
+  update(t, rain = 0) { this.uniforms.uTime.value = t; this.uniforms.uRainP.value = rain; }
   // True if a world point is inside any puddle.
   at(x, z) {
     for (const q of this.list) {
@@ -258,6 +266,129 @@ export class SnowFall {
       l.points.visible = on;
       if (on) l.update(dt, camera.position, this.intensity, wind, fade);
       else l.anchor = null;
+    }
+  }
+}
+
+// ---------- Rain ----------
+// Streaks falling through a box that follows the camera, slanted by the wind and stretched by
+// their speed, fading out close to the eye (so none fall inside the cabin), with drops bursting
+// on the ground round about. Intensity 0 to 1.
+export class RainFall {
+  constructor(scene, count = 2600) {
+    this.n = count; this.box = { x: 46, y: 26, z: 46 };
+    this.p = new Float32Array(count * 3); this.speed = new Float32Array(count);
+    for (let i = 0; i < count; i++) {
+      this.p[i * 3] = (Math.random() - 0.5) * this.box.x; this.p[i * 3 + 1] = (Math.random() - 0.5) * this.box.y; this.p[i * 3 + 2] = (Math.random() - 0.5) * this.box.z;
+      this.speed[i] = 8 + Math.random() * 3;
+    }
+    this.pos = new Float32Array(count * 6);
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3));
+    this.mat = new THREE.ShaderMaterial({
+      uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uOpacity: { value: 0 }, uFade: { value: 0.6 }, uLight: { value: 1 } }]),
+      vertexShader: `uniform float uFade; varying float vNear;
+        #include <fog_pars_vertex>
+        void main() { vec4 mvPosition = modelViewMatrix * vec4(position, 1.0); gl_Position = projectionMatrix * mvPosition;
+          vNear = smoothstep(uFade, uFade * 2.5, -mvPosition.z);
+          #include <fog_vertex>
+        }`,
+      fragmentShader: `uniform float uOpacity, uLight; varying float vNear;
+        #include <fog_pars_fragment>
+        void main() { gl_FragColor = vec4(vec3(0.78, 0.83, 0.88) * (0.35 + 0.65 * uLight), uOpacity * vNear);
+          #include <fog_fragment>
+        }`,
+      transparent: true, depthWrite: false, fog: true,
+    });
+    this.lines = new THREE.LineSegments(g, this.mat);
+    this.lines.frustumCulled = false; this.lines.visible = false; this.lines.userData.noAO = true;
+    scene.add(this.lines);
+    this.splash = new Particles(scene, { count: Math.round(count * 0.25), color: 0xdfe8ee, size: 0.14, opacity: 0.7, gravity: 9, drag: 2 });
+    this.intensity = 0; this.anchor = null; this.carry = 0;
+  }
+  // target: how hard it should be raining here; wind: { x, z }; fade: metres from the eye that
+  // stay clear; light: 0 at night to 1 by day; groundAt(x, z): for the splashes.
+  update(dt, eye, target, wind, fade, light, groundAt) {
+    this.intensity += (target - this.intensity) * Math.min(1, dt * 0.35);
+    const I = this.intensity, on = I > 0.01;
+    this.lines.visible = on;
+    this.mat.uniforms.uOpacity.value = 0.32 * Math.min(1, I * 1.4);
+    this.mat.uniforms.uFade.value = fade; this.mat.uniforms.uLight.value = light;
+    this.splash.mat.opacity = 0.6 * light + 0.15;
+    if (on) {
+      const b = this.box, hx = b.x / 2, hy = b.y / 2, hz = b.z / 2, c = { x: eye.x, y: eye.y + 4, z: eye.z };
+      const d = this.anchor ? { x: c.x - this.anchor.x, y: c.y - this.anchor.y, z: c.z - this.anchor.z } : { x: 0, y: 0, z: 0 };
+      this.anchor = c;
+      const wx = (wind?.x || 0) * 0.35, wz = (wind?.z || 0) * 0.35, live = Math.round(this.n * Math.min(1, I * 1.2));
+      const wrap = (v, h, size) => ((v + h) % size + size) % size - h;
+      const P = this.p, out = this.pos;
+      for (let i = 0; i < this.n; i++) {
+        const k = i * 3, o = i * 6, v = this.speed[i];
+        P[k] = wrap(P[k] + wx * dt - d.x, hx, b.x); P[k + 1] = wrap(P[k + 1] - v * dt - d.y, hy, b.y); P[k + 2] = wrap(P[k + 2] + wz * dt - d.z, hz, b.z);
+        const x = c.x + P[k], y = c.y + P[k + 1], z = c.z + P[k + 2], L = 0.055;
+        out[o] = x; out[o + 1] = y; out[o + 2] = z;
+        out[o + 3] = x - wx * L; out[o + 4] = y + v * L; out[o + 5] = z - wz * L;
+      }
+      this.lines.geometry.setDrawRange(0, live * 2);
+      this.lines.geometry.attributes.position.needsUpdate = true;
+      // Drops bursting where they land, all round you.
+      this.carry += I * 320 * dt;
+      for (; this.carry >= 1; this.carry--) {
+        const a = Math.random() * Math.PI * 2, r = 1.5 + Math.random() * 16, x = eye.x + Math.cos(a) * r, z = eye.z + Math.sin(a) * r;
+        this.splash.emit(x, groundAt(x, z) + 0.03, z, 0, 1.1, 0, 1, 0.9, 0.18);
+      }
+    }
+    this.splash.update(dt);
+  }
+}
+
+// ---------- Rain on the windscreen ----------
+// Seen from the driver's seat: drops land on the glass and gather, run down it when slow and are
+// pushed up and aside by the wind at speed, and the wipers sweep them away. Drawn on a canvas
+// over the top of the view, faded out toward the dashboard.
+export class Windscreen {
+  constructor(canvas) {
+    this.c = canvas; this.g = canvas.getContext('2d'); this.drops = []; this.wipe = 0; this.carry = 0; this.on = false;
+  }
+  update(dt, rain, speed, show) {
+    const c = this.c, g = this.g;
+    const want = show && (rain > 0.02 || this.drops.length);
+    if (!want) { if (this.on) { g.clearRect(0, 0, c.width, c.height); this.on = false; c.hidden = true; this.drops.length = 0; } return; }
+    if (!this.on) { this.on = true; c.hidden = false; }
+    const W = (c.width = Math.round(c.clientWidth * Math.min(2, devicePixelRatio))), H = (c.height = Math.round(c.clientHeight * Math.min(2, devicePixelRatio)));
+    const k = W / 1400;
+    this.carry += rain * (70 + speed * 4) * dt;
+    for (; this.carry >= 1 && this.drops.length < 260; this.carry--) this.drops.push({ x: Math.random() * W, y: Math.random() * H * 0.75, r: (2 + Math.random() * 5) * k, t: 0 });
+    // Slow, they creep down; fast, the airflow drives them up and out toward the edges.
+    const up = Math.min(1, speed / 18);
+    for (const d of this.drops) {
+      d.t += dt;
+      if (d.r > 4.5 * k || up > 0.2) {
+        d.y += (d.r * (1 - up) * 14 - up * (40 + speed * 6) * k) * dt;
+        d.x += (d.x - W / 2) / W * up * 90 * k * dt;
+      }
+    }
+    // The wipers: a sweep every so often, quicker in heavier rain, clearing what it passes.
+    this.wipe += dt * (0.4 + rain * 0.9);
+    let blade = -1;
+    if (this.wipe % 1 < 0.35) {
+      const ph = (this.wipe % 1) / 0.35, ang = Math.PI * (ph < 0.5 ? ph * 2 : (1 - ph) * 2);
+      blade = ang;
+      const px = W * 0.5, py = H * 1.05, len = H * 1.0;
+      this.drops = this.drops.filter((d) => { const a = Math.atan2(py - d.y, d.x - px); return Math.abs(a - (Math.PI - ang)) > 0.08 || Math.hypot(d.x - px, d.y - py) > len; });
+    }
+    this.drops = this.drops.filter((d) => d.y > -20 && d.y < H && d.x > -20 && d.x < W + 20);
+    g.clearRect(0, 0, W, H);
+    for (const d of this.drops) {
+      // A bead: a dark rim, a bright fleck where it catches the light.
+      const gr = g.createRadialGradient(d.x - d.r * 0.3, d.y - d.r * 0.35, d.r * 0.1, d.x, d.y, d.r);
+      gr.addColorStop(0, 'rgba(255,255,255,0.55)'); gr.addColorStop(0.35, 'rgba(210,225,235,0.18)'); gr.addColorStop(0.85, 'rgba(20,28,34,0.28)'); gr.addColorStop(1, 'rgba(20,28,34,0)');
+      g.fillStyle = gr; g.beginPath(); g.ellipse(d.x, d.y, d.r * (1 + up * 0.3), d.r * (1 - up * 0.2), 0, 0, Math.PI * 2); g.fill();
+    }
+    if (blade >= 0) {
+      const px = W * 0.5, py = H * 1.05, a = Math.PI - blade;
+      g.strokeStyle = 'rgba(8,10,12,0.85)'; g.lineWidth = 7 * k; g.lineCap = 'round';
+      g.beginPath(); g.moveTo(px, py); g.lineTo(px + Math.cos(a) * H * 1.0, py - Math.sin(a) * H * 1.0); g.stroke();
     }
   }
 }

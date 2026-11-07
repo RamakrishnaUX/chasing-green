@@ -144,7 +144,7 @@ export class Jeep {
     this.air = false; this.vy = 0; this.vyPrev = 0; this.lastGround = null; this.lastSyncY = null; this.groundVy = 0;
     this.pos.set(x, y, z);
     this.heading = heading;
-    this.vF = 0; this.vL = 0; this.gear = 1; this.shiftT = 0; this.biteT = 0;
+    this.vF = 0; this.vL = 0; this.gear = 1; this.shiftT = 0; this.biteT = 0; this.downT = 0;
     this.boat = 0; this.boatOn = false; this.kit.apply(0);
     this.sync(0);
   }
@@ -209,6 +209,12 @@ export class Jeep {
       const T = GV.tops, sp = Math.abs(this.vF), was = this.gear;
       if (sp > T[this.gear - 1] * 0.97 && this.gear < T.length) this.gear++;
       else if (this.gear > 1 && sp < T[this.gear - 2] * 0.45) this.gear--;
+      // Changing down off the throttle: the lower gear bites, the engine holds the car back for a
+      // moment and the nose dips (audio.js blips the revs to match).
+      if (this.gear < was && throttle <= 0 && this.vF > 3 && !air && dt) {
+        this.downT = 0.3;
+        this.rockV = (this.rockV || 0) + 0.22 / Math.sqrt(this.gear) * (S.bike ? 0.5 : 1) * (this.spec.susp?.roll ?? 1);
+      }
       if (this.gear > was && throttle > 0.2 && this.vF > 0 && !air && dt) {
         this.shiftDur = SHIFT_TIME[S.engine.voice] ?? 0.25;
         this.shiftT = this.shiftDur;
@@ -242,7 +248,14 @@ export class Jeep {
     let drag = wet ? 0.08 : (SURFACE_DRAG[this.surface] ?? 0.05) * (1.6 - off);
     if (inWater && !wet) drag += S.waterDrag * clamp(this.depth, 0, 1.5) * 0.6;
     this.vF -= this.vF * drag * dt;
-    if (throttle === 0) this.vF -= Math.sign(this.vF) * Math.min(Math.abs(this.vF), (wet ? 0.5 : 1.0) * dt);
+    // Off the throttle the engine holds the car back, harder in the low gears, and with a brief
+    // lurch just after changing down.
+    let coast = wet ? 0.5 : 1.0;
+    if (GV && !wet && throttle === 0 && this.vF > 2) {
+      coast += 0.5 + 0.45 * (GV.tops.length - this.gear);
+      if (this.downT > 0) { coast += 3 * (this.downT / 0.3); this.downT = Math.max(0, this.downT - (dt || 0)); }
+    }
+    if (throttle === 0) this.vF -= Math.sign(this.vF) * Math.min(Math.abs(this.vF), coast * dt);
     if (this.vF > maxV) this.vF -= (this.vF - maxV) * 1.8 * dt;
 
     // Hills (water is flat).
@@ -609,7 +622,12 @@ export class Jeep {
   }
 
   setLights(dark) {
-    this.headlight.intensity = dark * 950;
+    // Full beam: brighter, reaching about twice as far, aimed higher up the road.
+    const hb = !!this.highBeam;
+    this.headlight.intensity = dark * (hb ? 1900 : 950);
+    this.headlight.distance = hb ? 480 : 260;
+    this.headlight.angle = hb ? 0.3 : 0.36;
+    this.headlight.target.position.set(0, hb ? -0.6 : -2.6, 60);
     this.spread.intensity = dark * 320;
     this.lightMat.emissiveIntensity = 0.4 + dark * 1.4;
     this.tailMat.emissiveIntensity = 0.4 + dark * 0.6 + this.braking * 1.2;
