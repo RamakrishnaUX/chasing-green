@@ -189,8 +189,8 @@ export class Grass {
             vec2 wd = base - uWash.xy; float wl = length(wd);
             float wf = uWash.z * (1.0 - smoothstep(uWash.w * 0.2, uWash.w, wl));
             float pulse = 0.65 + 0.35 * sin(uTime * 15.0 - wl * 1.3 + aRand.z * 2.0);
-            lp.xz += (wl > 0.01 ? wd / wl : vec2(1.0, 0.0)) * wf * pulse * ty * 1.25;
-            lp.y *= 1.0 - 0.5 * wf * ty;
+            lp.xz += (wl > 0.01 ? wd / wl : vec2(1.0, 0.0)) * wf * pulse * ty * 1.7;
+            lp.y *= 1.0 - 0.62 * wf * ty;
           }
           vec3 transformed = vec3(base.x, gh - 0.04, base.y) + lp * sc;
           // Colour: dry gold, straw and rust in winter, olive and green in summer, greener on hay fields.

@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import { roadPaths, heightAt, roadHalfWidth, deckAt } from './terrain.js';
-import { createWaterMaterial } from './materials.js';
 import { mulberry32 } from './noise.js';
 
 // ---------- Particles ----------
@@ -70,21 +69,18 @@ export class Particles {
 }
 
 // ---------- Puddles ----------
-// Rain puddles on the tarmac: irregular, mirror-like, and you can hear and see the splash.
+// Rain puddles on the tarmac, drawn as water rather than a stain: each reflects the sky, more
+// at a low angle (as from the driver's seat) and hardly at all looking straight down, where the
+// wet black tarmac shows through; the sun glints off it; a breeze ruffles it; its edge is
+// ragged and soft, and the tarmac round it is darkened by the wet. Driving through sends rings
+// across it. All the puddles are one mesh with one material.
+const MAX_RIPPLES = 8;
 export class Puddles {
   constructor(scene, count = 110) {
     const r = mulberry32(5150);
     this.list = [];
-    const mat = createWaterMaterial(0x101a20, { roughness: 0.42, ripple: 0.25, depthAware: false, foam: 0, shallow: [0.05, 0.06, 0.07], deep: [0.03, 0.035, 0.04] });
-    // A soft wet sheen that blends into the asphalt, not a mirror of the bright sky.
-    mat.envMapIntensity = 0.3;
-    mat.transparent = true;
-    mat.opacity = 0.7;
-    mat.depthWrite = false;
-    mat.polygonOffset = true;
-    mat.polygonOffsetFactor = -6;
-    mat.polygonOffsetUnits = -6;
     const paved = roadPaths.filter((p) => p.type === 'paved');
+    const pos = [], loc = [], seed = [], idx = [];
     let tries = 0;
     while (this.list.length < count && tries < count * 10) {
       tries++;
@@ -101,25 +97,82 @@ export class Puddles {
       if (deckAt(x, z) != null) continue;
       const rx = 1.0 + r() * 1.8, rz = 0.7 + r() * 1.1;
       const rot = Math.atan2(b.x - a.x, b.z - a.z);
-      // Irregular outline.
-      const shape = new THREE.Shape();
-      const seg = 18, k1 = r() * 6, k2 = r() * 6;
-      for (let s = 0; s <= seg; s++) {
-        const ang = (s / seg) * Math.PI * 2;
-        const w = 1 + 0.18 * Math.sin(ang * 3 + k1) + 0.1 * Math.sin(ang * 5 + k2);
-        const px = Math.cos(ang) * rz * w, py = Math.sin(ang) * rx * w;
-        if (s === 0) shape.moveTo(px, py); else shape.lineTo(px, py);
+      // A quad 1.6 times the puddle each way, room for the damp halo; its corners on the road.
+      const E = 1.6, c = Math.cos(rot), sn = Math.sin(rot), base = pos.length / 3, sd = r();
+      for (const [u, v] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+        const lx = u * rz * E, lz = v * rx * E; // lx across the road, lz along it
+        const wx = x + lx * c + lz * sn, wz = z - lx * sn + lz * c;
+        pos.push(wx, heightAt(wx, wz) + 0.17, wz); loc.push(u * E, v * E); seed.push(sd);
       }
-      const g = new THREE.ShapeGeometry(shape);
-      g.rotateX(-Math.PI / 2);
-      const m = new THREE.Mesh(g, mat);
-      m.position.set(x, heightAt(x, z) + 0.17, z);
-      m.rotation.y = rot;
-      m.receiveShadow = true;
-      scene.add(m);
+      idx.push(base, base + 2, base + 1, base, base + 3, base + 2);
       this.list.push({ x, z, rx, rz, rot });
     }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('aLocal', new THREE.Float32BufferAttribute(loc, 2));
+    g.setAttribute('aSeed', new THREE.Float32BufferAttribute(seed, 1));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    this.ripples = Array.from({ length: MAX_RIPPLES }, () => new THREE.Vector4(0, 0, -99, 0));
+    this.nextRipple = 0;
+    // The game's own physical material, so it reflects the real sky (the scene's environment,
+    // clouds and all) with the right Fresnel, and is lit and fogged like everything else. On
+    // top: the ragged outline, the damp halo, a breeze ruffling it and rings from wheels.
+    this.uniforms = { uTime: { value: 0 }, uRip: { value: this.ripples } };
+    const mat = new THREE.MeshStandardMaterial({ color: 0x050607, roughness: 0.03, metalness: 0, envMapIntensity: 1.15, transparent: true, depthWrite: false,
+      polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -6 });
+    mat.onBeforeCompile = (sh) => {
+      Object.assign(sh.uniforms, this.uniforms);
+      sh.vertexShader = sh.vertexShader
+        .replace('#include <common>', '#include <common>\nattribute vec2 aLocal; attribute float aSeed; varying vec2 vLocal; varying float vSeed; varying vec3 vWp;')
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvLocal = aLocal; vSeed = aSeed; vWp = (modelMatrix * vec4(position, 1.0)).xyz;');
+      sh.fragmentShader = sh.fragmentShader
+        .replace('#include <common>', `#include <common>
+          uniform float uTime; uniform vec4 uRip[${MAX_RIPPLES}]; varying vec2 vLocal; varying float vSeed; varying vec3 vWp;
+          float pH(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+          float pN(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+            return mix(mix(pH(i), pH(i + vec2(1, 0)), f.x), mix(pH(i + vec2(0, 1)), pH(i + vec2(1, 1)), f.x), f.y); }`)
+        .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+          // The outline: an ellipse made ragged by a few lobes and some noise.
+          float pAng = atan(vLocal.y, vLocal.x);
+          float pWob = 0.13 * sin(pAng * 3.0 + vSeed * 6.3) + 0.08 * sin(pAng * 5.0 + vSeed * 11.0) + 0.05 * sin(pAng * 9.0 + vSeed * 3.0);
+          float pD = length(vLocal) / (1.0 + pWob + (pN(vWp.xz * 1.4 + vSeed * 30.0) - 0.5) * 0.24);
+          float pWater = 1.0 - smoothstep(0.84, 1.0, pD);
+          float pDamp = 1.0 - smoothstep(0.95, 1.5, pD + (pN(vWp.xz * 2.6 + 5.0) - 0.5) * 0.35);
+          if (pWater + pDamp < 0.004) discard;
+          roughnessFactor = mix(0.55, 0.03, pWater);`)
+        .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+          {
+            // A breeze barely moving it: the reflection should hold still, just shivering a little.
+            vec2 g = vec2(sin(vWp.x * 9.0 + uTime * 2.1 + sin(vWp.z * 3.0)), sin(vWp.z * 8.0 - uTime * 1.7 + sin(vWp.x * 4.0))) * 0.0025;
+            g += (vec2(pN(vWp.xz * 11.0 + uTime * 0.8), pN(vWp.xz * 11.0 - uTime * 0.7 + 9.0)) - 0.5) * 0.006;
+            for (int i = 0; i < ${MAX_RIPPLES}; i++) {
+              vec4 R = uRip[i]; float age = uTime - R.z;
+              if (R.w <= 0.0 || age < 0.0 || age > 2.2) continue;
+              vec2 dv = vWp.xz - R.xy; float r = length(dv), k = r - age * 1.7;
+              g += (r > 0.001 ? dv / r : vec2(0.0)) * exp(-k * k * 10.0) * sin(k * 16.0) * R.w * (1.0 - age / 2.2) * 0.12;
+            }
+            normal = normalize(normal + (viewMatrix * vec4(-g.x, 0.0, -g.y, 0.0)).xyz * pWater);
+          }`)
+        .replace('#include <opaque_fragment>', `
+          // Water is clear: the tarmac under it shows, darkened by the wet, with what the water
+          // reflects laid over it (dst * (1 - a) + reflection). The damp halo only darkens.
+          float pEdge = smoothstep(0.0, 0.25, 1.0 - pD);
+          float pK = pWater * mix(0.45, 0.62, pEdge);
+          float pA = pK + pDamp * (1.0 - pWater) * 0.45 * (1.0 - pK);
+          gl_FragColor = vec4(outgoingLight * pWater * mix(0.6, 1.0, pEdge) / max(pA, 1e-3), pA);`);
+    };
+    this.mesh = new THREE.Mesh(g, mat);
+    this.mesh.renderOrder = 1; this.mesh.userData.noAO = true; this.mesh.receiveShadow = true;
+    scene.add(this.mesh);
   }
+  // Rings across the puddle from (x, z), strength 0 to 1.
+  ripple(x, z, strength = 0.7) {
+    const R = this.ripples[this.nextRipple]; this.nextRipple = (this.nextRipple + 1) % MAX_RIPPLES;
+    R.set(x, z, this.uniforms.uTime.value, strength);
+  }
+  // Each frame: the time, for the breeze and the rings.
+  update(t) { this.uniforms.uTime.value = t; }
   // True if a world point is inside any puddle.
   at(x, z) {
     for (const q of this.list) {

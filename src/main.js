@@ -4,7 +4,7 @@ import { CONFIG } from './config.js';
 import { store } from './storage.js';
 import { createNoise2D, clamp, smoothstep, lerp } from './world/noise.js';
 import { START, PLACES, CANYONS, JUMPS, KERID } from './world/geo.js';
-import { buildTerrain, paintTerrain, flattenPads, bridges, roadPaths, nearestRoad, heightAt, coastAt, nearestRoadAnywhere, exposureAt, waterLevelAt, postReflectorMat, lakeMat, snowAt, groundAt, roadDistAt, shoreDistAt } from './world/terrain.js';
+import { buildTerrain, paintTerrain, flattenPads, bridges, roadPaths, nearestRoad, heightAt, coastAt, nearestRoadAnywhere, exposureAt, waterLevelAt, postReflectorMat, lakeMat, snowAt, groundAt, roadDistAt, shoreDistAt, surfaceAt } from './world/terrain.js';
 import { Scatter } from './world/scatter.js';
 import { Grass } from './world/grass.js';
 import { Post } from './world/post.js';
@@ -40,6 +40,7 @@ import { Driver } from './vehicle/driver.js';
 import { Skydiver, MIN_JUMP, fitGear, bonesOf } from './vehicle/skydiver.js';
 import { solidTopAt } from './world/solids.js';
 import { BoatWater } from './vehicle/boat.js';
+import { WaterFx } from './world/waterfx.js';
 import { Wildlife, WILDLIFE_NOTES } from './world/wildlife.js';
 import { Input } from './vehicle/input.js';
 import { Hud } from './ui/hud.js';
@@ -123,7 +124,7 @@ const volumes = settings.volumes || (settings.volumes = { master: 1, music: sett
 audio.setLevels(volumes);
 
 let world = null, sky, aurora, landmarks, jeep, walker, heli, diver, scatter, grass, props, post = null;
-let obstacles, puddles, spray, boatWater, wildlife, dust, powder, powderCloud, mapUI, towns, snow, nav, stations, stationSites = [];
+let obstacles, puddles, spray, boatWater, waterFx, washDust, wildlife, dust, powder, powderCloud, mapUI, towns, snow, nav, stations, stationSites = [];
 let lastPostState = { aurora: 0, dark: 0 };
 const snowNoise = createNoise2D(4040);
 let wasInPuddle = false, wasInWater = false, shake = 0, sitting = false, sitSpeedBefore = 1, camHeading = null;
@@ -261,8 +262,11 @@ async function buildWorld(progress) {
   puddles = new Puddles(scene, qualityName === 'low' ? 100 : 180);
   spray = new Particles(scene, { count: qualityName === 'low' ? 260 : 600, color: 0xe6f0f4, size: 0.5, opacity: 0.75, gravity: 9.5, drag: 1.2 });
   boatWater = new BoatWater(scene, { low: qualityName === 'low' });
+  waterFx = new WaterFx(scene, { low: qualityName === 'low' });
   wildlife = new Wildlife(scene, { low: qualityName === 'low' });
-  dust = new Particles(scene, { count: qualityName === 'low' ? 120 : 300, color: 0xb39a74, size: 1.3, opacity: 0.28, gravity: -0.4, drag: 1.4 });
+  // The rotor's dust: bigger, thicker billows than a car's.
+  washDust = new Particles(scene, { count: qualityName === 'low' ? 260 : 600, color: 0xbfa77f, size: 5.5, opacity: 0.16, gravity: -0.12, drag: 0.9 });
+  dust = new Particles(scene, { count: qualityName === 'low' ? 220 : 520, color: 0xb39a74, size: 1.3, opacity: 0.28, gravity: -0.4, drag: 1.4 });
   powder = new Particles(scene, { count: qualityName === 'low' ? 500 : 1100, color: 0xf6f9ff, size: 0.85, opacity: 0.95, gravity: 7, drag: 1.1 });
   powderCloud = new Particles(scene, { count: qualityName === 'low' ? 120 : 260, color: 0xdfe8f2, size: 2.6, opacity: 0.42, gravity: 0.6, drag: 2.2 });
   scatter.setSeason(clock.season);
@@ -309,23 +313,37 @@ async function buildWorld(progress) {
 
 // ---------- Rotor wash ----------
 // The helicopter's downwash: strongest with the rotor at full speed close to the ground, gone by
-// about 25 m up. It blows the grass flat (grass.js) and kicks up dust, snow or spray in a ring.
+// about 25 m up. The air comes straight down under the rotor, turns at the ground and runs out
+// flat in every direction, so everything is pushed outward from under it: the grass is blown
+// flat in pulses as the blades pass (grass.js), dust, sand or snow is lifted and driven out
+// along the ground in a ring, and on water (WaterFx) the surface is roughened and streaked,
+// rings spread from the middle and mist and spray are thrown out sideways.
+let washCarry = 0;
 function rotorWash(dt) {
   if (!heli || (ride !== 'heli' && !heli.auto && !heli.engineOn) || !heli.root.visible) return null;
   const agl = heli.landed ? 0 : Math.max(0, heli.agl);
   const strength = heli.rpm * heli.rpm * (1 - smoothstep(4, 26, agl));
   if (strength < 0.02) return null;
-  const x = heli.pos.x, z = heli.pos.z, radius = 9 + 7 * strength;
-  // A ring of debris pushed outward along the ground, more of it the stronger the wash.
-  if (dt && Math.random() < strength * 0.9) {
-    const a = Math.random() * Math.PI * 2, rr = radius * (0.35 + 0.5 * Math.random());
-    const px = x + Math.cos(a) * rr, pz = z + Math.sin(a) * rr, out = 4 + 6 * strength;
-    const wl = waterLevelAt(px, pz), gy = heightAt(px, pz);
-    if (wl > gy + 0.2) spray.emit(px, wl + 0.1, pz, Math.cos(a) * out, 1.2, Math.sin(a) * out, 3, 1.2, 0.8);
-    else if (snowAt(px, pz) > 0.5) powder.emit(px, gy + 0.2, pz, Math.cos(a) * out, 1.4, Math.sin(a) * out, 3, 1.4, 1.0);
-    else dust.emit(px, gy + 0.25, pz, Math.cos(a) * out, 0.9, Math.sin(a) * out, 2, 1.6, 1.4);
+  const x = heli.pos.x, z = heli.pos.z, radius = 12 + 14 * strength;
+  const wl = waterLevelAt(x, z), onWater = wl > heightAt(x, z) + 0.3;
+  // The dust takes the colour of the ground: black volcanic sand on the beaches, grey grit on
+  // gravel, a pale dun from dry grass and earth.
+  const surf = surfaceAt(x, z);
+  washDust.mat.color.setHex(surf === 'sand' ? 0x4f4c48 : surf === 'gravel' ? 0x8c8376 : 0xb8a582);
+  if (dt) {
+    washCarry += (onWater ? 10 : 70) * strength * dt;
+    for (; washCarry >= 1; washCarry--) {
+      // Lifted where the wash turns (about a third of the way out) and driven outward, fastest
+      // close in, slowing as it spreads.
+      const a = Math.random() * Math.PI * 2, rr = radius * (0.2 + 0.45 * Math.random());
+      const px = x + Math.cos(a) * rr, pz = z + Math.sin(a) * rr, out = (5 + 10 * strength) * (1.2 - rr / radius);
+      const pwl = waterLevelAt(px, pz), gy = heightAt(px, pz);
+      if (pwl > gy + 0.2) { if (!onWater) spray.emit(px, pwl + 0.1, pz, Math.cos(a) * out, 1.2, Math.sin(a) * out, 2, 1.2, 0.8); }
+      else if (snowAt(px, pz) > 0.5) powder.emit(px, gy + 0.2, pz, Math.cos(a) * out, 1.0 + Math.random(), Math.sin(a) * out, 3, 1.4, 1.2);
+      else washDust.emit(px, gy + 0.6, pz, Math.cos(a) * out, 0.2 + Math.random() * 0.6, Math.sin(a) * out, 2, 2.4, 2.4);
+    }
   }
-  return { x, z, strength, radius };
+  return { x, z, strength, radius, onWater, y: wl };
 }
 
 // ---------- Helpers ----------
@@ -1947,8 +1965,15 @@ function vehicleEffects(dt) {
   const inPuddle = wheelsWorld.some(([x, z]) => puddles.at(x, z));
   const inWater = jeep.depth > 0.05;
   // Splash on the way in.
-  if (inPuddle && !wasInPuddle && sp > 3) { audio.splash(Math.min(1, sp / 30)); haptics.play('light'); }
+  if (inPuddle && !wasInPuddle && sp > 3) { audio.splash(Math.min(1, sp / 30), 'puddle'); haptics.play('light'); }
   if (inWater && !wasInWater && sp > 2) { audio.splash(Math.min(1, sp / 18 + jeep.depth * 0.4)); haptics.play(sp > 10 ? 'heavy' : 'medium'); }
+  // Rings: across a puddle from each wheel in it, and over open water from a wading car.
+  if (inPuddle && sp > 0.8 && dt) for (const [x, z] of wheelsWorld) if ((!wasPuddleRing || Math.random() < dt * 5) && puddles.at(x, z)) puddles.ripple(x, z, Math.min(1, 0.4 + sp / 20));
+  wasPuddleRing = inPuddle;
+  if (inWater && jeep.boat < 0.5 && dt && Math.random() < dt * (1.5 + sp * 0.4)) {
+    const [x, z] = wheelsWorld[Math.floor(Math.random() * wheelsWorld.length)];
+    waterFx.ring(x, waterLevelAt(x, z), z, Math.min(1, 0.35 + sp / 12), { r0: 0.8, speed: 1.4 + sp * 0.15, life: 2.8 });
+  }
   wasInPuddle = inPuddle; wasInWater = inWater;
   boatEffects(dt);
   // Spray from the wheels, thrown out sideways and up.
@@ -1996,7 +2021,7 @@ function vehicleEffects(dt) {
 }
 
 // Boat mode: say when it changes; the wake, foam and spray are drawn by BoatWater.
-let boatToldOnce = false;
+let boatToldOnce = false, wasPuddleRing = false;
 function boatEffects(dt) {
   const ev = jeep.boatEvent; jeep.boatEvent = null;
   if (ev === 'boat') {
@@ -2119,6 +2144,7 @@ function frame(now) {
   }
   spray.update(dt);
   dust.update(dt);
+  washDust.update(dt);
   powder.update(dt);
   powderCloud.update(dt);
 
@@ -2166,7 +2192,10 @@ function frame(now) {
   // Ambient occlusion shades corners a few metres across: from a few hundred metres up it shows
   // nothing, and it would draw the whole island a second time, so it rests while you fly high.
   if (post?.ao) post.ao.enabled = !((mode === 'fly' && heli.agl > 150 && driveView !== 'cockpit') || (mode === 'sky' && diver.agl > 150));
-  grass?.update(camera, w, mode === 'walk' || mode === 'sky' ? null : ride === 'heli' ? (heli.landed ? { x: heli.pos.x, z: heli.pos.z, r: 3.2 } : null) : { x: jeep.pos.x, z: jeep.pos.z, r: jeep.model.bike ? 1.1 : 2.3 }, rotorWash(dt));
+  const wash = rotorWash(dt);
+  grass?.update(camera, w, mode === 'walk' || mode === 'sky' ? null : ride === 'heli' ? (heli.landed ? { x: heli.pos.x, z: heli.pos.z, r: 3.2 } : null) : { x: jeep.pos.x, z: jeep.pos.z, r: jeep.model.bike ? 1.1 : 2.3 }, wash);
+  waterFx?.update(paused ? 0 : dt, camera, renderer.domElement.height, 1 - dark * 0.85, wash?.onWater ? wash : null);
+  puddles?.update(t);
   scatter?.hdRocks?.update(dt, camera.position);
   props?.setNight(dark);
   towns?.setNight(dark);

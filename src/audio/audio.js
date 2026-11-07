@@ -133,6 +133,7 @@ export class AudioEngine {
     this.heliLP.connect(car);
 
     this.ready = true;
+    this.loadWater();
     if (this.levels.music > 0) this.playMusic();
   }
 
@@ -310,11 +311,28 @@ export class AudioEngine {
   }
 
   // Splash when hitting water or a puddle. strength 0 to 1.
-  splash(strength) {
+  // Splashes, from recordings (public/sounds/water, credited in the README): a tyre through a
+  // puddle, a splash into water, and a big one for a fast or deep plunge. Each plays a little
+  // faster or slower every time so no two sound the same. Before they load, a burst of noise.
+  loadWater() {
+    this.waterSnd ||= Promise.all(['puddle', 'splash', 'splash_big'].map((f) => fetch(`${import.meta.env.BASE_URL}sounds/water/${f}.wav`)
+      .then((r) => r.arrayBuffer()).then((b) => this.ctx.decodeAudioData(b)))).then((b) => { this.waterBufs = { puddle: b[0], splash: b[1], big: b[2] }; }).catch(() => { this.waterSnd = null; });
+  }
+  splash(strength, kind = 'water') {
     if (!this.ready) return;
     const s = Math.min(1, strength);
-    this.burst(700 + Math.random() * 500, 0.8, 0.35 + s * 0.4, 0.35 * s + 0.08, 'lowpass', this.bus.car);
-    this.burst(2200 + Math.random() * 1500, 1.2, 0.2 + s * 0.2, 0.12 * s + 0.03, 'bandpass', this.bus.car);
+    this.loadWater();
+    const B = this.waterBufs;
+    if (!B) {
+      this.burst(700 + Math.random() * 500, 0.8, 0.35 + s * 0.4, 0.35 * s + 0.08, 'lowpass', this.bus.car);
+      return;
+    }
+    const ctx = this.ctx, t = ctx.currentTime, src = ctx.createBufferSource(), g = ctx.createGain();
+    const buf = kind === 'puddle' ? B.puddle : s > 0.65 ? B.big : B.splash;
+    src.buffer = buf;
+    src.playbackRate.value = (kind === 'puddle' ? 0.9 + (1 - s) * 0.25 : 1.05 - s * 0.2) * (0.94 + Math.random() * 0.12);
+    g.gain.value = (kind === 'puddle' ? 0.25 + 0.55 * s : 0.3 + 0.6 * s);
+    src.connect(g).connect(this.bus.car); src.start(t);
   }
 
   // Thump of hitting a rock or wall. strength in speed units.

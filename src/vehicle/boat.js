@@ -295,7 +295,7 @@ function ringTexture(a, b) {
   }, false);
 }
 // Sprites: a burst of droplets, and a soft cloud of mist.
-function dropTexture() {
+export function dropTexture() {
   const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
   for (let i = 0; i < 26; i++) {
     const r = Math.sqrt(Math.random()) * 22, a = Math.random() * Math.PI * 2, s = 1 + Math.random() * 3.2;
@@ -307,13 +307,13 @@ function dropTexture() {
   g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
   return new THREE.CanvasTexture(c);
 }
-function mistTexture() {
+export function mistTexture() {
   const n = fbmTile(4, 4, 4, 41);
   return alphaTex(64, 64, (u, v) => { const r = Math.hypot(u - 0.5, v - 0.5) * 2; return (1 - smooth(0.2, 1, r)) * (0.35 + 0.65 * n(u * 4, v * 4)); }, false);
 }
 
 // Particles that fade and grow as they age, drawn with fog and lit by the time of day.
-class Spray {
+export class Spray {
   constructor(scene, { count, map, opacity, gravity, drag, grow }) {
     Object.assign(this, { n: count, gravity, drag, grow, opacity, next: 0 });
     this.pos = new Float32Array(count * 3).fill(-9999); this.vel = new Float32Array(count * 3);

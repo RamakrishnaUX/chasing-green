@@ -192,6 +192,19 @@ Above **300 m** in the helicopter you can jump out with a parachute (J, or the r
 - **The canopy** is built in code, as a sport canopy is made: nine fat, pillowy cells in an arc (the top skin bulges up between the ribs, the bottom a little down), a thick airfoil (17%) with the cell mouths open across the front and the dark rib walls seen inside, tapering to the tips, in navy, white and red. Lines run from four points along each rib, join in cascades and come down to four dark risers at his shoulders through a red slider, which slides down as it opens; the steering lines gather from the tail to his hands. It streams out of the pack as a bundle, spreads and inflates, banks with the turns, and after landing sinks forward, deflates and lies flat on the ground, then is packed away. (Sketchfab had no ram-air canopy that was both original and better than this: the good-looking ones are game rips.) Under the canopy the camera rides level with the wing, behind it, and drops toward him near the ground. **The pack** is a rounded black container with a red handle; it and the helmet are fitted to his bones each frame, on the jumper and then on the walker.
 - **The jumper** is the same man, posed by hand with the driver's tools (`driver.js`): the exit (standing in the door, then rolling flat), the box (arms out and bent, knees bent, head up to the horizon), tracking (arms swept back, legs straight), hanging under the canopy (hands on the toggles, pulled down to turn or flare, legs together and forward near the ground) and the landing roll.
 
+## Water you disturb
+
+- **Puddles** (`Puddles` in effects.js) are water, not stains: one mesh in the game's physical material, so each reflects the real sky (the scene's environment, clouds and all) with the right Fresnel, strongly at a low angle as from the driver's seat and hardly at all looking straight down, where the wet black tarmac shows through. The sun glints off them, a breeze barely shivers them, their outline is ragged and soft, and the tarmac round each is darkened by the wet. Driving through sends rings across them from each wheel.
+- **Ripple rings** (`WaterFx` in waterfx.js) spread across lakes and the sea from a wading car's wheels: each a wave front, a bright crest with a dark trough just inside, widening, softening and fading.
+- **Rotor downwash.** The air comes straight down under the rotor, turns at the ground and runs out flat in every direction, strongest at full rotor speed close down and gone by about 25 m up, so everything is pushed outward from under it. Grass is blown flat in pulses as the blades pass. On land, dust billows out low along the ground in a ring, coloured by the ground: black off the volcanic beaches, grey off gravel, a pale dun off dry grass and earth (snow is lifted as powder). On water, a band of water roughened by gusts and flecked with white races outward, rings spread from under the rotor a few a second, and mist and spray are thrown out flat across the surface.
+- **Splashes** play recordings (`public/sounds/water`), each a little faster or slower every time: a tyre through a puddle, a splash into water, and a big one for a fast or deep plunge.
+
+| Sound | Recording | By | Licence |
+| --- | --- | --- | --- |
+| Tyre through a puddle | [Water Puddle Splash](https://freesound.org/s/563021/) | cookies policy | CC0 |
+| Splash | [Watersplash](https://freesound.org/s/469608/) | Sheyvan | CC0 |
+| Big splash | [Big Water Splash](https://freesound.org/s/442773/) | qubodup | CC0 |
+
 ## Fuel
 
 Each car has its own tank, saved between visits, shown as a pump and a bar under the speed: white, amber below a fifth, red and blinking when empty. Turn it off in Settings, Fuel.
