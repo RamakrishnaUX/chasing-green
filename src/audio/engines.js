@@ -39,7 +39,7 @@ export const VOICES = {
     tops: [9, 15, 23, 33, 55], lp: [300, 0.13, 900], body: [70, 5], gain: 0.95,
     pops: { chance: 0.4, min: 1, max: 3, gain: 0.7, freq: [160, 320], thump: 48, upshift: 0 },
   },
-  // Vintage roadster: an old straight six, even and smooth, a soft hum through a quiet pipe.
+  // Vintage: an old straight six, even and smooth, a soft hum through a quiet pipe.
   six: {
     ref: 1200, cycles: 12, idle: 650, red: 2400, len: 0.07,
     // The recordings: a veteran car idling, climbing a steep hill and driving on. Engines that old

@@ -17,7 +17,7 @@ export const VEHICLES = {
     engine: { voice: 'v8' }, // a big cross-plane V8 (audio/engines.js)
   },
   vintage: {
-    name: 'Vintage roadster',
+    name: 'Vintage',
     tagline: 'Slow, soft and full of charm.',
     blurb: 'A 1930s coupe in deep maroon and black, with wire wheels, spares on the wings and a wooden dash. Slow, soft and floaty. Take your time.',
     susp: { k: 3.2, roll: 2.4 },

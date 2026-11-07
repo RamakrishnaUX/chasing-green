@@ -87,7 +87,7 @@ The arrows step through every car and the helicopter and change your vehicle the
 
 ## Driving display
 
-On a computer the driving display follows the game's look, with no boxes behind the readouts: a compass tape across the top with a green caret, the vehicle and the place you are in at the top left with the nearest place you have not found yet (or your route), and the time at the top right with the month and when the lights are likely. At the bottom centre sits the speed cluster: the gear (or Nitro, Flying, On foot) over the speed, a thin nitro line under it, and under them one thick band, as on a scooter dash: flat on both sides, stepping down at an angle under the speed, with slanted ends and a faint second band below for depth. Every fill edge is cut at the same slant as the ends. Fuel fills the left of it out from the centre (warm, red near the centre when low), nitro fills the dip and drains toward the middle as you use it, and the Kp fills the right out from the centre with the flowing aurora gradient. Fuel in litres sits above the left, the Kp above the right. Only the menu button sits in the top-right corner (view, record, mute and the notebook are on C, R, U and N, and the camera is also in Settings > Controls); refuel and tow appear just under the fuel gauge; the compass steps aside while the aurora is out. In the helicopter the left of the band is altitude. The minimap becomes just the road: the roads around you as thin lines, heading up, the stretch ahead in green and fuel stations as amber diamonds; click it for the full map. Markers float over the world with their distance, with nothing behind them, only for things within 800 m and in view: one in front (the nearest place you have not found, else the nearest place, else fuel) and at most one more behind it, smaller, lighter and quieter. The aurora radio stays out of the way until you click the Kp in the cluster (or press K); toasts and buttons wear the same dark panels with a green edge. Phones and tablets get the same driving display, sized for the hand: the place top left with the road-line minimap under it, the ribbon cluster above the controls (between them held sideways), and the Kp opening the radio. There are no labels in the world and no place panel on a phone; instead a Next spot chip at the top names the nearest unfound place within a kilometre, with its distance and an arrow that points the way.
+On a computer the driving display follows the game's look, with no boxes behind the readouts: a compass tape across the top with a green caret, the vehicle and the place you are in at the top left with the nearest place you have not found yet (or your route), and the time at the top right with the month and when the lights are likely. At the bottom centre sits the speed cluster: the gear (or Nitro, Flying, On foot) over the speed, a thin nitro line under it, and under them one thick band, as on a scooter dash: flat on both sides, stepping down at an angle under the speed, with slanted ends and a faint second band below for depth. Every fill edge is cut at the same slant as the ends. Fuel fills the left of it out from the centre (warm, red near the centre when low), nitro fills the dip and drains toward the middle as you use it, and the Kp fills the right out from the centre with the flowing aurora gradient. Fuel in litres sits above the left, the Kp above the right. There is no vehicle name or compass at the top; only a larger menu button sits in the top-right corner, and the time is bottom right beside the Kp (beside the menu on a phone). When the aurora comes, only the aurora shows: the place, minimap, markers and tips step away and the cluster dims (view, record, mute and the notebook are on C, R, U and N, and the camera is also in Settings > Controls); refuel and tow appear just under the fuel gauge; the compass steps aside while the aurora is out. In the helicopter the left of the band is altitude. The minimap becomes just the road: the roads around you as thin lines, heading up, the stretch ahead in green and fuel stations as amber diamonds; click it for the full map. Markers float over the world with their distance, with nothing behind them, only for things within 800 m and in view: one in front (the nearest place you have not found, else the nearest place, else fuel) and at most one more behind it, smaller, lighter and quieter. The aurora radio stays out of the way until you click the Kp in the cluster (or press K); toasts and buttons wear the same dark panels with a green edge. Phones and tablets get the same driving display, sized for the hand: the place top left with the road-line minimap under it, the ribbon cluster above the controls (between them held sideways), and the Kp opening the radio. There are no labels in the world and no place panel on a phone; instead a Next spot chip at the top names the nearest unfound place within a kilometre, with its distance and an arrow that points the way.
 
 ## Places, the aurora and badges
 
@@ -118,7 +118,7 @@ The menus have their own sounds, made on the spot (`src/audio/uisfx.js`): a dry 
 | Car | Looks | Handling | Deepest water |
 | --- | --- | --- | --- |
 | Trail 4x4 | 1940s open-topped field car in olive drab: slotted grille, white star on the bonnet, fold-down windscreen, jerry can and spare on the back, canvas seats, no roof between you and the sky | Balanced, best on gravel, mud and fords | 1.9 m |
-| Vintage roadster | 1930s coupe in deep maroon and black: long wings with a spare on each, wire wheels, round lamps on stalks at the back, a wooden dash | Slow and soft, with lots of body roll | 0.6 m |
+| Vintage | 1930s coupe in deep maroon and black: long wings with a spare on each, wire wheels, round lamps on stalks at the back, a wooden dash | Slow and soft, with lots of body roll | 0.6 m |
 | Supercar | Low orange hypercar with dark wheels, slashed lamps front and back, vents over the engine | Fast and stiff, poor off-road | 0.3 m |
 | Camper van | 1960s split-window bus in sky blue and white, seats for nine | Slow and steady, fine on gravel | 1.0 m |
 | Cafe racer | Yellow tank, brown bench seat, flat bars and fat tyres, ridden in an open leather helmet and goggles | Quick and nimble, leans into every bend, fair on gravel | 0.45 m (it cannot float) |
@@ -129,7 +129,7 @@ Handling lives in `src/vehicle/specs.js` (including suspension stiffness). All f
 | --- | --- | --- | --- |
 | Trail 4x4 | [Willy Jeep](https://sketchfab.com/3d-models/willy-jeep-b635f6d5a7a045cf9bae3cc71952cd23), thinned from 297,000 triangles to 122,000 | [AnilG](https://sketchfab.com/AnilkumarG) | CC BY 4.0 |
 | Supercar | [Fictional supercar - V12 Goblin](https://sketchfab.com/3d-models/fictional-supercar-v12-goblin-0a20e49ad5774d778567cb5c3f345786), repainted orange | [ollitei](https://sketchfab.com/ollitei) | CC BY 4.0 |
-| Vintage roadster | [Retro Car](https://sketchfab.com/3d-models/retro-car-2836e72f327f4d6f9fe836d646496927) | [pisarenok](https://sketchfab.com/pisarenok) | CC BY 4.0 |
+| Vintage | [Retro Car](https://sketchfab.com/3d-models/retro-car-2836e72f327f4d6f9fe836d646496927) | [pisarenok](https://sketchfab.com/pisarenok) | CC BY 4.0 |
 | Camper van | [Volkswagen Kombi Micro Bus](https://sketchfab.com/3d-models/volkswagen-kombi-micro-bus-d34fd744db1c4f84ad40c854ddbff9e9), badge removed, cab mirrored to left-hand drive | [winterborn](https://sketchfab.com/winterborn) | CC BY 4.0 |
 | Cafe racer | [Cafe Racer](https://sketchfab.com/3d-models/cafe-racer-c02dec85ac0541b8ab6dd56098706b50) | [Andrei Milin](https://sketchfab.com/milinam2002) | CC BY 4.0 |
 | Rider's helmet | [moto helmet](https://sketchfab.com/3d-models/moto-helmet-6c75ac1b13a047bd86742f37ce25adac), side badges and their mounts removed | [sayedgamal655](https://sketchfab.com/sayedgamal655) | CC BY 4.0 |
@@ -199,7 +199,7 @@ Each car has its own tank, saved between visits, shown as a pump and a bar under
 | Car | Tank | Range on a full tank |
 | --- | --- | --- |
 | Trail 4x4 | 80 litres | about 9 km |
-| Vintage roadster | 45 litres | about 7 km |
+| Vintage | 45 litres | about 7 km |
 | Camper van | 90 litres | about 10 km |
 | Supercar | 70 litres | about 8.5 km |
 
@@ -539,7 +539,7 @@ The cafe racer's twin is built this way. **The four cars play real engine record
 | Supercar | 820, 1,930, 2,780, 3,260, 4,070 | [Audi R8 Idling Reving Backfire](https://freesound.org/s/457733/) (V10) | Jonas_Jocys | CC BY 4.0 |
 | Camper van | 700 | [Volkswagen Beetle 1961](https://freesound.org/s/544344/) (air-cooled flat four) | klankbeeld | CC BY-SA 3.0 (the loop cut from it is shared under the same licence) |
 | | 2,590, 2,750 | [Volkswagen Type 2_revving up2](https://freesound.org/s/332695/) | nhaudio | CC BY 4.0 |
-| Vintage roadster | 645, 725, 1,010, 1,210 | [Veteran car](https://freesound.org/s/77096/) (idling, climbing a steep hill and driving on) | juskiddink | CC BY 4.0 |
+| Vintage | 645, 725, 1,010, 1,210 | [Veteran car](https://freesound.org/s/77096/) (idling, climbing a steep hill and driving on) | juskiddink | CC BY 4.0 |
 
 **How the loops were made** (in the browser, from Freesound's high-quality previews): each recording's harmonic comb was measured on its steady stretches (the spacing of its exhaust harmonics, from the autocorrelation of a whitened 16,384-point spectrum); the engine's speed is that spacing times 60, or times 30 where the comb is the four-cylinder firing rate (the Jeep and the veteran car), or times 120 where it is the half-order (the R8, whose V10 firing line at five times the crank speed confirms it). Rising stretches were tracked frame by frame and resampled at a varying rate so each loop holds one pitch, cut where its end best matches its start, joined with a 0.1 to 0.2 s equal-power crossfade, high-passed at 28 Hz (circularly, so the seam stays clean) and levelled to -16 dBFS. Loops from different recordings of one car are matched by these rpm figures, not by ear.
 
@@ -548,7 +548,7 @@ The built voices, still used for the bike and as each car's stand-in while its l
 | Vehicle | Engine | Character |
 | --- | --- | --- |
 | Trail 4x4 | Cross-plane V8 (banks L R R L R L L R) | Deep, lumpy off-beat burble; the odd burble on lifting off |
-| Vintage roadster | Straight six, even firing | Soft, smooth hum through a quiet pipe; very rarely a backfire |
+| Vintage | Straight six, even firing | Soft, smooth hum through a quiet pipe; very rarely a backfire |
 | Camper van | Air-cooled flat four, as in the old VW bus (banks L R R L) | Raspy, clattering putter |
 | Cafe racer | 270-degree parallel twin | Loping Scrambler beat; pops on almost every lift |
 | Supercar | Flat-plane V8 (banks alternating) | Hard, rising scream; crackles on the overrun |

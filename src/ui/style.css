@@ -1888,3 +1888,24 @@ body.sky-on .hx-tape, body.sky-on .hx-tape + .hx-caret, body.moment-on .hx-tape 
 :is(#intro, #gg) .gx-box h2 { flex: 1; min-width: 0; }
 @media (min-width: 1000px) and (min-height: 600px) { body:not(.has-touch) :is(#intro, #gg) .gx-box { height: 104px; } }
 @media (max-height: 520px), (orientation: portrait) and (max-width: 600px) { body.has-touch :is(#intro, #gg) .gx-box { height: 46px; } }
+
+/* ---------- Only what matters on screen ---------- */
+/* No vehicle name top left and no compass across the top, on any screen. */
+.hx-kick, .hx-tape { display: none !important; }
+/* The menu: one larger button, alone in the top-right corner. */
+#hud #btn-settings { width: 52px; height: 52px; }
+#hud #btn-settings svg { width: 24px; height: 24px; }
+body.has-touch #hud #btn-settings { width: 46px; height: 46px; }
+/* The time: bottom right on a computer, beside the Kp; on a phone, next to the menu button. */
+@media (min-width: 1000px) and (min-height: 600px) {
+  body:not(.has-touch) .hx-tr { top: auto; bottom: calc(40px + var(--safe-b)); right: calc(40px + var(--safe-r)); }
+  body:not(.has-touch) .hx-clock { font-size: 40px; }
+}
+body.has-touch .hx-tr { display: block; position: absolute; top: calc(18px + var(--safe-t)); right: calc(72px + var(--safe-r)); text-align: right; }
+body.has-touch .hx-clock { font: 300 22px/1 var(--sans); }
+body.has-touch .hx-tr .hx-small { display: none; }
+/* When the aurora comes, only the aurora: the place, minimap, markers, tips and time step away
+   and the cluster dims, until the moment has passed. */
+body.moment-on :is(.hx-tl, .hx-tr, .hx-mark, .hx-spot, .toast, .sky-hint, .nav, .infocard, .fuel-act, .badge-pop), body.moment-on #hud .minimap { opacity: 0 !important; pointer-events: none !important; transition: opacity 0.6s; }
+body.moment-on .hx-cluster { opacity: 0.45; transition: opacity 0.6s; }
+.hx-tl, .hx-tr, .hx-cluster, #hud .minimap { transition: opacity 0.6s; }
