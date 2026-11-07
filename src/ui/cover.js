@@ -9,6 +9,7 @@ import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.j
 import { buildVehicleModel } from '../vehicle/models.js';
 
 const FOV = 26;
+const YAW = 0.62;
 
 function gradient(size, stops, radial = true) {
   const c = document.createElement('canvas'); c.width = c.height = size;
@@ -56,7 +57,7 @@ export class Cover {
     this.kind = null;
     this.car = null;
     this.mirror = null;
-    this.fit = { size: 4, aimY: 0.8 };
+    this.fit = { w: 4, h: 1.8 };
     this.reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
     this.t0 = performance.now();
     this.heli = null;
@@ -89,19 +90,24 @@ export class Cover {
       model.lightMat.emissiveIntensity = 3; model.tailMat.emissiveIntensity = 1.2;
     }
     const car = this.car = model.group;
-    car.rotation.y = 0.62; // three-quarters on
     this.scene.add(car);
+    // Measured square on, before it turns: a box measured after turning and turned back would
+    // come out far bigger than the vehicle, and draw it small.
+    car.rotation.y = 0;
     car.updateMatrixWorld(true);
-    const inv = new THREE.Matrix4().copy(car.matrixWorld).invert();
-    // Fit: every vehicle about the same size on screen, whatever its length.
-    const size = new THREE.Box3().setFromObject(car).applyMatrix4(inv).getSize(new THREE.Vector3());
-    this.fit = { size: Math.max(size.z, size.x * 0.8) * (kind === 'heli' ? 0.83 : 1), aimY: size.y * 0.5 };
+    // Fit: measured from the body, so the helicopter's rotor blades (wider than its cabin) do not
+    // shrink it; they may overhang a little. w is its width on screen at this angle, h its height.
+    const body = new THREE.Box3();
+    const isBlade = (o) => { for (let n = o; n && n !== car; n = n.parent) if (/blade|rotor/i.test(n.name)) return true; return false; };
+    car.traverse((o) => { if (o.isMesh && !o.userData.blur && !isBlade(o)) body.expandByObject(o); });
+    const size = body.getSize(new THREE.Vector3());
+    this.fit = { w: size.z * Math.sin(YAW) + size.x * Math.cos(YAW), h: size.y };
     // A soft glow on each front lamp.
     if (model.lightMat) {
       const lamps = [], box = new THREE.Box3();
       car.traverse((o) => { if (o.isMesh && o.material === model.lightMat) lamps.push(o); });
       for (const o of lamps) {
-        box.setFromObject(o).applyMatrix4(inv);
+        box.setFromObject(o);
         const c = box.getCenter(new THREE.Vector3()), sz = box.getSize(new THREE.Vector3());
         if (c.z < 0) continue;
         const s = new THREE.Sprite(this.glow);
@@ -110,6 +116,7 @@ export class Cover {
         car.add(s);
       }
     }
+    car.rotation.y = YAW; // three-quarters on
     // The reflection: the same vehicle upside down under the wet ground.
     this.mirror = car.clone(true);
     this.mirror.scale.y = -1;
@@ -129,17 +136,21 @@ export class Cover {
   render() {
     if (!this.car) { this.renderer.clear(); return; }
     const W = innerWidth, H = innerHeight, cam = this.camera;
-    // Where the layout wants the vehicle, and how wide.
+    // The layout's spot is the free space for the vehicle. It stands on a ground line near the
+    // spot's foot and fills most of it: as wide as fits, and no taller than the space above the
+    // ground line, whichever is smaller. Its reflection runs on below.
     const r = this.spot?.getBoundingClientRect();
-    const cx = r && r.width ? r.left + r.width * 0.55 : W * 0.42, cy = r && r.height ? r.top + r.height * 0.42 : H * 0.7;
-    const wantW = r && r.width ? Math.min(r.width * (r.width < 900 ? 0.8 : 0.62), r.height * 1.7) : W * 0.32;
+    const sp = r && r.width > 40 && r.height > 40 ? r : { left: W * 0.1, top: H * 0.5, width: W * 0.5, height: H * 0.4 };
+    const maxW = Math.min(sp.width * 0.92, W * 0.6), maxH = sp.height * 0.8;
     const focal = H / (2 * Math.tan(THREE.MathUtils.degToRad(FOV / 2)));
-    const dist = Math.max(4, (this.fit.size * 0.92 * focal) / Math.max(120, wantW));
+    const dist = Math.max(3, (this.fit.w * focal) / maxW, (this.fit.h * focal) / maxH);
+    const ground = sp.top + sp.height * 0.86;
+    const cx = sp.left + sp.width * 0.5, cy = ground - (this.fit.h * focal) / dist / 2;
     // A slow drift round the vehicle, never more than a few degrees.
     const t = this.reduce ? 0 : (performance.now() - this.t0) / 1000;
     const a = 0.18 * Math.sin(t * 0.06);
     cam.position.set(Math.sin(a) * dist, 1.35 * dist / 13, Math.cos(a) * dist);
-    cam.lookAt(0, this.fit.aimY, 0);
+    cam.lookAt(0, this.fit.h / 2, 0);
     cam.setViewOffset(W, H, W / 2 - cx, H / 2 - cy, W, H);
     this.renderer.render(this.scene, cam);
   }
