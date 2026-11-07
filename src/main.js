@@ -304,6 +304,27 @@ async function buildWorld(progress) {
   console.info(`World built in ${Math.round(performance.now() - t0)} ms`, stageTimes);
 }
 
+// ---------- Rotor wash ----------
+// The helicopter's downwash: strongest with the rotor at full speed close to the ground, gone by
+// about 25 m up. It blows the grass flat (grass.js) and kicks up dust, snow or spray in a ring.
+function rotorWash(dt) {
+  if (!heli || (ride !== 'heli' && !heli.auto && !heli.engineOn) || !heli.root.visible) return null;
+  const agl = heli.landed ? 0 : Math.max(0, heli.agl);
+  const strength = heli.rpm * heli.rpm * (1 - smoothstep(4, 26, agl));
+  if (strength < 0.02) return null;
+  const x = heli.pos.x, z = heli.pos.z, radius = 9 + 7 * strength;
+  // A ring of debris pushed outward along the ground, more of it the stronger the wash.
+  if (dt && Math.random() < strength * 0.9) {
+    const a = Math.random() * Math.PI * 2, rr = radius * (0.35 + 0.5 * Math.random());
+    const px = x + Math.cos(a) * rr, pz = z + Math.sin(a) * rr, out = 4 + 6 * strength;
+    const wl = waterLevelAt(px, pz), gy = heightAt(px, pz);
+    if (wl > gy + 0.2) spray.emit(px, wl + 0.1, pz, Math.cos(a) * out, 1.2, Math.sin(a) * out, 3, 1.2, 0.8);
+    else if (snowAt(px, pz) > 0.5) powder.emit(px, gy + 0.2, pz, Math.cos(a) * out, 1.4, Math.sin(a) * out, 3, 1.4, 1.0);
+    else dust.emit(px, gy + 0.25, pz, Math.cos(a) * out, 0.9, Math.sin(a) * out, 2, 1.6, 1.4);
+  }
+  return { x, z, strength, radius };
+}
+
 // ---------- Helpers ----------
 function wind(t) {
   const W = CONFIG.wind;
@@ -1745,7 +1766,7 @@ function frame(now) {
   // Ambient occlusion shades corners a few metres across: from a few hundred metres up it shows
   // nothing, and it would draw the whole island a second time, so it rests while you fly high.
   if (post?.ao) post.ao.enabled = !((mode === 'fly' && heli.agl > 150 && driveView !== 'cockpit') || (mode === 'sky' && diver.agl > 150));
-  grass?.update(camera, w, mode === 'walk' || mode === 'sky' ? null : ride === 'heli' ? { x: heli.pos.x, z: heli.pos.z, r: 3.4 } : { x: jeep.pos.x, z: jeep.pos.z, r: jeep.model.bike ? 1.3 : 2.5 });
+  grass?.update(camera, w, mode === 'walk' || mode === 'sky' ? null : ride === 'heli' ? (heli.landed ? { x: heli.pos.x, z: heli.pos.z, r: 3.2 } : null) : { x: jeep.pos.x, z: jeep.pos.z, r: jeep.model.bike ? 1.1 : 2.3 }, rotorWash(dt));
   scatter?.hdRocks?.update(dt, camera.position);
   props?.setNight(dark);
   towns?.setNight(dark);

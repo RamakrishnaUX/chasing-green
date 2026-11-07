@@ -49,6 +49,8 @@ function buildDensityTexture(clear = []) {
       const i = iz * nx + ix;
       const x = BOUNDS.minX + ix * C, z = BOUNDS.minZ + iz * C;
       data[i * 4 + 3] = 255;
+      // Green: the distance to the nearest road's centre line, so each tuft can test it exactly.
+      data[i * 4 + 1] = Math.min(255, Math.round(roadField.d[i] * 20));
       // Each test can only lower the density, so a cell stops at the first one that clears it.
       let d = Math.min(1, Math.max(0, (roadField.d[i] - 4.6) / 1.6)); // keep off the road and its gravel shoulder
       if (d === 0) continue;
@@ -115,6 +117,8 @@ export class Grass {
       // Where your vehicle stands (x, z) and how far round it the grass parts, so blades never
       // come up through a car's floor or a cockpit.
       uCar: { value: new THREE.Vector3(0, 0, 0) },
+      // A helicopter's rotor wash: where (x, z), how strong (0 to 1) and how far it reaches.
+      uWash: { value: new THREE.Vector4(0, 0, 0, 1) },
     };
     const mat = new THREE.MeshStandardMaterial({ roughness: 0.82, metalness: 0, side: THREE.DoubleSide });
     // Realistic look: every blade its own shade (dead straw among live olive), varied heights,
@@ -127,7 +131,7 @@ export class Grass {
           attribute vec2 aOffset; attribute vec4 aRand; attribute float aBlade; varying float vTip;
           uniform vec3 uCam; uniform float uR; uniform sampler2D uHeight; uniform sampler2D uDens;
           uniform vec2 uGridMin; uniform vec2 uGridStep; uniform vec2 uGridN; uniform vec2 uDensSize;
-          uniform vec2 uWindDir; uniform float uWindStr; uniform vec3 uCar; uniform float uTime; uniform float uSnowLine; uniform float uSummer;
+          uniform vec2 uWindDir; uniform float uWindStr; uniform vec3 uCar; uniform vec4 uWash; uniform float uTime; uniform float uSnowLine; uniform float uSummer;
           uniform float uCloudCover; uniform vec2 uCloudOffset; uniform vec3 uSunDir; uniform float uSunUp;
           varying vec3 vGrassCol;
           ${NOISE}
@@ -142,13 +146,17 @@ export class Grass {
           float S = uR * 2.0;
           vec2 base = aOffset + floor((uCam.xz - aOffset) / S + 0.5) * S;
           float gh = groundH(base);
-          float dens = texture2D(uDens, (base - uGridMin) / uDensSize).r;
+          vec4 dTex = texture2D(uDens, (base - uGridMin) / uDensSize);
+          float dens = dTex.r;
+          // Never on the road: a tuft stands only well clear of the tarmac and its gravel shoulder
+          // (the widest road reaches 4.4 m from its centre line), and the first metre of verge is short.
+          float roadD = dTex.g * 12.75;
           float dist = length(base - uCam.xz);
           float keep = step(aRand.w, dens * 1.05);
           float fade = 1.0 - smoothstep(uR * 0.6, uR * 0.98, dist);
           float snow = 1.0 - smoothstep(uSnowLine - 16.0, uSnowLine - 6.0, gh);
           float sc = (0.7 + aRand.y * 0.75) * keep * fade * snow;
-          sc *= uCar.z > 0.0 ? smoothstep(uCar.z, uCar.z + 0.8, length(base - uCar.xy)) : 1.0;
+          sc *= step(5.4, roadD) * mix(0.55, 1.0, smoothstep(5.4, 6.8, roadD));
           // Taller, lusher grass in summer; short and wiry in winter.
           sc *= mix(0.85, 1.15, uSummer);
           float cr = cos(aRand.x), sr = sin(aRand.x);
@@ -168,6 +176,22 @@ export class Grass {
           vec2 bend = uWindDir * (gust * 0.4 + 0.15) * uWindStr + vec2(flutter);
           lp.xz += bend * ty * ty * 0.9;
           lp.y *= 1.0 - 0.18 * length(bend) * ty;
+          // Under and beside your vehicle the grass is pressed flat and pushed aside, not removed.
+          if (uCar.z > 0.0) {
+            vec2 cd = base - uCar.xy; float cl = length(cd);
+            float press = 1.0 - smoothstep(uCar.z * 0.55, uCar.z * 1.25, cl);
+            lp.y *= 1.0 - 0.82 * press;
+            lp.xz += (cl > 0.01 ? cd / cl : vec2(0.0)) * press * ty * 0.55;
+          }
+          // Rotor wash: blown outward from under the helicopter, flattest close in, in pulses that
+          // ripple out across the field as the blades pass.
+          if (uWash.z > 0.001) {
+            vec2 wd = base - uWash.xy; float wl = length(wd);
+            float wf = uWash.z * (1.0 - smoothstep(uWash.w * 0.2, uWash.w, wl));
+            float pulse = 0.65 + 0.35 * sin(uTime * 15.0 - wl * 1.3 + aRand.z * 2.0);
+            lp.xz += (wl > 0.01 ? wd / wl : vec2(1.0, 0.0)) * wf * pulse * ty * 1.25;
+            lp.y *= 1.0 - 0.5 * wf * ty;
+          }
           vec3 transformed = vec3(base.x, gh - 0.04, base.y) + lp * sc;
           // Colour: dry gold, straw and rust in winter, olive and green in summer, greener on hay fields.
           float n1 = g_n(base * 0.035), n2 = g_n(base * 0.006 + 2.0), n3 = g_n(base * 0.012 + 7.0);
@@ -210,9 +234,11 @@ export class Grass {
   }
 
   // car: { x, z, r } for the vehicle you are in, or null on foot.
-  update(camera, wind, car = null) {
+  // wash: { x, z, strength, radius } under a helicopter's rotor, or null.
+  update(camera, wind, car = null, wash = null) {
     this.uniforms.uCam.value.copy(camera.position);
     this.uniforms.uCar.value.set(car?.x || 0, car?.z || 0, car?.r || 0);
+    this.uniforms.uWash.value.set(wash?.x || 0, wash?.z || 0, wash?.strength || 0, wash?.radius || 1);
     if (wind) {
       const s = Math.hypot(wind.x, wind.z) || 1;
       this.uniforms.uWindDir.value.set(wind.x / s, wind.z / s);
