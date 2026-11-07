@@ -81,6 +81,10 @@ The vehicle's name sits in brackets at the top with arrows either side, and what
 
 The arrows step through every car and the helicopter and change your vehicle the same way the garage does. The one you pick rolls in onto its mark, then its headlights flicker on. Car models start loading at once; a vehicle appears only once its real model is in, never as a code-built stand-in. On phones held upright the stats sit in two columns under the vehicle.
 
+## Driving display
+
+On a computer the driving display follows the game's look, with no boxes behind the readouts: a compass tape across the top with a green caret, the vehicle and the place you are in at the top left with the nearest place you have not found yet (or your route), and the time at the top right with the month and when the lights are likely. At the bottom centre sits the speed cluster: the gear (or Nitro, Flying, On foot) over the speed, a thin nitro line under it, fuel in litres on the left with a warm bar, and the Kp on the right with the flowing aurora gradient. The minimap moves to the bottom left; the radio, toasts and buttons wear the same dark panels with a green edge. Phones and tablets keep their touch layout.
+
 ## Places, the aurora and badges
 
 Coming near a place shows its panel on the left: "New place found" (or "Back again"), the name on a dark-green board with a flowing green underline and its stamp, one line about it, how many places you have found and what kind of place it is. More opens the legend and a fact; the panel tucks itself away after a while of driving.

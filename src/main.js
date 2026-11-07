@@ -384,6 +384,29 @@ function guaranteeLevel() {
   return smoothstep(G.startMinutes, G.startMinutes + 0.4, elapsed);
 }
 
+// The nearest place you have not stamped yet, for the driving display ("Next · Vík 4.2 km").
+function nextPlaceText(p) {
+  if (nav.dest) return `Route · ${nav.dest.label}`;
+  let best = null, bd = Infinity;
+  for (const l of landmarks.list) {
+    if (store.data.stamps[l.id]) continue;
+    const d = Math.hypot(l.x - p.x, l.z - p.z);
+    if (d < bd) { bd = d; best = l; }
+  }
+  return best ? `Next · ${best.name} ${formatDistance(bd)}` : 'Every place found';
+}
+// What the gear readout says: a gear from the speed when driving, R reversing, N standing.
+function gearText() {
+  if (mode === 'walk') return 'On foot';
+  if (mode === 'sky') return 'Freefall';
+  if (ride === 'heli') return heli.landed ? 'Landed' : 'Flying';
+  if (jeep.boosting) return 'Nitro';
+  if (jeep.vF < -0.5) return 'Gear R';
+  const k = Math.abs(jeep.kmh);
+  if (k < 1) return 'Gear N';
+  return `Gear ${k < 20 ? 1 : k < 45 ? 2 : k < 75 ? 3 : k < 110 ? 4 : k < 150 ? 5 : 6}`;
+}
+
 function nextWindowLabel() {
   const now = clock.gameHours;
   for (let h = now + 0.25; h < now + 6; h += 0.25) {
@@ -1870,7 +1893,7 @@ function frame(now) {
     syncJumpButton();
     const fwd = new THREE.Vector3(); camera.getWorldDirection(fwd);
     const bearing = Math.atan2(fwd.x, -fwd.z);
-    if (Math.floor(clock.realSeconds * 2) !== lastWhere) { lastWhere = Math.floor(clock.realSeconds * 2); hud.whereText = describePlace(p.x, p.z).label; hud.nextWindowText = nextWindowLabel(); }
+    if (Math.floor(clock.realSeconds * 2) !== lastWhere) { lastWhere = Math.floor(clock.realSeconds * 2); hud.whereText = describePlace(p.x, p.z).label; hud.nextWindowText = nextWindowLabel(); hud.nextText = nextPlaceText(p); }
     $('nitro-bar').style.transform = `scaleX(${jeep.nitro.toFixed(3)})`;
     $('nitro-bar').parentElement.classList.toggle('is-on', jeep.boosting);
     $('t-gas').style.setProperty('--tank', jeep.nitro.toFixed(3));
@@ -1887,6 +1910,10 @@ function frame(now) {
       lookingUp: up, lookingUpWrongWay: upAnyDir && !up, lookTimer, loggedThisWindow, busy: !started || paused || mode === 'sky' || !!document.querySelector('dialog[open]'),
       now: clock.gameHours, nightStart: clock.nightIndex * 24 + 12 + 4, history: forecast.history.get(clock.nightIndex),
       predict: (h) => forecast.predictedAt(h, clock.gameHours), nextWindow: hud.nextWindowText,
+      kick: mode === 'walk' ? 'On foot' : ride === 'heli' ? 'Helicopter' : jeep.spec.name, next: hud.nextText, gear: gearText(),
+      dayText: `${clock.m.name} · ${a.summer ? 'Midnight sun' : a.active ? 'Aurora out now' : hud.nextWindowText ? `Lights likely ${hud.nextWindowText}` : a.dark < CONFIG.aurora.minDarkness ? 'Waiting for dark' : 'Dark sky'}`,
+      nitro: jeep.nitro, boosting: jeep.boosting,
+      fuel: fuel.on && ride === 'car' && mode !== 'walk' ? { level: fuel.level(jeep.kind), litres: fuel.litres(jeep.kind) } : null,
     });
   }
 

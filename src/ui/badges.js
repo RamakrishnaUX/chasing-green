@@ -124,9 +124,10 @@ export class Badges {
 
   next() {
     const b = this.queue.shift();
-    if (!b) { this.el.hidden = true; this.timer = 0; return; }
+    if (!b) { this.el.hidden = true; this.timer = 0; document.body.classList.remove('badge-on'); return; }
     this.el.innerHTML = `<div class="bp-medal">${medalSvg(b.icon)}</div><div class="bp-text"><p class="bp-kick">Badge earned</p><h3>${esc(b.name)}</h3><p>${esc(b.done())}</p></div>`;
     this.el.hidden = false;
+    document.body.classList.add('badge-on');
     this.el.classList.remove('is-out');
     // Restart the animation each time, even for two badges in a row.
     void this.el.offsetWidth;

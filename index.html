@@ -81,6 +81,18 @@
 
   <!-- HUD -->
   <div id="hud" hidden>
+    <!-- The driving display on computers: compass tape, place, time and the speed cluster. -->
+    <div class="hx" aria-hidden="true">
+      <div class="hx-tape"><svg viewBox="0 0 760 46" preserveAspectRatio="xMidYMid meet"><g id="hx-tape"></g></svg><i class="hx-caret"></i></div>
+      <div class="hx-tl"><p class="hx-kick" id="hx-kick"></p><p class="hx-place" id="hx-place"></p><p class="hx-small" id="hx-next"></p></div>
+      <div class="hx-tr"><p class="hx-clock" id="hx-clock"></p><p class="hx-small" id="hx-day"></p></div>
+      <div class="hx-cluster">
+        <p class="hx-gear" id="hx-gear"></p>
+        <div class="hx-side l" id="hx-fuelside"><p class="hx-val"><b id="hx-fuel">0</b><small>L fuel</small></p><i class="hx-line"></i><i class="hx-bar"><b id="hx-fuelbar"></b></i></div>
+        <div class="hx-spd"><b id="hx-speed">0</b><span id="hx-unit">km/h</span><i class="hx-nitro"><b id="hx-nitro"></b></i></div>
+        <div class="hx-side r"><p class="hx-val"><small>Aurora Kp</small><b id="hx-kp">0.0</b></p><i class="hx-line"></i><i class="hx-bar"><b id="hx-kpbar"></b></i></div>
+      </div>
+    </div>
     <div class="hud-tl">
       <div class="compass glass" aria-label="Compass"><svg viewBox="0 0 64 64" aria-hidden="true"><g id="compass-rose"><path d="M32 9 L37 32 L32 28 L27 32 Z" class="c-n"/><path d="M32 55 L27 32 L32 36 L37 32 Z" class="c-s"/><text x="32" y="8" class="c-label">N</text></g><g id="wind-arrow"><path d="M32 46 L32 20 M26 26 L32 20 L38 26" class="c-wind"/></g></svg></div>
       <div class="readout glass">

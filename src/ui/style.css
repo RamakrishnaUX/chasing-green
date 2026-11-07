@@ -1297,3 +1297,87 @@ body.has-touch .bp-text p:last-child { font-size: 12px; white-space: normal; max
     font: 700 13px/1 var(--sans); color: var(--green-ink); background: var(--green); }
   body:not(.has-touch) #postcard .panel-actions .btn-primary kbd { color: var(--green-hi); background: var(--green-ink); }
 }
+
+/* ---------- Driving display on computers ----------
+   A compass tape across the top, the place top left, the time top right, and a speed cluster
+   at the bottom centre with fuel on the left and the Kp on the right. No panels or tags: a soft
+   fade at the top and bottom of the screen keeps it readable. Phones and tablets keep their
+   own layout. */
+.hx { display: none; }
+@media (min-width: 1000px) and (min-height: 600px) {
+  body:not(.has-touch) .hx { display: block; position: absolute; inset: 0; pointer-events: none; color: var(--ink); }
+  body:not(.has-touch) #hud > .hx { pointer-events: none; }
+  body:not(.has-touch) .hx::before { content: ''; position: absolute; inset: 0; z-index: -1;
+    background: linear-gradient(180deg, rgba(2,8,7,0.5) 0%, rgba(2,8,7,0) 20%, rgba(2,8,7,0) 72%, rgba(2,8,7,0.5) 100%); }
+  /* The old readout gives way to the new one. */
+  body:not(.has-touch) #hud .hud-tl { display: none; }
+  body:not(.has-touch) #hud .minimap { top: auto; bottom: calc(26px + var(--safe-b)); left: calc(26px + var(--safe-l)); }
+
+  .hx-tape { position: absolute; left: 50%; top: 14px; transform: translateX(-50%); width: min(760px, calc(100vw - 640px)); height: 46px; overflow: hidden;
+    -webkit-mask: linear-gradient(90deg, transparent, #000 14%, #000 86%, transparent); mask: linear-gradient(90deg, transparent, #000 14%, #000 86%, transparent); }
+  .hx-tape svg { width: 760px; height: 46px; position: absolute; left: 50%; margin-left: -380px; overflow: visible; }
+  .hx-tape path { stroke: rgba(244,248,246,0.6); stroke-width: 1.5; fill: none; }
+  .hx-tape path.base { stroke: rgba(244,248,246,0.35); stroke-width: 1; }
+  .hx-tape text { font: 600 13px var(--sans); fill: rgba(244,248,246,0.6); text-anchor: middle; }
+  .hx-tape text.c { fill: var(--ink); font-weight: 700; }
+  .hx-caret { position: absolute; left: 50%; top: 40px; width: 0; height: 0; margin-left: -7px; border: 7px solid transparent; border-bottom: 9px solid var(--green); border-top: 0; }
+
+  .hx-tl { position: absolute; left: calc(40px + var(--safe-l)); top: 28px; max-width: max(calc(50vw - 434px), 266px); }
+  .hx-kick { display: flex; align-items: center; gap: 10px; margin: 0; font: 700 12px var(--sans); letter-spacing: 0.22em; text-transform: uppercase; color: var(--green); }
+  .hx-kick::before { content: ''; width: 22px; height: 2px; background: currentColor; }
+  .hx-place { margin: 8px 0 0; font: 400 32px/1.2 var(--serif); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .hx-small { margin: 10px 0 0; font: 600 12px var(--sans); letter-spacing: 0.2em; text-transform: uppercase; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hx-place.is-long { font-size: 22px; }
+  .hx-tr { position: absolute; right: calc(40px + var(--safe-r)); top: 74px; text-align: right; }
+  .hx-clock { margin: 0; font: 300 48px/1 var(--sans); font-variant-numeric: tabular-nums; letter-spacing: 0.01em; }
+  .hx-tr .hx-small { margin-top: 8px; }
+
+  .hx-cluster { position: absolute; left: 50%; bottom: calc(40px + var(--safe-b)); transform: translateX(-50%); width: min(700px, calc(100vw - 660px)); height: 110px; }
+  .hx-gear { position: absolute; left: 50%; top: -24px; transform: translateX(-50%); margin: 0; font: 700 12px var(--sans); letter-spacing: 0.3em; text-transform: uppercase; color: var(--green); white-space: nowrap; }
+  .hx-spd { position: absolute; left: 50%; top: 0; transform: translateX(-50%); display: grid; justify-items: center; }
+  .hx-spd b { font: 400 64px/1 var(--serif); font-variant-numeric: tabular-nums; }
+  .hx-spd span { margin-top: 10px; font: 700 12px var(--sans); letter-spacing: 0.32em; text-transform: uppercase; color: var(--ink-2); white-space: nowrap; }
+  .hx-nitro { display: block; width: 90px; height: 3px; margin-top: 8px; background: rgba(244,248,246,0.14); opacity: 0.6; transition: opacity 0.3s; }
+  .hx-nitro.is-on { opacity: 1; }
+  .hx-nitro b { display: block; height: 100%; background: var(--green-hi); transform-origin: left; }
+  .hx-side { position: absolute; top: 18px; width: calc(50% - 90px); }
+  .hx-side.l { left: 0; } .hx-side.r { right: 0; text-align: right; }
+  .hx-val { margin: 0; white-space: nowrap; }
+  .hx-val b { font: 300 30px/1 var(--sans); font-variant-numeric: tabular-nums; }
+  .hx-val small { margin: 0 10px; font: 700 11px var(--sans); font-stretch: 112%; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-2); }
+  .hx-line { position: relative; display: block; height: 12px; margin: 4px 0 6px; }
+  .hx-line::before, .hx-line::after { content: ''; position: absolute; top: 0; height: 2px; background: rgba(244,248,246,0.75); }
+  .hx-line::before { width: 82%; } .hx-line::after { width: 22%; }
+  .hx-side.l .hx-line::before { left: 0; } .hx-side.l .hx-line::after { right: -3%; transform: rotate(18deg); transform-origin: left; }
+  .hx-side.r .hx-line::before { right: 0; } .hx-side.r .hx-line::after { left: -3%; transform: rotate(-18deg); transform-origin: right; }
+  .hx-bar { position: relative; display: block; height: 7px; background: rgba(244,248,246,0.16); }
+  .hx-side.l .hx-bar b { position: absolute; left: 0; top: 0; bottom: 0; background: linear-gradient(90deg, #ff6a50, #ffbe5c 45%, #ffe7a3); transition: width 0.4s; }
+  .hx-side.l.is-low .hx-val b { color: #ff8a6b; }
+  .hx-side.r .hx-bar b { position: absolute; inset: 0; --k: 0%; clip-path: inset(0 0 0 calc(100% - var(--k))); transition: clip-path 0.8s;
+    background: linear-gradient(90deg, #20634c, #43ab83 25%, #a2f6d3 50%, #43ab83 75%, #20634c) 0 0 / 200% 100%; animation: flow 3.5s linear infinite; }
+
+  /* The rest of the HUD in the same dress: dark panels, square corners, a green edge. */
+  body:not(.has-touch) #hud .radio, body:not(.has-touch) #hud .toast, body:not(.has-touch) #hud .nav { background: rgba(6,16,14,0.72); border: 0; border-radius: 2px;
+    box-shadow: inset 3px 0 0 var(--green); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+  body:not(.has-touch) #hud .minimap { border-radius: 4px; border: 0; box-shadow: 0 0 0 1px rgba(162,246,211,0.22); }
+  body:not(.has-touch) #hud .hud-tr .icon-btn { background: rgba(6,16,14,0.62); border: 0; box-shadow: inset 0 0 0 1px rgba(162,246,211,0.22); }
+  body:not(.has-touch) #hud .hud-tr .icon-btn:hover { box-shadow: inset 0 0 0 1px var(--green); color: var(--green-hi); }
+  /* Things that sat at the top move down past the tape. */
+  body:not(.has-touch) .toast, body:not(.has-touch).sky-on .toast { top: calc(150px + var(--safe-t)); }
+  body:not(.has-touch) .sky-hint { top: calc(96px + var(--safe-t)); }
+  body:not(.has-touch) .moment { top: calc(110px + var(--safe-t)); }
+  body:not(.has-touch) .badge-pop { top: calc(130px + var(--safe-t)); }
+  body:not(.has-touch) .infocard { bottom: calc(230px + var(--safe-b)); }
+  body:not(.has-touch) .nav { top: calc(150px + var(--safe-t)); left: calc(40px + var(--safe-l)); }
+  /* While looking up, the cluster and place fade like the rest. */
+  body.is-looking .hx-tl, body.is-looking .hx-cluster { opacity: 0; transition: opacity 0.4s; }
+}
+@media (min-width: 1000px) and (max-height: 760px) and (min-height: 600px) {
+  body:not(.has-touch) .infocard { bottom: calc(210px + var(--safe-b)); }
+  .hx-place { font-size: 26px; } .hx-clock { font-size: 40px; }
+}
+
+/* A badge and a toast at once: the toast steps down below the badge. */
+body.badge-on #hud .toast { top: calc(250px + var(--safe-t)); }
+@media (orientation: portrait) and (max-width: 600px) { body.has-touch.badge-on #hud .toast { top: calc(350px + var(--safe-t)); } }
+@media (max-height: 520px) { body.has-touch.badge-on #hud .toast { top: calc(140px + var(--safe-t)); } }

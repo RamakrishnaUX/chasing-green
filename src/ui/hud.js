@@ -16,6 +16,8 @@ export class Hud {
     this.toastTimer = 0;
     this.toastPriority = 0;
     this.lastStatus = '';
+    this.hx = Object.fromEntries(['tape', 'kick', 'place', 'next', 'clock', 'day', 'gear', 'fuel', 'fuelbar', 'fuelside', 'speed', 'unit', 'nitro', 'kp', 'kpbar'].map((k) => [k, $(`hx-${k}`)]));
+    this.buildTape();
     // The aurora moment: a big title when the lights first come out, once per display.
     this.mo = { el: $('moment'), edge: $('mo-edge'), time: $('mo-time'), kp: $('mo-kp'), level: $('mo-level'), fill: $('mo-fill'), t: 0, cool: 0, was: false };
     this.el.radioToggle.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); this.el.radioToggle.click(); } });
@@ -80,6 +82,7 @@ export class Hud {
     if (callUp && !this.wasCall) haptics.play('aurora', 0);
     this.wasCall = callUp;
     this.moment(dt, s, kp);
+    this.drive(s, kp);
     e.cloud.textContent = `${Math.round(s.aurora.cloud * 100)}%`;
     e.dark.textContent = `${Math.round(s.aurora.dark * 100)}%`;
     const glow = s.aurora.city.overhead;
@@ -96,6 +99,48 @@ export class Hud {
 
     this.graphTimer -= dt;
     if (this.graphTimer <= 0) { this.drawGraph(s); this.graphTimer = 0.5; }
+  }
+
+  // The compass tape: ticks every 5 degrees and a label every 15, laid out once over a span
+  // wider than a full turn, then slid along under the fixed caret.
+  buildTape() {
+    const ppd = 760 / 140, names = { 0: 'N', 45: 'NE', 90: 'E', 135: 'SE', 180: 'S', 225: 'SW', 270: 'W', 315: 'NW' };
+    let svg = '';
+    for (let d = -90; d <= 450; d += 5) {
+      const x = (d + 90) * ppd, a = ((d % 360) + 360) % 360, major = d % 15 === 0;
+      svg += `<path d="M${x.toFixed(1)} ${major ? 30 : 34}V40"/>`;
+      if (major) svg += `<text x="${x.toFixed(1)}" y="20"${names[a] !== undefined ? ' class="c"' : ''}>${names[a] ?? a}</text>`;
+    }
+    this.hx.tape.innerHTML = `<path d="M0 40H${((540) * ppd).toFixed(0)}" class="base"/>${svg}`;
+    this.ppd = ppd;
+  }
+
+  // The driving display: only drawn when it shows (computers), and only what changed.
+  drive(s, kp) {
+    const h = this.hx;
+    if (!h.tape || !h.tape.closest('.hx').offsetParent) return;
+    const set = (el, v) => { if (el.textContent !== v) el.textContent = v; };
+    const b = ((s.bearingDeg % 360) + 360) % 360;
+    h.tape.setAttribute('transform', `translate(${(380 - (b + 90) * this.ppd).toFixed(1)} 0)`);
+    set(h.kick, s.kick || '');
+    set(h.place, s.where || '');
+    h.place.classList.toggle('is-long', (s.where || '').length > 14);
+    set(h.next, s.next || '');
+    set(h.clock, s.clockLabel);
+    set(h.day, s.dayText || '');
+    set(h.gear, s.gear || '');
+    set(h.speed, s.walking ? '0' : String(s.kmh));
+    set(h.unit, s.altitude != null ? `km/h · ${Math.max(0, Math.round(s.altitude))} m` : 'km/h');
+    h.nitro.style.transform = `scaleX(${(s.nitro || 0).toFixed(3)})`;
+    h.nitro.parentElement.classList.toggle('is-on', !!s.boosting);
+    set(h.kp, kp.toFixed(1));
+    h.kpbar.style.setProperty('--k', `${Math.min(100, Math.max(3, (kp / 9) * 100)).toFixed(1)}%`);
+    h.fuelside.hidden = s.fuel == null;
+    if (s.fuel != null) {
+      set(h.fuel, String(s.fuel.litres));
+      h.fuelbar.style.width = `${(s.fuel.level * 100).toFixed(1)}%`;
+      h.fuelside.classList.toggle('is-low', s.fuel.level < 0.2);
+    }
   }
 
   // The lights come out: AURORA across the top with the Kp, and Look up, Record and Postcard. It
