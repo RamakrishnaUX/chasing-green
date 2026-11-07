@@ -2048,3 +2048,4 @@ body.has-touch.moment-on #hud #t-look { opacity: 0; pointer-events: none; }
 body.has-touch .sky-hint { top: calc(12px + var(--safe-t)); }
 #hud > .hx { pointer-events: none; } #hud .hx-side.r { pointer-events: auto; }
 body.has-touch #hud #t-look { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; width: auto; font-size: 13px; } body.has-touch #hud #t-look svg { width: 18px; height: 18px; }
+body.has-touch .gx-menu { display: none !important; }
