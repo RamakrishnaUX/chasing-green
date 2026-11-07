@@ -1726,3 +1726,123 @@ body.has-touch .op-card { left: calc(20px + var(--safe-l)); bottom: calc(11vh + 
   .kp-scale i { height: 12px; background: rgba(244,248,246,0.16); transform: skewX(-18deg); } .kp-scale i.a { background: var(--green); } .kp-scale i.s { background: #ff8a6b; }
   .kp-lbl { display: flex; justify-content: space-between; margin-top: 6px; font: 600 11px var(--sans); color: var(--ink-3); }
 }
+
+/* Garage stats: each bar fills segment by segment when the vehicle changes. */
+:is(#intro, #gg) .gx-segs i.on { animation: seg-fill 0.32s cubic-bezier(0.2, 0.7, 0.2, 1) calc(var(--i, 0) * 45ms + 150ms) both; }
+@keyframes seg-fill { from { background: rgba(244,248,246,0.18); transform: skewX(-18deg) scaleY(0.4); } }
+@media (prefers-reduced-motion: reduce) { :is(#intro, #gg) .gx-segs i.on { animation: none; } }
+
+/* ---------- Menus on phones and tablets: the same design as on a computer, made for thumbs ----------
+   Full screen over the blurred road, the sections across the top (swipe for more), the page's own
+   sections as chips, and rows with big targets. */
+.sheet-tabs svg, #notebook .seg-tabs svg, #learn .seg-tabs svg, .jr-rail svg, .set-cats svg { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+body.has-touch .sheet-tabs [data-page='sound'] { display: none !important; }
+body.has-touch #sheet[data-page] { width: 100vw; height: 100dvh; max-width: none; max-height: none; margin: 0; inset: 0; border: 0; border-radius: 0; box-shadow: none;
+  background: rgba(3,10,8,0.5); -webkit-backdrop-filter: blur(18px) brightness(0.5); backdrop-filter: blur(18px) brightness(0.5); }
+body.has-touch #sheet::backdrop { background: transparent; -webkit-backdrop-filter: none; backdrop-filter: none; }
+body.has-touch #sheet[open] { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); animation: menu-in 0.25s ease-out; }
+@keyframes menu-in { from { opacity: 0; } }
+body.has-touch #sheet .sheet-head { grid-column: 1; grid-row: 1; position: relative; display: block; padding: calc(8px + var(--safe-t)) calc(64px + var(--safe-r)) 0 calc(8px + var(--safe-l)); border: 0; }
+body.has-touch .sheet-tabs { display: flex; flex-direction: row; gap: 0; height: 52px; margin: 0; padding: 0; max-width: none; overflow-x: auto; scrollbar-width: none; border: 0; border-radius: 0;
+  background: none; box-shadow: inset 0 -1px 0 rgba(244,248,246,0.1); -webkit-mask-image: linear-gradient(90deg, #000 85%, transparent); mask-image: linear-gradient(90deg, #000 85%, transparent); }
+body.has-touch .sheet-tabs::-webkit-scrollbar { display: none; }
+body.has-touch .sheet-tabs button { position: relative; flex: none; flex-direction: row; height: 52px; min-height: 0; padding: 0 16px; border-radius: 0; background: none; box-shadow: none;
+  font: 600 13px var(--sans); font-stretch: 112%; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-3); }
+body.has-touch .sheet-tabs button svg, body.has-touch .tab-key { display: none; }
+body.has-touch .sheet-tabs button.is-on { color: var(--ink); background: none; box-shadow: none; }
+body.has-touch .sheet-tabs button.is-on::after { content: ''; position: absolute; left: 12px; right: 12px; bottom: 0; height: 3px; background: var(--green); box-shadow: 0 0 12px rgba(102,223,176,0.7); }
+body.has-touch #sheet .sheet-close { position: absolute; top: calc(10px + var(--safe-t)); right: calc(12px + var(--safe-r)); width: 44px; height: 44px; }
+body.has-touch #sheet .sheet-page { grid-column: 1; grid-row: 2; min-height: 0; padding: 16px calc(16px + var(--safe-r)) calc(24px + var(--safe-b)) calc(16px + var(--safe-l)); overflow-y: auto; }
+body.has-touch #sheet .sheet-page.page-map { padding: 12px calc(12px + var(--safe-r)) calc(12px + var(--safe-b)) calc(12px + var(--safe-l)); }
+/* A page's own sections: a row of chips that scrolls sideways. */
+body.has-touch :is(#notebook, #learn) > .seg-tabs, body.has-touch .set-cats { display: flex; gap: 8px; max-width: none; margin: 0 0 16px; padding: 0 0 2px; overflow-x: auto; scrollbar-width: none; border: 0; border-radius: 0; background: none; box-shadow: none; }
+body.has-touch :is(#notebook, #learn) > .seg-tabs .tab, body.has-touch .set-cats button { flex: none; display: inline-flex; align-items: center; gap: 8px; height: 40px; min-height: 0; padding: 0 16px; border: 0; border-radius: 20px;
+  background: rgba(6,16,14,0.62); box-shadow: inset 0 0 0 1px rgba(244,248,246,0.1); font: 700 14px var(--sans); color: var(--ink-2); white-space: nowrap; }
+body.has-touch :is(#notebook, #learn) > .seg-tabs .tab.is-on, body.has-touch .set-cats button.is-on { background: var(--green); color: var(--green-ink); box-shadow: none; }
+body.has-touch #notebook .tab span[id^='nb-n-'] { opacity: 0.7; }
+/* Settings: the open group's rows, each a dark band with its control. */
+body.has-touch #settings .quick-actions, body.has-touch #settings .settings-month, body.has-touch .set-note { display: none; }
+body.has-touch .settings-grid { display: block; }
+body.has-touch #settings .srow[data-cat], body.has-touch #settings > [data-cat] { display: none; }
+body.has-touch #settings[data-cat='trip'] .srow[data-cat='trip'], body.has-touch #settings[data-cat='picture'] .srow[data-cat='picture'], body.has-touch #settings[data-cat='sound'] .srow[data-cat='sound'], body.has-touch #settings[data-cat='controls'] .srow[data-cat='controls'], body.has-touch #settings[data-cat='about'] .srow[data-cat='about'] { display: flex; }
+body.has-touch #settings[data-cat='trip'] > [data-cat='trip'], body.has-touch #settings[data-cat='picture'] > [data-cat='picture'], body.has-touch #settings[data-cat='sound'] > [data-cat='sound'], body.has-touch #settings[data-cat='controls'] > [data-cat='controls'], body.has-touch #settings[data-cat='about'] > [data-cat='about'] { display: block; }
+body.has-touch #settings[data-cat='about'] > .panel-actions[data-cat='about'] { display: flex; }
+body.has-touch #settings > .set-cats { display: flex; }
+body.has-touch .srow, body.has-touch .sound-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 60px; margin: 0 0 6px; padding: 8px 10px 8px 16px; border: 0; border-radius: 0; background: rgba(6,16,14,0.62); }
+body.has-touch .srow > label { font: 600 16px var(--sans); color: var(--ink); }
+body.has-touch .srow:has(.step) .seg, body.has-touch .srow .select-wrap { display: none; }
+body.has-touch .srow .step { display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; align-items: center; width: min(220px, 56%); flex: none; }
+body.has-touch .step button { width: 44px; height: 44px; }
+body.has-touch .step svg { width: 11px; height: 11px; fill: var(--green); }
+body.has-touch .st-val { font-size: 15px; }
+body.has-touch .srow:not(:has(.step)) .seg { flex: none; width: auto; gap: 2px; padding: 3px; border: 0; border-radius: 6px; background: rgba(244,248,246,0.07); box-shadow: none; }
+body.has-touch .srow:not(:has(.step)) .seg button { min-width: 60px; min-height: 40px; padding: 0 14px; border-radius: 4px; font: 700 14px var(--sans); text-transform: uppercase; color: var(--ink-3); }
+body.has-touch #sheet .seg button.is-on { color: var(--green-ink); }
+body.has-touch .sound-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
+body.has-touch .sound-row input[type=range] { grid-column: 1 / -1; grid-row: 2; width: 100%; }
+body.has-touch #settings .credits { padding: 16px; background: rgba(6,16,14,0.62); font-size: 12px; line-height: 1.6; }
+/* Notebook, Learn and Journey content on the same dark panels. */
+body.has-touch #learn > .tab-body, body.has-touch #notebook .stamps { padding: 16px; background: rgba(6,16,14,0.62); }
+body.has-touch .badges { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 16px 8px; }
+body.has-touch .badge .medal { width: 64px; height: 71px; }
+/* The menu's garage: the turntable, below the tabs. */
+body.has-touch #sheet #garage.sheet-page { position: relative; padding: 0; overflow: hidden; }
+body.has-touch #sheet #garage .garage { display: none; }
+body.has-touch .gg { display: block; position: absolute; inset: 0; background: #04070c; }
+body.has-touch #sheet[data-page='garage'] { background: #04070c; }
+body.has-touch #gg .gx-name { top: 8px; }
+.step button { display: grid; place-items: center; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; cursor: pointer; }
+.st-val { font-weight: 700; }
+body.has-touch .step button:active svg { transform: scale(1.3); }
+body.has-touch .sheet-tabs { justify-content: flex-start; }
+
+/* ---------- Driving on phones and tablets: the same display as on a computer, sized for the hand ---------- */
+.hx-spot { display: none; }
+body.has-touch .hx { display: block; position: absolute; inset: 0; pointer-events: none; color: var(--ink); }
+body.has-touch .hx::before { content: ''; position: absolute; inset: 0; z-index: -1; background: linear-gradient(180deg, rgba(2,8,7,0.45) 0%, rgba(2,8,7,0) 18%, rgba(2,8,7,0) 66%, rgba(2,8,7,0.5) 100%); }
+body.has-touch #hud .hud-tl, body.has-touch #hud .radio:not(.is-open), body.has-touch .hx-mark, body.has-touch .hx-tr { display: none; }
+body.has-touch .hx-tape { display: none; }
+body.has-touch .hx-tl { position: absolute; left: calc(14px + var(--safe-l)); top: calc(12px + var(--safe-t)); max-width: 52vw; }
+body.has-touch .hx-kick { font-size: 10px; letter-spacing: 0.2em; gap: 8px; } body.has-touch .hx-kick::before { width: 14px; }
+body.has-touch .hx-place { margin-top: 4px; font-size: 17px !important; -webkit-line-clamp: 1; }
+body.has-touch .hx-small { margin-top: 4px; font-size: 10px; letter-spacing: 0.16em; }
+/* The ribbon cluster, above the controls on an upright phone and between them held sideways. */
+body.has-touch .hx-cluster { position: absolute; left: 50%; transform: translateX(-50%); width: min(360px, calc(100vw - 32px)); height: auto; aspect-ratio: 700 / 130; bottom: calc(118px + var(--safe-b)); }
+body.has-touch .hx-gauge { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+body.has-touch .hx-track path, body.has-touch .hx-shadow path, body.has-touch .hx-fill { fill: none; stroke-width: 14; }
+body.has-touch .hx-track path { stroke: rgba(244,248,246,0.16); } body.has-touch .hx-shadow path { stroke: rgba(244,248,246,0.06); }
+body.has-touch .hx-fill { stroke-dasharray: 0 100; transition: stroke-dasharray 0.35s ease-out; }
+body.has-touch .hx-fuel { stroke: url(#hx-g-fuel); } body.has-touch .hx-kp { stroke: url(#hx-g-kp); } body.has-touch .hx-nitro { stroke: url(#hx-g-nitro); }
+body.has-touch .hx-gauge.is-alt .hx-fuel { stroke: url(#hx-g-alt); }
+body.has-touch .hx-gear { position: absolute; left: 50%; top: -16px; transform: translateX(-50%); margin: 0; font: 700 9px var(--sans); letter-spacing: 0.26em; text-transform: uppercase; color: var(--green); white-space: nowrap; }
+body.has-touch .hx-spd { position: absolute; left: 50%; top: -6%; transform: translateX(-50%); display: grid; justify-items: center; }
+body.has-touch .hx-spd b { font: 400 30px/1 var(--serif); font-variant-numeric: tabular-nums; }
+body.has-touch .hx-spd span { margin-top: 4px; font: 700 8px var(--sans); letter-spacing: 0.26em; text-transform: uppercase; color: var(--ink-2); }
+body.has-touch .hx-side { position: absolute; top: 0; } body.has-touch .hx-side.l { left: 5%; } body.has-touch .hx-side.r { right: 5%; text-align: right; pointer-events: auto; }
+body.has-touch .hx-val { margin: 0; white-space: nowrap; } body.has-touch .hx-val b { font: 300 17px/1 var(--sans); }
+body.has-touch .hx-val small { margin: 0 6px; font: 700 8px var(--sans); letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-2); }
+@media (max-height: 520px) { body.has-touch .hx-cluster { bottom: calc(10px + var(--safe-b)); width: min(330px, calc(100vw - 480px)); } }
+/* The road-line minimap, under the place name. */
+body.has-touch #hud .minimap { top: calc(70px + var(--safe-t)) !important; left: calc(10px + var(--safe-l)) !important; bottom: auto !important; width: 120px; height: 92px; border: 0; border-radius: 0; background: none; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
+/* The next spot: one chip at the top, with an arrow that points to it. */
+body.has-touch .hx-spot { position: absolute; left: 50%; top: calc(64px + var(--safe-t)); transform: translateX(-50%) translateY(-6px); display: flex; align-items: center; gap: 10px; padding: 7px 14px 7px 8px; border-radius: 22px;
+  background: rgba(6,16,14,0.72); box-shadow: inset 0 0 0 1px rgba(102,223,176,0.35); opacity: 0; transition: opacity 0.4s, transform 0.4s; white-space: nowrap; }
+body.has-touch .hx-spot.is-on { display: flex; opacity: 1; transform: translateX(-50%); }
+.hx-spot-arrow { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--green); transition: transform 0.3s ease-out; }
+.hx-spot-arrow svg { width: 14px; height: 14px; fill: var(--green-ink); }
+.hx-spot span { display: grid; line-height: 1.25; } .hx-spot small { font: 700 8.5px var(--sans); letter-spacing: 0.22em; text-transform: uppercase; color: var(--green-hi); }
+.hx-spot b { font: 700 14px var(--sans); max-width: 46vw; overflow: hidden; text-overflow: ellipsis; padding-bottom: 1px; }
+.hx-spot em { font-style: normal; font: 700 13px var(--sans); color: var(--ink-2); }
+@media (orientation: portrait) and (max-width: 600px) { body.has-touch .hx-spot { top: calc(170px + var(--safe-t)); } }
+body.has-touch .hx-tl .hx-small { display: none; }
+body.has-touch #hud .minimap { top: calc(52px + var(--safe-t)) !important; }
+@media (max-height: 520px) { body.has-touch .hx-cluster { width: min(280px, calc(100vw - 560px)); } }
+@media (orientation: portrait) and (max-width: 600px) {
+  body.has-touch .gx-menu { top: calc(10px + var(--safe-t)); right: calc(10px + var(--safe-r)); width: 38px; height: 38px; }
+  body.has-touch #intro .gx-name { margin-top: 22px; }
+}
+body.has-touch .hx-place { line-height: 1.45 !important; padding-bottom: 2px; }
+@media (orientation: portrait) and (max-width: 600px) {
+  body.has-touch .gx-menu { top: auto; bottom: calc(150px + var(--safe-b)); right: calc(16px + var(--safe-r)); width: 44px; height: 44px; }
+  body.has-touch #intro .gx-name { margin-top: 0; }
+}

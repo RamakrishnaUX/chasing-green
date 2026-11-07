@@ -61,6 +61,13 @@ export class Sheet {
       this.dialog.focus({ preventScroll: true });
     }
     this.onShow?.(name);
+    // Bring the open section's tab into view in a strip that scrolls sideways.
+    const tab = this.tabs.find((t) => t.dataset.page === name), strip = tab?.parentElement;
+    if (tab && strip && strip.scrollWidth > strip.clientWidth) {
+      const l = tab.offsetLeft - strip.offsetLeft, r = l + tab.offsetWidth;
+      if (l < strip.scrollLeft) strip.scrollLeft = l - 12; else if (r > strip.scrollLeft + strip.clientWidth * 0.85) strip.scrollLeft = r - strip.clientWidth * 0.85 + 12;
+    }
+    this.dialog.scrollLeft = 0;
     // Choose the first row, so the keys and the info panel start somewhere.
     if (!this.dialog.querySelector('.sheet-page:not([hidden]) .is-sel')) { const r = this.rows()[0]; if (r && !document.body.classList.contains('has-touch')) this.select(r); }
   }

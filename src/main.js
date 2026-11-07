@@ -449,7 +449,29 @@ function chooseMarks() {
   }
   marks = { main, back };
 }
+// On a phone: no labels in the world and no place panel; one chip says which unfound place is
+// next within a kilometre, how far, and an arrow points the way.
+let spotFor = null;
+function nextSpot() {
+  const el = $('hx-spot');
+  if (!document.body.classList.contains('has-touch') || mode === 'sky' || lookingUp()) { el.classList.remove('is-on'); return; }
+  const p = activePos();
+  let best = null, bd = 1000;
+  for (const l of landmarks.list) {
+    if (store.data.stamps[l.id]) continue;
+    const d = Math.hypot(l.x - p.x, l.z - p.z);
+    if (d < bd) { bd = d; best = l; }
+  }
+  el.classList.toggle('is-on', !!best);
+  if (!best) return;
+  if (spotFor !== best) { spotFor = best; $('hx-spot-name').textContent = best.name; }
+  const dist = formatDistance(bd);
+  if ($('hx-spot-dist').textContent !== dist) $('hx-spot-dist').textContent = dist;
+  const rel = Math.atan2(best.x - p.x, best.z - p.z) - activeHeading();
+  $('hx-spot-arrow').style.transform = `rotate(${(-Math.atan2(Math.sin(rel), Math.cos(rel))).toFixed(3)}rad)`;
+}
 function worldMarks(dt = 0.016) {
+  nextSpot();
   markTimer -= dt;
   if (markTimer <= 0) { markTimer = 0.25; chooseMarks(); }
   // Places use the place marker, fuel its own; whichever is behind is drawn back.
@@ -982,7 +1004,7 @@ function updateLandmarks(p) {
       setCardExpanded(false);
     }
     // Never while skydiving: on a phone the card sat over the Open button.
-    card.el.hidden = infoDismissed === lm.id || !card.wanted || mode === 'sky';
+    card.el.hidden = infoDismissed === lm.id || !card.wanted || mode === 'sky' || document.body.classList.contains('has-touch');
     // The card tucks itself away after a while of driving so it never sits over the view for good.
     if (!card.el.hidden && started && !card.el.classList.contains('is-expanded')) {
       card.shownAt ??= performance.now();
@@ -1222,6 +1244,8 @@ document.querySelectorAll('[data-quick]').forEach((b) => b.addEventListener('cli
 // The touch layout is for touch screens only. A computer always gets the computer layout: an old
 // "Touch controls: Show" setting from before used to switch a laptop to the phone layout.
 if (settings.touch === 'on' && !isTouch) { settings.touch = 'auto'; store.save(); }
+// Marked from the first frame, so the start screen and its menu use the touch layout too.
+document.body.classList.toggle('has-touch', settings.touch !== 'off' && (isTouch || matchMedia('(pointer: coarse)').matches));
 function syncTouch() {
   const show = settings.touch !== 'off' && (isTouch || matchMedia('(pointer: coarse)').matches);
   $('touch').hidden = !show;
@@ -1310,9 +1334,17 @@ function introInfo(kind, ids = { name: 'intro-car', kick: 'intro-kick', l: 'gx-s
   name.style.fontSize = '';
   requestAnimationFrame(() => { let f = parseFloat(getComputedStyle(name).fontSize); while (name.scrollWidth > name.clientWidth + 1 && f > 18) name.style.fontSize = `${(f -= 2)}px`; });
   $(ids.kick).textContent = KIND_LABEL[kind] || '';
-  const stats = vehicleStats(kind).map(([t, v, u, n]) => `<div class="gx-stat"><div class="gx-t">${t}</div><div class="gx-v">${v}<small>${u}</small></div><div class="gx-segs">${Array.from({ length: 10 }, (_, i) => `<i${i < n ? ' class="on"' : ''}></i>`).join('')}</div></div>`);
+  // Each bar fills segment by segment and each number counts up, so a switch is seen, not just swapped.
+  const stats = vehicleStats(kind).map(([t, v, u, n], row) => `<div class="gx-stat"><div class="gx-t">${t}</div><div class="gx-v"><span class="gx-num" data-to="${v}">${v}</span><small>${u}</small></div><div class="gx-segs">${Array.from({ length: 10 }, (_, i) => `<i${i < n ? ' class="on"' : ''} style="--i:${i + row * 2}"></i>`).join('')}</div></div>`);
   $(ids.l).innerHTML = stats.slice(0, 2).join('');
   $(ids.r).innerHTML = stats.slice(2).join('');
+  for (const el of [$(ids.l), $(ids.r)]) for (const num of el.querySelectorAll('.gx-num')) {
+    const to = parseFloat(num.dataset.to);
+    if (!Number.isFinite(to) || matchMedia('(prefers-reduced-motion: reduce)').matches) continue;
+    const dec = (num.dataset.to.split('.')[1] || '').length, t0 = performance.now();
+    const step = () => { const u = Math.min(1, (performance.now() - t0) / 700), e = 1 - Math.pow(1 - u, 3); num.textContent = (to * e).toFixed(dec); if (u < 1) requestAnimationFrame(step); };
+    num.textContent = (0).toFixed(dec); requestAnimationFrame(step);
+  }
 }
 
 // ---------- Cover ----------
@@ -1399,7 +1431,7 @@ startBtn.addEventListener('click', () => {
   if (settings.steering === 'tilt') Input.askTilt().then(applySteering);
   if (isTouch) { touchLayout(); goLandscape(); }
   canvas.focus();
-  hud.toast('Watch the Kp on the aurora radio. Tap the (i) next to it to learn what it means.', { seconds: 7 });
+  setTimeout(() => hud.toast(isTouch ? 'The Kp, bottom right, is how strong the aurora is. Tap it for the aurora radio.' : 'The Kp, bottom right, is how strong the aurora is. Click it, or press K, for the aurora radio.', { seconds: 7 }), 4200);
   setTimeout(showReverseTip, 8000);
 });
 
@@ -1763,7 +1795,7 @@ function renderGarage() {
 // The menu's garage on a computer is the start screen again: the vehicle on its turntable under
 // the aurora, its name and stats, arrows to look through them and Drive this to take one. Its two
 // canvases exist only while the page is open.
-const ggDesk = () => !document.body.classList.contains('has-touch') && matchMedia('(min-width: 1000px) and (min-height: 600px)').matches;
+const ggDesk = () => true; // the turntable garage on every screen
 function ggCurrent() { return ride === 'heli' || settings.vehicle === 'heli' ? 'heli' : jeep?.kind || coverKind(); }
 function ggShow(kind, arrive) {
   gg.kind = kind;
@@ -2473,7 +2505,7 @@ $('set-sound').addEventListener('change', (e) => setMuted(e.target.value === 'of
 
 // On computers the volumes live under Settings > Sound; phones keep their own Sound page.
 function placeSoundList() {
-  const list = document.querySelector('.sound-list'), desk = !document.body.classList.contains('has-touch');
+  const list = document.querySelector('.sound-list'), desk = true; // volumes live under Settings > Sound everywhere
   if (desk && list.parentElement.id !== 'settings') $('settings').querySelector('.settings-grid').after(list);
   if (!desk && list.parentElement.id === 'settings') $('sound').append(list);
 }
