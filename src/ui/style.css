@@ -2049,3 +2049,17 @@ body.has-touch .sky-hint { top: calc(12px + var(--safe-t)); }
 #hud > .hx { pointer-events: none; } #hud .hx-side.r { pointer-events: auto; }
 body.has-touch #hud #t-look { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; width: auto; font-size: 13px; } body.has-touch #hud #t-look svg { width: 18px; height: 18px; }
 body.has-touch .gx-menu { display: none !important; }
+
+/* ---------- Helicopter on touch: one cross-shaped pad on the left ----------
+   Up and Down above and below, Left and Right either side, all one joystick, the same size and
+   the same quiet style, so nothing shouts for attention. */
+body.has-touch.is-flying .touch-left { display: grid; grid-template: "a up b" auto "l c r" auto "d dn e" auto / auto auto auto; gap: 2px; align-items: center; justify-items: center; }
+body.has-touch.is-flying .touch-left::before { content: ''; grid-area: c; width: 22px; height: 22px; border-radius: 50%; background: rgba(6,16,14,0.5); box-shadow: inset 0 0 0 1px rgba(244,248,246,0.18); }
+body.has-touch.is-flying #t-up { grid-area: up; } body.has-touch.is-flying #t-down { grid-area: dn; }
+body.has-touch.is-flying #t-left { grid-area: l; } body.has-touch.is-flying #t-right { grid-area: r; }
+body.has-touch.is-flying .touch-left .pad { --size: 54px; position: static; order: 0; margin: 0; }
+body.has-touch.is-flying .pad-lift { flex-direction: row; background: inherit; }
+body.has-touch.is-flying .pad-lift span { display: none; }
+@media (max-height: 520px) { body.has-touch.is-flying .touch-left .pad { --size: 46px; } body.has-touch.is-flying .touch-left::before { width: 16px; height: 16px; } }
+@media (orientation: portrait) and (max-width: 600px) { body.has-touch.is-flying .hx-cluster { bottom: calc(196px + var(--safe-b)); } }
+body.is-flying #coach-reverse { display: none !important; }

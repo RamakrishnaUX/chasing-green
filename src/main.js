@@ -1748,7 +1748,10 @@ function boardHeli(announce = true) {
 // road if that is too far out for it.
 function leaveHeli() {
   const jumped = afterJump && mode === 'walk';
-  if (!heli.landed && !jumped) { hud.toast('Land first, then switch.', { seconds: 2.5, priority: 2 }); return false; }
+  // In the air the switch still happens: the car is set down on the nearest road below, behind a
+  // quick fade, rather than refusing with "land first".
+  const airborne = !heli.landed && !jumped;
+  if (airborne) { $('flash').classList.remove('is-on'); void $('flash').offsetWidth; $('flash').classList.add('is-on'); }
   const from = jumped ? walker.pos.clone() : heli.pos.clone();
   if (jumped) { endJump(); heli.auto = null; heli.engineOn = false; }
   if (mode === 'walk') walker.exit();
@@ -1760,7 +1763,7 @@ function leaveHeli() {
   jeep.body.visible = true; jeep.blob.visible = true;
   const r = nearestRoadAnywhere(from.x, from.z);
   const far = !r || Math.hypot(r.x - from.x, r.z - from.z) > CONFIG.vehicle.offRoadLimit * 0.8;
-  if (far && r) jeep.place(r.x, r.z, r.heading); else jeep.place(from.x, from.z, jumped ? walker.heading : heli.heading);
+  if ((far || airborne) && r) jeep.place(r.x, r.z, r.heading); else jeep.place(from.x, from.z, jumped ? walker.heading : heli.heading);
   mode = 'chase'; camHeading = jeep.heading;
   document.body.classList.remove('is-flying');
   syncLookButton();
