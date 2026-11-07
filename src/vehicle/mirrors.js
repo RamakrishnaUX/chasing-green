@@ -78,7 +78,20 @@ export class Mirrors {
     const cam = this.cam;
     cam.position.copy(camera.position);
     cam.quaternion.copy(body.getWorldQuaternion(this.q)); // a camera looks down -z: out of the back
-    if (cam.far !== camera.far) { cam.far = camera.far; cam.updateProjectionMatrix(); }
+    // The picture starts just behind the car's tail: with the car hidden, a closer start showed the
+    // grass under its own floor, which filled the mirrors of a long car like the camper.
+    if (this.bodyFor !== body) {
+      // The tail, in the car's own frame (forward is +z): measured once per car.
+      this.bodyFor = body;
+      body.updateMatrixWorld(true);
+      const inv = body.matrixWorld.clone().invert(), m = new THREE.Matrix4(), bb = new THREE.Box3();
+      let tail = Infinity;
+      body.traverse((o) => { if (!o.isMesh || !o.geometry) return; o.geometry.boundingBox || o.geometry.computeBoundingBox(); bb.copy(o.geometry.boundingBox).applyMatrix4(m.multiplyMatrices(inv, o.matrixWorld)); tail = Math.min(tail, bb.min.z); });
+      this.tail = Number.isFinite(tail) ? tail : -2;
+    }
+    const eyeZ = body.worldToLocal(this.eyeV ||= new THREE.Vector3()).z, local = body.worldToLocal(this.eyeV.copy(camera.position));
+    this.near = Math.max(0.3, (local.z - this.tail) * (body.scale.z || 1) + 0.4);
+    if (cam.far !== camera.far || cam.near !== this.near) { cam.far = camera.far; cam.near = this.near; cam.updateProjectionMatrix(); }
     cam.updateMatrixWorld();
     uniforms.uViewProj.value.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
     // The car itself stays out of the picture (it would fill it from inside), and the shadow

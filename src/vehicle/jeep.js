@@ -125,7 +125,9 @@ export class Jeep {
     if (!this.interior) return;
     const inside = view === 'cockpit';
     this.interior.group.visible = inside || !this.interior.closed;
-    for (const m of this.glass) m.opacity = inside ? 0.12 : m.userData.opacity;
+    // From inside the glass is not drawn at all: even nearly clear, its glossy coat reflected the
+    // sky as blurred blue patches across the windscreen.
+    for (const m of this.glass) { m.opacity = m.userData.opacity; m.visible = !inside; }
   }
 
   place(x, z, heading) {

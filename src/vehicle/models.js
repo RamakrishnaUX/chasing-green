@@ -751,7 +751,7 @@ function cutMirrors(root, C) {
     if (!b.pts.length) continue;
     mid.set(0, 0, 0); for (const p of b.pts) mid.add(p); mid.divideScalar(b.pts.length);
     // The half-way normal between "towards the eye" and "where it should look" bounces one into the other.
-    aim.set(b.side * 0.2, -0.05, -1).normalize().add(_e.subVectors(eye, mid).normalize()).normalize();
+    aim.set(b.side * 0.2, 0.06, -1).normalize().add(_e.subVectors(eye, mid).normalize()).normalize();
     const spread = b.side ? 1.5 : 0.6;
     for (const p of b.pts) { pos.push(p.x, p.y, p.z); d.subVectors(p, mid).multiplyScalar(spread).add(aim).normalize(); nor.push(d.x, d.y, d.z); }
   }
