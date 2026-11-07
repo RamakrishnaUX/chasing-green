@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { TessellateModifier } from 'three/examples/jsm/modifiers/TessellateModifier.js';
 
-export const HD = { on: false, terrain: null, road: null, rocks: null, surface: null, dem: null };
+export const HD = { on: false, terrain: null, road: null, rocks: null, surface: null, dem: null, textures: null };
 
 // ---------- Long sun shadows ----------
 // Traces from a surface toward the sun across the island's height map, in steps that grow from
@@ -130,8 +130,28 @@ async function loadDEM() {
   HD.dem = { minX: meta.minX, minZ: meta.minZ, cols: meta.w, rows: meta.h, sx: (meta.maxX - meta.minX) / meta.w, sz: (meta.maxZ - meta.minZ) / meta.h, heights: h, blur };
 }
 
+// Only the elevation is waited for: the island is shaped from it while the textures (most of the
+// download) keep arriving. HD.textures settles once they are in; wait for it before the rocks.
 export async function loadHD(renderer) {
+  const textures = loadTextures(renderer);
+  textures.catch(() => {});
   if (typeof DecompressionStream === 'function') await loadDEM().catch((e) => console.warn('Elevation data did not load; using generated mountains.', e));
+  HD.on = true;
+  HD.textures = textures.catch((e) => { console.warn('Realistic textures did not load; the land keeps its painted colours.', e); plainTextures(); });
+}
+
+// Stand-ins if the scans never arrive: flat grey that the shaders read as "no detail".
+function plainTextures() {
+  const px = (r, g, b) => new Uint8Array([r, g, b, 255]);
+  const layers = (c) => { const d = new Uint8Array(4 * LAYERS.length); for (let i = 0; i < LAYERS.length; i++) d.set(c, i * 4); const t = new THREE.DataArrayTexture(d, 1, 1, LAYERS.length); t.needsUpdate = true; return t; };
+  const flat = (c) => { const t = new THREE.DataTexture(c, 1, 1); t.needsUpdate = true; return t; };
+  const grey = px(128, 128, 128), up = px(128, 128, 255), arm = px(255, 242, 0), mean = new THREE.Vector3().setScalar(Math.pow(128 / 255, 2.2));
+  HD.terrain = { alb: layers(grey), nor: layers(up), arm: layers(arm), mean: LAYERS.map(() => mean.clone()) };
+  HD.road = { asphalt: { alb: flat(grey), nor: flat(up), arm: flat(arm), mean }, gravel: { alb: flat(grey), nor: flat(up), arm: flat(arm), mean } };
+  HD.rocks = [];
+}
+
+async function loadTextures(renderer) {
   const aniso = Math.min(8, renderer.capabilities.getMaxAnisotropy());
   const tex = (name, map) => loadImage(`${BASE}tex/${name}_${map}.jpg`);
   const [layerImgs, roadImgs, rockScenes] = await Promise.all([
@@ -172,7 +192,6 @@ export async function loadHD(renderer) {
       HD.rocks.push({ geometry: normalise(o.geometry.clone().applyMatrix4(o.matrixWorld)), material: mat, big: i > 0 });
     });
   });
-  HD.on = true;
 }
 
 // ---------- Atmosphere ----------

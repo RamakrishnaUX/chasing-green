@@ -48,19 +48,20 @@ function buildDensityTexture(clear = []) {
     for (let ix = 0; ix < nx; ix++) {
       const i = iz * nx + ix;
       const x = BOUNDS.minX + ix * C, z = BOUNDS.minZ + iz * C;
+      data[i * 4 + 3] = 255;
+      // Each test can only lower the density, so a cell stops at the first one that clears it.
+      let d = Math.min(1, Math.max(0, (roadField.d[i] - 4.6) / 1.6)); // keep off the road and its gravel shoulder
+      if (d === 0) continue;
       const h = heightAt(x, z);
-      let d = 1;
-      const rd = roadField.d[i];
-      d *= Math.min(1, Math.max(0, (rd - 4.6) / 1.6)); // keep off the road and its gravel shoulder
-      if (h < waterLevelAt(x, z) + 0.3) d = 0;
-      else if ((coastAt(x, z) < 22 && h < 4) || sandMask(x, z, h) > 0.2) d = 0; // black sand
+      if (h < waterLevelAt(x, z) + 0.3) continue;
+      if ((coastAt(x, z) < 22 && h < 4) || sandMask(x, z, h) > 0.2) continue; // black sand
       const slope = Math.abs(heightAt(x + 1.5, z) - h) + Math.abs(heightAt(x, z + 1.5) - h);
       d *= Math.min(1, Math.max(0, (1.6 - slope) / 0.8));
+      if (d === 0) continue;
       d *= 1 - glacierMask(x, z);
       d *= 1 - lavaMask(x, z) * 0.6;
-      for (const c of clear) { const dd = Math.hypot(c.x - x, c.z - z); if (dd < c.r) d *= Math.min(1, Math.max(0, (dd - c.r * 0.7) / (c.r * 0.3))); }
+      for (const c of clear) { const ex = c.x - x, ez = c.z - z; if (ex * ex + ez * ez < c.r * c.r) { const dd = Math.sqrt(ex * ex + ez * ez); d *= Math.min(1, Math.max(0, (dd - c.r * 0.7) / (c.r * 0.3))); } }
       data[i * 4] = Math.round(d * 255);
-      data[i * 4 + 3] = 255;
     }
   }
   const tex = new THREE.DataTexture(data, nx, nz, THREE.RGBAFormat);

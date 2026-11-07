@@ -29,13 +29,24 @@ function segDist(px, pz, ax, az, bx, bz) {
   const qx = ax + dx * t, qz = az + dz * t;
   return { d: Math.hypot(px - qx, pz - qz), t, qx, qz };
 }
+// Squared distance from a point to a segment, without building a result object: the terrain asks
+// this tens of millions of times while it is built.
+function segDistSq(px, pz, ax, az, bx, bz) {
+  const dx = bx - ax, dz = bz - az;
+  const l2 = dx * dx + dz * dz || 1e-6;
+  let t = ((px - ax) * dx + (pz - az) * dz) / l2;
+  t = t < 0 ? 0 : t > 1 ? 1 : t;
+  const ex = px - ax - dx * t, ez = pz - az - dz * t;
+  return ex * ex + ez * ez;
+}
 // Distance to a coast polygon's edge: positive inside it, negative outside.
 function polySigned(x, z, poly) {
   let m = Infinity;
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-    const r = segDist(x, z, poly[j].x, poly[j].z, poly[i].x, poly[i].z);
-    if (r.d < m) m = r.d;
+    const d = segDistSq(x, z, poly[j].x, poly[j].z, poly[i].x, poly[i].z);
+    if (d < m) m = d;
   }
+  m = Math.sqrt(m);
   return pointInPoly(x, z, poly) ? m : -m;
 }
 // Each island's bounding box, so the far ones cost nothing.
@@ -892,7 +903,7 @@ export async function buildTerrain(scene, res, season, onProgress) {
           const rd = roadDistAt(gx, gz);
           if (rd < 7) continue;
           // Keep canyons sharp: smoothing would fill them in.
-          if (CANYONS.some((c) => segDist(gx, gz, c.a.x, c.a.z, c.b.x, c.b.z).d < c.w + 6)) continue;
+          if (CANYONS.some((c) => segDistSq(gx, gz, c.a.x, c.a.z, c.b.x, c.b.z) < (c.w + 6) ** 2)) continue;
           if (keridU(gx, gz) < 1.95) continue;
           const avg = (src[i] * 4 + src[i - 1] + src[i + 1] + src[i - nx] + src[i + nx] + (src[i - nx - 1] + src[i - nx + 1] + src[i + nx - 1] + src[i + nx + 1]) * 0.5) / 10;
           Hh[i] = lerp(src[i], avg, smoothstep(7, 15, rd) * 0.8);

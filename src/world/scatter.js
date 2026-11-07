@@ -160,7 +160,7 @@ export class Scatter {
       n++;
     }
     // Desktop's realistic look draws the same spots with scanned rocks instead.
-    if (HD.on) { this.hdRocks = new HDRocks(scene, spots, this.rand); geo.dispose(); return; }
+    if (HD.on && HD.rocks?.length) { this.hdRocks = new HDRocks(scene, spots, this.rand); geo.dispose(); return; }
     mesh.count = n;
     mesh.castShadow = true;
     mesh.receiveShadow = true;

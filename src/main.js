@@ -61,9 +61,16 @@ const isAndroid = /Android/i.test(navigator.userAgent);
 const weakDevice = isTouch && ((navigator.deviceMemory || 8) <= 4 || (navigator.hardwareConcurrency || 8) <= 4 ||
   (isAndroid && Math.min(screen.width, screen.height) <= 400));
 const LITE = { pixelRatio: 0.75, auroraSteps: 6, terrainRes: 480, grass: 3500, grassRadius: 18, rocks: 140 };
-const qualityFor = (name) => (weakDevice && name === 'low' ? { ...CONFIG.quality.low, ...LITE } : CONFIG.quality[name]);
+// The realistic look's ground shader is costly per pixel (most of each frame is spent on it), so on
+// Medium it draws at one pixel per CSS pixel: about a third less work on a Retina screen.
+const qualityFor = (name) => {
+  const q = weakDevice && name === 'low' ? { ...CONFIG.quality.low, ...LITE } : CONFIG.quality[name];
+  return wantHD && name === 'medium' ? { ...q, pixelRatio: Math.min(q.pixelRatio, 1) } : q;
+};
 const FRAME_GAP = isTouch ? 1000 / 30 : 0;
-let qualityName = settings.quality || (isTouch ? 'low' : CONFIG.defaultQuality);
+// settings.autoQuality: where the game stepped itself down on this device last time, so a slow
+// machine starts there instead of struggling (and being told so) on every visit.
+let qualityName = settings.quality || settings.autoQuality || (isTouch ? 'low' : CONFIG.defaultQuality);
 // The realistic look is desktop only (and not on Low): phones keep the classic look and never
 // download its textures. It is chosen at load, so a change applies on the next reload.
 const wantHD = !isTouch && qualityName !== 'low' && settings.look !== 'classic';
@@ -174,8 +181,9 @@ const BUILD_SHARE = 0.82, MIN_LOAD_MS = 3200;
 const nextPaint = () => (document.hidden ? Promise.resolve() : new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0))));
 const stageTimes = {};
 async function buildWorld(progress) {
-  // The camper's graffiti is painted from two web fonts; give them a moment to arrive.
-  await Promise.race([Promise.all(['400 100px "Bungee"', '400 60px "Sedgwick Ave Display"'].map((f) => document.fonts?.load(f))), new Promise((r) => setTimeout(r, 2500))]).catch(() => {});
+  // The camper's graffiti is painted from two web fonts; they download while the island is built
+  // and are given a moment more, if they need it, just before the cars.
+  const fonts = Promise.race([Promise.all(['400 100px "Bungee"', '400 60px "Sedgwick Ave Display"'].map((f) => document.fonts?.load(f))), new Promise((r) => setTimeout(r, 2500))]).catch(() => {});
   const t0 = performance.now();
   let tStage = t0, current = null, currentMs = 0;
   // Expected times come from a desktop build; phones start at 2.5x, then the first stage tells
@@ -194,7 +202,7 @@ async function buildWorld(progress) {
   if (wantHD) {
     await stage('Loading realistic textures', 0.05, 1800);
     HD.surface = surfaceUniforms;
-    try { await loadHD(renderer); } catch (e) { console.warn('Realistic textures did not load; using the classic look.', e); }
+    try { await loadHD(renderer); } catch (e) { console.warn('Elevation did not load; using the classic look.', e); }
   }
   await stage('Shaping the island', 0.06, 1500);
   // The realistic look uses a finer terrain mesh so the eroded faces have room to show.
@@ -221,6 +229,8 @@ async function buildWorld(progress) {
   obstacles = new Obstacles();
   landmarks.registerObstacles(obstacles);
   await stage('Scattering rocks', 0.88, 560);
+  // The scanned rocks and ground textures have been downloading while the island took shape.
+  if (HD.on) await HD.textures;
   // Bridge railings are solid on both sides.
   for (const B of bridges) for (const sx of [-1, 1]) obstacles.addBox(B.x - B.dz * sx * 4.65, B.z + B.dx * sx * 4.65, Math.atan2(B.dx, B.dz), 0.25, B.len / 2 + 2, 'wall');
   // No rocks or grass field on streets, churchyards and city squares.
@@ -252,6 +262,7 @@ async function buildWorld(progress) {
   powderCloud = new Particles(scene, { count: qualityName === 'low' ? 120 : 260, color: 0xdfe8f2, size: 2.6, opacity: 0.42, gravity: 0.6, drag: 2.2 });
   scatter.setSeason(clock.season);
   await stage('Parking your car', 0.93, 60);
+  await fonts;
   jeep = new Jeep(scene, settings.vehicle === 'heli' ? settings.car || 'jeep' : settings.vehicle || 'jeep');
   // The supercar, roadster and camper models arrive in the background; the one in use is
   // rebuilt from its model as soon as it lands.
@@ -950,7 +961,7 @@ function setQuality(name, save) {
       sky.sun.shadow.map = null;
     }
   }
-  if (save) { settings.quality = name; store.save(); }
+  if (save) { settings.quality = name; delete settings.autoQuality; store.save(); }
 }
 $('set-month').addEventListener('change', (e) => setMonth(+e.target.value, true));
 // Months drive the sun path, darkness and aurora chance. The visual season follows from the month.
@@ -1798,8 +1809,9 @@ function frame(now) {
     if (started && fps < (isTouch ? 24 : 40) && resScale <= RES_MIN && !autoDowngraded && !settings.quality && qualityName !== 'low') {
       autoDowngraded = true;
       setQuality(qualityName === 'high' ? 'medium' : 'low', false);
+      settings.autoQuality = qualityName; store.save();
       track('graphics_auto_lowered', { to: qualityName, fps: Math.round(fps) });
-      hud.toast('Lowered graphics quality to keep things smooth. You can change it in Settings.', { seconds: 4 });
+      hud.toast('Lowered graphics quality to keep things smooth, and it stays lower next time. You can change it in Settings.', { seconds: 5 });
     }
     fpsAcc = 0; fpsFrames = 0;
   }
@@ -1871,7 +1883,7 @@ window.chasingGreen = {
   clock, forecast, CONFIG, store, linkFor, scene, renderer, camera, mirrors, driver, setVehicle, fastTravel, input,
   get obstacles() { return obstacles; }, get scene() { return scene; }, Vec3: THREE.Vector3, get puddles() { return puddles; }, get mapUI() { return mapUI; }, get snow() { return snow; },
   nearestRoad: (x, z, r) => nearestRoad(x, z, r), coastAt, roadDistAt, shoreDistAt, groundAt, solidTopAt, get wildlife() { return wildlife; },
-  roadPaths: () => roadPaths, fuel, putCar, get stations() { return stations; },
+  roadPaths: () => roadPaths, fuel, putCar, get stations() { return stations; }, stageTimes,
   heightAt: (x, z) => heightAt(x, z),
   snowAt: (x, z) => snowAt(x, z),
   waterLevelAt: (x, z) => waterLevelAt(x, z),
