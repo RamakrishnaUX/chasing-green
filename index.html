@@ -103,24 +103,21 @@
              the left out from the centre, nitro the dip, the Kp the right out from the centre. -->
         <svg class="hx-gauge" viewBox="0 0 700 130" aria-hidden="true">
           <defs>
-            <clipPath id="hx-clip"><polygon points="70,0 630,0 704,130 -4,130"/></clipPath>
+            <clipPath id="hx-clip"><polygon points="62.4,0 637.6,0 714.4,130 -14.4,130"/></clipPath>
             <linearGradient id="hx-g-fuel" gradientUnits="userSpaceOnUse" x1="300" y1="0" x2="24" y2="0"><stop offset="0" stop-color="#ff6a50"/><stop offset="0.45" stop-color="#ffbe5c"/><stop offset="1" stop-color="#ffe7a3"/></linearGradient>
             <linearGradient id="hx-g-kp" gradientUnits="userSpaceOnUse" x1="400" y1="0" x2="676" y2="0" spreadMethod="reflect"><stop offset="0" stop-color="#20634c"/><stop offset="0.5" stop-color="#66dfb0"/><stop offset="1" stop-color="#a2f6d3"/>
               <animate attributeName="x1" values="400;676;400" dur="5s" repeatCount="indefinite"/><animate attributeName="x2" values="676;952;676" dur="5s" repeatCount="indefinite"/></linearGradient>
             <linearGradient id="hx-g-alt" gradientUnits="userSpaceOnUse" x1="300" y1="0" x2="24" y2="0"><stop offset="0" stop-color="#5aa7ff"/><stop offset="1" stop-color="#e3f1ff"/></linearGradient>
             <linearGradient id="hx-g-nitro" gradientUnits="userSpaceOnUse" x1="350" y1="0" x2="250" y2="0" spreadMethod="reflect"><stop offset="0" stop-color="#a2f6d3"/><stop offset="1" stop-color="#43ab83"/></linearGradient>
           </defs>
+          <clipPath id="hx-c-fuel"><polygon/></clipPath><clipPath id="hx-c-nl"><polygon/></clipPath><clipPath id="hx-c-nr"><polygon/></clipPath><clipPath id="hx-c-kp"><polygon/></clipPath>
           <g clip-path="url(#hx-clip)">
-            <g class="hx-shadow" transform="translate(0 12)">
-              <path d="M300 104 C268 104, 262 70, 228 70 H 24"/><path d="M300 104 H 400"/><path d="M400 104 C432 104, 438 70, 472 70 H 676"/>
-            </g>
-            <g class="hx-track">
-              <path d="M300 104 C268 104, 262 70, 228 70 H 24"/><path d="M300 104 H 400"/><path d="M400 104 C432 104, 438 70, 472 70 H 676"/>
-            </g>
-            <path id="hx-fuelbar" class="hx-fill hx-fuel" pathLength="100" d="M300 104 C268 104, 262 70, 228 70 H 24"/>
-            <path id="hx-nitro-l" class="hx-fill hx-nitro" pathLength="100" d="M350 104 H 300"/>
-            <path id="hx-nitro-r" class="hx-fill hx-nitro" pathLength="100" d="M350 104 H 400"/>
-            <path id="hx-kpbar" class="hx-fill hx-kp" pathLength="100" d="M400 104 C432 104, 438 70, 472 70 H 676"/>
+            <path class="hx-band hx-shadow" transform="translate(0 14)" d="M-60 52 L232 52 L286 92 L414 92 L468 52 L760 52 L760 76 L468 76 L414 116 L286 116 L232 76 L-60 76 Z"/>
+            <path class="hx-band hx-track" d="M-60 52 L232 52 L286 92 L414 92 L468 52 L760 52 L760 76 L468 76 L414 116 L286 116 L232 76 L-60 76 Z"/>
+            <path id="hx-fuelbar" class="hx-band hx-fuel" clip-path="url(#hx-c-fuel)" d="M-60 52 L232 52 L286 92 L414 92 L468 52 L760 52 L760 76 L468 76 L414 116 L286 116 L232 76 L-60 76 Z"/>
+            <path id="hx-nitro-l" class="hx-band hx-nitro" clip-path="url(#hx-c-nl)" d="M-60 52 L232 52 L286 92 L414 92 L468 52 L760 52 L760 76 L468 76 L414 116 L286 116 L232 76 L-60 76 Z"/>
+            <path id="hx-nitro-r" class="hx-band hx-nitro" clip-path="url(#hx-c-nr)" d="M-60 52 L232 52 L286 92 L414 92 L468 52 L760 52 L760 76 L468 76 L414 116 L286 116 L232 76 L-60 76 Z"/>
+            <path id="hx-kpbar" class="hx-band hx-kp" clip-path="url(#hx-c-kp)" d="M-60 52 L232 52 L286 92 L414 92 L468 52 L760 52 L760 76 L468 76 L414 116 L286 116 L232 76 L-60 76 Z"/>
           </g>
         </svg>
         <p class="hx-gear" id="hx-gear"></p>
@@ -379,6 +376,8 @@
         <select id="set-haptics"><option value="on">On</option><option value="off">Off</option></select>
         <label for="set-steering" class="touch-only">Steering</label>
         <select id="set-steering" class="touch-only"><option value="buttons">Buttons</option><option value="tilt">Tilt phone</option></select>
+        <label for="set-view">Camera</label>
+        <select id="set-view"><option value="chase">Behind</option><option value="hood">Hood</option><option value="cockpit">Cockpit</option></select>
         <label for="set-heli">Helicopter</label>
         <select id="set-heli"><option value="easy">Easy (like the car)</option><option value="manual">Manual</option></select>
         <label for="set-places">Place cards</label>

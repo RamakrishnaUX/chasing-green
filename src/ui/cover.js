@@ -142,7 +142,8 @@ export class Cover {
     // The stage resizes to each vehicle: the rim (a little wider than the vehicle is long) and the
     // framing ease from the last vehicle's size to this one's rather than jumping.
     const fit = { w: size.z * Math.sin(YAW) + size.x * Math.cos(YAW), h: size.y };
-    const R = Math.max(size.z, size.x) * 0.56;
+    // The helicopter's long tail boom would make its pad huge: it gets a smaller one, under the cabin.
+    const R = Math.max(size.z, size.x) * (kind === 'heli' ? 0.4 : 0.56);
     this.target = { R, w: fit.w, h: fit.h };
     if (!this.stage) { this.stage = { ...this.target }; this.fit = fit; this.floor.scale.setScalar(R * 1.4); this.rings.scale.setScalar(R / 0.8); }
     // A soft glow on each headlamp. A lamp part often holds both lamps (left and right in one

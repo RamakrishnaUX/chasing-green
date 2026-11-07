@@ -1846,3 +1846,45 @@ body.has-touch .hx-place { line-height: 1.45 !important; padding-bottom: 2px; }
   body.has-touch .gx-menu { top: auto; bottom: calc(150px + var(--safe-b)); right: calc(16px + var(--safe-r)); width: 44px; height: 44px; }
   body.has-touch #intro .gx-name { margin-top: 0; }
 }
+
+/* ---------- Less on screen: the menu is the only button in the corner ---------- */
+#hud .hud-tr > :not(#btn-settings) { display: none !important; }
+/* While the aurora is out, the compass steps aside and the sky is left clear. */
+body.sky-on .hx-tape, body.sky-on .hx-tape + .hx-caret, body.moment-on .hx-tape { opacity: 0; transition: opacity 0.8s; }
+.hx-tape { transition: opacity 0.8s; }
+/* Refuel and tow sit just under the fuel gauge, on the left of the cluster. */
+@media (min-width: 1000px) and (min-height: 600px) {
+  body:not(.has-touch).fuel-prompt .hx-cluster { bottom: calc(76px + var(--safe-b)); }
+  body:not(.has-touch) .fuel-act { left: calc(50% - min(700px, 100vw - 600px) / 2 + 2%); bottom: calc(22px + var(--safe-b)); transform: none; border-radius: 4px; }
+  .hx-cluster { transition: bottom 0.35s ease; }
+}
+
+/* A fatter ribbon, filled by clips rather than dashes (see hud.js). */
+.hx-track path, .hx-shadow path, .hx-fill { stroke-width: 24 !important; stroke-dasharray: none !important; }
+.hx-fill { transition: none; }
+
+/* The garage sits higher, leaving clear dark ground under it for the month and Start Driving. */
+@media (min-width: 1000px) and (min-height: 600px) {
+  body:not(.has-touch) :is(#intro, #gg) .gx-name { top: calc(7vh + 10px); }
+  body:not(.has-touch) :is(#intro, #gg) .gx-stats { top: 30%; }
+  body:not(.has-touch) :is(#intro, #gg) .cv-spot { top: 25%; bottom: 21%; }
+  body:not(.has-touch) #sheet #gg .gx-name { top: calc(11vh + 12px); }
+  body:not(.has-touch) #sheet #gg .cv-spot { top: 32%; bottom: 25%; }
+  body:not(.has-touch) #sheet #gg .gx-stats { top: 37%; }
+}
+@media (max-height: 520px) { :is(#intro, #gg) .cv-spot { bottom: 30% !important; top: 16% !important; } }
+@media (orientation: portrait) and (max-width: 600px) { #intro .cv-spot { top: 15% !important; bottom: 52% !important; } }
+
+.hx-band { stroke: none !important; }
+.hx-band.hx-track { fill: rgba(244,248,246,0.16); } .hx-band.hx-shadow { fill: rgba(244,248,246,0.06); }
+.hx-band.hx-fuel { fill: url(#hx-g-fuel); } .hx-band.hx-kp { fill: url(#hx-g-kp); } .hx-band.hx-nitro { fill: url(#hx-g-nitro); }
+.hx-gauge.is-alt .hx-band.hx-fuel { fill: url(#hx-g-alt); }
+.hx-gauge.is-boost .hx-band.hx-nitro { filter: drop-shadow(0 0 6px rgba(162,246,211,0.85)); }
+
+/* Garage name: no line above it, and a box of fixed height whatever the name's length, so the
+   arrows and everything below stay still when you switch. */
+:is(#intro, #gg) .gx-kick { display: none; }
+:is(#intro, #gg) .gx-box { display: flex; align-items: center; justify-content: center; height: 64px; }
+:is(#intro, #gg) .gx-box h2 { flex: 1; min-width: 0; }
+@media (min-width: 1000px) and (min-height: 600px) { body:not(.has-touch) :is(#intro, #gg) .gx-box { height: 104px; } }
+@media (max-height: 520px), (orientation: portrait) and (max-width: 600px) { body.has-touch :is(#intro, #gg) .gx-box { height: 46px; } }

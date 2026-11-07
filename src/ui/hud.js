@@ -138,7 +138,22 @@ export class Hud {
     this.boot ??= performance.now();
     const bt = (performance.now() - this.boot) / 1000;
     const ramp = (from, len) => { const u = Math.min(1, Math.max(0, (bt - from) / len)); return 1 - Math.pow(1 - u, 3); };
-    const dash = (el, f) => { const v = `${Math.max(0, Math.min(100, f * 100)).toFixed(1)} 100`; if (el.dataset.d !== v) { el.dataset.d = v; el.style.strokeDasharray = v; } };
+    // The ribbon is one band (index.html). Each fill is that band cut by two lines at the band's
+    // own slant, the same as its ends: one fixed where the part starts, one moving with the value.
+    // Left of centre the lines lean one way, right of centre the other.
+    const mid = (x) => x <= 232 || x >= 468 ? 64 : x >= 286 && x <= 414 ? 104 : x < 286 ? 64 + (x - 232) / 54 * 40 : 104 - (x - 414) / 54 * 40;
+    const cut = (x, k) => (y) => (x + k * (y - mid(x))).toFixed(1);
+    const PARTS = { 'hx-fuelbar': [300, 24, -0.6], 'hx-nitro-l': [350, 300, -0.6, 0], 'hx-nitro-r': [350, 400, 0.6, 0], 'hx-kpbar': [400, 676, 0.6] };
+    const dash = (el, f) => {
+      f = Math.max(0, Math.min(1, f));
+      if (el.dataset.f === f.toFixed(3)) return;
+      el.dataset.f = f.toFixed(3);
+      el.style.visibility = f < 0.005 ? 'hidden' : '';
+      const [from, to, k, kFrom = k] = PARTS[el.id], lead = from + (to - from) * f;
+      const a = cut(from, kFrom), b = cut(lead, k);
+      const poly = el._poly ??= document.querySelector(`${el.getAttribute('clip-path').slice(4, -1)} polygon`);
+      poly.setAttribute('points', `${a(-20)},-20 ${b(-20)},-20 ${b(150)},150 ${a(150)},150`);
+    };
     const nb = (s.nitro || 0) * ramp(1.5, 0.9);
     dash(h['nitro-l'], nb); dash(h['nitro-r'], nb);
     this.gauge.classList.toggle('is-boost', !!s.boosting);

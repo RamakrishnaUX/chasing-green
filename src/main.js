@@ -735,6 +735,7 @@ function cycleView() {
   if (mode === 'lookup') { mode = 'chase'; syncLookButton(); }
   setView(VIEWS[(VIEWS.indexOf(driveView) + 1) % VIEWS.length]);
 }
+$('set-view').addEventListener('change', (e) => { if (e.target.value !== driveView && mode !== 'sky') setView(e.target.value); });
 function setView(v) {
   driveView = v; settings.view = v; store.save();
   jeep.setView(v);
@@ -1075,6 +1076,7 @@ function openSettings() {
   $('set-places').value = placeCards();
   $('set-steering').value = settings.steering || 'buttons';
   $('set-heli').value = settings.heli || 'easy';
+  $('set-view').value = driveView;
   $('set-full').value = document.fullscreenElement ? 'on' : 'off';
   $('set-sound').value = audio.muted ? 'off' : 'on';
   settingsDialog.showModal();
@@ -2374,8 +2376,9 @@ window.chasingGreen = {
   },
 };
 
-const SET_CAT = { 'set-month': 'trip', 'set-speed': 'trip', 'set-fuel': 'trip', 'set-nitro': 'trip', 'set-places': 'trip', 'set-quality': 'picture', 'set-look': 'picture', 'set-rocks': 'picture', 'set-full': 'picture', 'set-sound': 'sound', 'set-heli': 'controls', 'set-haptics': 'controls', 'set-steering': 'controls' };
+const SET_CAT = { 'set-view': 'controls', 'set-month': 'trip', 'set-speed': 'trip', 'set-fuel': 'trip', 'set-nitro': 'trip', 'set-places': 'trip', 'set-quality': 'picture', 'set-look': 'picture', 'set-rocks': 'picture', 'set-full': 'picture', 'set-sound': 'sound', 'set-heli': 'controls', 'set-haptics': 'controls', 'set-steering': 'controls' };
 const SET_NOTE = {
+  'set-view': 'Where you watch from: behind the car, on the hood, or from the driver\'s seat. C changes it while driving.',
   'set-month': 'Sets the sun, the length of the night and how often the aurora comes out.',
   'set-speed': 'How fast the clock runs. Faster brings the night, and the lights, sooner.',
   'set-fuel': 'Off and the tank never runs dry. On and you stop at stations to fill up.',
