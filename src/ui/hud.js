@@ -79,6 +79,8 @@ export class Hud {
     const callUp = !!s.aurora.active && !s.lookingUp;
     e.skyHint.hidden = !callUp;
     e.look?.classList.toggle('is-call', callUp);
+    // The Look button shows only when there is something to look up at, or while you are looking up.
+    document.body.classList.toggle('look-needed', !!s.aurora.active || !!s.lookingUp);
     document.body.classList.toggle('sky-on', callUp);
     if (callUp && !this.wasCall) haptics.play('aurora', 0);
     this.wasCall = callUp;

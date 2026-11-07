@@ -2033,3 +2033,18 @@ body.has-touch.pre-start #sheet .sheet-close { top: calc(12px + var(--safe-t)); 
   body.has-touch .hx-clock { font-size: 28px; }
   body.has-touch #hud .minimap { width: 160px; height: 120px; }
 }
+
+/* ---------- Look: only when needed, top right under the settings button ---------- */
+body.has-touch #hud #t-look { position: fixed; top: calc(66px + var(--safe-t)); right: calc(10px + var(--safe-r)); left: auto; bottom: auto; z-index: 4;
+  height: 46px; min-width: 0; padding: 0 16px 0 12px; border-radius: 23px; opacity: 0; pointer-events: none; transform: translateY(-6px); transition: opacity 0.3s, transform 0.3s; }
+body.has-touch.look-needed #hud #t-look { opacity: 1; pointer-events: auto; transform: none; }
+body.has-touch.moment-on #hud #t-look { opacity: 0; pointer-events: none; }
+@media (orientation: portrait) and (max-width: 600px) { body.has-touch #hud #t-look { top: calc(62px + var(--safe-t)); } }
+/* With Look gone from the bottom, the band sits in the middle of the free space. */
+@media (max-height: 520px) {
+  body.has-touch .hx-cluster { left: calc((150px + 100vw - 200px) / 2); width: min(360px, calc(100vw - 400px)); }
+}
+/* The sky prompt on a touch screen points at the button. */
+body.has-touch .sky-hint { top: calc(12px + var(--safe-t)); }
+#hud > .hx { pointer-events: none; } #hud .hx-side.r { pointer-events: auto; }
+body.has-touch #hud #t-look { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; width: auto; font-size: 13px; } body.has-touch #hud #t-look svg { width: 18px; height: 18px; }
