@@ -1134,7 +1134,7 @@ for (const [id, step] of [['cv-prev', -1], ['cv-next', 1]]) $(id).addEventListen
   const kind = COVER_ORDER[(i + step + COVER_ORDER.length) % COVER_ORDER.length];
   haptics.play('light');
   setVehicle(kind, false);
-  cover.show(kind);
+  cover.show(kind, true);
 });
 const startBtn = $('start');
 startBtn.disabled = true;

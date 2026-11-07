@@ -81,7 +81,9 @@ export class Cover {
   }
 
   // Show a vehicle (a car kind or 'heli'). Called again when that model's file arrives.
-  show(kind) {
+  // arrive: true when the player picked it, so it rolls in onto the stage and then switches its
+  // lights on; otherwise it is simply there, lights on.
+  show(kind, arrive = false) {
     this.kind = kind;
     this.car?.removeFromParent(); this.mirror?.removeFromParent();
     let model;
@@ -91,7 +93,10 @@ export class Cover {
     } else {
       if (!modelReady(kind)) { this.car = this.mirror = null; return; } // appears when its file is in
       model = buildVehicleModel(kind);
-      model.lightMat.emissiveIntensity = 3; model.tailMat.emissiveIntensity = 1.2;
+      // Its own lamp materials, so switching them on here never lights another copy.
+      const head = model.lightMat, tail = model.tailMat;
+      model.lightMat = head.clone(); model.tailMat = tail.clone();
+      model.group.traverse((o) => { if (!o.isMesh) return; if (o.material === head) o.material = model.lightMat; else if (o.material === tail) o.material = model.tailMat; });
     }
     // Coming in from an empty stage (its file just arrived), it fades in rather than popping.
     if (!this.car) { const c = this.canvas; c.style.transition = 'none'; c.style.opacity = '0'; requestAnimationFrame(() => requestAnimationFrame(() => { c.style.transition = 'opacity 700ms ease-out'; c.style.opacity = '1'; })); }
@@ -108,17 +113,26 @@ export class Cover {
     car.traverse((o) => { if (o.isMesh && !o.userData.blur && !isBlade(o)) body.expandByObject(o); });
     const size = body.getSize(new THREE.Vector3());
     this.fit = { w: size.z * Math.sin(YAW) + size.x * Math.cos(YAW), h: size.y };
-    // A soft glow on each front lamp.
+    // A soft glow on each headlamp. A lamp part often holds both lamps (left and right in one
+    // mesh), so its points are split by side and each side gets its own glow at that lamp.
+    const glow = this.glow.clone();
+    this.lamps = { head: model.lightMat || null, tail: model.tailMat || null, glow };
     if (model.lightMat) {
-      const lamps = [], box = new THREE.Box3();
-      car.traverse((o) => { if (o.isMesh && o.material === model.lightMat) lamps.push(o); });
-      for (const o of lamps) {
-        box.setFromObject(o);
-        const c = box.getCenter(new THREE.Vector3()), sz = box.getSize(new THREE.Vector3());
-        if (c.z < 0) continue;
-        const s = new THREE.Sprite(this.glow);
-        s.position.copy(c); s.position.z += sz.z / 2 + 0.02;
-        s.scale.setScalar(Math.min(0.5, Math.max(0.3, Math.max(sz.x, sz.y) * 1.8)));
+      const sides = [new THREE.Box3(), new THREE.Box3()], v = new THREE.Vector3();
+      car.traverse((o) => {
+        if (!o.isMesh || o.material !== model.lightMat) return;
+        const pos = o.geometry.attributes.position;
+        for (let i = 0; i < pos.count; i++) {
+          v.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld);
+          if (v.z > 0) sides[v.x < 0 ? 0 : 1].expandByPoint(v);
+        }
+      });
+      for (const b of sides) {
+        if (b.isEmpty()) continue;
+        const c = b.getCenter(new THREE.Vector3()), sz = b.getSize(new THREE.Vector3());
+        const s = new THREE.Sprite(glow);
+        s.position.set(c.x, c.y, b.max.z + 0.03);
+        s.scale.setScalar(Math.min(0.45, Math.max(0.25, Math.max(sz.x, sz.y) * 1.6)));
         car.add(s);
       }
     }
@@ -127,6 +141,19 @@ export class Cover {
     this.mirror = car.clone(true);
     this.mirror.scale.y = -1;
     this.scene.add(this.mirror);
+    this.wheels = model.wheels || [];
+    this.arrive = arrive && !this.reduce ? { t0: performance.now() } : null;
+    this.setLights(this.arrive ? 0 : 1);
+    if (arrive && this.reduce) this.lightsFrom = performance.now(); // no roll, just the lights
+  }
+
+  // Lamps from off (0) to on (1): headlamps, tail lamps and their glow together.
+  setLights(k) {
+    const L = this.lamps;
+    if (!L) return;
+    if (L.head) L.head.emissiveIntensity = 3 * k;
+    if (L.tail) L.tail.emissiveIntensity = 0.15 + 1.05 * k;
+    L.glow.opacity = k;
   }
 
   // A model file has arrived: redraw if it is the one on show.
@@ -155,7 +182,23 @@ export class Cover {
     const ground = sp.top + sp.height * 0.86;
     const cx = sp.left + sp.width * 0.5, cy = ground - (this.fit.h * focal) / dist / 2;
     // A slow drift round the vehicle, never more than a few degrees.
-    const t = this.reduce ? 0 : (performance.now() - this.t0) / 1000;
+    const now = performance.now(), t = this.reduce ? 0 : (now - this.t0) / 1000;
+    // Rolling in: from 7 m back along its own heading, slowing to a stop on its mark, the wheels
+    // turning with the distance. Then the lights: a quick flicker as they catch, then full.
+    let off = 0;
+    if (this.arrive) {
+      const u = Math.min(1, (now - this.arrive.t0) / 1100), ease = 1 - Math.pow(1 - u, 3);
+      off = -7 * (1 - ease);
+      for (const w of this.wheels) if (w.spin) w.spin.rotation.x = (off / (w.R || 0.35)) % (Math.PI * 2);
+      if (u >= 1) { this.arrive = null; this.lightsFrom = now; }
+    }
+    this.car.position.set(Math.sin(YAW) * off, 0, Math.cos(YAW) * off);
+    this.mirror.position.copy(this.car.position);
+    if (this.lightsFrom) {
+      const l = (now - this.lightsFrom) / 1000;
+      this.setLights(l < 0.07 ? 0.7 : l < 0.14 ? 0.05 : l < 0.2 ? 0.9 : l < 0.26 ? 0.3 : Math.min(1, 0.6 + (l - 0.26) * 2));
+      if (l > 0.5) this.lightsFrom = 0;
+    }
     const a = 0.18 * Math.sin(t * 0.06);
     cam.position.set(Math.sin(a) * dist, 1.35 * dist / 13, Math.cos(a) * dist);
     cam.lookAt(0, this.fit.h / 2, 0);
