@@ -144,7 +144,7 @@ export class Hud {
     // The band's height and its slope (smoothed through the bends), so a cut on the incline keeps
     // the same angle to the band as it has on the flat.
     const slope = (x) => (mid(x + 14) - mid(x - 14)) / 28;
-    const mid = (x) => x <= 232 || x >= 468 ? 64 : x >= 286 && x <= 414 ? 104 : x < 286 ? 64 + (x - 232) / 54 * 40 : 104 - (x - 414) / 54 * 40;
+    const mid = (x) => x <= 232 || x >= 468 ? 67 : x >= 286 && x <= 414 ? 107 : x < 286 ? 67 + (x - 232) / 54 * 40 : 107 - (x - 414) / 54 * 40;
     const cut = (x, k) => {
       const t = Math.atan(slope(x)), c = Math.cos(t), sn = Math.sin(t), vx = k * c - sn, vy = k * sn + c;
       return (y) => (x + (vx / vy) * (y - mid(x))).toFixed(1);
@@ -158,7 +158,7 @@ export class Hud {
       const poly0 = el._poly ??= document.querySelector(`${el.getAttribute('clip-path').slice(4, -1)} polygon`);
       // Nitro: one piece in the dip, widening from the centre to both sides, each side at its slant.
       if (el.id === 'hx-nitro-l') {
-        const w = 8 + 42 * f, L = (y) => (350 - w - 0.6 * (y - 104)).toFixed(1), R = (y) => (350 + w + 0.6 * (y - 104)).toFixed(1);
+        const w = 10 + 40 * f, L = (y) => (350 - w - 0.6 * (y - 107)).toFixed(1), R = (y) => (350 + w + 0.6 * (y - 107)).toFixed(1);
         poly0.setAttribute('points', `${L(-20)},-20 ${R(-20)},-20 ${R(150)},150 ${L(150)},150`);
         return;
       }
