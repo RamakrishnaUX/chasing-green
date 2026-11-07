@@ -75,11 +75,11 @@ The interiors and the eye position for each view are built in `src/vehicle/inter
 
 ## Start screen
 
-The start screen plays from the first frame, while the island is still being built. A looping aurora moves over dark mountains (`src/ui/auroraSky.js`, a single shader that needs nothing from the game). In front of it, one vehicle at a time stands on wet black ground with its reflection beneath it (`src/ui/cover.js`). It is lit like a studio shot: a green rim light from the aurora behind, a cool key light from the front, and a glow on its headlamps. The camera drifts a few degrees around it.
+The start screen is a garage. It plays from the first frame, while the island is still being built: a looping aurora over dark mountains (`src/ui/auroraSky.js`, one shader that needs nothing from the game), and in front of it the chosen vehicle on a turntable (`src/ui/cover.js`). The turntable is part of the 3D scene, so the vehicle always stands on it: a dark glossy floor with the vehicle's reflection, and a glowing rim with tick marks that turns slowly. The vehicle is lit like a studio shot, with a green rim light from the aurora and a glow on each headlamp.
 
-The name sits on the left over the sky. A card on the right holds the month, tonight's daylight, darkness and aurora chance, the Start button (which fills as the island loads), the vehicle and today's challenge. The arrows beside the vehicle step through every car and the helicopter. The one you pick rolls in onto its mark, then its headlights flicker on, each lamp with its own glow. They change your vehicle the same way the garage does, so the one on the cover is the one you drive. The car models start loading at once, and each one swaps in for its code-built stand-in as soon as it arrives.
+The vehicle's name sits in brackets at the top with arrows either side, and what it is above it (a 1940s field car). Its four stats lean in toward it from both sides, each a value and a ten-step bar: top speed, off-road, wading depth and fuel tank (the helicopter shows its own). The month, tonight's daylight, dark hours and aurora chance sit at the bottom left with today's challenge, and Start Drive at the bottom right, filling as the island loads.
 
-The page layout decides where the vehicle stands: it is drawn over an empty `.cv-spot` element, so the same code places it on desktops, tablets and phones. Behind the cover the island draws only a few warm-up frames, and when you press Start the cover fades out and lets go of its graphics contexts.
+The arrows step through every car and the helicopter and change your vehicle the same way the garage does. The one you pick rolls in onto its mark, then its headlights flicker on. Car models start loading at once; a vehicle appears only once its real model is in, never as a code-built stand-in. On phones held upright the stats sit in two columns under the vehicle.
 
 ## Cars
 

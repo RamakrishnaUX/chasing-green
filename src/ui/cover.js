@@ -23,6 +23,24 @@ function gradient(size, stops, radial = true) {
   return new THREE.CanvasTexture(c);
 }
 
+// The turntable's rim, drawn once: a glowing ring with tick marks, an outer hairline and a
+// dashed inner ring, on a square that the rim fills to 80% of its half-width.
+function ringTexture() {
+  const N = 1024, c = document.createElement('canvas'); c.width = c.height = N;
+  const g = c.getContext('2d'), u = N / 2, ring = (r, w, style, dash = []) => { g.setLineDash(dash); g.lineWidth = w; g.strokeStyle = style; g.beginPath(); g.arc(u, u, r * u, 0, Math.PI * 2); g.stroke(); };
+  g.shadowColor = 'rgba(102,223,176,1)'; g.shadowBlur = 36;
+  ring(0.8, 0.02 * u, '#a2f6d3'); ring(0.8, 0.012 * u, '#d8fff0');
+  g.shadowBlur = 0;
+  ring(0.9, 2.5, 'rgba(162,246,211,0.5)'); ring(0.6, 2, 'rgba(162,246,211,0.3)', [10, 14]);
+  g.setLineDash([]); g.strokeStyle = 'rgba(162,246,211,0.6)';
+  for (let a = 0; a < 360; a += 5) {
+    const t = (a * Math.PI) / 180, r1 = 0.835 * u, r2 = (a % 30 === 0 ? 0.885 : 0.86) * u;
+    g.lineWidth = a % 30 === 0 ? 3 : 1.6; g.beginPath(); g.moveTo(u + Math.cos(t) * r1, u + Math.sin(t) * r1); g.lineTo(u + Math.cos(t) * r2, u + Math.sin(t) * r2); g.stroke();
+  }
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+  return tex;
+}
+
 export class Cover {
   constructor(canvas, { spot, small = false } = {}) {
     this.canvas = canvas;
@@ -49,12 +67,21 @@ export class Cover {
 
     // Wet black ground: black underneath so the sky never shows through, the vehicle's reflection
     // drawn on that, and a dark glassy surface over both, fading out toward the horizon.
+    // The turntable: black underneath (so the sky never shows through), a dark glossy floor the
+    // reflection shows through, and a glowing rim with tick marks that turns slowly. Sized to the
+    // vehicle in show().
     const fade = gradient(256, [[0, '#fff'], [0.62, '#fff'], [1, '#000']]);
     const under = new THREE.Mesh(new THREE.CircleGeometry(60, 64), new THREE.MeshBasicMaterial({ color: 0x010203, transparent: true, alphaMap: fade, depthWrite: false }));
     under.rotation.x = -Math.PI / 2; under.position.y = -6; under.renderOrder = -1;
-    const wet = new THREE.Mesh(new THREE.CircleGeometry(60, 64), new THREE.MeshBasicMaterial({ color: 0x010203, transparent: true, opacity: 0.8, alphaMap: fade, depthWrite: false }));
-    wet.rotation.x = -Math.PI / 2; wet.position.y = 0.002; wet.renderOrder = 1;
-    scene.add(under, wet);
+    this.floor = new THREE.Mesh(new THREE.CircleGeometry(1, 96), new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false,
+      map: gradient(256, [[0, 'rgba(16,58,46,0.82)'], [0.5, 'rgba(6,22,18,0.84)'], [0.74, 'rgba(3,10,8,0.6)'], [1, 'rgba(3,10,8,0)']]) }));
+    this.floor.rotation.x = -Math.PI / 2; this.floor.position.y = 0.002; this.floor.renderOrder = 1;
+    this.rings = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.MeshBasicMaterial({ map: ringTexture(), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+    this.rings.rotation.x = -Math.PI / 2; this.rings.position.y = 0.004; this.rings.renderOrder = 2;
+    // Past the floor's edge the reflection fades under the same dark sheen as before.
+    const wet = new THREE.Mesh(new THREE.CircleGeometry(60, 64), new THREE.MeshBasicMaterial({ color: 0x010203, transparent: true, opacity: 0.86, alphaMap: fade, depthWrite: false }));
+    wet.rotation.x = -Math.PI / 2; wet.position.y = 0.001; wet.renderOrder = 0;
+    scene.add(under, wet, this.floor, this.rings);
     this.glow = new THREE.SpriteMaterial({ map: gradient(64, [[0, 'rgba(255,248,232,1)'], [0.25, 'rgba(255,240,215,0.55)'], [1, 'rgba(255,240,215,0)']]), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true });
 
     this.kind = null;
@@ -113,6 +140,9 @@ export class Cover {
     car.traverse((o) => { if (o.isMesh && !o.userData.blur && !isBlade(o)) body.expandByObject(o); });
     const size = body.getSize(new THREE.Vector3());
     this.fit = { w: size.z * Math.sin(YAW) + size.x * Math.cos(YAW), h: size.y };
+    const R = Math.max(size.z, size.x) * 0.56; // the rim, a little wider than the vehicle is long
+    this.floor.scale.setScalar(R * 1.4);
+    this.rings.scale.setScalar(R / 0.8);
     // A soft glow on each headlamp. A lamp part often holds both lamps (left and right in one
     // mesh), so its points are split by side and each side gets its own glow at that lamp.
     const glow = this.glow.clone();
@@ -140,6 +170,7 @@ export class Cover {
     // The reflection: the same vehicle upside down under the wet ground.
     this.mirror = car.clone(true);
     this.mirror.scale.y = -1;
+    this.mirror.traverse((o) => { if (o.isSprite) o.visible = false; }); // no lamp glow in the reflection
     this.scene.add(this.mirror);
     this.wheels = model.wheels || [];
     this.arrive = arrive && !this.reduce ? { t0: performance.now() } : null;
@@ -176,10 +207,10 @@ export class Cover {
     const sp = r && r.width > 40 && r.height > 40 ? r : { left: W * 0.1, top: H * 0.5, width: W * 0.5, height: H * 0.4 };
     const k = SCALE[this.kind] || 1;
     // Never taller than the room below the name, whatever the scale.
-    const maxW = Math.min(sp.width * 0.92, W * 0.6) * k, maxH = sp.height * Math.min(0.78, 0.74 * k);
+    const maxW = Math.min(sp.width * 0.92, W * 0.6) * k, maxH = sp.height * Math.min(0.72, 0.68 * k);
     const focal = H / (2 * Math.tan(THREE.MathUtils.degToRad(FOV / 2)));
     const dist = Math.max(3, (this.fit.w * focal) / maxW, (this.fit.h * focal) / maxH);
-    const ground = sp.top + sp.height * 0.86;
+    const ground = sp.top + sp.height * 0.8; // room below for the front of the turntable
     const cx = sp.left + sp.width * 0.5, cy = ground - (this.fit.h * focal) / dist / 2;
     // A slow drift round the vehicle, never more than a few degrees.
     const now = performance.now(), t = this.reduce ? 0 : (now - this.t0) / 1000;
@@ -200,7 +231,9 @@ export class Cover {
       if (l > 0.5) this.lightsFrom = 0;
     }
     const a = 0.18 * Math.sin(t * 0.06);
-    cam.position.set(Math.sin(a) * dist, 1.35 * dist / 13, Math.cos(a) * dist);
+    // A little above the vehicle (about 11 degrees), so the turntable reads as a ring.
+    cam.position.set(Math.sin(a) * dist * 0.98, dist * 0.19, Math.cos(a) * dist * 0.98);
+    if (!this.reduce) this.rings.rotation.z = t * 0.05;
     cam.lookAt(0, this.fit.h / 2, 0);
     cam.setViewOffset(W, H, W / 2 - cx, H / 2 - cy, W, H);
     this.renderer.render(this.scene, cam);

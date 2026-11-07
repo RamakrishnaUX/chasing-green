@@ -930,109 +930,133 @@ body.is-skydiving #infocard, body.is-skydiving .nitro, body.is-skydiving .fuel, 
 #fade { position: fixed; inset: 0; background: #05080b; opacity: 0; pointer-events: none !important; transition: opacity 0.22s ease; z-index: 40; }
 #fade.is-on { opacity: 1; }
 
-/* ---------- Cover (the start screen) ----------
-   The aurora sky and the hero vehicle fill the screen (src/ui/auroraSky.js, src/ui/cover.js).
-   The name sits on the left over the sky, the vehicle below it, and one card on the right holds
-   the choices. Set in the system font with Apple-style tracking: tight for large type. */
-#intro { --cv-font: var(--sans);
-  padding: 0; background: #04070c; overflow: hidden; font-family: var(--cv-font); color: #f5f7f8; }
+/* ---------- Garage (the start screen) ----------
+   The aurora sky and the chosen vehicle on a turntable fill the screen (src/ui/auroraSky.js,
+   src/ui/cover.js). The vehicle's name sits in brackets at the top with arrows either side, its
+   stats lean in toward it from both sides, the month and tonight's outlook sit bottom left and
+   Start Drive bottom right. */
+#intro { padding: 0; background: #04070c; overflow: hidden; font-family: var(--sans); color: var(--ink); }
 #intro .cv-layer { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 #intro .cv-shade { position: absolute; inset: 0; pointer-events: none;
-  background: radial-gradient(ellipse 50% 32% at 20% 32%, rgba(3, 6, 10, 0.5), rgba(3, 6, 10, 0) 100%),
-    linear-gradient(90deg, rgba(3, 6, 10, 0) 45%, rgba(3, 6, 10, 0.3) 100%); }
-#intro .cv-stage { position: relative; flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) min(400px, 34vw); gap: 48px; align-items: center;
-  padding: calc(48px + var(--safe-t)) calc(56px + var(--safe-r)) calc(64px + var(--safe-b)) calc(64px + var(--safe-l)); min-height: 100%; box-sizing: border-box; }
-#intro .cv-left { align-self: stretch; display: flex; flex-direction: column; min-width: 0; }
-#intro .cv-left::before { content: ''; flex: 0.55; }
-#intro .cv-brand { min-width: 0; }
-#intro .cv-spot { flex: 1; min-height: 160px; }
-#intro .cv-eyebrow { margin: 0 0 14px; font-size: 13px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #5ef0a6; }
-#intro .cv-title { margin: 0; font-family: var(--cv-font); font-size: clamp(48px, 6vw, 92px); font-weight: 700; letter-spacing: -0.035em; line-height: 0.95; white-space: nowrap;
-  color: #f5f7f8; text-shadow: 0 1px 24px rgba(3, 6, 10, 0.45); }
-#intro .cv-tag { margin: 14px 0 0; font-size: clamp(20px, 2vw, 28px); font-weight: 500; letter-spacing: -0.015em; color: rgba(240, 244, 248, 0.82); text-shadow: 0 1px 24px rgba(3, 6, 10, 0.45); }
+  background: linear-gradient(180deg, rgba(2,8,7,0.5) 0%, rgba(2,8,7,0) 26%, rgba(2,8,7,0) 70%, rgba(2,8,7,0.55) 100%); }
+#intro .cv-spot { position: absolute; left: 27%; right: 27%; top: 23%; bottom: 13%; pointer-events: none; }
+#intro .gx-k { font: 600 11px var(--sans); font-stretch: 125%; letter-spacing: 0.26em; text-transform: uppercase; color: var(--ink-3); }
 
-#intro .cv-card { align-self: center; display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; padding: 24px; border-radius: 28px; min-width: 0;
-  background: rgba(18, 22, 28, 0.52); -webkit-backdrop-filter: blur(40px) saturate(170%); backdrop-filter: blur(40px) saturate(170%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), inset 0 0 0 1px rgba(255, 255, 255, 0.06), 0 30px 80px rgba(0, 0, 0, 0.45); }
-#intro .cv-card h2 { margin: 0; font-family: var(--cv-font); font-size: 22px; font-weight: 600; letter-spacing: -0.02em; }
-#intro .cv-sub { margin: 4px 0 0; font-size: 15px; letter-spacing: -0.01em; color: rgba(235, 240, 245, 0.66); }
-#intro .cv-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 48px; font-size: 16px; letter-spacing: -0.01em; }
-#intro .cv-month { margin-top: 18px; padding: 0 6px 0 16px; border-radius: 16px; background: rgba(255, 255, 255, 0.06); cursor: pointer; }
-#intro .cv-month .select-wrap { flex: 0 1 auto; }
-#intro .cv-month select { min-height: 44px; border: 0; background: transparent; color: rgba(235, 240, 245, 0.8); font: 500 16px var(--cv-font); text-align: right; text-align-last: right; padding: 0 30px 0 8px; cursor: pointer; }
-#intro .cv-month select:focus-visible { outline: 2px solid #5ef0a6; outline-offset: 2px; border-radius: 10px; }
-#intro .month-card { margin-top: 12px; padding: 0; border: 0; background: none; text-align: left; }
-#intro .month-card h3 { display: none; }
-#intro .month-card dl { margin: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; border-radius: 16px; overflow: hidden; background: rgba(255, 255, 255, 0.1); }
-#intro .month-card dl > div { padding: 13px 14px 12px; background: rgba(28, 33, 40, 0.92); display: flex; flex-direction: column-reverse; min-width: 0; }
-#intro .month-card dd { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.025em; font-variant-numeric: tabular-nums; white-space: nowrap; }
-#intro .month-card dl > div:last-child dd { color: #5ef0a6; }
-#intro .month-card dt { margin-top: 2px; font-size: 12px; color: rgba(235, 240, 245, 0.45); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-#intro .month-card p { margin: 12px 2px 0; font-size: 13px; line-height: 1.4; text-wrap: pretty; color: rgba(235, 240, 245, 0.66); }
-#intro .btn-start { margin-top: 18px; min-height: 54px; border-radius: 999px; font: 600 17px var(--cv-font); letter-spacing: -0.01em; }
-#intro .btn-start:not(.is-loading):not(.is-failed) { background: #f5f7f8; color: #0a0d11; border-color: transparent; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3); }
+#intro .gx-top { position: absolute; left: calc(48px + var(--safe-l)); top: calc(42px + var(--safe-t)); }
+#intro .gx-brand { margin: 0; font: 400 15px var(--serif); letter-spacing: 0.24em; text-transform: uppercase; color: var(--ink-2); }
+#intro .gx-brand b { font-weight: 400; color: var(--green); }
+#intro .gx-tag { margin: 8px 0 0; font: 500 14px var(--sans); color: var(--ink-3); }
+
+#intro .gx-name { position: absolute; left: 50%; top: calc(34px + var(--safe-t)); transform: translateX(-50%); text-align: center; }
+#intro .gx-kick { margin: 0; font: 600 12px var(--sans); font-stretch: 125%; letter-spacing: 0.3em; text-transform: uppercase; color: var(--ink-3); }
+#intro .gx-pick { display: flex; align-items: center; justify-content: center; gap: 22px; margin-top: 10px; }
+#intro .gx-box { position: relative; width: 540px; padding: 14px 40px 12px; box-sizing: border-box; } /* fixed, so the arrows never move */
+#intro .gx-box h2 { margin: 0; font: 400 34px/1.1 var(--serif); letter-spacing: 0.03em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#intro .gx-box::before, #intro .gx-box::after, #intro .gx-box i::before, #intro .gx-box i::after { content: ''; position: absolute; width: 18px; height: 18px; border: 3px solid var(--ink); }
+#intro .gx-box::before { left: 0; top: 0; border-right: 0; border-bottom: 0; } #intro .gx-box::after { right: 0; top: 0; border-left: 0; border-bottom: 0; }
+#intro .gx-box i::before { left: 0; bottom: 0; border-right: 0; border-top: 0; } #intro .gx-box i::after { right: 0; bottom: 0; border-left: 0; border-top: 0; }
+#intro .gx-arrow { flex: none; width: 44px; height: 44px; display: grid; place-items: center; border: 0; border-radius: 50%; cursor: pointer;
+  background: rgba(6,14,12,0.5); box-shadow: inset 0 0 0 2px rgba(102,223,176,0.7); transition: transform 100ms ease-out, background 140ms ease-out; }
+#intro .gx-arrow:hover { background: rgba(32,99,76,0.6); } #intro .gx-arrow:active { transform: scale(0.92); }
+#intro .gx-arrow:focus-visible { outline: 2px solid var(--green-hi); outline-offset: 3px; }
+#intro .gx-arrow svg { width: 13px; height: 13px; fill: var(--green); }
+
+/* Stats lean in toward the vehicle, as on a garage screen. */
+#intro .gx-stats { position: absolute; top: 33%; width: 300px; perspective: 900px; }
+#intro .gx-l { left: calc(60px + var(--safe-l)); } #intro .gx-r { right: calc(60px + var(--safe-r)); text-align: right; }
+#intro .gx-in { display: grid; gap: 30px; }
+#intro .gx-l .gx-in { transform: rotateY(26deg); transform-origin: left center; }
+#intro .gx-r .gx-in { transform: rotateY(-26deg); transform-origin: right center; }
+#intro .gx-t { font: 600 16px var(--sans); }
+#intro .gx-v { margin-top: 2px; font: 700 30px/1.1 var(--sans); font-stretch: 125%; color: var(--green); font-variant-numeric: tabular-nums; }
+#intro .gx-v small { margin-left: 5px; font-size: 14px; font-weight: 700; color: var(--green-hi); }
+#intro .gx-segs { display: flex; gap: 5px; margin-top: 8px; } #intro .gx-r .gx-segs { justify-content: flex-end; }
+#intro .gx-segs i { width: 22px; height: 10px; background: rgba(244,248,246,0.18); transform: skewX(-18deg); }
+#intro .gx-segs i.on { background: var(--green); }
+
+#intro .gx-night { position: absolute; left: calc(56px + var(--safe-l)); bottom: calc(42px + var(--safe-b)); display: grid; gap: 16px; }
+#intro .gx-chal { margin: 0; font: 600 14px var(--sans); color: var(--ink-2); } #intro .gx-chal b { color: var(--ink); font-weight: 600; margin-left: 8px; }
+#intro .gx-row { display: flex; align-items: flex-end; gap: 30px; }
+#intro .gx-month { display: grid; gap: 4px; cursor: pointer; }
+#intro .gx-month .select-wrap::after { right: 2px; }
+#intro .gx-month select { min-height: 0; height: 32px; padding: 0 26px 0 0; border: 0; border-radius: 0; background: transparent; box-shadow: none;
+  font: 800 23px var(--sans); font-stretch: 112%; text-transform: uppercase; color: var(--ink); cursor: pointer; }
+#intro .gx-month select:focus-visible { outline: 2px solid var(--green); outline-offset: 4px; }
+#intro .month-card { margin: 0; padding: 0; border: 0; background: none; }
+#intro .month-card h3, #intro .month-card p { display: none; }
+#intro .month-card dl { margin: 0; display: flex; gap: 30px; }
+#intro .month-card dl > div { display: flex; flex-direction: column-reverse; gap: 4px; }
+#intro .month-card dt { font: 600 11px var(--sans); font-stretch: 125%; letter-spacing: 0.26em; text-transform: uppercase; color: var(--ink-3); }
+#intro .month-card dd { margin: 0; height: 32px; font: 800 23px/32px var(--sans); font-stretch: 112%; white-space: nowrap; font-variant-numeric: tabular-nums; }
+#intro .month-card dl > div:last-child dd { color: var(--green); }
+
+#intro .gx-go { position: absolute; right: calc(56px + var(--safe-r)); bottom: calc(40px + var(--safe-b)); width: 330px; }
+#intro .btn-start { width: 100%; height: 64px; min-height: 0; border: 0; border-radius: 0; clip-path: polygon(6% 0, 100% 0, 94% 100%, 0 100%);
+  font: 400 17px var(--serif) !important; letter-spacing: 0.08em; text-transform: uppercase; }
+#intro .btn-start:not(.is-loading):not(.is-failed) { background: linear-gradient(180deg, var(--green-hi), #4fc898); color: var(--green-ink); box-shadow: none; }
 #intro .btn-start:not(.is-loading):not(.is-failed):active { transform: scale(0.97); transition: transform 100ms ease-out; }
-#intro .loading { margin: 10px 2px 0; }
-#intro .cv-rows { margin-top: 10px; display: grid; grid-template-columns: minmax(0, 1fr); }
-#intro .cv-rows .cv-row { min-height: 40px; padding: 0 4px; font-size: 14px; }
-#intro .cv-rows .cv-row > span:first-child { color: rgba(235, 240, 245, 0.66); white-space: nowrap; }
-#intro .cv-rows b { font-weight: 500; text-align: right; min-width: 0; }
-#intro #intro-car { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#intro #intro-challenge { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; line-height: 1.3; text-wrap: balance; padding: 4px 0; }
-#intro .cv-pick { display: flex; align-items: center; gap: 8px; min-width: 0; }
-#intro .cv-pick button { flex: none; width: 32px; height: 32px; border: 0; border-radius: 50%; display: grid; place-items: center; cursor: pointer; color: #f5f7f8;
-  background: rgba(255, 255, 255, 0.09); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08); transition: background 120ms ease-out, transform 100ms ease-out; }
-#intro .cv-pick button:hover { background: rgba(255, 255, 255, 0.16); }
-#intro .cv-pick button:active { transform: scale(0.92); }
-#intro .cv-pick button:focus-visible { outline: 2px solid #5ef0a6; outline-offset: 2px; }
-#intro .cv-pick svg { width: 10px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-#intro .keys-hint { position: absolute; left: calc(64px + var(--safe-l)); bottom: calc(22px + var(--safe-b)); margin: 0; display: flex; flex-wrap: wrap; gap: 6px 18px;
-  font-size: 12px; line-height: 1.6; color: rgba(235, 240, 245, 0.45); max-width: calc(100% - 520px); }
-#intro .keys-hint span { white-space: nowrap; }
-#intro .keys-hint kbd { font: 600 11px/1 var(--cv-font); color: rgba(235, 240, 245, 0.7); padding: 4px 6px; margin-right: 6px; border-radius: 6px; background: rgba(255, 255, 255, 0.08); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08); border: 0; }
-body.has-touch #intro .keys-hint { display: none; }
-@media (prefers-reduced-transparency: reduce) { #intro .cv-card { background: rgb(20, 25, 31); -webkit-backdrop-filter: none; backdrop-filter: none; } }
+#intro .btn-start.is-loading, #intro .btn-start.is-loading:disabled { background: rgba(6,16,14,0.72); color: var(--ink); box-shadow: inset 0 0 0 1px rgba(102,223,176,0.35); }
+#intro .btn-start.is-loading .start-fill { background: linear-gradient(90deg, var(--green-deep), var(--green-2) 70%, #43ab83); }
+#intro .btn-start.is-loading .start-label, #intro .btn-start.is-loading .start-pct { font: 600 14px var(--sans); letter-spacing: 0.04em; text-transform: none; color: var(--ink); }
+#intro .loading { margin: 10px 0 0; text-align: right; }
 
-/* Phones on their side and short windows: the same two columns, tighter. */
-@media (max-height: 560px) and (min-width: 600px) {
-  #intro .cv-stage { grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; padding: calc(12px + var(--safe-t)) calc(16px + var(--safe-r)) calc(12px + var(--safe-b)) calc(24px + var(--safe-l)); }
-  #intro .cv-left::before { flex: 0.25; }
-  #intro .cv-eyebrow, #intro .cv-sub, #intro .month-card p, #intro .keys-hint { display: none; }
-  #intro .cv-title { font-size: 40px; letter-spacing: -0.03em; }
-  #intro .cv-tag { font-size: 17px; margin-top: 8px; }
-  #intro .cv-spot { min-height: 100px; }
-  #intro .cv-card { padding: 14px; border-radius: 22px; }
-  #intro .cv-card h2 { font-size: 17px; }
-  #intro .cv-month { margin-top: 10px; min-height: 38px; border-radius: 12px; font-size: 14px; }
-  #intro .cv-month select { min-height: 36px; font-size: 14px; }
-  #intro .month-card { margin-top: 8px; }
-  #intro .month-card dl { border-radius: 12px; }
-  #intro .month-card dl > div { padding: 7px 8px; }
-  #intro .month-card dd { font-size: 16px; }
-  #intro .month-card dt { font-size: 10.5px; letter-spacing: -0.01em; }
-  #intro .btn-start { margin-top: 10px; min-height: 42px; font-size: 15px; }
-  #intro .cv-rows { margin-top: 4px; }
-  #intro .cv-rows .cv-row { min-height: 30px; font-size: 12.5px; }
-  #intro .cv-pick button { width: 26px; height: 26px; }
+#intro .keys-hint { position: absolute; right: calc(52px + var(--safe-r)); top: calc(44px + var(--safe-t)); margin: 0; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px 16px;
+  max-width: 360px; font: 500 12px/1.6 var(--sans); color: var(--ink-3); }
+#intro .keys-hint span { white-space: nowrap; }
+#intro .keys-hint kbd { font: 700 11px/1 var(--sans); color: var(--green-ink); padding: 4px 6px; margin-right: 6px; border-radius: 5px; background: var(--green); border: 0; box-shadow: none; }
+body.has-touch #intro .keys-hint { display: none; }
+@media (max-width: 1240px) { #intro .keys-hint { display: none; } }
+@media (max-width: 1180px) and (min-height: 521px) and (orientation: landscape) {
+  #intro .gx-box { width: 470px; } #intro .gx-box h2 { font-size: 29px; }
+  #intro .gx-stats { width: 240px; } #intro .gx-v { font-size: 25px; } #intro .gx-segs i { width: 17px; }
+  #intro .gx-row { gap: 22px; } #intro .month-card dl { gap: 22px; } #intro .gx-month select, #intro .month-card dd { font-size: 19px; }
+  #intro .gx-go { width: 270px; }
 }
-/* Phones and tablets upright: the name at the top, the vehicle in the middle, the card below. */
+
+/* Phones on their side and short windows: the same layout, tighter. */
+@media (max-height: 520px) and (min-width: 600px) {
+  #intro .gx-top { left: calc(20px + var(--safe-l)); top: calc(14px + var(--safe-t)); }
+  #intro .gx-top, #intro .gx-kick, #intro .gx-chal { display: none; }
+  #intro .gx-name { top: calc(8px + var(--safe-t)); }
+  #intro .gx-pick { gap: 10px; margin-top: 0; }
+  #intro .gx-box { width: 290px; padding: 9px 20px 7px; } #intro .gx-box h2 { font-size: 16px; }
+  #intro .gx-box::before, #intro .gx-box::after, #intro .gx-box i::before, #intro .gx-box i::after { width: 11px; height: 11px; border-width: 2px; }
+  #intro .gx-arrow { width: 34px; height: 34px; }
+  #intro .cv-spot { left: 27%; right: 27%; top: 20%; bottom: 19%; }
+  #intro .gx-stats { top: 25%; width: 165px; } #intro .gx-l { left: calc(20px + var(--safe-l)); } #intro .gx-r { right: calc(20px + var(--safe-r)); }
+  #intro .gx-in { gap: 12px; } #intro .gx-t { font-size: 11px; } #intro .gx-v { font-size: 17px; } #intro .gx-v small { font-size: 10px; }
+  #intro .gx-segs { gap: 3px; margin-top: 4px; } #intro .gx-segs i { width: 12px; height: 6px; }
+  #intro .gx-night { left: calc(20px + var(--safe-l)); bottom: calc(14px + var(--safe-b)); }
+  #intro .gx-row { gap: 14px; } #intro .month-card dl { gap: 14px; }
+  #intro .gx-month select, #intro .month-card dd { height: 22px; line-height: 22px; font-size: 14px; } #intro .gx-k, #intro .month-card dt { font-size: 9px; letter-spacing: 0.18em; }
+  #intro .gx-go { right: calc(20px + var(--safe-r)); bottom: calc(14px + var(--safe-b)); width: 200px; }
+  #intro .btn-start { height: 44px; font-size: 12px !important; }
+}
+/* Phones and tablets upright: name, vehicle, stats in two columns, outlook, Start. */
 @media (orientation: portrait) and (max-width: 1100px) {
   #intro { overflow-y: auto; }
-  #intro .cv-stage { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto; gap: 12px; align-items: stretch;
-    padding: calc(28px + var(--safe-t)) calc(16px + var(--safe-r)) calc(16px + var(--safe-b)) calc(16px + var(--safe-l)); }
-  #intro .cv-left::before { display: none; }
-  #intro .cv-title { font-size: 44px; }
-  #intro .cv-tag { font-size: 19px; }
-  #intro .cv-spot { min-height: 30vh; }
-  #intro .month-card p { display: none; }
-  #intro .month-card dl > div { padding: 10px 9px; }
-  #intro .month-card dd { font-size: 19px; }
-  #intro .month-card dt { font-size: 11px; letter-spacing: -0.01em; }
-  #intro .cv-card { align-self: end; justify-self: center; width: 100%; max-width: 480px; box-sizing: border-box; padding: 18px; border-radius: 24px; }
-  #intro .keys-hint { display: none; }
-  #intro .cv-shade { background: radial-gradient(ellipse 80% 30% at 30% 14%, rgba(3, 6, 10, 0.5), rgba(3, 6, 10, 0)); }
+  #intro .gx-top { left: 50%; transform: translateX(-50%); top: calc(18px + var(--safe-t)); text-align: center; white-space: nowrap; }
+  #intro .gx-brand { font-size: 12px; } #intro .gx-tag { display: none; }
+  #intro .gx-name { top: calc(48px + var(--safe-t)); width: 100%; }
+  #intro .gx-pick { gap: 10px; } #intro .gx-box { width: min(72vw, 470px); padding: 10px 18px 8px; } #intro .gx-box h2 { font-size: clamp(15px, 4.3vw, 28px); }
+  #intro .gx-arrow { width: 38px; height: 38px; }
+  #intro .cv-spot { left: 6%; right: 6%; top: 19%; bottom: 47%; }
+  #intro .gx-stats { top: auto; bottom: calc(222px + var(--safe-b)); width: calc(50% - 30px); perspective: none; }
+  #intro .gx-l { left: calc(20px + var(--safe-l)); } #intro .gx-r { right: calc(20px + var(--safe-r)); }
+  #intro .gx-l .gx-in, #intro .gx-r .gx-in { transform: none; gap: 14px; }
+  #intro .gx-t { font-size: 12px; } #intro .gx-v { font-size: 19px; } #intro .gx-segs i { width: 10px; height: 7px; }
+  #intro .gx-night { left: calc(20px + var(--safe-l)); right: calc(20px + var(--safe-r)); bottom: calc(96px + var(--safe-b)); }
+  #intro .gx-chal { display: none; }
+  #intro .gx-row { flex-direction: column; align-items: flex-start; gap: 10px; } #intro .month-card dl { gap: 22px; }
+  #intro .gx-month select, #intro .month-card dd { font-size: 16px; height: 26px; line-height: 26px; }
+  #intro .gx-k, #intro .month-card dt { font-size: 9px; letter-spacing: 0.16em; }
+  #intro .gx-go { left: calc(20px + var(--safe-l)); right: calc(20px + var(--safe-r)); width: auto; bottom: calc(24px + var(--safe-b)); }
+  #intro .btn-start { height: 56px; font-size: 14px !important; }
 }
-@media (max-width: 1000px) { #intro .keys-hint { display: none; } }
+@media (orientation: portrait) and (min-width: 700px) and (max-width: 1100px) {
+  #intro .gx-stats { bottom: calc(260px + var(--safe-b)); } #intro .gx-v { font-size: 26px; } #intro .gx-segs i { width: 16px; height: 9px; }
+  #intro .gx-night { bottom: calc(110px + var(--safe-b)); } #intro .gx-month select, #intro .month-card dd { font-size: 21px; }
+}
 
 /* ---------- Type: Michroma headings, scaled for its width ---------- */
 .month-card h3, .radio-title, .infocard h2, .sheet-title, .map-pick-text b, .car-card h3, .challenge-card h3, .learn-entry h3, .lesson h3 { letter-spacing: 0.01em; }

@@ -19,7 +19,7 @@ import { startAuroraSky } from './ui/auroraSky.js';
 import { HD, loadHD, installAtmosphere, updateAtmosphere, detailScene, naturalize, demToGame } from './world/hd.js';
 import { Nav, formatDistance } from './ui/nav.js';
 import { siteStations, Stations } from './world/stations.js';
-import { FuelTank } from './vehicle/fuel.js';
+import { FuelTank, TANKS } from './vehicle/fuel.js';
 import { Sheet } from './ui/sheet.js';
 import { haptics } from './ui/haptics.js';
 import { Learn } from './ui/learn.js';
@@ -1113,6 +1113,26 @@ document.querySelectorAll('.month-select').forEach((sel) => {
 forecast.monthFactor = clock.m.aurora;
 renderMonthCards();
 $('intro-challenge').textContent = challenge.title;
+// ---------- Garage ----------
+// The start screen's vehicle panel: what it is, its name in the brackets, and four stats either
+// side, each a value and a ten-step bar.
+const KIND_LABEL = { jeep: '1940s field car', vintage: '1930s coupé', camper: '1960s camper van', race: 'Mid-engine supercar', bike: 'Café racer', heli: 'Twin-engine helicopter' };
+function vehicleStats(kind) {
+  const seg = (v) => Math.max(1, Math.min(10, Math.round(v * 10)));
+  if (kind === 'heli') return [['Top speed', '223', 'km/h', 9], ['Range', 'All', 'Iceland', 10], ['Climb', 'Fast', '', 8], ['Landing', 'Flat', 'ground', 6]];
+  const v = VEHICLES[kind], kmh = Math.round(v.maxSpeed * 3.6), off = (v.offroad.gravel + v.offroad.moss + v.offroad.sand) / 3;
+  const litres = TANKS[kind]?.litres;
+  return [['Top speed', String(kmh), 'km/h', seg(kmh / 240)], ['Off-road', String(Math.round(off * 10)), '/ 10', seg(off)],
+    ['Wading depth', v.wade.toFixed(1), 'm', seg(v.wade / 2.8)], litres ? ['Fuel tank', String(litres), 'L', seg(litres / 90)] : ['Weight', 'Light', '', 3]];
+}
+function introInfo(kind) {
+  $('intro-car').textContent = kind === 'heli' ? 'Helicopter' : VEHICLES[kind].name;
+  $('intro-kick').textContent = KIND_LABEL[kind] || '';
+  const stats = vehicleStats(kind).map(([t, v, u, n]) => `<div class="gx-stat"><div class="gx-t">${t}</div><div class="gx-v">${v}<small>${u}</small></div><div class="gx-segs">${Array.from({ length: 10 }, (_, i) => `<i${i < n ? ' class="on"' : ''}></i>`).join('')}</div></div>`);
+  $('gx-stats-l').innerHTML = stats.slice(0, 2).join('');
+  $('gx-stats-r').innerHTML = stats.slice(2).join('');
+}
+
 // ---------- Cover ----------
 // The start screen plays from the first frame: the aurora sky, and the chosen vehicle on wet
 // ground in front of it. The arrows change vehicle (the same as the garage), and the car models
@@ -1122,7 +1142,7 @@ const introSky = startAuroraSky($('intro-sky'));
 const cover = new Cover($('intro-hero'), { spot: document.querySelector('.cv-spot'), small: isTouch });
 const coverKind = () => (settings.vehicle === 'heli' ? 'heli' : VEHICLES[settings.vehicle] ? settings.vehicle : 'jeep');
 cover.show(coverKind());
-$('intro-car').textContent = coverKind() === 'heli' ? 'Helicopter' : VEHICLES[coverKind()].name;
+introInfo(coverKind());
 loadCarModels((kind) => {
   cover.refresh(kind);
   resetCarThumbs();
@@ -1395,7 +1415,7 @@ function setVehicle(kind, announce = true) {
   pendingVehicle = kind;
   if (jeep && !modelReady(kind)) {
     if (announce) hud.toast(`Bringing the ${VEHICLES[kind].name.toLowerCase()}…`, { seconds: 2, priority: 2 });
-    $('intro-car').textContent = VEHICLES[kind].name;
+    introInfo(kind);
     whenModel(kind).then(() => { if (pendingVehicle === kind) setVehicle(kind, announce); }); // unless another was picked meanwhile
     return;
   }
@@ -1407,7 +1427,7 @@ function setVehicle(kind, announce = true) {
     if (announce) hud.toast(`Now driving the ${VEHICLES[kind].name.toLowerCase()}.`, { seconds: 2.5, priority: 2 });
     if (announce) track('vehicle_change', { vehicle: kind });
   }
-  $('intro-car').textContent = VEHICLES[kind].name;
+  introInfo(kind);
   renderGarage();
 }
 // The helicopter takes the car's place, standing where the car was with its rotor starting up.
@@ -1417,7 +1437,7 @@ const LAMP_HOME = { head: null, spread: null };
 function boardHeli(announce = true) {
   pendingVehicle = 'heli';
   settings.vehicle = 'heli'; store.save();
-  $('intro-car').textContent = 'Helicopter';
+  introInfo('heli');
   renderGarage();
   if (!jeep || !heli) return;
   if (!heli.model) { heli.ready.then(() => boardHeli(announce)).catch(() => hud.toast('The helicopter could not load. Try again in a moment.', { seconds: 3 })); return; }
