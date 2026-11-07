@@ -1568,6 +1568,8 @@ function endJump() {
   document.body.classList.remove('is-skydiving');
 }
 // The helicopter is landed and stopped right beside you.
+$('la-call').addEventListener('click', () => { haptics.play('select'); sfx.confirm(); callHeli(); });
+$('la-car').addEventListener('click', () => { haptics.play('medium'); sfx.switcher(); setVehicle(settings.car && VEHICLES[settings.car] ? settings.car : 'jeep'); });
 function heliBeside() { return heli.landed && !heli.auto && Math.hypot(walker.pos.x - heli.pos.x, walker.pos.z - heli.pos.z) < 16; }
 function callHeli() {
   const d = Math.round(Math.hypot(walker.pos.x - heli.pos.x, walker.pos.z - heli.pos.z));
@@ -1593,6 +1595,15 @@ function syncJumpButton() {
   if (mode === 'fly' && !heli.landed && heli.agl >= MIN_JUMP) st = 'jump';
   else if (mode === 'sky' && diver.falling) st = 'open';
   else if (mode === 'walk' && afterJump && ride === 'heli') st = heliBeside() ? 'board' : heli.auto?.phase === 'come' ? '' : 'call';
+  // Landed from a jump: two plain choices at the top, call the helicopter over or take a car here.
+  const landed = mode === 'walk' && afterJump && ride === 'heli' && !heliBeside();
+  $('land-acts').hidden = !landed;
+  document.body.classList.toggle('land-on', landed);
+  if (landed) {
+    const coming = heli.auto?.phase === 'come';
+    $('la-call').disabled = coming;
+    $('la-call').querySelector('span').textContent = coming ? 'Helicopter on its way' : 'Call helicopter';
+  }
   if (st === jumpBtnState) return;
   jumpBtnState = st;
   const b = $('t-jump');
