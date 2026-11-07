@@ -1863,6 +1863,9 @@ $('sheet').addEventListener('close', ggClose);
 function openGarage() { $('garage-list').dataset.wantThumbs = '1'; renderGarage(); $('garage').showModal(); ggOpen(); }
 sheet.register('garage', openGarage);
 sheet.register('map', () => mapUI?.open());
+// Opening the menu stops the vehicle where it is: no speed carried into the pause, so closing
+// the menu does not shoot it off again. The helicopter holds its hover.
+$('sheet').addEventListener('toggle', () => { if (!$('sheet').open || !started) return; if (jeep) { jeep.vF = 0; jeep.vL = 0; } if (heli?.vel) heli.vel.set(0, 0, 0); });
 sheet.onShow = (page) => { track('menu_open', { page }); if (page !== 'garage') ggClose(); };
 // Tap the car itself to switch to the next one.
 const carRay = new THREE.Raycaster(), carTap = new THREE.Vector2();
@@ -2099,7 +2102,7 @@ function frame(now) {
   }
   const a = forecast.evaluate({ x: p.x, z: p.z, clock, dt, guaranteeActive: g });
 
-  updateCamera(dt);
+  if (!(started && document.querySelector('dialog[open]'))) updateCamera(dt); // the view holds still while a menu is open
   forecast.cloudOffset(clock.realSeconds, cloudOffset);
   auroraVisSmoothed = aurora.update(dt, t, camera, a);
   const { dark, sunDir } = sky.update({ camera, clock, cloud: a.cloud, cloudOffset, city: a.city, auroraVis: auroraVisSmoothed, auroraTint: aurora.tint, t, focus: p });
