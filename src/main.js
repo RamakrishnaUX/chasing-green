@@ -1893,18 +1893,20 @@ sheet.register('map', () => mapUI?.open());
 // the menu does not shoot it off again. The helicopter holds its hover.
 $('sheet').addEventListener('toggle', () => { if (!$('sheet').open || !started) return; if (jeep) { jeep.vF = 0; jeep.vL = 0; } if (heli?.vel) heli.vel.set(0, 0, 0); });
 sheet.onShow = (page) => { track('menu_open', { page }); if (page !== 'garage') ggClose(); };
-// Tap the car itself to switch to the next one.
+// Tap the vehicle itself to switch to the next one, round and round: the cars in order, then the
+// helicopter, then back to the first car.
 const carRay = new THREE.Raycaster(), carTap = new THREE.Vector2();
 let tapStart = null;
 canvas.addEventListener('pointerdown', (e) => { tapStart = { x: e.clientX, y: e.clientY, t: performance.now() }; });
 canvas.addEventListener('pointerup', (e) => {
   const s = tapStart; tapStart = null;
-  if (!s || !jeep || !started || mode === 'walk' || ride === 'heli') return;
+  if (!s || !jeep || !started || mode === 'walk' || mode === 'sky') return;
   if (Math.hypot(e.clientX - s.x, e.clientY - s.y) > 8 || performance.now() - s.t > 400) return;
   const r = canvas.getBoundingClientRect();
   carTap.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
   carRay.setFromCamera(carTap, camera);
-  if (carRay.intersectObject(jeep.body, true).length) { haptics.play('medium', 0); cycleVehicle(); }
+  const target = ride === 'heli' ? heli?.root : jeep.body;
+  if (target && carRay.intersectObject(target, true).length) { haptics.play('medium', 0); cycleVehicle(); }
 });
 setVehicle(settings.vehicle || 'jeep', false);
 
