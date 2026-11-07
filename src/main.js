@@ -1006,6 +1006,7 @@ function updateLandmarks(p) {
     }
     // Never while skydiving: on a phone the card sat over the Open button.
     card.el.hidden = infoDismissed === lm.id || !card.wanted || mode === 'sky' || document.body.classList.contains('has-touch');
+    document.body.classList.toggle('card-on', !card.el.hidden);
     // The card tucks itself away after a while of driving so it never sits over the view for good.
     if (!card.el.hidden && started && !card.el.classList.contains('is-expanded')) {
       card.shownAt ??= performance.now();
@@ -1013,6 +1014,7 @@ function updateLandmarks(p) {
     }
   } else {
     card.el.hidden = true;
+    document.body.classList.remove('card-on');
     card.current = null;
     if (infoDismissed === lm.id) infoDismissed = null;
   }

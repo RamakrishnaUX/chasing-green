@@ -141,21 +141,34 @@ export class Hud {
     // The ribbon is one band (index.html). Each fill is that band cut by two lines at the band's
     // own slant, the same as its ends: one fixed where the part starts, one moving with the value.
     // Left of centre the lines lean one way, right of centre the other.
+    // The band's height and its slope (smoothed through the bends), so a cut on the incline keeps
+    // the same angle to the band as it has on the flat.
+    const slope = (x) => (mid(x + 14) - mid(x - 14)) / 28;
     const mid = (x) => x <= 232 || x >= 468 ? 64 : x >= 286 && x <= 414 ? 104 : x < 286 ? 64 + (x - 232) / 54 * 40 : 104 - (x - 414) / 54 * 40;
-    const cut = (x, k) => (y) => (x + k * (y - mid(x))).toFixed(1);
+    const cut = (x, k) => {
+      const t = Math.atan(slope(x)), c = Math.cos(t), sn = Math.sin(t), vx = k * c - sn, vy = k * sn + c;
+      return (y) => (x + (vx / vy) * (y - mid(x))).toFixed(1);
+    };
     const PARTS = { 'hx-fuelbar': [300, 24, -0.6], 'hx-nitro-l': [350, 300, -0.6, 0], 'hx-nitro-r': [350, 400, 0.6, 0], 'hx-kpbar': [400, 676, 0.6] };
     const dash = (el, f) => {
       f = Math.max(0, Math.min(1, f));
       if (el.dataset.f === f.toFixed(3)) return;
       el.dataset.f = f.toFixed(3);
       el.style.visibility = f < 0.005 ? 'hidden' : '';
+      const poly0 = el._poly ??= document.querySelector(`${el.getAttribute('clip-path').slice(4, -1)} polygon`);
+      // Nitro: one piece in the dip, widening from the centre to both sides, each side at its slant.
+      if (el.id === 'hx-nitro-l') {
+        const w = 8 + 42 * f, L = (y) => (350 - w - 0.6 * (y - 104)).toFixed(1), R = (y) => (350 + w + 0.6 * (y - 104)).toFixed(1);
+        poly0.setAttribute('points', `${L(-20)},-20 ${R(-20)},-20 ${R(150)},150 ${L(150)},150`);
+        return;
+      }
       const [from, to, k, kFrom = k] = PARTS[el.id], lead = from + (to - from) * f;
       const a = cut(from, kFrom), b = cut(lead, k);
       const poly = el._poly ??= document.querySelector(`${el.getAttribute('clip-path').slice(4, -1)} polygon`);
       poly.setAttribute('points', `${a(-20)},-20 ${b(-20)},-20 ${b(150)},150 ${a(150)},150`);
     };
     const nb = (s.nitro || 0) * ramp(1.5, 0.9);
-    dash(h['nitro-l'], nb); dash(h['nitro-r'], nb);
+    dash(h['nitro-l'], nb); h['nitro-r'].style.display = 'none';
     this.gauge.classList.toggle('is-boost', !!s.boosting);
     set(h.kp, kp.toFixed(1));
     dash(h.kpbar, Math.max(0.03, kp / 9) * ramp(2.0, 0.9));
