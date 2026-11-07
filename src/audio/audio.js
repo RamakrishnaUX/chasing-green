@@ -324,14 +324,25 @@ export class AudioEngine {
     this.loadWater();
     const B = this.waterBufs;
     if (!B) {
+      if (kind === 'puddle' && s < 0.15) return;
       this.burst(700 + Math.random() * 500, 0.8, 0.35 + s * 0.4, 0.35 * s + 0.08, 'lowpass', this.bus.car);
       return;
     }
     const ctx = this.ctx, t = ctx.currentTime, src = ctx.createBufferSource(), g = ctx.createGain();
     const buf = kind === 'puddle' ? B.puddle : s > 0.65 ? B.big : B.splash;
     src.buffer = buf;
-    src.playbackRate.value = (kind === 'puddle' ? 0.9 + (1 - s) * 0.25 : 1.05 - s * 0.2) * (0.94 + Math.random() * 0.12);
-    g.gain.value = (kind === 'puddle' ? 0.25 + 0.55 * s : 0.3 + 0.6 * s);
+    src.playbackRate.value = (kind === 'puddle' ? 0.95 + s * 0.1 : 1.05 - s * 0.2) * (0.94 + Math.random() * 0.12);
+    if (kind === 'puddle') {
+      // A slow roll through a puddle is a soft, short slosh: quiet, muffled and over quickly.
+      // Fast, it is the full loud hiss of a sheet of water.
+      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 500 + 11000 * Math.pow(s, 1.4); lp.Q.value = 0.5;
+      const len = 0.35 + 2.6 * s;
+      g.gain.setValueAtTime(0.03 + 0.72 * Math.pow(s, 1.5), t);
+      g.gain.setTargetAtTime(0, t + len * 0.5, len * 0.25);
+      src.connect(lp).connect(g).connect(this.bus.car); src.start(t); src.stop(t + len + 0.5);
+      return;
+    }
+    g.gain.value = 0.3 + 0.6 * s;
     src.connect(g).connect(this.bus.car); src.start(t);
   }
 

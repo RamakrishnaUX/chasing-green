@@ -1998,7 +1998,9 @@ function vehicleEffects(dt) {
   const inPuddle = wheelsWorld.some(([x, z]) => puddles.at(x, z));
   const inWater = jeep.depth > 0.05;
   // Splash on the way in.
-  if (inPuddle && !wasInPuddle && sp > 3) { audio.splash(Math.min(1, sp / 30), 'puddle'); haptics.play('light'); }
+  // How hard a puddle is hit: nothing at a crawl, a full sheet of spray at 90 km/h.
+  const hit = Math.min(1, Math.max(0, (sp - 1) / 24));
+  if (inPuddle && !wasInPuddle && sp > 1) { audio.splash(hit, 'puddle'); if (hit > 0.25) haptics.play('light'); }
   if (inWater && !wasInWater && sp > 2) { audio.splash(Math.min(1, sp / 18 + jeep.depth * 0.4)); haptics.play(sp > 10 ? 'heavy' : 'medium'); }
   // Pools the land does not know about (a waterfall's plunge pool, a crater lake): wheels in
   // one splash, throw spray and send rings across it.
@@ -2011,7 +2013,7 @@ function vehicleEffects(dt) {
     if (sp > 1.5) for (const [x, z, side] of wheelsWorld) { const out = Math.sign(side) * (1.2 + sp * 0.08); spray.emit(x, pool + 0.1, z, rx * out - fx * sp * 0.15, 2.2 + sp * 0.12, rz * out - fz * sp * 0.15, Math.ceil(Math.min(1, sp / 15) * 3), 1.4, 0.8); }
   }
   // Rings: across a puddle from each wheel in it, and over open water from a wading car.
-  if (inPuddle && sp > 0.8 && dt) for (const [x, z] of wheelsWorld) if ((!wasPuddleRing || Math.random() < dt * 5) && puddles.at(x, z)) puddles.ripple(x, z, Math.min(1, 0.4 + sp / 20));
+  if (inPuddle && sp > 0.5 && dt) for (const [x, z] of wheelsWorld) if ((!wasPuddleRing || Math.random() < dt * 5) && puddles.at(x, z)) puddles.ripple(x, z, Math.min(1, 0.15 + sp / 18));
   wasPuddleRing = inPuddle;
   if (inWater && jeep.boat < 0.5 && dt && Math.random() < dt * (1.5 + sp * 0.4)) {
     const [x, z] = wheelsWorld[Math.floor(Math.random() * wheelsWorld.length)];
@@ -2020,12 +2022,20 @@ function vehicleEffects(dt) {
   wasInPuddle = inPuddle; wasInWater = inWater;
   boatEffects(dt);
   // Spray from the wheels, thrown out sideways and up.
-  if ((inWater || inPuddle) && sp > 1.5 && jeep.boat < 0.5) {
-    const amount = inWater ? Math.min(1, sp / 15) * (0.6 + Math.min(1, jeep.depth)) : Math.min(1, sp / 25);
+  if (inWater && sp > 1.5 && jeep.boat < 0.5) {
+    const amount = Math.min(1, sp / 15) * (0.6 + Math.min(1, jeep.depth));
     for (const [x, z, side] of wheelsWorld) {
-      const y = (inWater ? waterLevelAt(x, z) : heightAt(x, z)) + 0.15;
+      const y = waterLevelAt(x, z) + 0.15;
       const out = Math.sign(side) * (1.2 + sp * 0.08);
       jeep.root && spray.emit(x, y, z, rx * out - fx * sp * 0.15, 2.5 + sp * 0.12, rz * out - fz * sp * 0.15, Math.ceil(amount * 4), 1.6, 0.8);
+    }
+  } else if (inPuddle && sp > 1 && jeep.boat < 0.5) {
+    // A puddle: rolling through slowly the tyres only push a little water aside, low and close;
+    // fast, they throw a sheet of it up and out. Only the wheels actually in the water throw any.
+    for (const [x, z, side] of wheelsWorld) {
+      if (!puddles.at(x, z) || Math.random() > 0.15 + hit * 2) continue;
+      const out = Math.sign(side) * (0.3 + sp * 0.09), up = 0.4 + sp * 0.16;
+      jeep.root && spray.emit(x, heightAt(x, z) + 0.1, z, rx * out - fx * sp * 0.15, up, rz * out - fz * sp * 0.15, Math.ceil(hit * 5), 0.4 + hit * 1.4, 0.3 + hit * 0.6);
     }
   }
   jeep.wadeLevel = jeep.boat > 0.5 ? Math.min(0.8, sp / 16) : inWater ? Math.min(1, jeep.depth * 0.7 + sp / 25) : inPuddle ? Math.min(0.6, sp / 30) : 0;
