@@ -5,20 +5,26 @@
   --ink: #f3f7f9;
   --ink-2: rgba(236, 243, 247, 0.74);
   --ink-3: rgba(236, 243, 247, 0.5);
-  --green: #5cf2a0;
-  --green-2: #23b673;
-  --green-ink: #05301c;
+  /* The aurora's own greens, sampled from the sky: deep, mid, bright, peak. */
+  --green: #66dfb0;
+  --green-2: #2c7f60;
+  --green-hi: #a2f6d3;
+  --green-deep: #20634c;
+  --green-ink: #04241a;
   --blue: #8fd0ff;
   --red: #ff7d74;
   --hair: rgba(255, 255, 255, 0.14);
   --hair-2: rgba(255, 255, 255, 0.08);
-  --glass: rgba(20, 29, 41, 0.46);
-  --glass-strong: rgba(15, 23, 33, 0.7);
+  --glass: rgba(8, 20, 17, 0.5);
+  --glass-strong: rgba(6, 16, 14, 0.74);
   --glass-hi: rgba(255, 255, 255, 0.24);
   --blur: blur(22px) saturate(175%);
   --shadow: 0 10px 30px rgba(0, 0, 0, 0.32), 0 1px 2px rgba(0, 0, 0, 0.3);
-  --serif: 'Young Serif', Georgia, 'Times New Roman', serif;
-  --sans: 'Atkinson Hyperlegible', -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, 'Segoe UI', Roboto, sans-serif;
+  /* Three faces: Michroma (wide, racing) for names and headings, Saira for everything else,
+     Caveat for handwriting on postcards. --serif keeps its old name: it is the heading face. */
+  --serif: 'Michroma', 'Saira', system-ui, sans-serif;
+  --sans: 'Saira', -apple-system, BlinkMacSystemFont, system-ui, 'Segoe UI', Roboto, sans-serif;
+  --hand: 'Caveat', 'Bradley Hand', cursive;
   --r-sm: 10px;
   --r-md: 14px;
   --r-lg: 22px;
@@ -58,8 +64,8 @@ svg { overflow: visible; }
 .btn:active { transform: scale(0.96); }
 .btn:disabled { opacity: 0.45; cursor: default; }
 .btn-small { min-height: 32px; padding: 0 0.85rem; font-size: 0.82rem; }
-.btn-primary { background: linear-gradient(180deg, #8ff8c0, var(--green) 45%, var(--green-2)); color: var(--green-ink); border-color: rgba(190, 255, 220, 0.7);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), 0 8px 22px rgba(92, 242, 160, 0.32); }
+.btn-primary { background: linear-gradient(180deg, #a2f6d3, var(--green) 45%, var(--green-2)); color: var(--green-ink); border-color: rgba(190, 255, 220, 0.7);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), 0 8px 22px rgba(102, 223, 176, 0.32); }
 .btn-primary:hover { background: linear-gradient(180deg, #a8fbd0, #6ff5ad 45%, #2cc47f); }
 .btn-primary:disabled { opacity: 0.55; cursor: wait; }
 .btn-danger { color: var(--red); }
@@ -78,7 +84,7 @@ svg { overflow: visible; }
   transition: background 0.25s var(--ease), color 0.2s, transform 0.18s var(--spring); }
 .seg button:active { transform: scale(0.96); }
 .seg button.is-on { background: linear-gradient(180deg, rgba(255, 255, 255, 0.26), rgba(255, 255, 255, 0.14)); color: var(--ink); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 2px 8px rgba(0, 0, 0, 0.25); }
-.seg-vehicle button.is-on { background: linear-gradient(180deg, #8ff8c0, var(--green) 50%, var(--green-2)); color: var(--green-ink); }
+.seg-vehicle button.is-on { background: linear-gradient(180deg, #a2f6d3, var(--green) 50%, var(--green-2)); color: var(--green-ink); }
 
 /* Native select dressed as a glass pill. */
 .select-wrap { position: relative; }
@@ -221,7 +227,7 @@ body.has-touch .fuel-act { left: 50%; }
 .pad-steer.is-down { background: radial-gradient(120% 120% at 30% 18%, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0.08) 55%), rgba(30, 44, 58, 0.55); }
 .pad-small { --size: 54px; }
 .pad-small svg { width: 20px; height: 20px; }
-.pad-small[aria-pressed='true'] { color: var(--green); border-color: rgba(92, 242, 160, 0.55); }
+.pad-small[aria-pressed='true'] { color: var(--green); border-color: rgba(102, 223, 176, 0.55); }
 .pad-small[aria-pressed='true'] span { color: var(--green); }
 .pad-brake svg { width: 20px; height: 20px; color: var(--red); }
 /* Brake doubles as reverse: it says so, and while backing up shows a back arrow and "Reverse". */
@@ -241,10 +247,10 @@ body.has-touch .fuel-act { left: 50%; }
 .pad-brake.is-down { background: radial-gradient(120% 120% at 30% 18%, rgba(255, 160, 150, 0.3), rgba(255, 125, 116, 0.1) 55%), rgba(40, 18, 18, 0.55); border-color: rgba(255, 125, 116, 0.5); }
 .pad-gas { --size: 80px; overflow: visible; color: var(--green-ink); border-color: rgba(200, 255, 225, 0.75);
   background: radial-gradient(120% 120% at 30% 15%, #d2ffe6 0%, #74f5b0 34%, var(--green) 52%, var(--green-2) 100%);
-  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.7), inset 0 -4px 10px rgba(0, 70, 40, 0.35), 0 10px 26px rgba(92, 242, 160, 0.4), 0 2px 4px rgba(0, 0, 0, 0.35); }
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.7), inset 0 -4px 10px rgba(0, 70, 40, 0.35), 0 10px 26px rgba(102, 223, 176, 0.4), 0 2px 4px rgba(0, 0, 0, 0.35); }
 .pad-gas svg { width: 32px; height: 32px; margin-left: 4px; filter: none; }
 .pad-gas span { color: var(--green-ink); }
-.pad-gas.is-down { box-shadow: inset 0 4px 12px rgba(0, 60, 35, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.4), 0 3px 10px rgba(92, 242, 160, 0.35); }
+.pad-gas.is-down { box-shadow: inset 0 4px 12px rgba(0, 60, 35, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.4), 0 3px 10px rgba(102, 223, 176, 0.35); }
 .pad-gas.is-boost { transform: translateY(-6px) scale(0.96); border-color: #e2f4ff;
   background: radial-gradient(120% 120% at 30% 15%, #ffffff 0%, #c4ecff 34%, var(--blue) 60%, #3d9be0 100%);
   box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.8), 0 0 28px rgba(143, 208, 255, 0.85); }
@@ -424,8 +430,8 @@ dialog.sheet::backdrop { background: rgba(4, 8, 12, 0.42); -webkit-backdrop-filt
   transition: transform 0.2s var(--spring), border-color 0.2s, background 0.2s; }
 .car-card:active { transform: scale(0.97); }
 .car-card:hover { background: rgba(255, 255, 255, 0.08); }
-.car-card.is-on { border-color: rgba(92, 242, 160, 0.7); background: rgba(92, 242, 160, 0.08); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 0 0 1px rgba(92, 242, 160, 0.25); }
-.car-pic { display: block; width: 100%; aspect-ratio: 36 / 22; object-fit: contain; border-radius: var(--r-md); background: radial-gradient(80% 70% at 50% 68%, rgba(92, 242, 160, 0.14), transparent 70%); }
+.car-card.is-on { border-color: rgba(102, 223, 176, 0.7); background: rgba(102, 223, 176, 0.08); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 0 0 1px rgba(102, 223, 176, 0.25); }
+.car-pic { display: block; width: 100%; aspect-ratio: 36 / 22; object-fit: contain; border-radius: var(--r-md); background: radial-gradient(80% 70% at 50% 68%, rgba(102, 223, 176, 0.14), transparent 70%); }
 .car-card h3 { margin: 4px 0 0; font-family: var(--serif); font-weight: 400; font-size: 1.15rem; }
 .car-card p { margin: 0; color: var(--ink-2); font-size: 0.86rem; line-height: 1.45; }
 .car-tag { display: none; }
@@ -520,12 +526,12 @@ body.nitro-off .go-ring { display: none; }
 .pad-look { width: auto; height: 46px; min-width: 104px; padding: 0 18px; border-radius: 999px; flex-direction: row; gap: 6px; }
 .pad-look svg { width: 20px; height: 20px; }
 .pad-look span { font-size: 0.8rem; color: var(--ink); }
-.pad-look[aria-pressed='true'] { color: var(--green); border-color: rgba(92, 242, 160, 0.6); }
+.pad-look[aria-pressed='true'] { color: var(--green); border-color: rgba(102, 223, 176, 0.6); }
 .pad-look[aria-pressed='true'] span { color: var(--green); }
 .pad-look.is-call { color: var(--green-ink); border-color: rgba(200, 255, 225, 0.8);
   background: radial-gradient(120% 120% at 30% 15%, #d2ffe6 0%, #74f5b0 40%, var(--green-2) 100%); animation: call 1.6s ease-in-out infinite; }
 .pad-look.is-call span { color: var(--green-ink); }
-@keyframes call { 50% { box-shadow: 0 0 0 8px rgba(92, 242, 160, 0.18), 0 0 26px rgba(92, 242, 160, 0.6); } }
+@keyframes call { 50% { box-shadow: 0 0 0 8px rgba(102, 223, 176, 0.18), 0 0 26px rgba(102, 223, 176, 0.6); } }
 @media (prefers-reduced-motion: reduce) { .pad-look.is-call { animation: none; } }
 @media (orientation: portrait) and (max-width: 600px) {
   body.has-touch .touch-right { grid-template-columns: 64px 80px; grid-template-areas: 'sit sit' 'look look' 'brake gas'; gap: 14px 12px; }
@@ -538,7 +544,7 @@ body.nitro-off .go-ring { display: none; }
 /* ---------- Aurora call: a clear banner at the top when the lights are out ---------- */
 .sky-hint { position: absolute; left: 50%; top: calc(14px + var(--safe-t)); transform: translateX(-50%); z-index: 3; display: inline-flex; align-items: center; gap: 10px;
   padding: 10px 18px 10px 12px; border-radius: 999px; color: var(--ink); font-weight: 700; font-size: 0.98rem; white-space: nowrap;
-  border-color: rgba(92, 242, 160, 0.55); box-shadow: inset 0 1px 0 var(--glass-hi), 0 0 0 1px rgba(92, 242, 160, 0.2), 0 0 30px rgba(92, 242, 160, 0.35); }
+  border-color: rgba(102, 223, 176, 0.55); box-shadow: inset 0 1px 0 var(--glass-hi), 0 0 0 1px rgba(102, 223, 176, 0.2), 0 0 30px rgba(102, 223, 176, 0.35); }
 .sky-hint svg { width: 26px; height: 26px; padding: 4px; border-radius: 50%; background: var(--green); color: var(--green-ink); fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round;
   animation: rise 1.4s ease-in-out infinite; }
 @keyframes rise { 50% { transform: translateY(-3px); } }
@@ -584,14 +590,14 @@ dialog.sheet:not([data-page='map']) { height: fit-content; }
 }
 
 /* ---------- Nitro is green: the ring around Go and the boost glow ---------- */
-.go-ring { background: conic-gradient(from -90deg, #b6ffd8 0deg, var(--green) calc(var(--tank) * 360deg), rgba(92, 242, 160, 0.16) 0); }
+.go-ring { background: conic-gradient(from -90deg, #c9fbe6 0deg, var(--green) calc(var(--tank) * 360deg), rgba(102, 223, 176, 0.16) 0); }
 .pad-gas.is-boosting .go-ring, .pad-gas.is-boost .go-ring { filter: drop-shadow(0 0 6px var(--green)) drop-shadow(0 0 14px #2fe0b8); }
 .pad-gas.is-boost { border-color: #e6fff2;
   background: radial-gradient(120% 120% at 30% 15%, #ffffff 0%, #c9ffe4 30%, #6ff7c0 58%, #19b98a 100%);
-  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.85), 0 0 30px rgba(92, 242, 160, 0.9); }
-.pad-gas.is-boosting { box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.8), 0 0 30px rgba(92, 242, 160, 0.85); }
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.85), 0 0 30px rgba(102, 223, 176, 0.9); }
+.pad-gas.is-boosting { box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.8), 0 0 30px rgba(102, 223, 176, 0.85); }
 .go-hint { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 22 12'%3E%3Cpath d='M3 10l8-7 8 7' fill='none' stroke='%235cf2a0' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); }
-.nitro span { background: linear-gradient(90deg, var(--green-2), #b6ffd8); }
+.nitro span { background: linear-gradient(90deg, var(--green-2), #c9fbe6); }
 .nitro.is-on span { box-shadow: 0 0 8px var(--green); }
 
 /* ---------- Phones upright: Look sits above Brake, the space above Go stays free for the
@@ -757,7 +763,7 @@ body.is-looking #hud .touch-left:active, body.is-looking #hud #t-brake:active, b
 .btn-start .start-label, .btn-start .start-pct { position: relative; z-index: 1; }
 .btn-start .start-fill { position: absolute; inset: 0; z-index: 0; transform-origin: left center; transform: scaleX(var(--p, 0));
   transition: transform var(--dur, 400ms) cubic-bezier(0.25, 0.6, 0.35, 1);
-  background: linear-gradient(180deg, #8ff8c0, var(--green) 45%, var(--green-2)); }
+  background: linear-gradient(180deg, #a2f6d3, var(--green) 45%, var(--green-2)); }
 .btn-start .start-fill::after { content: ''; position: absolute; inset: 0; background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.45) 50%, transparent 70%);
   transform: translateX(-100%); animation: shimmer 1.6s ease-in-out infinite; }
 @keyframes shimmer { to { transform: translateX(100%); } }
@@ -799,7 +805,7 @@ body:not(.has-touch) .toast { max-width: min(30rem, calc(100vw - 460px)); min-wi
 .car-card > :not(.car-pic), body.has-touch .car-card > :not(.car-pic) { grid-column: auto; }
 .car-pic, body.has-touch .car-pic { grid-column: 1; grid-row: 1; width: 100%; height: auto; min-height: 0; max-height: none; aspect-ratio: 16 / 10; object-fit: contain; object-position: 50% 50%;
   border-radius: calc(var(--r-lg) - 8px); box-shadow: inset 0 0 0 1px var(--hair);
-  background: radial-gradient(70% 60% at 50% 72%, rgba(92, 242, 160, 0.14), transparent 72%), rgba(0, 0, 0, 0.2); }
+  background: radial-gradient(70% 60% at 50% 72%, rgba(102, 223, 176, 0.14), transparent 72%), rgba(0, 0, 0, 0.2); }
 .car-info { grid-column: 2; display: flex; flex-direction: column; justify-content: center; gap: 6px; padding: 4px 8px 4px 0; min-width: 0; }
 .car-card h3 { margin: 0; font-size: 1.3rem; }
 body.has-touch .car-card h3 { font-size: 1.15rem; }
@@ -928,7 +934,7 @@ body.is-skydiving #infocard, body.is-skydiving .nitro, body.is-skydiving .fuel, 
    The aurora sky and the hero vehicle fill the screen (src/ui/auroraSky.js, src/ui/cover.js).
    The name sits on the left over the sky, the vehicle below it, and one card on the right holds
    the choices. Set in the system font with Apple-style tracking: tight for large type. */
-#intro { --cv-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", system-ui, "Segoe UI", Roboto, sans-serif;
+#intro { --cv-font: var(--sans);
   padding: 0; background: #04070c; overflow: hidden; font-family: var(--cv-font); color: #f5f7f8; }
 #intro .cv-layer { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 #intro .cv-shade { position: absolute; inset: 0; pointer-events: none;
@@ -1027,3 +1033,23 @@ body.has-touch #intro .keys-hint { display: none; }
   #intro .cv-shade { background: radial-gradient(ellipse 80% 30% at 30% 14%, rgba(3, 6, 10, 0.5), rgba(3, 6, 10, 0)); }
 }
 @media (max-width: 1000px) { #intro .keys-hint { display: none; } }
+
+/* ---------- Type: Michroma headings, scaled for its width ---------- */
+.month-card h3, .radio-title, .infocard h2, .sheet-title, .map-pick-text b, .car-card h3, .challenge-card h3, .learn-entry h3, .lesson h3 { letter-spacing: 0.01em; }
+.radio-title { font-size: 0.82rem; }
+.infocard h2 { font-size: 1.08rem; line-height: 1.25; }
+.info-legend { font-family: var(--sans); font-style: italic; }
+.sheet-title { font-size: 1.08rem; }
+.map-pick-text b { font-size: 0.86rem; }
+.car-card h3, .learn-entry h3, .lesson h3 { font-size: 0.96rem; }
+.challenge-card h3 { font-size: 1.06rem; }
+.month-card h3 { font-size: 0.92rem; }
+kbd { font-family: var(--sans) !important; }
+
+/* Saira sets a little wider than the old face: on short screens the settings stay one column
+   (two columns ran out of room) and the segment buttons tighten. */
+@media (max-height: 520px) and (min-width: 600px) {
+  .settings-grid { grid-template-columns: auto minmax(0, 1fr); }
+  .settings-grid .seg button { padding: 0 0.55rem; font-size: 0.8rem; }
+}
+.seg button { min-width: 0; overflow: hidden; text-overflow: ellipsis; }

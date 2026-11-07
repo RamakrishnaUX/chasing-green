@@ -127,7 +127,7 @@ export class Hud {
     const x0 = s.nightStart, x1 = s.nightStart + 18; // 16:00 to 10:00
     const X = (h) => padL + ((h - x0) / (x1 - x0)) * (W - padL - padR);
     const Y = (kp) => padT + (1 - kp / 9) * (H - padT - padB);
-    c.font = '20px "Atkinson Hyperlegible", system-ui, sans-serif';
+    c.font = '20px "Saira", system-ui, sans-serif';
     c.fillStyle = 'rgba(169,180,189,0.8)';
     c.strokeStyle = 'rgba(169,180,189,0.18)';
     c.lineWidth = 1;
@@ -152,7 +152,7 @@ export class Hud {
     c.setLineDash([]);
     // What actually happened tonight.
     const hist = s.history || [];
-    c.strokeStyle = '#5cf2a0';
+    c.strokeStyle = '#66dfb0';
     c.lineWidth = 3;
     c.beginPath();
     hist.forEach((p, i) => (i ? c.lineTo(X(p.h), Y(p.kp)) : c.moveTo(X(p.h), Y(p.kp))));

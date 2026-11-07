@@ -45,7 +45,7 @@ function radio(g, { x, y, z, tilt = -0.3, w = 0.2, h = 0.07 }) {
     last = text;
     const x2 = c.getContext('2d');
     x2.fillStyle = '#04121a'; x2.fillRect(0, 0, 256, 88);
-    x2.fillStyle = '#5cf2a0'; x2.font = '700 30px system-ui, sans-serif'; x2.textBaseline = 'middle';
+    x2.fillStyle = '#66dfb0'; x2.font = '700 30px system-ui, sans-serif'; x2.textBaseline = 'middle';
     x2.fillText(text, 14, 44, 228);
     tex.needsUpdate = true;
   };

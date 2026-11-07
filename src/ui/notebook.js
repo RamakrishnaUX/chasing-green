@@ -25,7 +25,7 @@ const GLYPHS = {
 };
 
 export function stampSvg(label, glyph, got, id) {
-  const col = got ? '#5cf2a0' : 'rgba(169,180,189,0.45)';
+  const col = got ? '#66dfb0' : 'rgba(169,180,189,0.45)';
   const dash = got ? '' : 'stroke-dasharray="3 4"';
   const pid = `arc-${id}`;
   // Long names run round a wider arc in smaller type, so they are never cut off.
@@ -35,7 +35,7 @@ export function stampSvg(label, glyph, got, id) {
   return `<svg viewBox="0 0 76 76" aria-hidden="true"><g fill="none" stroke="${col}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ${got ? 'transform="rotate(-8 38 38)"' : ''}>
     <circle cx="38" cy="38" r="35" ${dash}/><circle cx="38" cy="38" r="30" ${dash}/>
     <defs><path id="${pid}" d="${arc}" /></defs>
-    <text font-size="${size.toFixed(1)}" font-weight="700" fill="${col}" stroke="none" font-family="Atkinson Hyperlegible, system-ui"><textPath href="#${pid}" startOffset="50%" text-anchor="middle">${label}</textPath></text>
+    <text font-size="${size.toFixed(1)}" font-weight="700" fill="${col}" stroke="none" font-family="Saira, system-ui"><textPath href="#${pid}" startOffset="50%" text-anchor="middle">${label}</textPath></text>
     <g transform="translate(0 6) scale(0.82) translate(8 2)">${GLYPHS[glyph] || ''}</g></g></svg>`;
 }
 

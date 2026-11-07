@@ -78,7 +78,7 @@ function postmark(ctx, x, y, r, rot, top, mid, bottom) {
     const spread = Math.min(Math.PI * 0.9, chars.length * 0.16);
     // Long words get smaller letters so they still fit the arc without touching.
     const size = Math.min(r * 0.2, (spread * radius) / chars.length / 0.75);
-    ctx.font = `700 ${Math.round(size)}px "Atkinson Hyperlegible", system-ui, sans-serif`;
+    ctx.font = `700 ${Math.round(size)}px "Saira", system-ui, sans-serif`;
     chars.forEach((ch, i) => {
       const a = dir * (-spread / 2 + (spread * (i + 0.5)) / chars.length);
       ctx.save();
@@ -92,7 +92,7 @@ function postmark(ctx, x, y, r, rot, top, mid, bottom) {
   arcText(top, r * 0.83, 1);
   arcText(bottom, r * 0.83, -1);
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.font = `700 ${Math.round(r * 0.24)}px "Atkinson Hyperlegible", system-ui, sans-serif`;
+  ctx.font = `700 ${Math.round(r * 0.24)}px "Saira", system-ui, sans-serif`;
   ctx.fillText(mid, 0, 0);
   ctx.restore();
 }
@@ -140,7 +140,7 @@ export async function drawPostcard(canvas, s, image) {
   ctx.restore();
 
   // Title.
-  const serif = '"Young Serif", Georgia, "Times New Roman", serif';
+  const serif = '"Michroma", "Saira", sans-serif';
   ctx.fillStyle = '#16181b';
   ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
   if ('letterSpacing' in ctx) ctx.letterSpacing = '2px';

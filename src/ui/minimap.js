@@ -350,7 +350,7 @@ export class MapUI {
       const u = (lm.x - pos.x) * k + S / 2, v = (lm.z - pos.z) * k + S / 2;
       if (u < -10 || v < -10 || u > S + 10 || v > S + 10) continue;
       g.beginPath(); g.arc(u, v, 4.5 * dpr, 0, Math.PI * 2);
-      g.fillStyle = store.data.stamps[lm.id] ? '#5cf2a0' : '#ffffff';
+      g.fillStyle = store.data.stamps[lm.id] ? '#66dfb0' : '#ffffff';
       g.fill(); g.lineWidth = 1.5 * dpr; g.strokeStyle = '#0d1520'; g.stroke();
     }
     // Fuel stations: small amber squares.
@@ -389,7 +389,7 @@ export class MapUI {
     // North marker.
     g.fillStyle = 'rgba(13,21,32,0.75)';
     g.beginPath(); g.arc(S - 14 * dpr, 14 * dpr, 9 * dpr, 0, Math.PI * 2); g.fill();
-    g.fillStyle = '#e7ecef'; g.font = `700 ${11 * dpr}px "Atkinson Hyperlegible", system-ui, sans-serif`;
+    g.fillStyle = '#e7ecef'; g.font = `700 ${11 * dpr}px "Saira", system-ui, sans-serif`;
     g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('N', S - 14 * dpr, 14.5 * dpr);
   }
 }

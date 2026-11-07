@@ -72,9 +72,9 @@ function signTexture() {
   g.fillStyle = '#16594f'; g.fillRect(94, 76, 42, 30);
   g.strokeStyle = '#f4f2ec'; g.lineWidth = 9; g.lineCap = 'round'; g.lineJoin = 'round';
   g.beginPath(); g.moveTo(146, 92); g.lineTo(170, 104); g.lineTo(170, 162); g.quadraticCurveTo(170, 176, 182, 172); g.lineTo(182, 112); g.stroke();
-  g.fillStyle = '#16594f'; g.font = '700 38px "Atkinson Hyperlegible", system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillStyle = '#16594f'; g.font = '700 38px "Saira", system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
   g.fillText('ELDSNEYTI', 128, 268);
-  g.fillStyle = '#5b625f'; g.font = '700 30px "Atkinson Hyperlegible", system-ui, sans-serif';
+  g.fillStyle = '#5b625f'; g.font = '700 30px "Saira", system-ui, sans-serif';
   g.fillText('OPIÐ 24/7', 128, 326);
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
