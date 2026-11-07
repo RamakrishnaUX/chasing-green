@@ -2017,3 +2017,19 @@ body.has-touch.pre-start #sheet .sheet-close { top: calc(12px + var(--safe-t)); 
   body:not(.has-touch) .hx-side.l { height: 100%; }
   body:not(.has-touch) .hx-side.l .fuel-act { position: absolute; left: 4%; right: auto; bottom: auto; top: calc(100% * 112 / 130 - 4px); height: 20px; margin: 0; }
 }
+
+/* ---------- Phones and tablets: the same layout, sized to the free space ---------- */
+/* Held sideways: the band sits centred in the gap between the steering arrows and Look. */
+@media (max-height: 520px) {
+  body.has-touch .hx-cluster { left: calc((150px + 100vw - 300px) / 2); width: min(340px, calc(100vw - 480px)); bottom: calc(16px + var(--safe-b)); }
+}
+/* Tablets: a bigger band, above the controls. */
+@media (min-width: 700px) and (min-height: 600px) {
+  body.has-touch .hx-cluster { width: min(520px, 56vw); bottom: calc(112px + var(--safe-b)); }
+  body.has-touch .hx-spd b { font-size: 44px; } body.has-touch .hx-spd span { font-size: 10px; }
+  body.has-touch .hx-val b { font-size: 24px; } body.has-touch .hx-val small { font-size: 10px; }
+  body.has-touch .hx-gear { font-size: 11px; top: -20px; }
+  body.has-touch .hx-place { font-size: 22px !important; }
+  body.has-touch .hx-clock { font-size: 28px; }
+  body.has-touch #hud .minimap { width: 160px; height: 120px; }
+}
