@@ -1238,16 +1238,16 @@ function vehicleStats(kind) {
   return [['Top speed', String(kmh), 'km/h', seg(kmh / 240)], ['Off-road', String(Math.round(off * 10)), '/ 10', seg(off)],
     ['Wading depth', v.wade.toFixed(1), 'm', seg(v.wade / 2.8)], litres ? ['Fuel tank', String(litres), 'L', seg(litres / 90)] : ['Weight', 'Light', '', 3]];
 }
-function introInfo(kind) {
-  const name = $('intro-car');
+function introInfo(kind, ids = { name: 'intro-car', kick: 'intro-kick', l: 'gx-stats-l', r: 'gx-stats-r' }) {
+  const name = $(ids.name);
   name.textContent = kind === 'heli' ? 'Helicopter' : VEHICLES[kind].name;
   // The name fills its brackets: as large as fits, never cut off.
   name.style.fontSize = '';
   requestAnimationFrame(() => { let f = parseFloat(getComputedStyle(name).fontSize); while (name.scrollWidth > name.clientWidth + 1 && f > 18) name.style.fontSize = `${(f -= 2)}px`; });
-  $('intro-kick').textContent = KIND_LABEL[kind] || '';
+  $(ids.kick).textContent = KIND_LABEL[kind] || '';
   const stats = vehicleStats(kind).map(([t, v, u, n]) => `<div class="gx-stat"><div class="gx-t">${t}</div><div class="gx-v">${v}<small>${u}</small></div><div class="gx-segs">${Array.from({ length: 10 }, (_, i) => `<i${i < n ? ' class="on"' : ''}></i>`).join('')}</div></div>`);
-  $('gx-stats-l').innerHTML = stats.slice(0, 2).join('');
-  $('gx-stats-r').innerHTML = stats.slice(2).join('');
+  $(ids.l).innerHTML = stats.slice(0, 2).join('');
+  $(ids.r).innerHTML = stats.slice(2).join('');
 }
 
 // ---------- Cover ----------
@@ -1255,6 +1255,7 @@ function introInfo(kind) {
 // ground in front of it. The arrows change vehicle (the same as the garage), and the car models
 // start loading now, so the cover and the car you drive both have them as early as possible.
 const COVER_ORDER = [...VEHICLE_ORDER, 'heli'];
+const gg = { cover: null, sky: null, kind: null }; // the menu's garage view (below)
 const introSky = startAuroraSky($('intro-sky'));
 const cover = new Cover($('intro-hero'), { spot: document.querySelector('.cv-spot'), small: isTouch });
 const coverKind = () => (settings.vehicle === 'heli' ? 'heli' : VEHICLES[settings.vehicle] ? settings.vehicle : 'jeep');
@@ -1262,6 +1263,7 @@ cover.show(coverKind());
 introInfo(coverKind());
 loadCarModels((kind) => {
   cover.refresh(kind);
+  gg.cover?.refresh(kind);
   resetCarThumbs();
   if (jeep && jeep.kind === kind && ride === 'car') jeep.setType(kind);
   renderGarage();
@@ -1275,26 +1277,13 @@ for (const [id, step] of [['cv-prev', -1], ['cv-next', 1]]) $(id).addEventListen
 });
 const startBtn = $('start');
 startBtn.disabled = true;
-// The start screen's own tabs: Vehicle is this garage; Month, Journey and Settings open the menu.
+// The start screen keeps only a settings button; the menu holds everything else.
 document.body.classList.add('pre-start');
-function gxTab(name) {
-  sfx.whoosh();
-  if (name === 'journey') sheet.go('journey');
-  else if (name === 'settings' || name === 'month') {
-    sheet.go('settings');
-    setCat('trip');
-    if (name === 'month') { const r = document.querySelector('#settings .srow[data-key="set-month"]'); if (r) sheet.select(r); }
-  }
-  for (const b of document.querySelectorAll('.gx-tabs button')) b.classList.toggle('is-on', b.dataset.gx === name);
-}
-for (const b of document.querySelectorAll('.gx-tabs button')) b.addEventListener('click', () => { if (b.dataset.gx !== 'vehicle') gxTab(b.dataset.gx); });
-$('sheet').addEventListener('close', () => { for (const b of document.querySelectorAll('.gx-tabs button')) b.classList.toggle('is-on', b.dataset.gx === 'vehicle'); });
+$('gx-menu').addEventListener('click', () => { haptics.play('select'); sheet.go('settings'); setCat('trip'); });
 addEventListener('keydown', (e) => {
   if (started || document.querySelector('dialog[open]') || e.metaKey || e.ctrlKey || e.altKey) return;
   const k = e.key.toLowerCase();
-  if (k === 'e') gxTab('month');
-  else if (k === 'q') gxTab('settings');
-  else if (k === 'arrowleft' || k === 'arrowright') { e.preventDefault(); $(k === 'arrowleft' ? 'cv-prev' : 'cv-next').click(); }
+  if (k === 'arrowleft' || k === 'arrowright') { e.preventDefault(); $(k === 'arrowleft' ? 'cv-prev' : 'cv-next').click(); }
   else if (k === 'enter' && !startBtn.disabled && document.activeElement?.tagName !== 'SELECT') { e.preventDefault(); startBtn.click(); }
 });
 startBtn.addEventListener('click', () => {
@@ -1659,10 +1648,46 @@ function renderGarage() {
       <span class="car-stats"><span>Top speed</span>${bar(62, 66)}<span>Reach</span>${bar(1, 1)}<span>Altitude</span>${bar(1, 1)}</span></span></button>`);
   list.querySelectorAll('[data-pick]').forEach((b) => b.addEventListener('click', () => { haptics.play('medium'); setVehicle(b.dataset.pick); $('garage').close(); }));
 }
-function openGarage() { $('garage-list').dataset.wantThumbs = '1'; renderGarage(); $('garage').showModal(); }
+// The menu's garage on a computer is the start screen again: the vehicle on its turntable under
+// the aurora, its name and stats, arrows to look through them and Drive this to take one. Its two
+// canvases exist only while the page is open.
+const ggDesk = () => !document.body.classList.contains('has-touch') && matchMedia('(min-width: 1000px) and (min-height: 600px)').matches;
+function ggCurrent() { return ride === 'heli' || settings.vehicle === 'heli' ? 'heli' : jeep?.kind || coverKind(); }
+function ggShow(kind, arrive) {
+  gg.kind = kind;
+  gg.cover?.show(kind, arrive);
+  introInfo(kind, { name: 'gg-name', kick: 'gg-kick', l: 'gg-stats-l', r: 'gg-stats-r' });
+  const here = kind === ggCurrent();
+  $('gg-drive-label').textContent = here ? (kind === 'heli' ? 'Flying this' : 'Driving this') : kind === 'heli' ? 'Fly this' : 'Drive this';
+  $('gg-drive').classList.toggle('is-here', here);
+}
+function ggOpen() {
+  if (!ggDesk()) return;
+  if (!gg.cover) { gg.sky = startAuroraSky($('gg-sky')); gg.cover = new Cover($('gg-hero'), { spot: $('gg-spot') }); }
+  ggShow(ggCurrent(), false);
+}
+function ggClose() { gg.cover?.dispose(); gg.sky?.stop(); gg.cover = gg.sky = null; }
+function ggStep(d) {
+  const i = COVER_ORDER.indexOf(gg.kind);
+  sfx.clack(); haptics.play('light');
+  ggShow(COVER_ORDER[(i + d + COVER_ORDER.length) % COVER_ORDER.length], true);
+}
+$('gg-prev').addEventListener('click', () => ggStep(-1));
+$('gg-next').addEventListener('click', () => ggStep(1));
+$('gg-drive').addEventListener('click', () => {
+  if (gg.kind === ggCurrent()) { sheet.close(); return; }
+  haptics.play('medium'); setVehicle(gg.kind); sheet.close();
+});
+$('sheet').addEventListener('keydown', (e) => {
+  if (sheet.current !== 'garage' || !gg.cover) return;
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); ggStep(e.key === 'ArrowLeft' ? -1 : 1); }
+  else if (e.key === 'Enter' && !e.target.matches?.('button')) { e.preventDefault(); $('gg-drive').click(); }
+});
+$('sheet').addEventListener('close', ggClose);
+function openGarage() { $('garage-list').dataset.wantThumbs = '1'; renderGarage(); $('garage').showModal(); ggOpen(); }
 sheet.register('garage', openGarage);
 sheet.register('map', () => mapUI?.open());
-sheet.onShow = (page) => track('menu_open', { page });
+sheet.onShow = (page) => { track('menu_open', { page }); if (page !== 'garage') ggClose(); };
 // Tap the car itself to switch to the next one.
 const carRay = new THREE.Raycaster(), carTap = new THREE.Vector2();
 let tapStart = null;

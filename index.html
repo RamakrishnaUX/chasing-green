@@ -45,14 +45,7 @@
     <div class="cv-shade" aria-hidden="true"></div>
     <div class="cv-spot" aria-hidden="true"></div>
     <header class="gx-top"><h1 id="intro-title" class="gx-brand">Chasing <b>Green</b></h1><p class="gx-tag">Drive. Wait. Look up.</p></header>
-    <nav class="gx-tabs" aria-label="Start screen">
-      <kbd aria-hidden="true">Q</kbd>
-      <button type="button" data-gx="vehicle" class="is-on" aria-current="page">Vehicle</button>
-      <button type="button" data-gx="month">Month</button>
-      <button type="button" data-gx="journey">Journey</button>
-      <button type="button" data-gx="settings">Settings</button>
-      <kbd aria-hidden="true">E</kbd>
-    </nav>
+    <button type="button" class="gx-menu" id="gx-menu" aria-label="Menu and settings" title="Menu and settings"><svg viewBox="0 0 24 24"><path d="M10.3 3h3.4l.5 2.4 1.6.9 2.3-.8 1.7 2.9-1.8 1.6v1.9l1.8 1.6-1.7 2.9-2.3-.8-1.6.9-.5 2.4h-3.4l-.5-2.4-1.6-.9-2.3.8-1.7-2.9L6 12.9V11L4.2 9.4l1.7-2.9 2.3.8 1.6-.9z"/><circle cx="12" cy="12" r="2.8"/></svg></button>
     <div class="gx-name">
       <p class="gx-kick" id="intro-kick"></p>
       <div class="gx-pick">
@@ -251,7 +244,25 @@
     </section>
 
     <!-- Cars -->
-    <section id="garage" class="sheet-page" data-page="garage" hidden aria-label="Choose a car">
+    <section id="garage" class="sheet-page" data-page="garage" hidden aria-label="Choose a vehicle">
+      <!-- On computers: the start screen's garage, the vehicle on its turntable under the aurora. -->
+      <div class="gg" id="gg">
+        <canvas id="gg-sky" class="cv-layer" aria-hidden="true"></canvas>
+        <canvas id="gg-hero" class="cv-layer" aria-hidden="true"></canvas>
+        <div class="cv-shade" aria-hidden="true"></div>
+        <div class="cv-spot" id="gg-spot" aria-hidden="true"></div>
+        <div class="gx-name">
+          <p class="gx-kick" id="gg-kick"></p>
+          <div class="gx-pick">
+            <button type="button" id="gg-prev" class="gx-arrow" aria-label="Previous vehicle"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M7 1 2 5l5 4z"/></svg></button>
+            <div class="gx-box"><h2 id="gg-name" aria-live="polite"></h2><i aria-hidden="true"></i></div>
+            <button type="button" id="gg-next" class="gx-arrow" aria-label="Next vehicle"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="m3 1 5 4-5 4z"/></svg></button>
+          </div>
+        </div>
+        <div class="gx-stats gx-l"><div class="gx-in" id="gg-stats-l"></div></div>
+        <div class="gx-stats gx-r"><div class="gx-in" id="gg-stats-r"></div></div>
+        <div class="gx-go"><button type="button" class="btn btn-primary btn-start gg-drive" id="gg-drive"><span class="start-label" id="gg-drive-label">Drive this</span><kbd class="start-key" aria-hidden="true">&crarr;</kbd></button></div>
+      </div>
       <div class="garage" id="garage-list"></div>
     </section>
 
