@@ -146,22 +146,35 @@ export class Hud {
     // Perspective: every cut across the band (its ends, each fill's start and its moving edge) is a
     // line running to one vanishing point above the middle, like the edges of a road. Near the ends
     // they lean in hard; near the centre they stand almost upright.
-    const VX = 350, VY = -480;
+    const VX = 350, VY = -480, NITRO_BARS = 14;
     const mid = (x) => x <= 232 || x >= 468 ? 67 : x >= 286 && x <= 414 ? 107 : x < 286 ? 67 + (x - 232) / 54 * 40 : 107 - (x - 414) / 54 * 40;
     const cut = (x) => { const y0 = mid(x), k = (x - VX) / (y0 - VY); return (y) => (x + k * (y - y0)).toFixed(1); };
     // Fuel runs from the dip out to the left end, the Kp from the dip out to the right, and nitro
     // has the dip to itself, so the three meet edge to edge with no gap of bare track between them.
     const PARTS = { 'hx-fuelbar': [286, 24, -0.6], 'hx-kpbar': [414, 676, 0.6] };
+    // The bars: NITRO_BARS across the flat of the dip with thin gaps between them and a gap at each
+    // end, so they stand apart from the fuel and the Kp. on(i) says which are drawn.
+    const nitroBars = (sel, on) => {
+      const clip = document.querySelector(sel), A = 287.5, B = 412.5, pitch = (B - A) / NITRO_BARS, gap = 2.4;
+      const polys = [];
+      for (let i = 0; i < NITRO_BARS; i++) {
+        if (!on(i)) continue;
+        const L = cut(A + i * pitch + gap / 2), R = cut(A + (i + 1) * pitch - gap / 2);
+        polys.push(`<polygon points="${L(-20)},-20 ${R(-20)},-20 ${R(150)},150 ${L(150)},150"/>`);
+      }
+      clip.innerHTML = polys.join('') || '<polygon points="0,0 0,0 0,0"/>';
+    };
     const dash = (el, f) => {
       f = Math.max(0, Math.min(1, f));
       if (el.dataset.f === f.toFixed(3)) return;
       el.dataset.f = f.toFixed(3);
       el.style.visibility = f < 0.005 ? 'hidden' : '';
       const poly0 = el._poly ??= document.querySelector(`${el.getAttribute('clip-path').slice(4, -1)} polygon`);
-      // Nitro: one piece in the dip, widening from the centre to both sides, each side at its slant.
+      // Nitro: a row of upright bars across the dip, each cut toward the vanishing point like the
+      // band's ends, lighting pair by pair from the centre out to both sides.
       if (el.id === 'hx-nitro-l') {
-        const w = 4 + 60 * f, L = cut(350 - w), R = cut(350 + w);
-        poly0.setAttribute('points', `${L(-20)},-20 ${R(-20)},-20 ${R(150)},150 ${L(150)},150`);
+        const lit = f < 0.005 ? 0 : Math.max(1, Math.round(f * NITRO_BARS / 2));
+        nitroBars(el.getAttribute('clip-path').slice(4, -1), (i) => Math.abs(i - (NITRO_BARS - 1) / 2) < lit);
         return;
       }
       const [from, to] = PARTS[el.id], lead = from + (to - from) * f;
@@ -177,7 +190,7 @@ export class Hud {
     // Under the nitro, the empty part of the dip is a dim nitro colour rather than bare grey track,
     // so a part-used tank never leaves a thin grey sliver between the fuel and the nitro.
     const bed = h['nitro-r'];
-    if (!bed._set) { bed._set = true; const L = cut(286), R = cut(414); document.querySelector('#hx-c-nr polygon').setAttribute('points', `${L(-20)},-20 ${R(-20)},-20 ${R(150)},150 ${L(150)},150`); bed.classList.add('is-bed'); }
+    if (!bed._set) { bed._set = true; nitroBars('#hx-c-nr', () => true); bed.classList.add('is-bed'); }
     bed.style.opacity = (0.3 * ramp(1.3, 0.5)).toFixed(3);
     this.gauge.classList.toggle('is-boost', !!s.boosting);
     set(h.kp, kp.toFixed(1));
