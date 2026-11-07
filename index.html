@@ -39,25 +39,33 @@
 
   <!-- Intro -->
   <section id="intro" class="screen" aria-labelledby="intro-title">
-    <div class="intro-card glass">
-      <div class="intro-brand">
-        <h1 id="intro-title" class="wordmark">Chasing Green</h1>
-        <p class="prompt">Drive. Wait. Look up.</p>
-        <p class="intro-copy">A quiet road trip around Iceland. Find a dark spot under a clear sky, check the radio, and watch for the lights.</p>
-      </div>
-      <div class="intro-controls">
-        <div class="field">
-          <label class="field-label" for="intro-month">Month</label>
-          <div class="select-wrap"><select id="intro-month" class="month-select"></select></div>
+    <!-- The cover: the aurora sky, then the chosen vehicle on wet ground (src/ui/cover.js). -->
+    <canvas id="intro-sky" class="cv-layer" aria-hidden="true"></canvas>
+    <canvas id="intro-hero" class="cv-layer" aria-hidden="true"></canvas>
+    <div class="cv-shade" aria-hidden="true"></div>
+    <div class="cv-stage">
+      <div class="cv-left">
+        <div class="cv-brand">
+          <p class="cv-eyebrow">A road trip around Iceland</p>
+          <h1 id="intro-title" class="cv-title">Chasing Green</h1>
+          <p class="cv-tag">Drive. Wait. Look up.</p>
         </div>
+        <div class="cv-spot" aria-hidden="true"></div>
+      </div>
+      <div class="cv-card">
+        <h2>Plan your night</h2>
+        <p class="cv-sub" id="intro-sub"></p>
+        <label class="cv-row cv-month"><span>Month</span><span class="select-wrap"><select id="intro-month" class="month-select"></select></span></label>
         <div class="month-card" aria-live="polite"></div>
         <button id="start" class="btn btn-primary btn-start is-loading" role="progressbar" aria-label="Loading the island" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span class="start-fill" aria-hidden="true"></span><span class="start-label">Shaping the island</span><span class="start-pct">0%</span></button>
-        <p class="car-line" id="intro-car"></p>
-        <p class="challenge-line" id="intro-challenge"></p>
         <p class="loading" id="loading" role="status"></p>
+        <div class="cv-rows">
+          <div class="cv-row"><span>Vehicle</span><span class="cv-pick"><button type="button" id="cv-prev" aria-label="Previous vehicle"><svg viewBox="0 0 10 16" aria-hidden="true"><path d="M7 3 2 8l5 5"/></svg></button><b id="intro-car" aria-live="polite"></b><button type="button" id="cv-next" aria-label="Next vehicle"><svg viewBox="0 0 10 16" aria-hidden="true"><path d="m3 3 5 5-5 5"/></svg></button></span></div>
+          <div class="cv-row"><span>Today’s challenge</span><b id="intro-challenge"></b></div>
+        </div>
       </div>
-      <p class="keys-hint"><span><kbd>WASD</kbd>drive</span><span><kbd>S</kbd>hold to reverse</span><span><kbd>Space</kbd>nitro (bike: wheelie)</span><span><kbd>F</kbd>refuel</span><span><kbd>C</kbd>view</span><span><kbd>E</kbd>step out</span><span><kbd>X</kbd>sit</span><span><kbd>V</kbd>car</span><span><kbd>M</kbd>map</span><span><kbd>H</kbd>learn</span></p>
     </div>
+    <p class="keys-hint"><span><kbd>WASD</kbd>Drive</span><span><kbd>S</kbd>Hold to reverse</span><span><kbd>Space</kbd>Nitro</span><span><kbd>F</kbd>Refuel</span><span><kbd>C</kbd>View</span><span><kbd>E</kbd>Step out</span><span><kbd>V</kbd>Vehicle</span><span><kbd>M</kbd>Map</span><span><kbd>H</kbd>Learn</span></p>
   </section>
 
   <!-- Phones: landscape prompt -->

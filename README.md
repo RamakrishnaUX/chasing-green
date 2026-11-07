@@ -73,6 +73,14 @@ The interiors and the eye position for each view are built in `src/vehicle/inter
 
 **Step out and sit.** Park, press E (or Menu, Step out) to get out, walk anywhere near the car (black sand at Reynisfjara and Diamond Beach included), then press X to sit. Sitting lowers the view to your own eyes (your body is not drawn meanwhile), lets you look freely, and makes time pass six times faster so you can wait for the sky. Press X again or start walking to stand up.
 
+## Start screen
+
+The start screen plays from the first frame, while the island is still being built. A looping aurora moves over dark mountains (`src/ui/auroraSky.js`, a single shader that needs nothing from the game). In front of it, one vehicle at a time stands on wet black ground with its reflection beneath it (`src/ui/cover.js`). It is lit like a studio shot: a green rim light from the aurora behind, a cool key light from the front, and a glow on its headlamps. The camera drifts a few degrees around it.
+
+The name sits on the left over the sky. A card on the right holds the month, tonight's daylight, darkness and aurora chance, the Start button (which fills as the island loads), the vehicle and today's challenge. The arrows beside the vehicle step through every car and the helicopter. They change your vehicle the same way the garage does, so the one on the cover is the one you drive. The car models start loading at once, and each one swaps in for its code-built stand-in as soon as it arrives.
+
+The page layout decides where the vehicle stands: it is drawn over an empty `.cv-spot` element, so the same code places it on desktops, tablets and phones. Behind the cover the island draws only a few warm-up frames, and when you press Start the cover fades out and lets go of its graphics contexts.
+
 ## Cars
 
 | Car | Looks | Handling | Deepest water |
@@ -390,6 +398,8 @@ src/
     fuel.js          each car's tank and how fast it burns
     input.js         keyboard, touch buttons, drag to look
   ui/
+    cover.js         the start screen's hero shot: one vehicle at a time on wet ground
+    auroraSky.js     the start screen's looping aurora sky, one shader on its own canvas
     hud.js           radio, compass, readouts, toasts, look-up meter
     notebook.js      sightings, stamps, today's challenge
     minimap.js       minimap, full map, the drive-or-jump card and fast travel

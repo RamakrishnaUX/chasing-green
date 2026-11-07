@@ -14,6 +14,8 @@ import { Towns } from './world/towns.js';
 import { Obstacles } from './world/obstacles.js';
 import { Puddles, Particles, SnowFall } from './world/effects.js';
 import { MapUI } from './ui/minimap.js';
+import { Cover } from './ui/cover.js';
+import { startAuroraSky } from './ui/auroraSky.js';
 import { HD, loadHD, installAtmosphere, updateAtmosphere, detailScene, naturalize, demToGame } from './world/hd.js';
 import { Nav, formatDistance } from './ui/nav.js';
 import { siteStations, Stations } from './world/stations.js';
@@ -145,7 +147,7 @@ let auroraVisSmoothed = 0;
 const cloudOffset = new THREE.Vector2();
 const startGameHours = clock.gameHours;
 const startNight = clock.nightIndex;
-let fpsAcc = 0, fpsFrames = 0, autoDowngraded = false, boostGlowOn = false;
+let fpsAcc = 0, fpsFrames = 0, autoDowngraded = false, boostGlowOn = false, coverWarmFrames = 3;
 
 // Dynamic resolution: a share of the quality preset's pixel ratio. It drops a step while frames
 // run long and climbs back once there is room, but not within 20 s of a drop, so it settles
@@ -266,7 +268,6 @@ async function buildWorld(progress) {
   jeep = new Jeep(scene, settings.vehicle === 'heli' ? settings.car || 'jeep' : settings.vehicle || 'jeep');
   // The supercar, roadster and camper models arrive in the background; the one in use is
   // rebuilt from its model as soon as it lands.
-  loadCarModels((kind) => { resetCarThumbs(); if (jeep.kind === kind && ride === 'car') jeep.setType(kind); renderGarage(); });
   jeep.setView(driveView);
   jeep.obstacles = obstacles;
   walker = new Walker(scene);
@@ -971,7 +972,10 @@ function monthCardHTML() {
   const dark = clock.darkHours();
   return `<h3>${m.name}</h3><dl><div><dt>Daylight</dt><dd>${day.toFixed(1)} h</dd></div><div><dt>Dark hours</dt><dd>${dark.toFixed(1)} h</dd></div><div><dt>Aurora chance</dt><dd>${m.chance}</dd></div></dl><p>${m.tip}</p>`;
 }
-function renderMonthCards() { document.querySelectorAll('.month-card').forEach((el) => (el.innerHTML = monthCardHTML())); }
+function renderMonthCards() {
+  document.querySelectorAll('.month-card').forEach((el) => (el.innerHTML = monthCardHTML()));
+  $('intro-sub').textContent = `${clock.m.name} in Iceland`;
+}
 function setMonth(m, announce = false) {
   clock.month = m; settings.month = m; store.save();
   if (announce) track('setting_change', { setting: 'month', setting_value: clock.m.name });
@@ -1087,8 +1091,30 @@ document.querySelectorAll('.month-select').forEach((sel) => {
 });
 forecast.monthFactor = clock.m.aurora;
 renderMonthCards();
-$('intro-challenge').innerHTML = `Today’s challenge: <strong>${challenge.title}</strong>`;
-if (isTouch) document.querySelector('.keys-hint').textContent = 'Steer with the arrows and press Go to drive. Brake slows you down; keep holding it to reverse. The camera button switches between chase, hood and cockpit views. Slide up from Go for a nitro boost, or a wheelie on the bike. When the tank runs low, pull in under a fuel station’s roof and tap Refuel. Tap Look when the radio says the aurora is out. Drag to look around.';
+$('intro-challenge').textContent = challenge.title;
+// ---------- Cover ----------
+// The start screen plays from the first frame: the aurora sky, and the chosen vehicle on wet
+// ground in front of it. The arrows change vehicle (the same as the garage), and the car models
+// start loading now, so the cover and the car you drive both have them as early as possible.
+const COVER_ORDER = [...VEHICLE_ORDER, 'heli'];
+const introSky = startAuroraSky($('intro-sky'));
+const cover = new Cover($('intro-hero'), { spot: document.querySelector('.cv-spot'), small: isTouch });
+const coverKind = () => (settings.vehicle === 'heli' ? 'heli' : VEHICLES[settings.vehicle] ? settings.vehicle : 'jeep');
+cover.show(coverKind());
+$('intro-car').textContent = coverKind() === 'heli' ? 'Helicopter' : VEHICLES[coverKind()].name;
+loadCarModels((kind) => {
+  cover.refresh(kind);
+  resetCarThumbs();
+  if (jeep && jeep.kind === kind && ride === 'car') jeep.setType(kind);
+  renderGarage();
+});
+for (const [id, step] of [['cv-prev', -1], ['cv-next', 1]]) $(id).addEventListener('click', () => {
+  const i = COVER_ORDER.indexOf(coverKind());
+  const kind = COVER_ORDER[(i + step + COVER_ORDER.length) % COVER_ORDER.length];
+  haptics.play('light');
+  setVehicle(kind, false);
+  cover.show(kind);
+});
 const startBtn = $('start');
 startBtn.disabled = true;
 startBtn.addEventListener('click', () => {
@@ -1098,7 +1124,8 @@ startBtn.addEventListener('click', () => {
   store.data.trips++; store.save();
   track('game_start', { month: clock.m.name, vehicle: settings.vehicle || 'jeep', graphics: qualityName, input: isTouch ? 'touch' : 'keyboard', trip_number: store.data.trips });
   $('intro').classList.add('is-leaving');
-  setTimeout(() => ($('intro').hidden = true), 900);
+  // The cover fades out over the island; then its two canvases let go of their GPU contexts.
+  setTimeout(() => { $('intro').hidden = true; cover.dispose(); introSky.stop(); }, 900);
   hud.show();
   syncTouch();
   if (settings.steering === 'tilt') Input.askTilt().then(applySteering);
@@ -1350,7 +1377,7 @@ function setVehicle(kind, announce = true) {
     if (announce) hud.toast(`Now driving the ${VEHICLES[kind].name.toLowerCase()}.`, { seconds: 2.5, priority: 2 });
     if (announce) track('vehicle_change', { vehicle: kind });
   }
-  $('intro-car').innerHTML = `Driving the <strong>${VEHICLES[kind].name}</strong>. Tap or click your car any time to switch.`;
+  $('intro-car').textContent = VEHICLES[kind].name;
   renderGarage();
 }
 // The helicopter takes the car's place, standing where the car was with its rotor starting up.
@@ -1359,7 +1386,7 @@ function setVehicle(kind, announce = true) {
 const LAMP_HOME = { head: null, spread: null };
 function boardHeli(announce = true) {
   settings.vehicle = 'heli'; store.save();
-  $('intro-car').innerHTML = 'Flying the <strong>Helicopter</strong>. Choose a car again in Menu, Cars.';
+  $('intro-car').textContent = 'Helicopter';
   renderGarage();
   if (!jeep || !heli) return;
   if (!heli.model) { heli.ready.then(() => boardHeli(announce)).catch(() => hud.toast('The helicopter could not load. Try again in a moment.', { seconds: 3 })); return; }
@@ -1783,8 +1810,11 @@ function frame(now) {
   }
 
   mirrors.update(renderer, scene, camera, jeep.body, started && mode === 'chase' && driveView === 'cockpit' && !!jeep.model.mirrors);
-  if (post) post.render(t, (lastPostState = { aurora: auroraVisSmoothed, dark }));
-  else renderer.render(scene, camera);
+  // Behind the cover the island is hidden: draw a few frames to warm it up, then none until Start.
+  if (started || coverWarmFrames-- > 0) {
+    if (post) post.render(t, (lastPostState = { aurora: auroraVisSmoothed, dark }));
+    else renderer.render(scene, camera);
+  }
   if (captureRequest) { const cb = captureRequest; captureRequest = null; cb(renderer.domElement.toDataURL('image/jpeg', 0.88)); }
   tickPlay(dt, { playing: !paused, driving: mode !== 'walk' && ride === 'car', metresPerSecond: jeep.vF, kmh: jeep.kmh, boosting: jeep.boosting });
   if (started) syncBrakePedal();

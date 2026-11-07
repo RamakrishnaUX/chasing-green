@@ -90,17 +90,7 @@ svg { overflow: visible; }
   padding: calc(20px + var(--safe-t)) calc(16px + var(--safe-r)) calc(20px + var(--safe-b)) calc(16px + var(--safe-l));
   background: radial-gradient(120% 90% at 50% 100%, rgba(8, 14, 22, 0.25), rgba(8, 14, 22, 0.78) 70%); transition: opacity 0.9s ease; }
 .screen.is-leaving { opacity: 0; pointer-events: none; }
-.intro-card { margin: auto; width: min(540px, 100%); padding: 30px 28px 22px; border-radius: var(--r-xl); text-align: center; display: grid; gap: 18px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.02)), rgba(14, 22, 32, 0.5); }
-.wordmark { font-family: var(--serif); font-weight: 400; font-size: clamp(2.6rem, 9vw, 4rem); line-height: 0.95; margin: 0 0 0.25em; letter-spacing: -0.01em;
-  background: linear-gradient(180deg, #f1fbf5 25%, #84f6ba 70%, #2fbf7a); -webkit-background-clip: text; background-clip: text; color: transparent;
-  animation: breathe 7s ease-in-out infinite; }
-@keyframes breathe { 50% { filter: drop-shadow(0 0 16px rgba(92, 242, 160, 0.35)); } }
-.prompt { font-family: var(--serif); font-size: 1.25rem; margin: 0 0 0.5rem; }
-.intro-copy { color: var(--ink-2); line-height: 1.55; margin: 0 auto; max-width: 30rem; font-size: 0.98rem; }
-.intro-controls { display: grid; gap: 14px; }
 .field { display: grid; gap: 6px; text-align: left; }
-.field-label { font-size: 0.74rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); padding-left: 4px; }
 .month-card { text-align: left; border-radius: var(--r-lg); padding: 14px 16px; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--hair-2); }
 .month-card h3 { margin: 0 0 0.5rem; font-family: var(--serif); font-weight: 400; font-size: 1.1rem; }
 .month-card dl { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 0 0 0.5rem; }
@@ -108,29 +98,10 @@ svg { overflow: visible; }
 .month-card dt { font-size: 0.72rem; color: var(--ink-3); line-height: 1.25; }
 .month-card dd { margin: 2px 0 0; font-weight: 700; font-size: 1rem; }
 .month-card p { margin: 0; color: var(--ink-2); font-size: 0.86rem; line-height: 1.45; }
-.btn-start { width: 100%; min-height: 54px; font-size: 1.08rem; }
-.challenge-line { color: var(--ink-2); font-size: 0.9rem; margin: 0; }
-.challenge-line strong { color: var(--ink); }
+.btn-start { width: 100%; }
 .loading { color: var(--ink-3); font-size: 0.82rem; margin: 0; min-height: 1.2em; }
 .loading:empty { display: none; }
-.keys-hint { margin: 2px 0 0; color: var(--ink-3); font-size: 0.78rem; line-height: 2; display: flex; flex-wrap: wrap; justify-content: center; gap: 2px 10px; }
-.keys-hint kbd { font: 700 0.72rem var(--sans); color: var(--ink-2); padding: 2px 7px; margin-right: 4px; border-radius: 6px; background: rgba(255, 255, 255, 0.08); border: 1px solid var(--hair); border-bottom-width: 2px; }
-@media (pointer: coarse) { .keys-hint { display: block; line-height: 1.5; } }
-@media (prefers-reduced-motion: reduce) { .wordmark { animation: none; } .screen { transition: none; } }
-/* Phones sideways and short windows: brand on the left, choices on the right. */
-@media (max-height: 560px) and (min-width: 600px) {
-  .intro-card { width: min(880px, 100%); grid-template-columns: 1fr 1.1fr; align-items: center; gap: 14px 28px; padding: 20px 22px; text-align: left; }
-  .intro-brand { align-self: center; }
-  .wordmark { font-size: clamp(2.2rem, 6vw, 3.2rem); }
-  .prompt { font-size: 1.1rem; }
-  .intro-copy { font-size: 0.9rem; margin: 0; }
-  .intro-controls { gap: 10px; }
-  .month-card { padding: 10px 12px; }
-  .month-card p { display: none; }
-  .btn-start { min-height: 48px; }
-  .keys-hint { grid-column: 1 / -1; }
-}
-@media (max-width: 420px) { .intro-card { padding: 24px 18px 18px; } .seg button { padding: 0 0.5rem; font-size: 0.82rem; } }
+@media (prefers-reduced-motion: reduce) { .screen { transition: none; } }
 
 /* ---------- HUD ---------- */
 #hud { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
@@ -529,16 +500,6 @@ body.has-touch .car-card h3 { font-size: 1rem; }
 .rotate-card { display: grid; justify-items: center; gap: 14px; padding: 26px 24px; border-radius: var(--r-xl); text-align: center; max-width: 20rem; }
 .rotate svg { width: 64px; height: 64px; color: var(--green); }
 .rotate p { margin: 0; line-height: 1.5; color: var(--ink-2); }
-/* The intro already names the month in its picker. */
-.intro-controls .month-card h3 { display: none; }
-.keys-hint span { white-space: nowrap; }
-.keys-hint { gap: 4px 14px; }
-@media (max-height: 560px) and (min-width: 600px) {
-  .intro-controls .field-label { display: none; }
-  .intro-controls .month-card dl { margin: 0; }
-  .challenge-line { font-size: 0.84rem; }
-  .keys-hint { display: none; }
-}
 .radio-head { flex-wrap: nowrap; align-items: center; }
 .radio-title, .radio-kp { white-space: nowrap; }
 
@@ -594,8 +555,6 @@ body.has-touch .sky-hint { top: calc(10px + var(--safe-t)); font-size: 0.9rem; p
 .kp-level[data-level='storm'] { color: #3a0b08; background: var(--red); }
 
 /* ---------- Intro: the car line ---------- */
-.car-line { margin: 0; font-size: 0.86rem; color: var(--ink-2); }
-.car-line strong { color: var(--ink); }
 
 /* ---------- Sheet: as tall as its page needs, and sized to the page ---------- */
 dialog.sheet { height: auto; max-height: min(760px, calc(100dvh - 32px)); width: min(720px, calc(100vw - 32px)); transition: width 0.3s var(--ease); }
@@ -964,3 +923,107 @@ body.is-skydiving #infocard, body.is-skydiving .nitro, body.is-skydiving .fuel, 
 /* Never takes a click or a tap, wherever it sits (it covers the whole screen). */
 #fade { position: fixed; inset: 0; background: #05080b; opacity: 0; pointer-events: none !important; transition: opacity 0.22s ease; z-index: 40; }
 #fade.is-on { opacity: 1; }
+
+/* ---------- Cover (the start screen) ----------
+   The aurora sky and the hero vehicle fill the screen (src/ui/auroraSky.js, src/ui/cover.js).
+   The name sits on the left over the sky, the vehicle below it, and one card on the right holds
+   the choices. Set in the system font with Apple-style tracking: tight for large type. */
+#intro { --cv-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", system-ui, "Segoe UI", Roboto, sans-serif;
+  padding: 0; background: #04070c; overflow: hidden; font-family: var(--cv-font); color: #f5f7f8; }
+#intro .cv-layer { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+#intro .cv-shade { position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(ellipse 50% 32% at 20% 32%, rgba(3, 6, 10, 0.5), rgba(3, 6, 10, 0) 100%),
+    linear-gradient(90deg, rgba(3, 6, 10, 0) 45%, rgba(3, 6, 10, 0.3) 100%); }
+#intro .cv-stage { position: relative; flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) min(400px, 34vw); gap: 48px; align-items: center;
+  padding: calc(48px + var(--safe-t)) calc(56px + var(--safe-r)) calc(64px + var(--safe-b)) calc(64px + var(--safe-l)); min-height: 100%; box-sizing: border-box; }
+#intro .cv-left { align-self: stretch; display: flex; flex-direction: column; min-width: 0; }
+#intro .cv-left::before { content: ''; flex: 0.55; }
+#intro .cv-brand { min-width: 0; }
+#intro .cv-spot { flex: 1; min-height: 160px; }
+#intro .cv-eyebrow { margin: 0 0 14px; font-size: 13px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #5ef0a6; }
+#intro .cv-title { margin: 0; font-family: var(--cv-font); font-size: clamp(48px, 6vw, 92px); font-weight: 700; letter-spacing: -0.035em; line-height: 0.95; white-space: nowrap;
+  color: #f5f7f8; text-shadow: 0 1px 24px rgba(3, 6, 10, 0.45); }
+#intro .cv-tag { margin: 14px 0 0; font-size: clamp(20px, 2vw, 28px); font-weight: 500; letter-spacing: -0.015em; color: rgba(240, 244, 248, 0.82); text-shadow: 0 1px 24px rgba(3, 6, 10, 0.45); }
+
+#intro .cv-card { align-self: center; display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; padding: 24px; border-radius: 28px; min-width: 0;
+  background: rgba(18, 22, 28, 0.52); -webkit-backdrop-filter: blur(40px) saturate(170%); backdrop-filter: blur(40px) saturate(170%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), inset 0 0 0 1px rgba(255, 255, 255, 0.06), 0 30px 80px rgba(0, 0, 0, 0.45); }
+#intro .cv-card h2 { margin: 0; font-family: var(--cv-font); font-size: 22px; font-weight: 600; letter-spacing: -0.02em; }
+#intro .cv-sub { margin: 4px 0 0; font-size: 15px; letter-spacing: -0.01em; color: rgba(235, 240, 245, 0.66); }
+#intro .cv-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 48px; font-size: 16px; letter-spacing: -0.01em; }
+#intro .cv-month { margin-top: 18px; padding: 0 6px 0 16px; border-radius: 16px; background: rgba(255, 255, 255, 0.06); cursor: pointer; }
+#intro .cv-month .select-wrap { flex: 0 1 auto; }
+#intro .cv-month select { min-height: 44px; border: 0; background: transparent; color: rgba(235, 240, 245, 0.8); font: 500 16px var(--cv-font); text-align: right; text-align-last: right; padding: 0 30px 0 8px; cursor: pointer; }
+#intro .cv-month select:focus-visible { outline: 2px solid #5ef0a6; outline-offset: 2px; border-radius: 10px; }
+#intro .month-card { margin-top: 12px; padding: 0; border: 0; background: none; text-align: left; }
+#intro .month-card h3 { display: none; }
+#intro .month-card dl { margin: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; border-radius: 16px; overflow: hidden; background: rgba(255, 255, 255, 0.1); }
+#intro .month-card dl > div { padding: 13px 14px 12px; background: rgba(28, 33, 40, 0.92); display: flex; flex-direction: column-reverse; min-width: 0; }
+#intro .month-card dd { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.025em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+#intro .month-card dl > div:last-child dd { color: #5ef0a6; }
+#intro .month-card dt { margin-top: 2px; font-size: 12px; color: rgba(235, 240, 245, 0.45); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#intro .month-card p { margin: 12px 2px 0; font-size: 13px; line-height: 1.4; text-wrap: pretty; color: rgba(235, 240, 245, 0.66); }
+#intro .btn-start { margin-top: 18px; min-height: 54px; border-radius: 999px; font: 600 17px var(--cv-font); letter-spacing: -0.01em; }
+#intro .btn-start:not(.is-loading):not(.is-failed) { background: #f5f7f8; color: #0a0d11; border-color: transparent; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3); }
+#intro .btn-start:not(.is-loading):not(.is-failed):active { transform: scale(0.97); transition: transform 100ms ease-out; }
+#intro .loading { margin: 10px 2px 0; }
+#intro .cv-rows { margin-top: 10px; display: grid; grid-template-columns: minmax(0, 1fr); }
+#intro .cv-rows .cv-row { min-height: 40px; padding: 0 4px; font-size: 14px; }
+#intro .cv-rows .cv-row > span:first-child { color: rgba(235, 240, 245, 0.66); white-space: nowrap; }
+#intro .cv-rows b { font-weight: 500; text-align: right; min-width: 0; }
+#intro #intro-car { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#intro #intro-challenge { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; line-height: 1.3; text-wrap: balance; padding: 4px 0; }
+#intro .cv-pick { display: flex; align-items: center; gap: 8px; min-width: 0; }
+#intro .cv-pick button { flex: none; width: 32px; height: 32px; border: 0; border-radius: 50%; display: grid; place-items: center; cursor: pointer; color: #f5f7f8;
+  background: rgba(255, 255, 255, 0.09); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08); transition: background 120ms ease-out, transform 100ms ease-out; }
+#intro .cv-pick button:hover { background: rgba(255, 255, 255, 0.16); }
+#intro .cv-pick button:active { transform: scale(0.92); }
+#intro .cv-pick button:focus-visible { outline: 2px solid #5ef0a6; outline-offset: 2px; }
+#intro .cv-pick svg { width: 10px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+#intro .keys-hint { position: absolute; left: calc(64px + var(--safe-l)); bottom: calc(22px + var(--safe-b)); margin: 0; display: flex; flex-wrap: wrap; gap: 6px 18px;
+  font-size: 12px; line-height: 1.6; color: rgba(235, 240, 245, 0.45); max-width: calc(100% - 520px); }
+#intro .keys-hint span { white-space: nowrap; }
+#intro .keys-hint kbd { font: 600 11px/1 var(--cv-font); color: rgba(235, 240, 245, 0.7); padding: 4px 6px; margin-right: 6px; border-radius: 6px; background: rgba(255, 255, 255, 0.08); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08); border: 0; }
+body.has-touch #intro .keys-hint { display: none; }
+@media (prefers-reduced-transparency: reduce) { #intro .cv-card { background: rgb(20, 25, 31); -webkit-backdrop-filter: none; backdrop-filter: none; } }
+
+/* Phones on their side and short windows: the same two columns, tighter. */
+@media (max-height: 560px) and (min-width: 600px) {
+  #intro .cv-stage { grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; padding: calc(12px + var(--safe-t)) calc(16px + var(--safe-r)) calc(12px + var(--safe-b)) calc(24px + var(--safe-l)); }
+  #intro .cv-left::before { flex: 0.25; }
+  #intro .cv-eyebrow, #intro .cv-sub, #intro .month-card p, #intro .keys-hint { display: none; }
+  #intro .cv-title { font-size: 40px; letter-spacing: -0.03em; }
+  #intro .cv-tag { font-size: 17px; margin-top: 8px; }
+  #intro .cv-spot { min-height: 100px; }
+  #intro .cv-card { padding: 14px; border-radius: 22px; }
+  #intro .cv-card h2 { font-size: 17px; }
+  #intro .cv-month { margin-top: 10px; min-height: 38px; border-radius: 12px; font-size: 14px; }
+  #intro .cv-month select { min-height: 36px; font-size: 14px; }
+  #intro .month-card { margin-top: 8px; }
+  #intro .month-card dl { border-radius: 12px; }
+  #intro .month-card dl > div { padding: 7px 8px; }
+  #intro .month-card dd { font-size: 16px; }
+  #intro .month-card dt { font-size: 10.5px; letter-spacing: -0.01em; }
+  #intro .btn-start { margin-top: 10px; min-height: 42px; font-size: 15px; }
+  #intro .cv-rows { margin-top: 4px; }
+  #intro .cv-rows .cv-row { min-height: 30px; font-size: 12.5px; }
+  #intro .cv-pick button { width: 26px; height: 26px; }
+}
+/* Phones and tablets upright: the name at the top, the vehicle in the middle, the card below. */
+@media (orientation: portrait) and (max-width: 1100px) {
+  #intro { overflow-y: auto; }
+  #intro .cv-stage { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto; gap: 12px; align-items: stretch;
+    padding: calc(28px + var(--safe-t)) calc(16px + var(--safe-r)) calc(16px + var(--safe-b)) calc(16px + var(--safe-l)); }
+  #intro .cv-left::before { display: none; }
+  #intro .cv-title { font-size: 44px; }
+  #intro .cv-tag { font-size: 19px; }
+  #intro .cv-spot { min-height: 30vh; }
+  #intro .month-card p { display: none; }
+  #intro .month-card dl > div { padding: 10px 9px; }
+  #intro .month-card dd { font-size: 19px; }
+  #intro .month-card dt { font-size: 11px; letter-spacing: -0.01em; }
+  #intro .cv-card { align-self: end; justify-self: center; width: 100%; max-width: 480px; box-sizing: border-box; padding: 18px; border-radius: 24px; }
+  #intro .keys-hint { display: none; }
+  #intro .cv-shade { background: radial-gradient(ellipse 80% 30% at 30% 14%, rgba(3, 6, 10, 0.5), rgba(3, 6, 10, 0)); }
+}
+@media (max-width: 1000px) { #intro .keys-hint { display: none; } }
