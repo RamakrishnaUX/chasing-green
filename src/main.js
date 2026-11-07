@@ -946,7 +946,6 @@ function openSettings() {
   $('set-quality').value = qualityName;
   $('set-month').value = String(clock.month);
   $('set-speed').value = String(clock.speed);
-  $('set-touch').value = settings.touch;
   $('set-rocks').value = settings.rocks || 'normal';
   $('set-look').value = settings.look || 'realistic';
   $('set-nitro').value = settings.nitro || 'on';
@@ -1061,7 +1060,6 @@ function setSeason(season, announce = true) {
 $('set-speed').addEventListener('change', (e) => { clock.speed = +e.target.value; settings.speed = clock.speed; store.save(); });
 $('set-look').addEventListener('change', (e) => { settings.look = e.target.value; store.save(); hud.toast('The look changes on the next load. Reload the page to apply it.', { seconds: 4 }); track('setting_change', { setting: 'look', setting_value: e.target.value }); });
 $('set-rocks').addEventListener('change', (e) => { settings.rocks = e.target.value; store.save(); hud.toast('Rock density changes on the next load. Reload the page to apply it.', { seconds: 4 }); });
-$('set-touch').addEventListener('change', (e) => { settings.touch = e.target.value; store.save(); syncTouch(); });
 $('set-reset').addEventListener('click', () => {
   if (confirm('Clear all sightings, stamps and challenge progress?')) { store.clear(); hud.toast('Notebook cleared.', { seconds: 2.5 }); }
 });
@@ -1089,8 +1087,11 @@ document.querySelectorAll('[data-quick]').forEach((b) => b.addEventListener('cli
   else if (k === 'mute') setMuted(!audio.muted);
   else if (k === 'fullscreen') goLandscape();
 }));
+// The touch layout is for touch screens only. A computer always gets the computer layout: an old
+// "Touch controls: Show" setting from before used to switch a laptop to the phone layout.
+if (settings.touch === 'on' && !isTouch) { settings.touch = 'auto'; store.save(); }
 function syncTouch() {
-  const show = settings.touch === 'on' || (settings.touch === 'auto' && (isTouch || matchMedia('(pointer: coarse)').matches));
+  const show = settings.touch !== 'off' && (isTouch || matchMedia('(pointer: coarse)').matches);
   $('touch').hidden = !show;
   document.body.classList.toggle('has-touch', show);
   if (!!input.tiltOn !== (show && settings.steering === 'tilt')) applySteering();
