@@ -154,7 +154,9 @@ export class Jeep {
     const throttle = active ? input.throttle : 0;
     // Steering eases toward the key input instead of snapping, so turns feel smooth.
     const steerTarget = active ? input.steer : 0;
-    this.steerSmooth = (this.steerSmooth || 0) + (steerTarget - (this.steerSmooth || 0)) * Math.min(1, dt * (steerTarget === 0 ? 5 : 2.6));
+    // On the bike, more gently still: a rider rolls into a turn rather than flicking the bars.
+    const steerRate = S.bike ? (steerTarget === 0 ? 2.4 : 1.7) : (steerTarget === 0 ? 5 : 2.6);
+    this.steerSmooth = (this.steerSmooth || 0) + (steerTarget - (this.steerSmooth || 0)) * (1 - Math.exp(-dt * steerRate));
     const steer = this.steerSmooth;
     const handbrake = active ? input.handbrake : !active;
     this.surface = surfaceAt(this.pos.x, this.pos.z);
@@ -423,10 +425,13 @@ export class Jeep {
     }
     const pitchT = Math.atan2(gB - gF, F.z - B.z) - this.braking * 0.03;
     const v = this.vF, lean = Math.atan2(v * (this.yawRate || 0), 9.8);
-    const rollT = this.air ? this.roll : -clamp(lean, -0.65, 0.65) * clamp(Math.abs(v) / 4, 0, 1);
+    const rollT = this.air ? this.roll : -clamp(lean, -0.52, 0.52) * clamp(Math.abs(v) / 4, 0, 1);
     const k = dt ? Math.min(1, dt * 6) : 1;
     this.pitch = this.air ? lerp(this.pitch, this.airPitch ?? 0, dt ? Math.min(1, dt * 3) : 1) : lerp(this.pitch, pitchT, k);
-    this.roll = lerp(this.roll, rollT, k);
+    // The lean eases toward its angle and never swings faster than a rider can tip a bike over
+    // (about 90 degrees a second), so going from one turn into the next rolls, never snaps.
+    if (dt) this.roll += clamp((rollT - this.roll) * (1 - Math.exp(-dt * 3.5)), -1.6 * dt, 1.6 * dt);
+    else this.roll = rollT;
     this.root.position.copy(this.pos);
     this.root.rotation.set(0, this.heading, 0);
     if (this.blob) {

@@ -112,6 +112,9 @@ export class Grass {
       uDensSize: { value: new THREE.Vector2(roadField.nx * roadField.cell, roadField.nz * roadField.cell) },
       uWindDir: { value: new THREE.Vector2(0.8, 0.6) },
       uWindStr: { value: 0.5 },
+      // Where your vehicle stands (x, z) and how far round it the grass parts, so blades never
+      // come up through a car's floor or a cockpit.
+      uCar: { value: new THREE.Vector3(0, 0, 0) },
     };
     const mat = new THREE.MeshStandardMaterial({ roughness: 0.82, metalness: 0, side: THREE.DoubleSide });
     // Realistic look: every blade its own shade (dead straw among live olive), varied heights,
@@ -124,7 +127,7 @@ export class Grass {
           attribute vec2 aOffset; attribute vec4 aRand; attribute float aBlade; varying float vTip;
           uniform vec3 uCam; uniform float uR; uniform sampler2D uHeight; uniform sampler2D uDens;
           uniform vec2 uGridMin; uniform vec2 uGridStep; uniform vec2 uGridN; uniform vec2 uDensSize;
-          uniform vec2 uWindDir; uniform float uWindStr; uniform float uTime; uniform float uSnowLine; uniform float uSummer;
+          uniform vec2 uWindDir; uniform float uWindStr; uniform vec3 uCar; uniform float uTime; uniform float uSnowLine; uniform float uSummer;
           uniform float uCloudCover; uniform vec2 uCloudOffset; uniform vec3 uSunDir; uniform float uSunUp;
           varying vec3 vGrassCol;
           ${NOISE}
@@ -145,6 +148,7 @@ export class Grass {
           float fade = 1.0 - smoothstep(uR * 0.6, uR * 0.98, dist);
           float snow = 1.0 - smoothstep(uSnowLine - 16.0, uSnowLine - 6.0, gh);
           float sc = (0.7 + aRand.y * 0.75) * keep * fade * snow;
+          sc *= uCar.z > 0.0 ? smoothstep(uCar.z, uCar.z + 0.8, length(base - uCar.xy)) : 1.0;
           // Taller, lusher grass in summer; short and wiry in winter.
           sc *= mix(0.85, 1.15, uSummer);
           float cr = cos(aRand.x), sr = sin(aRand.x);
@@ -205,8 +209,10 @@ export class Grass {
     scene.add(this.mesh);
   }
 
-  update(camera, wind) {
+  // car: { x, z, r } for the vehicle you are in, or null on foot.
+  update(camera, wind, car = null) {
     this.uniforms.uCam.value.copy(camera.position);
+    this.uniforms.uCar.value.set(car?.x || 0, car?.z || 0, car?.r || 0);
     if (wind) {
       const s = Math.hypot(wind.x, wind.z) || 1;
       this.uniforms.uWindDir.value.set(wind.x / s, wind.z / s);

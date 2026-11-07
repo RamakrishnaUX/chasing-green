@@ -1745,7 +1745,7 @@ function frame(now) {
   // Ambient occlusion shades corners a few metres across: from a few hundred metres up it shows
   // nothing, and it would draw the whole island a second time, so it rests while you fly high.
   if (post?.ao) post.ao.enabled = !((mode === 'fly' && heli.agl > 150 && driveView !== 'cockpit') || (mode === 'sky' && diver.agl > 150));
-  grass?.update(camera, w);
+  grass?.update(camera, w, mode === 'walk' || mode === 'sky' ? null : ride === 'heli' ? { x: heli.pos.x, z: heli.pos.z, r: 3.4 } : { x: jeep.pos.x, z: jeep.pos.z, r: jeep.model.bike ? 1.3 : 2.5 });
   scatter?.hdRocks?.update(dt, camera.position);
   props?.setNight(dark);
   towns?.setNight(dark);

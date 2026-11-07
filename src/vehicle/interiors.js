@@ -144,6 +144,9 @@ function race() {
     const pil = dash(g, carbon, 0.06, 0.05, 0.7, sx * 0.62, 0.97, 0.45, 0.62); pil.rotation.z = sx * 0.12; // A pillar along the windscreen
   }
   dash(g, alcantara, 1.4, 0.6, 0.05, 0, 0.88, -0.62);
+  // A floor and footwell, so the road never shows through under the dash.
+  dash(g, alcantara, 1.42, 0.04, 1.3, 0, 0.48, -0.02);
+  dash(g, carbon, 1.3, 0.34, 0.04, 0, 0.64, 0.62);
   return { group: g, outside, steer, needles, draw, closed: true,
     views: { cockpit: { eye: [0.3, 0.99, -0.32], fov: 72, pitch: -0.04 }, hood: { eye: [0, 1.2, 0.82], fov: 66, pitch: -0.06 } } };
 }
