@@ -34,7 +34,7 @@ import { Jeep } from './vehicle/jeep.js';
 import { updateInterior, turnWheel, trackTitle } from './vehicle/interiors.js';
 import { Walker } from './vehicle/walker.js';
 import { Heli } from './vehicle/heli.js';
-import { loadCarModels } from './vehicle/models.js';
+import { loadCarModels, modelReady, whenModel } from './vehicle/models.js';
 import { Mirrors } from './vehicle/mirrors.js';
 import { Driver } from './vehicle/driver.js';
 import { Skydiver, MIN_JUMP, fitGear, bonesOf } from './vehicle/skydiver.js';
@@ -1365,10 +1365,19 @@ function fuelTick(dt) {
 }
 
 // ---------- Vehicles ----------
+let pendingVehicle = null;
 function setVehicle(kind, announce = true) {
   if (mode === 'sky') { hud.toast('Land first, then change vehicles.', { seconds: 2.5, priority: 2 }); return; }
   if (kind === 'heli') { boardHeli(announce); return; }
   if (!VEHICLES[kind]) return;
+  // Mid-game, a car whose model is still on its way comes once it is in, never as a stand-in.
+  pendingVehicle = kind;
+  if (jeep && !modelReady(kind)) {
+    if (announce) hud.toast(`Bringing the ${VEHICLES[kind].name.toLowerCase()}…`, { seconds: 2, priority: 2 });
+    $('intro-car').textContent = VEHICLES[kind].name;
+    whenModel(kind).then(() => { if (pendingVehicle === kind) setVehicle(kind, announce); }); // unless another was picked meanwhile
+    return;
+  }
   if (ride === 'heli' && jeep && !leaveHeli()) return;
   settings.vehicle = kind; settings.car = kind; store.save();
   if (jeep) {
@@ -1385,6 +1394,7 @@ function setVehicle(kind, announce = true) {
 // make every material rebuild its shader).
 const LAMP_HOME = { head: null, spread: null };
 function boardHeli(announce = true) {
+  pendingVehicle = 'heli';
   settings.vehicle = 'heli'; store.save();
   $('intro-car').textContent = 'Helicopter';
   renderGarage();
@@ -1877,6 +1887,13 @@ requestAnimationFrame(() => setTimeout(async () => {
     await buildWorld(startProgress);
     // Back in the helicopter if that is what you last flew.
     if (settings.vehicle === 'heli') await heli.ready.then(() => boardHeli(false)).catch(() => {});
+    // Your car starts as its real model, never the code-built stand-in: wait for its file (it has
+    // been loading since the page opened), for at most half a minute.
+    if (!modelReady(jeep.kind)) {
+      startProgress(0.9, 4000, 'Parking your car');
+      await Promise.race([whenModel(jeep.kind), new Promise((r) => setTimeout(r, 30000))]);
+      if (ride === 'car' && modelReady(jeep.kind)) jeep.setType(jeep.kind);
+    }
     // Park the camera behind the jeep for the intro view.
     camera.position.set(jeep.pos.x - Math.sin(jeep.heading) * 12, jeep.pos.y + 5, jeep.pos.z - Math.cos(jeep.heading) * 12);
     camera.lookAt(jeep.pos.x, jeep.pos.y + 2, jeep.pos.z);

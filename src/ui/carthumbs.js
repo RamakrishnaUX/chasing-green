@@ -2,7 +2,7 @@
 // seen whole from the same front three-quarter angle and the same distance, so the pictures
 // show the cars' true sizes side by side, with a calm margin around even the biggest.
 import * as THREE from 'three';
-import { buildVehicleModel } from '../vehicle/models.js';
+import { buildVehicleModel, modelReady } from '../vehicle/models.js';
 
 // Share of the frame the biggest car spans, across and up.
 const FILL_X = 0.86, FILL_Y = 0.78;
@@ -30,7 +30,8 @@ export function carThumbs(kinds, w = 960, h = 600) {
   const dir = new THREE.Vector3(0.92, 0.24, 0.72).normalize();
   const q = new THREE.Vector3(), right = new THREE.Vector3(), up = new THREE.Vector3();
   const tanY = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
-  const shots = kinds.map((kind) => {
+  // Only cars whose model is in; the rest get their picture when it arrives (resetCarThumbs).
+  const shots = kinds.filter(modelReady).map((kind) => {
     const m = buildVehicleModel(kind);
     const box = new THREE.Box3().setFromObject(m.group);
     const corners = [];

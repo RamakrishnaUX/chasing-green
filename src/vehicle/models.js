@@ -774,6 +774,16 @@ function scaleScene(root, S = 1) {
   root.updateMatrixWorld(true);
 }
 // Load every car; onLoad(kind) runs as each arrives, so the one in use can be rebuilt.
+// The code-built cars are stand-ins for while the files load, and are never meant to be seen:
+// the start screen, the garage pictures and the car you drive all wait for the real model.
+// modelReady(kind) says if it is in; whenModel(kind) resolves once it is (or once it failed, when
+// the stand-in is all there is).
+const waiting = {};
+export const modelReady = (kind) => !!loaded[kind];
+export function whenModel(kind) {
+  if (!GLB[kind] || loaded[kind]) return Promise.resolve();
+  return (waiting[kind] ||= { promise: null, done: null }).promise ||= new Promise((r) => (waiting[kind].done = r));
+}
 export function loadCarModels(onLoad) {
   const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
   return Promise.all(Object.keys(GLB).map((kind) => loader.loadAsync(`${import.meta.env.BASE_URL}models/car_${kind}.glb`).then((g) => {
@@ -783,7 +793,7 @@ export function loadCarModels(onLoad) {
     scaleScene(g.scene, GLB[kind].scale);
     loaded[kind] = g.scene;
     onLoad?.(kind);
-  }).catch((e) => console.warn('Car model did not load:', kind, e))));
+  }).catch((e) => console.warn('Car model did not load:', kind, e)).finally(() => waiting[kind]?.done?.())));
 }
 
 function buildFromFile(kind) {

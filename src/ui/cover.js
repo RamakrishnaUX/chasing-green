@@ -6,10 +6,13 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
-import { buildVehicleModel } from '../vehicle/models.js';
+import { buildVehicleModel, modelReady } from '../vehicle/models.js';
 
 const FOV = 26;
 const YAW = 0.62;
+// Size on the cover against the rest: the supercar is long and low and would look the biggest;
+// the 4x4 and the roadster stand a little larger.
+const SCALE = { race: 0.8, jeep: 1.08, vintage: 1.06 };
 
 function gradient(size, stops, radial = true) {
   const c = document.createElement('canvas'); c.width = c.height = size;
@@ -86,9 +89,12 @@ export class Cover {
       if (!this.heli) { this.car = this.mirror = null; return; } // appears when its file is in
       model = { group: this.heli.clone(true) };
     } else {
+      if (!modelReady(kind)) { this.car = this.mirror = null; return; } // appears when its file is in
       model = buildVehicleModel(kind);
       model.lightMat.emissiveIntensity = 3; model.tailMat.emissiveIntensity = 1.2;
     }
+    // Coming in from an empty stage (its file just arrived), it fades in rather than popping.
+    if (!this.car) { const c = this.canvas; c.style.transition = 'none'; c.style.opacity = '0'; requestAnimationFrame(() => requestAnimationFrame(() => { c.style.transition = 'opacity 700ms ease-out'; c.style.opacity = '1'; })); }
     const car = this.car = model.group;
     this.scene.add(car);
     // Measured square on, before it turns: a box measured after turning and turned back would
@@ -112,7 +118,7 @@ export class Cover {
         if (c.z < 0) continue;
         const s = new THREE.Sprite(this.glow);
         s.position.copy(c); s.position.z += sz.z / 2 + 0.02;
-        s.scale.setScalar(Math.min(0.7, Math.max(0.35, Math.max(sz.x, sz.y) * 2.2)));
+        s.scale.setScalar(Math.min(0.5, Math.max(0.3, Math.max(sz.x, sz.y) * 1.8)));
         car.add(s);
       }
     }
@@ -141,7 +147,9 @@ export class Cover {
     // ground line, whichever is smaller. Its reflection runs on below.
     const r = this.spot?.getBoundingClientRect();
     const sp = r && r.width > 40 && r.height > 40 ? r : { left: W * 0.1, top: H * 0.5, width: W * 0.5, height: H * 0.4 };
-    const maxW = Math.min(sp.width * 0.92, W * 0.6), maxH = sp.height * 0.8;
+    const k = SCALE[this.kind] || 1;
+    // Never taller than the room below the name, whatever the scale.
+    const maxW = Math.min(sp.width * 0.92, W * 0.6) * k, maxH = sp.height * Math.min(0.78, 0.74 * k);
     const focal = H / (2 * Math.tan(THREE.MathUtils.degToRad(FOV / 2)));
     const dist = Math.max(3, (this.fit.w * focal) / maxW, (this.fit.h * focal) / maxH);
     const ground = sp.top + sp.height * 0.86;
