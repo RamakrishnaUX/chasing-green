@@ -945,26 +945,49 @@ const foundText = () => `${Object.keys(store.data.stamps).filter((id) => landmar
 // How often the place card pops up: for every place, only for places not yet stamped, or never
 // (the stamp toast still says where you are). Phones default to new places only.
 const placeCards = () => settings.placeCards || (isTouch ? 'new' : 'all');
+// The card's text: two lines of the description, cut at a word with an ellipsis and followed by a
+// Read more link on the second line. Read more opens the rest in place (the full description,
+// the legend and the fact), with Show less at its end.
+const infoMore = $('info-more');
+function fitCard() {
+  const lm = card.current; if (!lm || card.el.hidden) return;
+  const open = card.el.classList.contains('is-expanded'), full = lm.desc || '';
+  const extra = !!(lm.legend || lm.fact);
+  card.fitW = card.el.clientWidth; card.fitFor = lm.id; card.fitOpen = open;
+  infoMore.textContent = open ? 'Show less' : 'Read more';
+  if (open) {
+    card.desc.textContent = full;
+    const last = [card.fact, card.legend, card.desc].find((el) => !el.hidden && el.textContent);
+    (last || card.desc).append(' ', infoMore);
+    return;
+  }
+  const text = document.createTextNode(full);
+  card.desc.replaceChildren(text, ' ', infoMore);
+  const max = parseFloat(getComputedStyle(card.desc).lineHeight) * 2 + 2;
+  if (card.desc.offsetHeight <= max) { infoMore.hidden = !extra; return; }
+  infoMore.hidden = false;
+  // The most words that still leave room for the ellipsis and the link on the second line.
+  const words = full.split(/\s+/);
+  let lo = 0, hi = words.length;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    text.data = words.slice(0, mid).join(' ').replace(/[\s,.;:–-]+$/, '') + '…';
+    if (card.desc.offsetHeight <= max) lo = mid; else hi = mid - 1;
+  }
+  text.data = words.slice(0, lo).join(' ').replace(/[\s,.;:–-]+$/, '') + '…';
+}
 function setCardExpanded(open) {
   card.el.classList.toggle('is-expanded', open);
-  $('info-more').setAttribute('aria-expanded', String(open));
-  $('info-more').textContent = open ? 'Less' : 'More';
+  infoMore.setAttribute('aria-expanded', String(open));
+  fitCard();
 }
-$('info-more').addEventListener('click', () => setCardExpanded(!card.el.classList.contains('is-expanded')));
-$('info-close').addEventListener('click', () => {
-  infoDismissed = card.current?.id;
-  card.el.hidden = true;
-  setCardExpanded(false);
+infoMore.addEventListener('click', () => {
+  const open = !card.el.classList.contains('is-expanded');
+  setCardExpanded(open);
+  // Closed again, it stays a few seconds more before tucking itself away.
+  if (!open && card.shownAt != null) card.shownAt = Math.max(card.shownAt, performance.now() - 7000);
 });
-$('info-share').addEventListener('click', async () => {
-  const lm = card.current; if (!lm) return;
-  const text = `${lm.name}: ${lm.fact} (from Chasing Green, a road trip around Iceland)`;
-  track('fact_share', { landmark: lm.id });
-  try {
-    if (navigator.share) await navigator.share({ title: lm.name, text });
-    else { await navigator.clipboard.writeText(text); hud.toast('Fact copied to your clipboard.', { seconds: 2.5 }); }
-  } catch { /* cancelled */ }
-});
+addEventListener('resize', () => { card.fitFor = null; });
 
 function updateLandmarks(p) {
   const near = landmarks.nearest(p.x, p.z), lm = near.lm;
@@ -1007,6 +1030,7 @@ function updateLandmarks(p) {
     // Never while skydiving: on a phone the card sat over the Open button.
     card.el.hidden = infoDismissed === lm.id || !card.wanted || mode === 'sky' || document.body.classList.contains('has-touch');
     document.body.classList.toggle('card-on', !card.el.hidden);
+    if (!card.el.hidden && (card.fitFor !== lm.id || card.fitW !== card.el.clientWidth)) fitCard();
     // The card tucks itself away after a while of driving so it never sits over the view for good.
     if (!card.el.hidden && started && !card.el.classList.contains('is-expanded')) {
       card.shownAt ??= performance.now();

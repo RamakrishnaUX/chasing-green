@@ -234,7 +234,6 @@ body.has-touch .fuel-act { left: 50%; }
 .info-fact { color: var(--ink-2); }
 /* Closed, the panel is the name, one line and the facts; More opens the legend and the fact. */
 .infocard:not(.is-expanded) .info-legend, .infocard:not(.is-expanded) .info-fact { display: none; }
-.infocard:not(.is-expanded) .info-desc { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .info-actions { display: flex; gap: 8px; margin-top: 20px; }
 .info-btn { height: 34px; padding: 0 16px; border: 0; border-radius: 6px; background: rgba(6,16,14,0.66); box-shadow: inset 0 0 0 1px rgba(162,246,211,0.32);
   color: var(--ink); font: 600 14px var(--sans); letter-spacing: 0.04em; cursor: pointer; transition: box-shadow 120ms ease-out, color 120ms ease-out, transform 100ms ease-out; }
@@ -2094,3 +2093,10 @@ body.land-on .hx-spot, body.land-on .toast { opacity: 0 !important; pointer-even
 @media (prefers-reduced-motion: reduce) { .sp-blur { display: none; } .sp-b { animation: none !important; -webkit-mask-image: none; mask-image: none; } }
 /* The nitro's empty bed: the dip in a dim nitro colour, under the fill. */
 .hx-band.hx-nitro.is-bed { filter: none !important; transition: opacity 0.3s; }
+
+/* The place card's Read more: plain link text at the end of the second line, no buttons. */
+.info-link { display: inline; padding: 0; margin: 0 0 0 2px; border: 0; background: none; font-family: var(--sans); font-weight: 600; font-size: inherit; line-height: inherit; font-style: normal;
+  color: var(--green-hi); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; text-decoration-color: rgba(162,246,211,0.45); cursor: pointer; white-space: nowrap; }
+.info-link:hover { color: #fff; text-decoration-color: currentColor; }
+.info-link:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; border-radius: 2px; }
+.info-link[hidden] { display: none; }
