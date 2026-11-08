@@ -285,7 +285,7 @@ async function buildWorld(progress) {
   skids = new SkidMarks(scene);
   wetTracks = new WetTracks(scene);
   // The dust a car raises off a gravel road: big soft billows that hang and drift.
-  trailDust = new Particles(scene, { count: qualityName === 'low' ? 500 : 1100, color: 0xb6a07c, size: 6, opacity: 0.26, gravity: -0.12, drag: 0.55, fadeNear: [3.5, 9] });
+  trailDust = new Particles(scene, { count: qualityName === 'low' ? 300 : 600, color: 0xb6a07c, size: 4.5, opacity: 0.15, gravity: -0.1, drag: 0.7, fadeNear: [4, 10] });
   windscreen = new Windscreen($('rain-glass'));
   puddles = new Puddles(scene, qualityName === 'low' ? 100 : 180);
   spray = new Particles(scene, { count: qualityName === 'low' ? 260 : 600, color: 0xe6f0f4, size: 0.5, opacity: 0.75, gravity: 9.5, drag: 1.2 });
@@ -2117,9 +2117,9 @@ function vehicleEffects(dt) {
   // you go, hanging in the air and drifting with the wind, the colour of the ground. Not when
   // the ground is wet.
   const dusty = jeep.surface === 'gravel' || jeep.surface === 'sand' || jeep.surface === 'moss';
-  if (!inWater && sp > 3 && dusty && wetness < 0.4 && dt && !jeep.air) {
+  if (!inWater && sp > 4 && dusty && wetness < 0.4 && dt && !jeep.air) {
     trailDust.mat.color.setHex(jeep.surface === 'sand' ? 0x55514c : jeep.surface === 'moss' ? 0x9a9274 : 0xb6a07c);
-    trailCarry += Math.min(1, (sp - 3) / 14) * 70 * (1 - wetness * 2) * dt;
+    trailCarry += Math.min(1, (sp - 4) / 18) * 26 * (1 - wetness * 2) * dt;
     for (; trailCarry >= 1; trailCarry--) for (const [x, z] of wheelsWorld.slice(2)) trailDust.emit(x - fx * 0.6, heightAt(x, z) + 0.5, z - fz * 0.6, -fx * sp * 0.18 + (Math.random() - 0.5) * 1.5, 0.7 + Math.random() * 1.1, -fz * sp * 0.18 + (Math.random() - 0.5) * 1.5, 1, 1.6, 3.4);
   }
   // Wet tyres print tracks out of a puddle or the water, fading as each tyre dries (about 14 m),

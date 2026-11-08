@@ -402,36 +402,75 @@ export class Windscreen {
 }
 
 // ---------- Skid marks ----------
-// Dark rubber laid on the tarmac (and pale scuffs on gravel) where a tyre slides: a strip from
-// each rear wheel, the newest overwriting the oldest once the pool is full.
+// Rubber laid on the tarmac (and pale scuffs on gravel and grass) where a tyre slides: a strip
+// from each rear wheel, soft at its edges and darkest down the middle, with the tyre's tread
+// printed across it and the rubber laid unevenly along it. It fades in as a slide starts, follows
+// how hard the tyre slides, and fades out as it grips again. The newest overwrite the oldest.
 const SKID_MAX = 1600;
 export class SkidMarks {
   constructor(scene) {
-    this.pos = new Float32Array(SKID_MAX * 6 * 3); this.col = new Float32Array(SKID_MAX * 6 * 4);
+    this.pos = new Float32Array(SKID_MAX * 6 * 3); this.uv = new Float32Array(SKID_MAX * 6 * 2); this.a = new Float32Array(SKID_MAX * 6); this.tone = new Float32Array(SKID_MAX * 6);
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3));
-    g.setAttribute('color', new THREE.BufferAttribute(this.col, 4));
-    this.mesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -5, polygonOffsetUnits: -5 }));
+    g.setAttribute('aUv', new THREE.BufferAttribute(this.uv, 2));
+    g.setAttribute('aA', new THREE.BufferAttribute(this.a, 1));
+    g.setAttribute('aTone', new THREE.BufferAttribute(this.tone, 1));
+    this.mesh = new THREE.Mesh(g, new THREE.ShaderMaterial({
+      uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog]),
+      vertexShader: `attribute vec2 aUv; attribute float aA; attribute float aTone; varying vec2 vUv; varying float vA; varying float vTone;
+        #include <fog_pars_vertex>
+        void main() { vUv = aUv; vA = aA; vTone = aTone; vec4 mvPosition = modelViewMatrix * vec4(position, 1.0); gl_Position = projectionMatrix * mvPosition;
+          #include <fog_vertex>
+        }`,
+      fragmentShader: `varying vec2 vUv; varying float vA; varying float vTone;
+        #include <fog_pars_fragment>
+        float h(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+        float n(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(h(i), h(i + vec2(1, 0)), f.x), mix(h(i + vec2(0, 1)), h(i + vec2(1, 1)), f.x), f.y); }
+        void main() {
+          float u = vUv.x, v = vUv.y;
+          // Darkest down the middle of the tyre, soft and ragged at its edges.
+          float edge = smoothstep(0.0, 0.3 + 0.12 * n(vec2(v * 3.0, 1.0)), u) * smoothstep(1.0, 0.7 - 0.12 * n(vec2(v * 3.0, 7.0)), u);
+          // Tread blocks across it and grooves along it.
+          float tread = 0.72 + 0.28 * smoothstep(-0.2, 0.6, sin(v * 34.0 + step(0.5, u) * 1.6));
+          float groove = 0.8 + 0.2 * smoothstep(0.25, 0.0, abs(fract(u * 3.0) - 0.5));
+          // Rubber laid unevenly: heavier in patches, broken in places.
+          float lay = 0.55 + 0.45 * n(vec2(v * 0.9, u * 2.0)) * (0.7 + 0.3 * n(vec2(v * 7.0, u * 9.0)));
+          float a = vA * edge * tread * groove * lay;
+          if (a < 0.004) discard;
+          gl_FragColor = vec4(vec3(vTone), a);
+          #include <fog_fragment>
+        }`,
+      transparent: true, depthWrite: false, fog: true, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -5, polygonOffsetUnits: -5,
+    }));
     this.mesh.frustumCulled = false; this.mesh.renderOrder = 1; this.mesh.userData.noAO = true;
     scene.add(this.mesh);
     this.next = 0; this.used = 0; this.last = new Map();
   }
-  // A wheel (key) at (x, y, z), heading h, sliding by s (0 to 1); paved: black rubber, else a scuff.
-  mark(key, x, y, z, h, s, paved) {
-    const L = this.last.get(key);
-    if (s < 0.25) { this.last.delete(key); return; }
-    if (!L) { this.last.set(key, { x, y, z, h }); return; }
-    if (Math.hypot(x - L.x, z - L.z) < 0.35) return;
-    if (Math.hypot(x - L.x, z - L.z) > 12) { this.last.set(key, { x, y, z, h }); return; }
-    const w = 0.13, ax = Math.cos(L.h) * w, az = -Math.sin(L.h) * w, bx = Math.cos(h) * w, bz = -Math.sin(h) * w;
-    const q = [[L.x - ax, L.y, L.z - az], [L.x + ax, L.y, L.z + az], [x + bx, y, z + bz], [L.x - ax, L.y, L.z - az], [x + bx, y, z + bz], [x - bx, y, z - bz]];
-    const i = this.next, a = Math.min(0.75, s) * (paved ? 0.8 : 0.4), c = paved ? 0.02 : 0.32;
-    q.forEach((v, k) => { this.pos.set(v, (i * 6 + k) * 3); this.col.set([c, c * 0.95, c * 0.9, a], (i * 6 + k) * 4); });
+  quad(L, P, paved) {
+    const w = 0.15, ax = Math.cos(L.h) * w, az = -Math.sin(L.h) * w, bx = Math.cos(P.h) * w, bz = -Math.sin(P.h) * w;
+    const k = (s) => Math.min(0.78, s) * (paved ? 0.85 : 0.45), tone = paved ? 0.025 : 0.36;
+    // [x, y, z, across, along, alpha]
+    const A0 = [L.x - ax, L.y, L.z - az, 0, L.d, k(L.s)], A1 = [L.x + ax, L.y, L.z + az, 1, L.d, k(L.s)];
+    const B0 = [P.x - bx, P.y, P.z - bz, 0, P.d, k(P.s)], B1 = [P.x + bx, P.y, P.z + bz, 1, P.d, k(P.s)];
+    const i = this.next;
+    [A0, A1, B1, A0, B1, B0].forEach((q, j) => { const o = i * 6 + j; this.pos.set([q[0], q[1], q[2]], o * 3); this.uv.set([q[3], q[4]], o * 2); this.a[o] = q[5]; this.tone[o] = tone; });
     this.next = (this.next + 1) % SKID_MAX; this.used = Math.min(SKID_MAX, this.used + 1);
     const g = this.mesh.geometry;
     g.setDrawRange(0, this.used * 6);
-    g.attributes.position.needsUpdate = g.attributes.color.needsUpdate = true;
-    this.last.set(key, { x, y, z, h });
+    g.attributes.position.needsUpdate = g.attributes.aUv.needsUpdate = g.attributes.aA.needsUpdate = g.attributes.aTone.needsUpdate = true;
+  }
+  // A wheel (key) at (x, y, z), heading h, sliding by s (0 to 1); paved: black rubber, else a scuff.
+  mark(key, x, y, z, h, s, paved) {
+    const L = this.last.get(key);
+    const sliding = s >= 0.25;
+    if (!L) { if (sliding) this.last.set(key, { x, y, z, h, s: 0, d: Math.random() * 10 }); return; } // fades in from nothing
+    const step = Math.hypot(x - L.x, z - L.z);
+    if (step > 12) { this.last.delete(key); return; }
+    if (!sliding) { if (step > 0.2) this.quad(L, { x, y, z, h, s: 0, d: L.d + step }, paved); this.last.delete(key); return; } // and out
+    if (step < 0.35) return;
+    const P = { x, y, z, h, s, d: L.d + step };
+    this.quad(L, P, paved);
+    this.last.set(key, P);
   }
 }
 
