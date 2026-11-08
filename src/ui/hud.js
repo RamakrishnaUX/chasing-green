@@ -7,7 +7,7 @@ export class Hud {
   constructor() {
     this.el = {
       hud: $('hud'), speed: $('speed'), alt: $('alt'), where: $('where'), clock: $('clock'), kp: $('kp'), kpWrap: $('kp').parentElement,
-      status: $('radio-status'), graph: $('radio-graph'), cloud: $('stat-cloud'), activity: $('stat-activity'), dark: $('stat-dark'), glow: $('stat-glow'),
+      status: $('radio-status'), graph: $('radio-graph'), cloud: $('stat-cloud'), activity: $('stat-activity'), dark: $('stat-dark'), glow: $('stat-glow'), moon: $('stat-moon'),
       rose: $('compass-rose'), wind: $('wind-arrow'), toast: $('toast'),
       radio: $('radio'), radioToggle: $('radio-toggle'), kpLevel: $('kp-level'), skyHint: $('sky-hint'), look: $('t-look'),
     };
@@ -90,6 +90,14 @@ export class Hud {
     e.dark.textContent = `${Math.round(s.aurora.dark * 100)}%`;
     const glow = s.aurora.city.overhead;
     e.glow.textContent = glow > 0.6 ? 'Strong' : glow > 0.25 ? 'Some' : glow > 0.05 ? 'Faint' : 'None';
+    const M = s.aurora.moon;
+    if (M && e.moon) {
+      const i = M.illum, wax = M.phase < 0.5;
+      const name = i < 0.04 ? 'New' : i > 0.96 ? 'Full' : i < 0.4 ? `${wax ? 'Waxing' : 'Waning'} crescent` : i < 0.6 ? 'Half' : `${wax ? 'Waxing' : 'Waning'} gibbous`;
+      const where = i < 0.04 ? '' : M.el > 2 ? (M.bright > 0.5 ? ', up and bright' : ', up') : ', set';
+      const txt = name + where;
+      if (e.moon.textContent !== txt) e.moon.textContent = txt;
+    }
     const v = s.aurora.vis;
     e.activity.textContent = v < 0.05 ? 'None' : v < 0.3 ? 'Faint' : v < 0.6 ? 'Moderate' : 'Bright';
 
@@ -254,6 +262,7 @@ export class Hud {
     if (a.kp >= A.minKp) {
       if (a.cloud > A.maxCloud) return 'Activity is up, but clouds are in the way. Drive toward clearer sky.';
       if (a.city.overhead > 0.3) return `Activity is up. Get away from the ${a.city.name} lights.`;
+      if (a.moon?.bright > 0.45 && !a.active) return 'Activity is up, but the bright moon washes faint lights out. Wait for it to set, or for a stronger display.';
       return 'Activity is building. Watch the sky.';
     }
     if (a.phase === 'growth' && a.promising) {

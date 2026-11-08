@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { nightSky, NIGHT_SKY_GLSL } from './skyreflect.js';
 import { roadPaths, heightAt, roadHalfWidth, deckAt } from './terrain.js';
 import { mulberry32 } from './noise.js';
 
@@ -130,13 +131,14 @@ export class Puddles {
     const mat = new THREE.MeshStandardMaterial({ color: 0x050607, roughness: 0.03, metalness: 0, envMapIntensity: 1.15, transparent: true, depthWrite: false,
       polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -6 });
     mat.onBeforeCompile = (sh) => {
-      Object.assign(sh.uniforms, this.uniforms);
+      Object.assign(sh.uniforms, this.uniforms, nightSky);
       sh.vertexShader = sh.vertexShader
         .replace('#include <common>', '#include <common>\nattribute vec2 aLocal; attribute float aSeed; varying vec2 vLocal; varying float vSeed; varying vec3 vWp;')
         .replace('#include <begin_vertex>', '#include <begin_vertex>\nvLocal = aLocal; vSeed = aSeed; vWp = (modelMatrix * vec4(position, 1.0)).xyz;');
       sh.fragmentShader = sh.fragmentShader
         .replace('#include <common>', `#include <common>
           uniform float uTime; uniform vec4 uRip[${MAX_RIPPLES}]; varying vec2 vLocal; varying float vSeed; varying vec3 vWp;
+          ${NIGHT_SKY_GLSL}
           float pH(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
           float pN(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
             return mix(mix(pH(i), pH(i + vec2(1, 0)), f.x), mix(pH(i + vec2(0, 1)), pH(i + vec2(1, 1)), f.x), f.y); }
@@ -173,6 +175,7 @@ export class Puddles {
         .replace('#include <opaque_fragment>', `
           // Water is clear: the tarmac under it shows, darkened by the wet, with what the water
           // reflects laid over it (dst * (1 - a) + reflection). The damp halo only darkens.
+          outgoingLight += nightMirror(normal) * pWater; // the night sky in the puddle
           float pEdge = smoothstep(0.0, 0.25, 1.0 - pD);
           float pK = pWater * mix(0.45, 0.62, pEdge);
           float pA = pK + pDamp * (1.0 - pWater) * 0.45 * (1.0 - pK);
@@ -491,6 +494,85 @@ export class SkidMarks {
     const P = { x, y, z, h, s, d: L.d + step };
     this.quad(L, P, paved);
     this.last.set(key, P);
+  }
+}
+
+// ---------- Tracks in the snow ----------
+// Tyres on snow press a pair of ruts with a tread pattern; feet leave prints, left and right.
+// They darken the snow (multiplied over it, so they read right by day, by moonlight and in the
+// headlights) and fill in over a few minutes.
+const SNOW_MAX = 1500;
+export class SnowTracks {
+  constructor(scene) {
+    const n = SNOW_MAX * 6;
+    this.pos = new Float32Array(n * 3); this.uv = new Float32Array(n * 2); this.born = new Float32Array(n).fill(-1e5); this.kind = new Float32Array(n);
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3));
+    g.setAttribute('aUv', new THREE.BufferAttribute(this.uv, 2));
+    g.setAttribute('aBorn', new THREE.BufferAttribute(this.born, 1));
+    g.setAttribute('aKind', new THREE.BufferAttribute(this.kind, 1));
+    this.uniforms = { uTime: { value: 0 } };
+    this.mesh = new THREE.Mesh(g, new THREE.ShaderMaterial({
+      uniforms: this.uniforms,
+      vertexShader: `attribute vec2 aUv; attribute float aBorn; attribute float aKind; uniform float uTime;
+        varying vec2 vUv; varying float vFade; varying float vKind;
+        void main() { vec4 mv = modelViewMatrix * vec4(position, 1.0); gl_Position = projectionMatrix * mv;
+          vUv = aUv; vKind = aKind;
+          vFade = (1.0 - smoothstep(70.0, 240.0, uTime - aBorn)) * (1.0 - smoothstep(60.0, 140.0, -mv.z));
+        }`,
+      fragmentShader: `varying vec2 vUv; varying float vFade; varying float vKind;
+        void main() {
+          float d;
+          if (vKind < 0.5) {
+            // A rut: deepest down the middle, blocks of tread across it.
+            float across = abs(vUv.x);
+            float tread = 0.8 + 0.2 * step(0.5, fract(vUv.y * 4.0 + step(0.0, vUv.x) * 0.5));
+            d = smoothstep(1.0, 0.55, across) * tread;
+          } else {
+            // A boot print: a sole and a heel.
+            vec2 q = vec2(vUv.x, vUv.y * 2.0 - 1.0);
+            float sole = smoothstep(1.0, 0.75, length(vec2(q.x * 1.05, (q.y - 0.25) * 1.35)));
+            float heel = smoothstep(1.0, 0.75, length(vec2(q.x * 1.2, (q.y + 0.62) * 2.6)));
+            d = max(sole, heel) * 0.9;
+          }
+          d *= vFade;
+          if (d < 0.01) discard;
+          gl_FragColor = vec4(mix(vec3(1.0), vec3(0.6, 0.66, 0.78), d), 1.0);
+        }`,
+      transparent: true, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -5, polygonOffsetUnits: -5,
+      blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.DstColorFactor, blendDst: THREE.ZeroFactor,
+    }));
+    this.mesh.frustumCulled = false; this.mesh.renderOrder = 1; this.mesh.userData.noAO = true;
+    scene.add(this.mesh);
+    this.next = 0; this.used = 0; this.last = new Map();
+  }
+  update(t) { this.uniforms.uTime.value = t; }
+  quad(c, kind, t) {
+    // c: four corners [x, y, z, u, v] in order, as two triangles.
+    const i = this.next;
+    [c[0], c[1], c[2], c[0], c[2], c[3]].forEach((v, k) => { const o = i * 6 + k; this.pos.set([v[0], v[1], v[2]], o * 3); this.uv.set([v[3], v[4]], o * 2); this.born[o] = t; this.kind[o] = kind; });
+    this.next = (this.next + 1) % SNOW_MAX; this.used = Math.min(SNOW_MAX, this.used + 1);
+    const g = this.mesh.geometry;
+    g.setDrawRange(0, this.used * 6);
+    for (const a of ['position', 'aUv', 'aBorn', 'aKind']) g.attributes[a].needsUpdate = true;
+  }
+  // A tyre (key) at (x, y, z), heading h, now t; on = still on snow.
+  tyre(key, x, y, z, h, t, on, width = 0.2) {
+    const L = this.last.get(key);
+    if (!on) { this.last.delete(key); return; }
+    if (!L) { this.last.set(key, { x, y, z, h, v: 0 }); return; }
+    const d = Math.hypot(x - L.x, z - L.z);
+    if (d < 0.5) return;
+    if (d > 8) { this.last.set(key, { x, y, z, h, v: 0 }); return; }
+    const w = width, ax = Math.cos(L.h) * w, az = -Math.sin(L.h) * w, bx = Math.cos(h) * w, bz = -Math.sin(h) * w, v1 = L.v + d;
+    this.quad([[L.x - ax, L.y, L.z - az, -1, L.v], [L.x + ax, L.y, L.z + az, 1, L.v], [x + bx, y, z + bz, 1, v1], [x - bx, y, z - bz, -1, v1]], 0, t);
+    this.last.set(key, { x, y, z, h, v: v1 });
+  }
+  // One boot print at (x, y, z) pointing along h.
+  foot(x, y, z, h, t) {
+    const fx = Math.sin(h), fz = Math.cos(h), rx = Math.cos(h), rz = -Math.sin(h), W = 0.065, Lh = 0.15;
+    const c = (u, v) => [x + rx * W * u + fx * Lh * v, y, z + rz * W * u + fz * Lh * v, u, (v + 1) / 2];
+    this.quad([c(-1, -1), c(1, -1), c(1, 1), c(-1, 1)], 1, t);
   }
 }
 

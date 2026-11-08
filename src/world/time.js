@@ -40,6 +40,24 @@ export class Clock {
     const noon = (s.sunrise + s.sunset) / 2;
     return Math.PI + ((hour - noon) / 12) * Math.PI;
   }
+  // The moon. The trip starts mid-month in a real year, and the phase follows the real lunar
+  // month from there, so it changes night by night (0 new, 0.5 full).
+  moonPhase(hours = this.gameHours) {
+    const days = Date.UTC(2026, this.month, 14) / 86400000 + hours / 24 - Date.UTC(2000, 0, 6, 18, 14) / 86400000;
+    return (((days / 29.530588) % 1) + 1) % 1;
+  }
+  // How much of the disc is lit, 0 to 1.
+  moonIllum(hours = this.gameHours) { return (1 - Math.cos(this.moonPhase(hours) * Math.PI * 2)) / 2; }
+  // The moon follows the sun's path a phase later each day, and rides the path the sun takes the
+  // same share of a year later: a full moon in winter is high all night, in summer it barely rises.
+  moonPath(hour = this.hourOfDay) {
+    const p = this.moonPhase(), keep = this.month;
+    this.month = (keep + Math.round(p * 12)) % 12;
+    const h = hour - p * 24.84;
+    const el = this.sunElevation(((h % 24) + 24) % 24), az = this.sunAzimuth(((h % 24) + 24) % 24);
+    this.month = keep;
+    return { el, az, phase: p, illum: (1 - Math.cos(p * Math.PI * 2)) / 2 };
+  }
   darkness(hour = this.hourOfDay) {
     return smoothstep(-1, -8, this.sunElevation(hour));
   }

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { SKY_LAYER } from './skyreflect.js';
 import { Sky as ScatterSky } from 'three/examples/jsm/objects/Sky.js';
 import { clamp, smoothstep } from './noise.js';
 import { HD } from './hd.js';
@@ -32,7 +33,7 @@ const PAL = {
 const v3 = (a) => `vec3(${a.map((x) => x.toFixed(3)).join(', ')})`;
 
 const SKY_FRAG = /* glsl */ `
-uniform vec3 uSunDir; uniform vec3 uMoonDir; uniform float uDark; uniform float uTime; uniform float uSunEl;
+uniform vec3 uSunDir; uniform vec3 uMoonDir; uniform vec3 uMoonLit; uniform float uMoonIllum; uniform float uDark; uniform float uTime; uniform float uSunEl;
 uniform vec3 uCityDir; uniform float uCityGlow; uniform float uCityOverhead; uniform float uCloud;
 uniform vec3 uAuroraTint; uniform float uAurora; uniform float uOverlay;
 varying vec3 vDir;
@@ -87,13 +88,29 @@ void main(){
     float twk = 0.7 + 0.3 * sin(uTime * (1.5 + h * 30.0) + h * 100.0);
     star = sstep(0.35, 0.0, dist) * twk * (0.4 + 2.5 * (h - 0.9965) / 0.0035);
   }
-  float starVis = uDark * (1.0 - uCloud * 0.9) * (1.0 - uCityOverhead * 0.85) * sstep(0.0, 0.12, y);
+  // A bright moon up in the sky drowns the fainter stars.
+  float moonUp = sstep(-0.05, 0.12, uMoonDir.y) * uMoonIllum * uMoonIllum;
+  float starVis = uDark * (1.0 - uCloud * 0.9) * (1.0 - uCityOverhead * 0.85) * sstep(0.0, 0.12, y) * (1.0 - moonUp * 0.6);
   col += vec3(0.85, 0.9, 1.0) * star * starVis;
   col += vec3(0.05, 0.06, 0.08) * fbm2(d.xz / (y + 0.3) * 3.0) * uDark * (1.0 - uCloud) * 0.5;
   // Moon.
+  // Moon: a sphere lit from the sun's side (uMoonLit), so it shows its phase, with darker seas
+  // on its face and the dark part just visible by earthshine. The glow round it grows with the phase.
   float md = dot(d, uMoonDir);
-  col += vec3(0.88, 0.9, 0.92) * sstep(0.99955, 0.99975, md) * (1.0 - uCloud * 0.8);
-  col += vec3(0.25, 0.3, 0.4) * pow(max(md, 0.0), 30.0) * 0.3 * uDark * (1.0 - uCloud * 0.6);
+  if (md > 0.9995) {
+    vec3 mU = normalize(cross(uMoonDir, vec3(0.0, 1.0, 0.0))), mV = cross(mU, uMoonDir);
+    vec2 q = vec2(dot(d, mU), dot(d, mV)) / 0.0265;
+    float r2 = dot(q, q);
+    if (r2 < 1.0) {
+      vec3 n = q.x * mU + q.y * mV - sqrt(1.0 - r2) * uMoonDir;
+      float lit = sstep(-0.06, 0.08, dot(n, uMoonLit));
+      float seas = 0.78 + 0.22 * sstep(0.35, 0.65, vnoise(q * 2.3 + 4.0));
+      float edge = sstep(1.0, 0.9, r2);
+      // Only the lit part covers the sky; the dark part keeps the sky's colour, faintly lifted by earthshine.
+      col = mix(col, vec3(0.9, 0.91, 0.92) * seas * (1.0 - uCloud * 0.8), edge * lit) + vec3(0.02, 0.025, 0.03) * edge * (1.0 - lit) * uDark;
+    }
+  }
+  col += vec3(0.25, 0.3, 0.4) * pow(max(md, 0.0), 30.0) * 0.3 * uDark * (1.0 - uCloud * 0.6) * (0.15 + 0.85 * uMoonIllum);
   col += uAuroraTint * uAurora * hor * 0.05;
   gl_FragColor = vec4(col, uOverlay);
 }`;
@@ -321,7 +338,7 @@ export class Sky {
     this.skyMat = new THREE.ShaderMaterial({
       vertexShader: DOME_VERT, fragmentShader: SKY_FRAG, side: THREE.BackSide, depthWrite: false,
       uniforms: {
-        uSunDir: { value: new THREE.Vector3(0, 1, 0) }, uMoonDir: { value: new THREE.Vector3(0, 1, 0) }, uSunEl: { value: 10 },
+        uSunDir: { value: new THREE.Vector3(0, 1, 0) }, uMoonDir: { value: new THREE.Vector3(0, 1, 0) }, uMoonLit: { value: new THREE.Vector3(0, -1, 0) }, uMoonIllum: { value: 1 }, uSunEl: { value: 10 },
         uDark: { value: 0 }, uTime: { value: 0 }, uCityDir: { value: new THREE.Vector3(1, 0, 0) },
         uCityGlow: { value: 0 }, uCityOverhead: { value: 0 }, uCloud: { value: 0 },
         uAuroraTint: { value: new THREE.Color(0x3cff9a) }, uAurora: { value: 0 },
@@ -333,6 +350,7 @@ export class Sky {
     this.sky.renderOrder = -5;
     this.sky.frustumCulled = false;
     scene.add(this.sky);
+    this.sky.layers.enable(SKY_LAYER); // seen in the water at night (skyreflect.js)
     // The reflections see the painted low-sun sky too, laid over the physical one as on screen.
     if (this.envScene) { const envDome = new THREE.Mesh(skyGeo, this.skyMat); envDome.renderOrder = 1; envDome.frustumCulled = false; this.envScene.add(envDome); }
 
@@ -360,6 +378,7 @@ export class Sky {
       this.cloudMat.defines = { USE_PANO: '' };
     }
     this.clouds = new THREE.Mesh(new THREE.SphereGeometry(1500, 48, 24), this.cloudMat);
+    this.clouds.layers.enable(SKY_LAYER);
     this.clouds.renderOrder = -1;
     this.clouds.frustumCulled = false;
     scene.add(this.clouds);
@@ -428,14 +447,25 @@ export class Sky {
     const az = clock.sunAzimuth();
     const sunDir = new THREE.Vector3(Math.sin(az) * Math.cos(el), Math.sin(el), -Math.cos(az) * Math.cos(el));
     const dark = clock.darkness();
-    const mEl = THREE.MathUtils.degToRad(clamp(-elDeg * 0.8 + 10, -10, 50));
-    const mAz = az + Math.PI + 0.3;
+    // The moon: its own path and phase (time.js).
+    const M = clock.moonPath();
+    const mEl = THREE.MathUtils.degToRad(M.el), mAz = M.az;
     const moonDir = new THREE.Vector3(Math.sin(mAz) * Math.cos(mEl), Math.sin(mEl), -Math.cos(mAz) * Math.cos(mEl));
+    // Where its light comes from, as the phase shows it: from behind it at new moon, from the
+    // sun's side of the sky in between, from straight behind you at full moon.
+    const toSun = sunDir.clone().addScaledVector(moonDir, -sunDir.dot(moonDir));
+    if (toSun.lengthSq() < 1e-6) toSun.set(1, 0, 0);
+    toSun.normalize();
+    const th = M.phase * Math.PI * 2;
+    const moonLit = moonDir.clone().multiplyScalar(Math.cos(th)).addScaledVector(toSun, Math.abs(Math.sin(th)));
+    this.moonInfo = { illum: M.illum, phase: M.phase, up: smoothstep(-0.05, 0.15, moonDir.y) };
 
     const u = this.skyMat.uniforms;
     u.uSunDir.value.copy(sunDir);
     u.uSunEl.value = elDeg;
     u.uMoonDir.value.copy(moonDir);
+    u.uMoonLit.value.copy(moonLit);
+    u.uMoonIllum.value = M.illum;
     u.uDark.value = dark;
     u.uTime.value = t;
     u.uCityDir.value.set(city.dirX, 0, city.dirZ).normalize();
@@ -487,7 +517,8 @@ export class Sky {
     if (this.renderer && this.shadowsWanted) this.renderer.shadowMap.autoUpdate = this.sun.intensity > 0.05;
     this.moon.position.copy(camera.position).addScaledVector(moonDir, 500);
     this.moon.target.position.copy(camera.position);
-    this.moon.intensity = 1.3 * dark * (1 - cloud * 0.6) * smoothstep(-0.05, 0.15, moonDir.y);
+    // Moonlight: bright enough to see the land by at full moon, next to nothing at new moon.
+    this.moon.intensity = 1.5 * dark * (1 - cloud * 0.6) * smoothstep(-0.05, 0.15, moonDir.y) * Math.pow(M.illum, 1.5);
 
     // Skylight: blue by day, lilac at dusk, cool blue by moonlight, green under a strong aurora.
     const wTw = sm(-10, -3, elDeg) * sm(6, 0, elDeg);
@@ -496,7 +527,7 @@ export class Sky {
     this.c1.lerp(auroraTint, auroraVis * 0.22 * dark);
     this.hemi.color.copy(this.c1);
     this.setRGB(this.hemi.groundColor, mixA([0.42, 0.33, 0.22], [0.06, 0.07, 0.09], wNight));
-    this.hemi.intensity = 0.45 * this.light.hemi + wTw * 0.5 + wNight * 0.85 + auroraVis * 0.6 * dark;
+    this.hemi.intensity = 0.45 * this.light.hemi + wTw * 0.5 + wNight * (0.7 + 0.35 * this.moonInfo.up * this.moonInfo.illum * (1 - cloud)) + auroraVis * 0.6 * dark;
 
     // Fog takes the horizon colour, so far hills fade into blue haze.
     this.setRGB(this.fog.color, horizonColor(elDeg));

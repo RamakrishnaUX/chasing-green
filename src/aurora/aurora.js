@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLSL_NOISE } from '../world/sky.js';
+import { SKY_LAYER } from '../world/skyreflect.js';
 
 const VERT = /* glsl */ `
 varying vec3 vDir;
@@ -132,6 +133,7 @@ export class Aurora {
     this.mesh = new THREE.Mesh(new THREE.SphereGeometry(1700, 48, 24, 0, Math.PI * 2, 0, Math.PI * 0.52), mat);
     this.mesh.renderOrder = -2;
     this.mesh.frustumCulled = false;
+    this.mesh.layers.enable(SKY_LAYER); // mirrored in the water at night
     this.scene.add(this.mesh);
   }
   setSteps(steps) { if (steps !== this.steps) { this.steps = steps; this.build(); } }

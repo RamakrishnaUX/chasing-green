@@ -19,6 +19,9 @@ const OFF = 19; // metres from the road's centre line to the middle of the forec
 // Where things stand on the forecourt: u runs away from the road (the road is at u = -OFF), w along it.
 const ISLANDS = [-4.5, 0.5];
 const ROOF = { u: -2, w: 0, du: 11, dw: 17 };
+// The car wash: a drive-through gantry past the end of the roof, in the lane between the pumps.
+// Roll through slowly and the brushes spin, water sprays and the car comes out clean.
+const WASH = { u: -2, w: 13, len: 4, gap: 2.3 };
 
 // Pick a level, dry spot beside the Ring Road a little way out of each town, clear of landmarks
 // and other roads. Returns sites with the road's heading and the side the station sits on, plus a
@@ -82,6 +85,26 @@ function signTexture() {
   return t;
 }
 
+// The wash's sign: BÍLAÞVOTTUR (car wash) in white on teal.
+function washSignTexture() {
+  const c = document.createElement('canvas'); c.width = 512; c.height = 64;
+  const g = c.getContext('2d');
+  g.fillStyle = '#16594f'; g.fillRect(0, 0, 512, 64);
+  g.fillStyle = '#f4f2ec'; g.font = '700 40px "Saira", system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText('BÍLAÞVOTTUR', 256, 34);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+  return t;
+}
+// Bristles: soft blue and white streaks running round the brush, so the spin shows.
+function brushTexture() {
+  const c = document.createElement('canvas'); c.width = 256; c.height = 64;
+  const g = c.getContext('2d');
+  g.fillStyle = '#2a63a8'; g.fillRect(0, 0, 256, 64);
+  for (let i = 0; i < 90; i++) { const x = Math.random() * 256; g.fillStyle = Math.random() < 0.3 ? 'rgba(235,240,245,0.75)' : `rgba(${20 + Math.random() * 40},${70 + Math.random() * 50},${150 + Math.random() * 60},0.8)`; g.fillRect(x, 0, 1 + Math.random() * 3, 64); }
+  for (let k = 0; k < 4; k++) { g.fillStyle = 'rgba(20,30,40,0.25)'; g.fillRect(k * 64 + 30, 0, 4, 64); }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  return t;
+}
 function poolTexture() {
   const c = document.createElement('canvas');
   c.width = c.height = 128;
@@ -94,7 +117,7 @@ function poolTexture() {
 export class Stations {
   constructor(scene, sites, { obstacles = null } = {}) {
     this.list = sites;
-    const parts = { white: [], teal: [], concrete: [], asphalt: [], dark: [], steel: [], glass: [], panel: [], sign: [], pool: [] };
+    const parts = { white: [], teal: [], concrete: [], asphalt: [], dark: [], steel: [], glass: [], panel: [], sign: [], pool: [], washSign: [] };
     const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), v = new THREE.Vector3(), sc = new THREE.Vector3();
     const unit = new THREE.BoxGeometry(1, 1, 1); unit.translate(0, 0.5, 0);
     const cyl = new THREE.CylinderGeometry(0.5, 0.5, 1, 12); cyl.translate(0, 0.5, 0);
@@ -141,6 +164,15 @@ export class Stations {
       box(parts.teal, -12.5, -14, 4.4, 2.7, 3.9, 0.4);
       put(parts.sign, plane, -12.5, -14 + 0.21, 6.35, 2.4, 3.5, 1);
       put(parts.sign, plane, -12.5, -14 - 0.21, 6.35, 2.4, 3.5, 1, back);
+      // Car wash gantry: four posts, beams across the top with a sign, a water bar, and the
+      // brushes (built below, as they turn).
+      for (const du of [-WASH.gap, WASH.gap]) for (const dw of [-WASH.len / 2 + 0.2, WASH.len / 2 - 0.2]) box(parts.steel, WASH.u + du, WASH.w + dw, 0, 0.24, 3.4, 0.24);
+      for (const dw of [-WASH.len / 2 + 0.2, WASH.len / 2 - 0.2]) box(parts.teal, WASH.u, WASH.w + dw, 3.25, WASH.gap * 2 + 0.3, 0.4, 0.3);
+      for (const du of [-WASH.gap, WASH.gap]) box(parts.steel, WASH.u + du, WASH.w, 3.3, 0.18, 0.18, WASH.len);
+      box(parts.white, WASH.u, WASH.w, 3.62, WASH.gap * 2 + 0.3, 0.12, WASH.len);
+      put(parts.washSign, plane, WASH.u, WASH.w - WASH.len / 2 + 0.03, 3.45, 3.2, 0.4, 1, back);
+      put(parts.washSign, plane, WASH.u, WASH.w + WASH.len / 2 - 0.03, 3.45, 3.2, 0.4, 1);
+      box(parts.dark, WASH.u, WASH.w + 1.2, 2.75, WASH.gap * 2 - 0.4, 0.08, 0.08); // the spray bar
       // Warm light on the ground under the roof at night.
       put(parts.pool, plane, R.u, R.w, 0.08, R.du + 9, R.dw + 9, 1, new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2));
       // Solid parts.
@@ -151,6 +183,7 @@ export class Stations {
         }
         const shop = stationPoint(s, 12.5, 0); obstacles.addBox(shop.x, shop.z, s.heading, 4.1, 7.1, 'wall');
         const post = stationPoint(s, -12.5, -14); obstacles.addCircle(post.x, post.z, 0.5, 'wall');
+        for (const du of [-WASH.gap, WASH.gap]) for (const dw of [-WASH.len / 2 + 0.2, WASH.len / 2 - 0.2]) { const p = stationPoint(s, WASH.u + du, WASH.w + dw); obstacles.addCircle(p.x, p.z, 0.2, 'wall'); }
       }
     }
     const mats = {
@@ -163,6 +196,7 @@ export class Stations {
       glass: new THREE.MeshStandardMaterial({ color: 0x12181d, roughness: 0.1, metalness: 0.4, emissive: 0xffd9a0, emissiveIntensity: 0 }),
       panel: new THREE.MeshStandardMaterial({ color: 0xe8e8e4, roughness: 0.6, emissive: 0xfff3df, emissiveIntensity: 0, side: THREE.DoubleSide }),
       sign: (() => { const t = signTexture(); return new THREE.MeshStandardMaterial({ map: t, emissiveMap: t, emissive: 0xffffff, emissiveIntensity: 0, roughness: 0.5 }); })(),
+      washSign: (() => { const t = washSignTexture(); return new THREE.MeshStandardMaterial({ map: t, emissiveMap: t, emissive: 0xffffff, emissiveIntensity: 0, roughness: 0.5 }); })(),
       pool: new THREE.MeshBasicMaterial({ map: poolTexture(), color: 0xffe9c8, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, polygonOffset: true, polygonOffsetFactor: -4 }),
     };
     this.mats = mats;
@@ -173,6 +207,41 @@ export class Stations {
       mesh.receiveShadow = k !== 'pool';
       if (k === 'pool') mesh.renderOrder = 2;
       scene.add(mesh);
+    }
+    // The brushes: two upright either side and one across the top, each a bristled cylinder
+    // that spins while a car is in the wash.
+    const bristle = new THREE.MeshStandardMaterial({ map: brushTexture(), roughness: 0.95 });
+    this.brushes = [];
+    for (const s of sites) {
+      const g = new THREE.Group(), p = stationPoint(s, WASH.u, WASH.w);
+      g.position.set(p.x, s.y, p.z); g.rotation.y = s.heading;
+      const side = new THREE.CylinderGeometry(0.42, 0.42, 2.5, 18, 1, true), top = new THREE.CylinderGeometry(0.36, 0.36, WASH.gap * 2 - 0.5, 18, 1, true);
+      const parts2 = [];
+      for (const du of [-1.85, 1.85]) { const m = new THREE.Mesh(side, bristle); m.position.set(du, 1.35, -0.4); parts2.push({ m, axis: 'y', dir: Math.sign(du) }); g.add(m); }
+      const t = new THREE.Mesh(top, bristle); t.rotation.z = Math.PI / 2; t.position.set(0, 2.35, 0.6); parts2.push({ m: t, axis: 'top', dir: 1 }); g.add(t);
+      for (const b of parts2) { b.m.castShadow = true; b.m.receiveShadow = true; }
+      scene.add(g);
+      this.brushes.push({ s, parts: parts2, spin: 0 });
+    }
+    this.washMat = mats.washSign;
+  }
+
+  // The wash a car at (x, z) is rolling through, if any: { s, along (0 at the entry to 1 at the
+  // exit) }. Brushes spin up while one is there and wind down after.
+  washAt(x, z) {
+    for (const s of this.list) {
+      const dx = x - s.x, dz = z - s.z, u = dx * s.ax + dz * s.az, w = dx * s.fx + dz * s.fz;
+      if (Math.abs(u - WASH.u) < WASH.gap - 0.6 && Math.abs(w - WASH.w) < WASH.len / 2 + 0.6) return { s, along: (w - WASH.w) / (WASH.len + 1.2) + 0.5 };
+    }
+    return null;
+  }
+  // Where water sprays from in a wash: the bar and the brushes, in world space.
+  washPoints(s) { return [-1.6, -0.6, 0.6, 1.6].map((du) => ({ ...stationPoint(s, WASH.u + du, WASH.w + 1.2), y: s.y + 2.7 })); }
+  updateWash(dt, active) {
+    for (const b of this.brushes) {
+      const on = active && active.s === b.s;
+      b.spin += ((on ? 9 : 0) - b.spin) * Math.min(1, dt * (on ? 2 : 0.7));
+      for (const p of b.parts) { if (p.axis === 'y') p.m.rotation.y += b.spin * p.dir * dt; else p.m.rotation.x += b.spin * dt; }
     }
   }
 
@@ -202,5 +271,6 @@ export class Stations {
     m.glass.emissiveIntensity = dark * 1.1;
     m.sign.emissiveIntensity = 0.05 + dark * 0.75;
     m.pool.opacity = dark * 0.55;
+    m.washSign.emissiveIntensity = 0.05 + dark * 0.7;
   }
 }

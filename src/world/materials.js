@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { HD, HD_TERRAIN, HD_SUN_SHADOW, terrainUniforms, terrainShadowChunk } from './hd.js';
+import { nightSky, NIGHT_SKY_GLSL } from './skyreflect.js';
 
 // Shared uniforms for everything that changes with season, time or light.
 export const surfaceUniforms = {
@@ -252,7 +253,9 @@ export function createTerrainMaterial() {
 // Roads carry vRoad = (signed distance from centre line, distance along the road).
 export function createRoadMaterial({ paved, halfWidth }) {
   // Two-sided: each road edge has a skirt hanging down, and the two skirts face opposite ways.
-  const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8, metalness: 0, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2, side: THREE.DoubleSide });
+  // Pulled well forward in depth, so where the land rises a few centimetres over the verge's
+  // outer edge it never shows through in teeth (most visible against a snow bank in headlights).
+  const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8, metalness: 0, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -12, side: THREE.DoubleSide });
   const hd = HD.on;
   if (hd) mat.customProgramCacheKey = () => `road-hd-${paved}`;
   mat.onBeforeCompile = (shader) => {
@@ -260,8 +263,10 @@ export function createRoadMaterial({ paved, halfWidth }) {
     // Desktop: real asphalt and gravel under the painted lines, as light and shade on the classic colours.
     if (hd) Object.assign(shader.uniforms, { rdAlb: { value: HD.road.asphalt.alb }, rdMean: { value: HD.road.asphalt.mean }, grAlb: { value: HD.road.gravel.alb }, grMean: { value: HD.road.gravel.mean } });
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute vec2 aRoad;\nattribute float aJunction;\nvarying vec2 vRoad;\nvarying float vJ;\nvarying vec2 vRW;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvRoad = aRoad;\nvJ = aJunction;\nvRW = (modelMatrix * vec4(transformed, 1.0)).xz;');
+      .replace('#include <common>', '#include <common>\nattribute vec2 aRoad;\nattribute float aJunction;\nvarying vec2 vRoad;\nvarying float vJ;\nvarying vec2 vRW;\nuniform float uRoadSnow;')
+      // In winter the verge's outer edge (and the skirt's top) rises into a ploughed snow bank, a
+      // little above the land there, so the land never cuts into it in teeth.
+      .replace('#include <begin_vertex>', `#include <begin_vertex>\nvRoad = aRoad;\nvJ = aJunction;\nvRW = (modelMatrix * vec4(transformed, 1.0)).xz;\nif (abs(aRoad.x) > ${(halfWidth + 1.05).toFixed(2)} && abs(aRoad.x) < ${(halfWidth + 1.4).toFixed(2)}) transformed.y += smoothstep(0.1, 0.5, uRoadSnow) * 0.32;`);
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>\nvarying vec2 vRoad;\nvarying float vJ;\nvarying vec2 vRW;\nuniform float uSummer; uniform float uRoadSnow;\n${NOISE}\nfloat rBump; float rRough; float rSnow;${hd ? `\nuniform sampler2D rdAlb; uniform vec3 rdMean; uniform sampler2D grAlb; uniform vec3 grMean;\nvec3 rdRatio(sampler2D t, vec3 m, vec2 uv, float chroma, out float lum){ vec3 a = texture2D(t, uv).rgb; lum = dot(a, vec3(0.2126, 0.7152, 0.0722)) / max(dot(m, vec3(0.2126, 0.7152, 0.0722)), 1e-3); return clamp(mix(vec3(lum), a / max(m, vec3(1e-3)), chroma), 0.0, 2.5); }` : ''}`)
       .replace('#include <normal_pars_fragment>', `#include <normal_pars_fragment>\n${BUMP}`)
@@ -333,9 +338,10 @@ export function createRoadMaterial({ paved, halfWidth }) {
         diffuseColor.rgb *= mix(vec3(1.0), mix(ra, rg, shoulder), (1.0 - hdPaint) * hdFade);
         rBump += (mix(lA, lG, shoulder) - 1.0) * 0.035 * fine;` : ''}`)
       .replace('#include <roughnessmap_fragment>', '// Wet tarmac: darker, and smooth enough to mirror lights and the sky (not the snow on it).\nfloat roughnessFactor = min(rRough, mix(rRough, 0.34, uWet * 0.85 * (1.0 - rSnow)));\ndiffuseColor.rgb *= mix(1.0, 0.42, uWet * (1.0 - rSnow));')
-      // The skirts hanging below the edges are lit as if flat, so where one shows above the land it
-      // reads as more verge rather than a bright step.
-      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>\nnormal = bumpNormal(normal, rBump, 1.0);\nif (abs(vRoad.x) > ${(halfWidth + 1.15).toFixed(2)}) normal = normalize((viewMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz);`);
+      // The verge follows every bump in the land, so low light (headlights above all) picked out
+      // each little tilt as a bright or dark step: it is lit as if nearly flat instead. The skirts
+      // hanging below the edges are lit as flat too, so where one shows it reads as more verge.
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>\nnormal = bumpNormal(normal, rBump, 1.0);\n{ vec3 upV = normalize((viewMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz); float vg = smoothstep(${(halfWidth - 0.1).toFixed(2)}, ${(halfWidth + 0.5).toFixed(2)}, abs(vRoad.x)); normal = normalize(mix(normal, upV, abs(vRoad.x) > ${(halfWidth + 1.15).toFixed(2)} ? 1.0 : vg * 0.8)); }`);
   };
   return mat;
 }
@@ -378,12 +384,12 @@ export function createWaterMaterial(color, {
   const key = `water-${[roughness, ripple, shallow, deep, clarity, foam, depthAware, glow, bowl].join('|')}`;
   mat.customProgramCacheKey = () => key;
   mat.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, surfaceUniforms);
+    Object.assign(shader.uniforms, surfaceUniforms, nightSky);
     shader.vertexShader = shader.vertexShader
       .replace('#include <begin_vertex>', `#include <begin_vertex>\nvWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;${bowl ? '\nvBowl = length(uv - 0.5) * 2.0;' : ''}`)
       .replace('#include <common>', `#include <common>\nvarying vec3 vWPos;${bowl ? '\nvarying float vBowl;' : ''}`);
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', `#include <common>\nuniform float uTime; uniform float uNight;\nvarying vec3 vWPos;${bowl ? '\nvarying float vBowl;' : ''}\n${NOISE}\n${GROUND}
+      .replace('#include <common>', `#include <common>\nuniform float uTime; uniform float uNight;\nvarying vec3 vWPos;${bowl ? '\nvarying float vBowl;' : ''}\n${NOISE}\n${GROUND}\n${NIGHT_SKY_GLSL}
 float wv(vec2 p){ return g_n(p * 0.09 + vec2(uTime * 0.04, uTime * 0.025)) * 0.6 + g_n(p * 0.37 - vec2(uTime * 0.11, -uTime * 0.07)) * 0.3 + g_n(p * 1.3 + uTime * 0.2) * 0.1; }
 float caustic(vec2 p){
   vec2 q = p * 0.55 + vec2(uTime * 0.12, uTime * 0.08);
@@ -412,6 +418,8 @@ float wDepth; float wFoam;`)
           col = mix(col, vec3(0.92, 0.95, 0.96), wFoam);
           col += vec3(${glow.toFixed(3)}) * shallowC;
           diffuseColor.rgb = pow(col, vec3(2.2)) * 2.2;
+          // At night water is dark: what shows on it is the sky it mirrors.
+          diffuseColor.rgb *= 1.0 - 0.75 * uNightRefl * (1.0 - wFoam);
         }`)
       .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = mix(roughness, 0.9, wFoam);')
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
@@ -424,6 +432,8 @@ float wDepth; float wFoam;`)
           if (uRain > 0.01) { vec2 rr = rainRings(vWPos.xz, uTime) * uRain * 0.5 * (1.0 - smoothstep(15.0, 45.0, dist)); nw = normalize(nw + vec3(-rr.x, 0.0, -rr.y)); }
           normal = normalize((viewMatrix * vec4(nw, 0.0)).xyz);
         }`);
+    // At night the sky (aurora, moon, stars) is mirrored in the water (skyreflect.js).
+    shader.fragmentShader = shader.fragmentShader.replace('#include <opaque_fragment>', 'outgoingLight += nightMirror(normal) * (1.0 - wFoam);\n#include <opaque_fragment>');
   };
   return mat;
 }

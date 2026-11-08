@@ -161,13 +161,18 @@ export class Forecast {
     const darkGate = smoothstep(A.minDarkness - 0.15, A.minDarkness + 0.15, dark);
     const cloudGate = 1 - smoothstep(A.maxCloud - 0.1, A.maxCloud + 0.04, cloud);
     const cityGate = 1 - city.overhead * A.cityGlowPenalty;
+    // A bright moon up in the sky washes out a faint display, as city light does; a strong one
+    // still shines through.
+    const M = clock.moonPath ? clock.moonPath() : { illum: 0, el: -90, phase: 0 };
+    const moonBright = Math.pow(M.illum, 1.6) * smoothstep(-2, 10, M.el);
+    const moonGate = 1 - moonBright * 0.55 * (1 - smoothstep(4.5, 7, kp));
     const summer = clock.midnightSun;
     const ph = this.phaseAt(clock.gameHours);
     if (this.debugPhase) Object.assign(ph, this.debugPhase); // console: forecast.debugPhase = { phase: 'breakup', breakup: 1 }
     // In the growth phase a faint quiet arc is already there, before Kp has properly risen: a
     // promise of what is coming, if you know to wait for it.
     const arc = ph.promising ? A.growthArcVis * ph.growth : 0;
-    const rawVis = summer ? 0 : Math.max(strength * (1 - 0.35 * ph.diffuse), arc) * darkGate * cityGate;
+    const rawVis = summer ? 0 : Math.max(strength * (1 - 0.35 * ph.diffuse), arc) * darkGate * cityGate * moonGate;
     const vis = rawVis * cloudGate;
 
     // Corona: rare, only at high activity, and only when the sky is properly clear.
@@ -195,7 +200,7 @@ export class Forecast {
     else if (kp >= 4.2) type = TYPES.curtains;
 
     return {
-      kp, cloud, dark, city, vis, rawVis, strength, summer,
+      kp, cloud, dark, city, vis, rawVis, strength, summer, moon: { illum: M.illum, phase: M.phase, el: M.el, bright: moonBright },
       active: vis > A.activeThreshold,
       red, pink, curtains, corona: this.corona.level, type,
       phase: ph.phase, growth: ph.growth, breakup: ph.breakup, diffuse: ph.diffuse, pulse: ph.pulse, promising: ph.promising,

@@ -192,6 +192,7 @@ body.has-touch .fuel-act { left: 50%; }
 #radio-graph { width: 100%; height: auto; display: block; border-radius: var(--r-sm); background: rgba(0, 0, 0, 0.22); }
 .radio-stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin: 0.6rem 0 0; }
 .radio-stats div { display: flex; flex-direction: column; }
+.radio-stats div.wide { grid-column: span 2; }
 .radio-stats dt { font-size: 0.74rem; color: var(--ink-3); }
 .radio-stats dd { margin: 0; font-size: 0.9rem; font-weight: 700; font-variant-numeric: tabular-nums; }
 .radio.is-collapsed .radio-body { display: none; }
