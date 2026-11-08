@@ -291,9 +291,10 @@ export class Jeep {
     // How hard the tyres are working sideways (0 to 1): the cornering load against what this car
     // can hold, a slide (handbrake, wind), or locking up under hard braking at speed. It drives
     // the squeal, the skid marks and the camera's lean.
-    const latAcc = Math.abs((this.yawRate || 0) * this.vF), gripLimit = S.grip * 0.9;
+    // Steering hard for the speed: from full lock at about 40 km/h, or under half lock at 100.
+    const lock = Math.abs(steer), corner = clamp((lock * Math.abs(this.vF) - 7) / 8, 0, 1);
     this.latAcc = air || wet ? 0 : (this.yawRate || 0) * this.vF;
-    this.slip = air || wet || S.bike ? 0 : Math.max(clamp((latAcc - gripLimit * 0.7) / (gripLimit * 0.45), 0, 1), clamp((Math.abs(this.vL) - 1.2) / 3, 0, 1), throttle < 0 && this.vF > 14 ? 0.45 : 0);
+    this.slip = air || wet || S.bike ? 0 : Math.max(corner, clamp((Math.abs(this.vL) - 1.2) / 3, 0, 1), throttle < 0 && this.vF > 7 ? 0.34 + clamp((this.vF - 7) / 15, 0, 0.5) : 0);
     // Parking hold: no throttle and below walking pace means the car is parked. It stops dead,
     // so wind and slopes cannot creep it along (which made the whole world seem to slide).
     // A boat just drifts to a stop.

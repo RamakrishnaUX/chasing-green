@@ -12,7 +12,7 @@ import { carThumbs, resetCarThumbs } from './ui/carthumbs.js';
 import { Props } from './world/props.js';
 import { Towns } from './world/towns.js';
 import { Obstacles } from './world/obstacles.js';
-import { Puddles, Particles, SnowFall, RainFall, Windscreen, SkidMarks } from './world/effects.js';
+import { Puddles, Particles, SnowFall, RainFall, Windscreen, SkidMarks, WetTracks } from './world/effects.js';
 import { MapUI } from './ui/minimap.js';
 import { Cover } from './ui/cover.js';
 import { startAuroraSky } from './ui/auroraSky.js';
@@ -125,7 +125,7 @@ const volumes = settings.volumes || (settings.volumes = { master: 1, music: sett
 audio.setLevels(volumes);
 
 let world = null, sky, aurora, landmarks, jeep, walker, heli, diver, scatter, grass, props, post = null;
-let obstacles, puddles, spray, boatWater, waterFx, washDust, rain, windscreen, skids, trailDust, wetness = 0, forceRain = null, wildlife, dust, powder, powderCloud, mapUI, towns, snow, nav, stations, stationSites = [];
+let obstacles, puddles, spray, boatWater, waterFx, washDust, rain, windscreen, skids, trailDust, wetTracks, tyreWet = [0, 0, 0, 0], tyreLast = [], tyreIn = [], tyreSpray = [], wetness = 0, forceRain = null, wildlife, dust, powder, powderCloud, mapUI, towns, snow, nav, stations, stationSites = [];
 let lastPostState = { aurora: 0, dark: 0 };
 const snowNoise = createNoise2D(4040);
 let wasInPuddle = false, wasInWater = false, shake = 0, sitting = false, sitSpeedBefore = 1, camHeading = null;
@@ -283,8 +283,9 @@ async function buildWorld(progress) {
   snow = new SnowFall(scene, qualityName === 'low' ? 900 : 2200);
   rain = new RainFall(scene, qualityName === 'low' ? 1300 : 2800);
   skids = new SkidMarks(scene);
+  wetTracks = new WetTracks(scene);
   // The dust a car raises off a gravel road: big soft billows that hang and drift.
-  trailDust = new Particles(scene, { count: qualityName === 'low' ? 260 : 600, color: 0xb6a07c, size: 3.2, opacity: 0.17, gravity: -0.08, drag: 0.8 });
+  trailDust = new Particles(scene, { count: qualityName === 'low' ? 500 : 1100, color: 0xb6a07c, size: 6, opacity: 0.26, gravity: -0.12, drag: 0.55, fadeNear: [3.5, 9] });
   windscreen = new Windscreen($('rain-glass'));
   puddles = new Puddles(scene, qualityName === 'low' ? 100 : 180);
   spray = new Particles(scene, { count: qualityName === 'low' ? 260 : 600, color: 0xe6f0f4, size: 0.5, opacity: 0.75, gravity: 9.5, drag: 1.2 });
@@ -2058,7 +2059,7 @@ function vehicleEffects(dt) {
   wasInPool = inPool;
   if (inPool && dt) {
     if (Math.random() < dt * (1.5 + sp * 0.4)) { const [x, z] = wheelsWorld[Math.floor(Math.random() * wheelsWorld.length)]; waterFx.ring(x, pool, z, Math.min(1, 0.35 + sp / 12), { r0: 0.8, speed: 1.4 + sp * 0.15, life: 2.8 }); }
-    if (sp > 1.5) for (const [x, z, side] of wheelsWorld) { const out = Math.sign(side) * (1.2 + sp * 0.08); spray.emit(x, pool + 0.1, z, rx * out - fx * sp * 0.15, 2.2 + sp * 0.12, rz * out - fz * sp * 0.15, Math.ceil(Math.min(1, sp / 15) * 3), 1.4, 0.8); }
+    if (sp > 1.5) for (const [x, z, side] of wheelsWorld) for (let k = Math.ceil(Math.min(1, sp / 15) * 5); k > 0; k--) { const out = Math.sign(side) * (0.5 + sp * 0.1 * Math.random()); waterFx.drops.emit(x, pool + 0.08, z, rx * out + fx * sp * 0.2 * Math.random(), 1 + sp * 0.12 * Math.random(), rz * out + fz * sp * 0.2 * Math.random(), 0.6 + Math.random() * 0.5, 0.15 + Math.random() * 0.35); }
   }
   // Rings: across a puddle from each wheel in it, and over open water from a wading car.
   if (inPuddle && sp > 0.5 && dt) for (const [x, z] of wheelsWorld) if ((!wasPuddleRing || Math.random() < dt * 5) && puddles.at(x, z)) puddles.ripple(x, z, Math.min(1, 0.15 + sp / 18));
@@ -2069,23 +2070,37 @@ function vehicleEffects(dt) {
   }
   wasInPuddle = inPuddle; wasInWater = inWater;
   boatEffects(dt);
-  // Spray from the wheels, thrown out sideways and up.
-  if (inWater && sp > 1.5 && jeep.boat < 0.5) {
-    const amount = Math.min(1, sp / 15) * (0.6 + Math.min(1, jeep.depth));
-    for (const [x, z, side] of wheelsWorld) {
-      const y = waterLevelAt(x, z) + 0.15;
-      const out = Math.sign(side) * (1.2 + sp * 0.08);
-      jeep.root && spray.emit(x, y, z, rx * out - fx * sp * 0.15, 2.5 + sp * 0.12, rz * out - fz * sp * 0.15, Math.ceil(amount * 4), 1.6, 0.8);
+  // Water off the tyres, as water: clusters of droplets thrown out in a fan from each wheel in
+  // it (out to the side, a little forward with the car, up in an arc that falls back), a fine
+  // mist hanging behind at speed, and rings where it is disturbed. In a lake or river it is a
+  // heavy wash; in a puddle it scales with how hard you hit it, from a lip of water pushed aside
+  // at a crawl to a sheet thrown high at speed.
+  const throwWater = (x, z, y, side, k, heavy, n) => {
+    for (let i = 0; i < n; i++) {
+      // Flung off the tyre: fast out to the side (low and flat) or up (steep and short), a little
+      // forward with the car, from the tyre's outer edge so the body does not hide it.
+      const fan = Math.random(), sgn = Math.sign(side) || 1;
+      const out = sgn * (0.8 + sp * (0.16 + 0.3 * fan)) + (Math.random() - 0.5) * 0.8;
+      const fwd = sp * (0.1 + 0.45 * Math.random()), up = (heavy ? 1.5 : 0.7) + sp * (0.1 + 0.26 * (1 - fan)) * (0.6 + Math.random() * 0.6);
+      const ox = x + rx * sgn * 0.25, oz = z + rz * sgn * 0.25;
+      waterFx.splash.emit(ox + (Math.random() - 0.5) * 0.3, y + 0.06, oz + (Math.random() - 0.5) * 0.3, rx * out + fx * fwd, up, rz * out + fz * fwd, 0.5 + k * 0.6, 0.18 + k * (heavy ? 0.6 : 0.45) * (0.6 + Math.random() * 0.8));
     }
-  } else if (inPuddle && sp > 1 && jeep.boat < 0.5) {
-    // A puddle: rolling through slowly the tyres only push a little water aside, low and close;
-    // fast, they throw a sheet of it up and out. Only the wheels actually in the water throw any.
-    for (const [x, z, side] of wheelsWorld) {
-      if (!puddles.at(x, z) || Math.random() > 0.15 + hit * 2) continue;
-      const out = Math.sign(side) * (0.3 + sp * 0.09), up = 0.4 + sp * 0.16;
-      jeep.root && spray.emit(x, heightAt(x, z) + 0.1, z, rx * out - fx * sp * 0.15, up, rz * out - fz * sp * 0.15, Math.ceil(hit * 5), 0.4 + hit * 1.4, 0.3 + hit * 0.6);
+    if (k > 0.35 && Math.random() < k * (heavy ? 0.5 : 0.25)) waterFx.mist.emit(x - fx * 0.6, y + 0.3, z - fz * 0.6, rx * Math.sign(side) * 1.2 - fx * sp * 0.15, 0.5 + Math.random() * 0.5, rz * Math.sign(side) * 1.2 - fz * sp * 0.15, 1.1 + k, 1 + k * 1.6);
+  };
+  // The big throw is the moment a tyre hits the water; after that a steady spray while it runs
+  // through, measured in time, not frames, so a fast pass at a low frame rate still splashes.
+  if (dt && jeep.boat < 0.5) wheelsWorld.forEach(([x, z, side], i) => {
+    const inPud = !inWater && puddles.at(x, z), wet = inWater || inPud;
+    const k = inWater ? Math.min(1, Math.min(1, sp / 14) * (0.6 + Math.min(1, jeep.depth))) : Math.max(0.1, hit);
+    const y = inWater ? waterLevelAt(x, z) : heightAt(x, z) + 0.17;
+    if (wet && sp > 1) {
+      if (!tyreIn[i]) throwWater(x, z, y, side, k, inWater, Math.ceil(6 + k * (inWater ? 60 : 46)));
+      tyreSpray[i] = (tyreSpray[i] || 0) + k * (inWater ? 160 : 110) * dt;
+      const n = Math.floor(tyreSpray[i]); tyreSpray[i] -= n;
+      if (n) throwWater(x, z, y, side, k, inWater, n);
     }
-  }
+    tyreIn[i] = wet;
+  });
   jeep.wadeLevel = jeep.boat > 0.5 ? Math.min(0.8, sp / 16) : inWater ? Math.min(1, jeep.depth * 0.7 + sp / 25) : inPuddle ? Math.min(0.6, sp / 30) : 0;
   // Snow: every wheel throws powder up and out to the side, and it falls back as the car passes,
   // more of it the faster you go.
@@ -2102,10 +2117,22 @@ function vehicleEffects(dt) {
   // you go, hanging in the air and drifting with the wind, the colour of the ground. Not when
   // the ground is wet.
   const dusty = jeep.surface === 'gravel' || jeep.surface === 'sand' || jeep.surface === 'moss';
-  if (!inWater && sp > 4 && dusty && wetness < 0.4 && dt && !jeep.air) {
+  if (!inWater && sp > 3 && dusty && wetness < 0.4 && dt && !jeep.air) {
     trailDust.mat.color.setHex(jeep.surface === 'sand' ? 0x55514c : jeep.surface === 'moss' ? 0x9a9274 : 0xb6a07c);
-    trailCarry += Math.min(1, (sp - 4) / 20) * 28 * (1 - wetness * 2) * dt;
-    for (; trailCarry >= 1; trailCarry--) for (const [x, z] of wheelsWorld.slice(2)) trailDust.emit(x, heightAt(x, z) + 0.35, z, -fx * (1 + sp * 0.12) + (Math.random() - 0.5), 0.5 + Math.random() * 0.6, -fz * (1 + sp * 0.12) + (Math.random() - 0.5), 1, 1.4, 2.4);
+    trailCarry += Math.min(1, (sp - 3) / 14) * 70 * (1 - wetness * 2) * dt;
+    for (; trailCarry >= 1; trailCarry--) for (const [x, z] of wheelsWorld.slice(2)) trailDust.emit(x - fx * 0.6, heightAt(x, z) + 0.5, z - fz * 0.6, -fx * sp * 0.18 + (Math.random() - 0.5) * 1.5, 0.7 + Math.random() * 1.1, -fz * sp * 0.18 + (Math.random() - 0.5) * 1.5, 1, 1.6, 3.4);
+  }
+  // Wet tyres print tracks out of a puddle or the water, fading as each tyre dries (about 14 m),
+  // and the prints themselves dry away over half a minute (WetTracks). Rain wets everything, so
+  // there they would not show.
+  if (dt && jeep.boat < 0.1 && !jeep.air) {
+    const now = performance.now() / 1000;
+    wheelsWorld.forEach(([x, z], i) => {
+      const inIt = puddles.at(x, z) || inWater || inPool;
+      const L = tyreLast[i], moved = L ? Math.hypot(x - L[0], z - L[1]) : 0; tyreLast[i] = [x, z];
+      tyreWet[i] = inIt ? 1 : Math.max(0, tyreWet[i] - moved / 14);
+      if (!inIt && wetness < 0.5) wetTracks.mark(i, x, heightAt(x, z) + (jeep.surface === 'paved' ? 0.17 : 0.06), z, jeep.heading, tyreWet[i] * (jeep.surface === 'paved' ? 1 : 0.6), now);
+    });
   }
   // Skid marks from the rear wheels while the tyres slide: rubber on tarmac, scuffs elsewhere.
   if (jeep.boat < 0.1 && !jeep.air && dt) wheelsWorld.slice(2).forEach(([x, z], i) => skids.mark(i, x, heightAt(x, z) + (jeep.surface === 'paved' ? 0.17 : 0.05), z, jeep.heading, jeep.slip || 0, jeep.surface === 'paved'));
@@ -2312,6 +2339,7 @@ function frame(now) {
   wetness = clamp(wetness + (R > 0.05 ? dt / 25 : -dt / 200), 0, 1);
   surfaceUniforms.uRain.value = R; surfaceUniforms.uWet.value = wetness;
   puddles.update(t, R);
+  wetTracks.update(performance.now() / 1000);
   if (R > 0.02) { sky.fog.density += R * 0.0007; sky.fog.color.lerp(new THREE.Color(0x8d969e), R * 0.35); }
   windscreen.update(paused ? 0 : dt, R, jeep.speed, inside && ride === 'car' && jeep.boat < 0.5 && started);
   // Up in the helicopter the air between you and the land thins out: the haze is in the lowest
@@ -2535,7 +2563,7 @@ window.chasingGreen = {
   get kerid() { return KERID; },
   // Make it rain (0 to 1), or null to let the weather decide.
   set rain(v) { forceRain = v; }, get rain() { return rain?.intensity || 0; }, get wetness() { return wetness; }, set wetness(v) { wetness = v; },
-  poolAt: (x, z) => poolAt(x, z), get pools() { return poolSurfaces; },
+  poolAt: (x, z) => poolAt(x, z), get pools() { return poolSurfaces; }, get skids() { return skids; }, get wetTracks() { return wetTracks; }, get waterFx() { return waterFx; },
   get bridges() { return bridges; },
   get jumps() { return JUMPS; },
   // Debug switches for tracking down rendering problems.

@@ -21,7 +21,9 @@ function softSprite() {
 
 // A pool of simple particles with gravity and drag, drawn as soft sprites.
 export class Particles {
-  constructor(scene, { count = 500, color = 0xffffff, size = 0.5, opacity = 0.6, gravity = 9, drag = 1.5 }) {
+  // fadeNear: [from, to] metres from the eye over which particles fade in, so a cloud the camera
+  // sits in does not cover the view.
+  constructor(scene, { count = 500, color = 0xffffff, size = 0.5, opacity = 0.6, gravity = 9, drag = 1.5, fadeNear = null }) {
     this.n = count;
     this.pos = new Float32Array(count * 3);
     this.vel = new Float32Array(count * 3);
@@ -33,6 +35,12 @@ export class Particles {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3));
     this.mat = new THREE.PointsMaterial({ color, size, map: softSprite(), transparent: true, opacity, depthWrite: false, sizeAttenuation: true });
+    if (fadeNear) this.mat.onBeforeCompile = (sh) => {
+      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying float vNear;')
+        .replace('#include <fog_vertex>', `#include <fog_vertex>\nvNear = smoothstep(${fadeNear[0].toFixed(1)}, ${fadeNear[1].toFixed(1)}, -mvPosition.z);`);
+      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vNear;')
+        .replace('#include <premultiplied_alpha_fragment>', 'gl_FragColor.a *= vNear;\n#include <premultiplied_alpha_fragment>');
+    };
     this.points = new THREE.Points(g, this.mat);
     this.points.frustumCulled = false;
     for (let i = 0; i < count; i++) this.pos[i * 3 + 1] = -9999;
@@ -403,7 +411,7 @@ export class SkidMarks {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3));
     g.setAttribute('color', new THREE.BufferAttribute(this.col, 4));
-    this.mesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -5, polygonOffsetUnits: -5 }));
+    this.mesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -5, polygonOffsetUnits: -5 }));
     this.mesh.frustumCulled = false; this.mesh.renderOrder = 1; this.mesh.userData.noAO = true;
     scene.add(this.mesh);
     this.next = 0; this.used = 0; this.last = new Map();
@@ -414,7 +422,7 @@ export class SkidMarks {
     if (s < 0.25) { this.last.delete(key); return; }
     if (!L) { this.last.set(key, { x, y, z, h }); return; }
     if (Math.hypot(x - L.x, z - L.z) < 0.35) return;
-    if (Math.hypot(x - L.x, z - L.z) > 4) { this.last.set(key, { x, y, z, h }); return; }
+    if (Math.hypot(x - L.x, z - L.z) > 12) { this.last.set(key, { x, y, z, h }); return; }
     const w = 0.13, ax = Math.cos(L.h) * w, az = -Math.sin(L.h) * w, bx = Math.cos(h) * w, bz = -Math.sin(h) * w;
     const q = [[L.x - ax, L.y, L.z - az], [L.x + ax, L.y, L.z + az], [x + bx, y, z + bz], [L.x - ax, L.y, L.z - az], [x + bx, y, z + bz], [x - bx, y, z - bz]];
     const i = this.next, a = Math.min(0.75, s) * (paved ? 0.8 : 0.4), c = paved ? 0.02 : 0.32;
@@ -424,5 +432,57 @@ export class SkidMarks {
     g.setDrawRange(0, this.used * 6);
     g.attributes.position.needsUpdate = g.attributes.color.needsUpdate = true;
     this.last.set(key, { x, y, z, h });
+  }
+}
+
+// ---------- Wet tyre tracks ----------
+// Out of a puddle or the water, each tyre prints a dark wet track on the road that thins as the
+// tyre dries over the next dozen metres or so, and the whole track dries away over half a minute.
+const WET_MAX = 1200;
+export class WetTracks {
+  constructor(scene) {
+    this.pos = new Float32Array(WET_MAX * 6 * 3); this.born = new Float32Array(WET_MAX * 6).fill(-1e4); this.wet = new Float32Array(WET_MAX * 6);
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3));
+    g.setAttribute('aBorn', new THREE.BufferAttribute(this.born, 1));
+    g.setAttribute('aWet', new THREE.BufferAttribute(this.wet, 1));
+    this.uniforms = THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uTime: { value: 0 } }]);
+    this.mesh = new THREE.Mesh(g, new THREE.ShaderMaterial({
+      uniforms: this.uniforms,
+      vertexShader: `attribute float aBorn; attribute float aWet; uniform float uTime; varying float vA;
+        #include <fog_pars_vertex>
+        void main() { vec4 mvPosition = modelViewMatrix * vec4(position, 1.0); gl_Position = projectionMatrix * mvPosition;
+          vA = aWet * (1.0 - smoothstep(4.0, 30.0, uTime - aBorn));
+          #include <fog_vertex>
+        }`,
+      fragmentShader: `varying float vA;
+        #include <fog_pars_fragment>
+        void main() { if (vA < 0.004) discard; gl_FragColor = vec4(0.0, 0.0, 0.0, vA * 0.42);
+          #include <fog_fragment>
+        }`,
+      transparent: true, depthWrite: false, fog: true, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -5, polygonOffsetUnits: -5,
+    }));
+    this.mesh.frustumCulled = false; this.mesh.renderOrder = 1; this.mesh.userData.noAO = true;
+    scene.add(this.mesh);
+    this.next = 0; this.used = 0; this.last = new Map();
+  }
+  update(t) { this.uniforms.uTime.value = t; }
+  // Wheel key at (x, y, z), heading h, how wet the tyre still is (0 to 1), now t (seconds).
+  mark(key, x, y, z, h, wet, t) {
+    const L = this.last.get(key);
+    if (wet < 0.03) { this.last.delete(key); return; }
+    if (!L) { this.last.set(key, { x, y, z, h, wet }); return; }
+    const d = Math.hypot(x - L.x, z - L.z);
+    if (d < 0.4) return;
+    if (d > 12) { this.last.set(key, { x, y, z, h, wet }); return; }
+    const w = 0.14, ax = Math.cos(L.h) * w, az = -Math.sin(L.h) * w, bx = Math.cos(h) * w, bz = -Math.sin(h) * w;
+    const q = [[L.x - ax, L.y, L.z - az, L.wet], [L.x + ax, L.y, L.z + az, L.wet], [x + bx, y, z + bz, wet], [L.x - ax, L.y, L.z - az, L.wet], [x + bx, y, z + bz, wet], [x - bx, y, z - bz, wet]];
+    const i = this.next;
+    q.forEach((v, k) => { const o = i * 6 + k; this.pos.set([v[0], v[1], v[2]], o * 3); this.wet[o] = v[3]; this.born[o] = t; });
+    this.next = (this.next + 1) % WET_MAX; this.used = Math.min(WET_MAX, this.used + 1);
+    const g = this.mesh.geometry;
+    g.setDrawRange(0, this.used * 6);
+    g.attributes.position.needsUpdate = g.attributes.aBorn.needsUpdate = g.attributes.aWet.needsUpdate = true;
+    this.last.set(key, { x, y, z, h, wet });
   }
 }

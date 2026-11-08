@@ -6,6 +6,20 @@ import { Spray, dropTexture, mistTexture } from '../vehicle/boat.js';
 
 const MAX_RINGS = 48;
 
+// Thrown water up close: crisp separate droplets, each a bright bead with a darker rim, and no
+// soft glow behind them (that glow is what made a clump of spray read as a puff of steam).
+function splashTexture() {
+  const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
+  for (let i = 0; i < 34; i++) {
+    const r = Math.pow(Math.random(), 0.7) * 26, a = Math.random() * Math.PI * 2, s = 0.7 + Math.random() * 1.9;
+    const x = 32 + Math.cos(a) * r, y = 32 + Math.sin(a) * r;
+    const gr = g.createRadialGradient(x - s * 0.3, y - s * 0.3, 0, x, y, s);
+    gr.addColorStop(0, 'rgba(255,255,255,0.95)'); gr.addColorStop(0.55, 'rgba(225,236,242,0.75)'); gr.addColorStop(0.85, 'rgba(120,140,150,0.5)'); gr.addColorStop(1, 'rgba(120,140,150,0)');
+    g.fillStyle = gr; g.fillRect(x - s, y - s, s * 2, s * 2);
+  }
+  return new THREE.CanvasTexture(c);
+}
+
 // Ripple rings: one instanced quad each, drawn as a wave front (a bright crest with a dark
 // trough just inside it) that widens, softens and fades as it spreads.
 function ringMaterial() {
@@ -102,8 +116,10 @@ export class WaterFx {
     this.wash = new THREE.Mesh(new THREE.CircleGeometry(1, 64).rotateX(-Math.PI / 2), washMaterial());
     this.wash.visible = false; this.wash.renderOrder = 2; this.wash.userData.noAO = true;
     scene.add(this.wash);
-    this.drops = new Spray(scene, { count: low ? 300 : 700, map: dropTexture(), opacity: 0.9, gravity: 9.8, drag: 0.9, grow: 1.2 });
+    this.drops = new Spray(scene, { count: low ? 600 : 1400, map: dropTexture(), opacity: 0.9, gravity: 9.8, drag: 0.9, grow: 1.2 });
     this.mist = new Spray(scene, { count: low ? 160 : 360, map: mistTexture(), opacity: 0.1, gravity: -0.15, drag: 1.4, grow: 2.2 });
+    // Water thrown by tyres: falls fast, barely spreads.
+    this.splash = new Spray(scene, { count: low ? 700 : 1600, map: splashTexture(), opacity: 0.95, gravity: 9.8, drag: 0.6, grow: 0.5 });
     this.carry = { ring: 0, mist: 0, drop: 0 };
   }
 
@@ -122,7 +138,7 @@ export class WaterFx {
     const m = this.rings.material.uniforms; m.uTime.value = this.time; m.uLight.value = light;
     const scale = heightPx / (2 * Math.tan((camera.fov * Math.PI) / 360));
     const c = new THREE.Color(0xf2f6f7).multiplyScalar(light);
-    for (const s of [this.drops, this.mist]) { s.mat.uniforms.uScale.value = scale; s.mat.uniforms.color.value.copy(c); }
+    for (const s of [this.drops, this.mist, this.splash]) { s.mat.uniforms.uScale.value = scale; s.mat.uniforms.color.value.copy(c); }
     const W = this.wash.material.uniforms;
     const target = wash ? wash.strength : 0;
     W.uStrength.value += (target - W.uStrength.value) * Math.min(1, dt * 3);
@@ -143,6 +159,6 @@ export class WaterFx {
         this.drops.emit(wash.x + Math.cos(a) * rr, y + 0.1, wash.z + Math.sin(a) * rr, Math.cos(a) * out, 0.8 + Math.random() * 1.6, Math.sin(a) * out, 0.5 + Math.random() * 0.4, 0.18 + Math.random() * 0.22);
       }
     }
-    this.drops.update(dt); this.mist.update(dt);
+    this.drops.update(dt); this.mist.update(dt); this.splash.update(dt);
   }
 }
