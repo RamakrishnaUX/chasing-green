@@ -74,7 +74,7 @@ export class Mirrors {
   update(renderer, scene, camera, body, on) {
     if (scene.fog) uniforms.uSky.value.copy(scene.fog.color);
     uniforms.uLive.value = on ? 1 : 0;
-    if (!on || this.frame++ % this.every) return;
+    if (!on || this.frame++ % (this.every + (this.extra || 0))) return;
     const cam = this.cam;
     cam.position.copy(camera.position);
     cam.quaternion.copy(body.getWorldQuaternion(this.q)); // a camera looks down -z: out of the back

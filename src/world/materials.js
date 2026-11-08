@@ -22,6 +22,7 @@ export const surfaceUniforms = {
   uNight: { value: 0 },
   // Rain: how hard it is falling now (0 to 1), and how wet the ground is (it lags the rain).
   uRain: { value: 0 },
+  uSurfPatch: { value: new THREE.Vector3() }, // where the surf patch (surf.js) is drawn over the sea: x, z, half size
   uWet: { value: 0 },
   // Winter on the roads (0 to 1): packed snow, ploughed banks and patches of ice.
   uRoadSnow: { value: 0 },
@@ -376,12 +377,12 @@ float groundAt(vec2 p){
 // moving caustic light in the shallows, foam where it meets the shore, sky reflections on top.
 export function createWaterMaterial(color, {
   roughness = 0.08, ripple = 1, shallow = [0.2, 0.46, 0.45], deep = [0.012, 0.05, 0.075],
-  clarity = 0.55, foam = 1, depthAware = true, glow = 0, bowl = 0,
+  clarity = 0.55, foam = 1, depthAware = true, glow = 0, bowl = 0, surf = false,
 } = {}) {
   const mat = new THREE.MeshStandardMaterial({ color, roughness, metalness: 0, envMapIntensity: 1.0 });
   mat.userData.water = true; // found by waterSurfaces (main.js): rings, splashes and rotor wash on it
   // Each set of options writes a different shader, so each needs its own compiled program.
-  const key = `water-${[roughness, ripple, shallow, deep, clarity, foam, depthAware, glow, bowl].join('|')}`;
+  const key = `water-${[roughness, ripple, shallow, deep, clarity, foam, depthAware, glow, bowl, surf].join('|')}`;
   mat.customProgramCacheKey = () => key;
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, surfaceUniforms, nightSky);
@@ -389,7 +390,7 @@ export function createWaterMaterial(color, {
       .replace('#include <begin_vertex>', `#include <begin_vertex>\nvWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;${bowl ? '\nvBowl = length(uv - 0.5) * 2.0;' : ''}`)
       .replace('#include <common>', `#include <common>\nvarying vec3 vWPos;${bowl ? '\nvarying float vBowl;' : ''}`);
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', `#include <common>\nuniform float uTime; uniform float uNight;\nvarying vec3 vWPos;${bowl ? '\nvarying float vBowl;' : ''}\n${NOISE}\n${GROUND}\n${NIGHT_SKY_GLSL}
+      .replace('#include <common>', `#include <common>\nuniform float uTime; uniform float uNight;${surf ? ' uniform vec3 uSurfPatch;' : ''}\nvarying vec3 vWPos;${bowl ? '\nvarying float vBowl;' : ''}\n${NOISE}\n${GROUND}\n${NIGHT_SKY_GLSL}
 float wv(vec2 p){ return g_n(p * 0.09 + vec2(uTime * 0.04, uTime * 0.025)) * 0.6 + g_n(p * 0.37 - vec2(uTime * 0.11, -uTime * 0.07)) * 0.3 + g_n(p * 1.3 + uTime * 0.2) * 0.1; }
 float caustic(vec2 p){
   vec2 q = p * 0.55 + vec2(uTime * 0.12, uTime * 0.08);
@@ -414,7 +415,9 @@ float wDepth; float wFoam;`)
           float bands = 0.5 + 0.5 * sin(wDepth * 9.0 - uTime * 1.6 + g_n(vWPos.xz * 0.3) * 6.0);
           float brk = smoothstep(0.35, 0.75, g_n(vWPos.xz * 1.1 + uTime * 0.15));
           wFoam = ${foam.toFixed(2)} * clamp(edge * (0.55 + 0.45 * bands) * mix(0.5, 1.0, brk) + edge * edge * 0.6, 0.0, 1.0);
-          wFoam *= 1.0 - smoothstep(150.0, 450.0, dist);
+          wFoam *= 1.0 - smoothstep(150.0, 450.0, dist);${surf ? `
+          // Where the surf is drawn over the sea, its breaking waves take over from this foam.
+          if (uSurfPatch.z > 0.0) { vec2 so = abs(vWPos.xz - uSurfPatch.xy); wFoam *= smoothstep(uSurfPatch.z * 0.55, uSurfPatch.z * 0.85, max(so.x, so.y)); }` : ''}
           col = mix(col, vec3(0.92, 0.95, 0.96), wFoam);
           col += vec3(${glow.toFixed(3)}) * shallowC;
           diffuseColor.rgb = pow(col, vec3(2.2)) * 2.2;

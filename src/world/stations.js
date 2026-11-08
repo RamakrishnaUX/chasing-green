@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { toWorld } from './geo.js';
+import { WashBrushes } from './washbrush.js';
 import { roadPaths, heightAt, waterLevelAt, coastAt, roadDistAt } from './terrain.js';
 
 // Fuel stations on the Ring Road, one by each of six towns, so a full tank always reaches the next.
@@ -95,16 +96,6 @@ function washSignTexture() {
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
   return t;
 }
-// Bristles: soft blue and white streaks running round the brush, so the spin shows.
-function brushTexture() {
-  const c = document.createElement('canvas'); c.width = 256; c.height = 64;
-  const g = c.getContext('2d');
-  g.fillStyle = '#2a63a8'; g.fillRect(0, 0, 256, 64);
-  for (let i = 0; i < 90; i++) { const x = Math.random() * 256; g.fillStyle = Math.random() < 0.3 ? 'rgba(235,240,245,0.75)' : `rgba(${20 + Math.random() * 40},${70 + Math.random() * 50},${150 + Math.random() * 60},0.8)`; g.fillRect(x, 0, 1 + Math.random() * 3, 64); }
-  for (let k = 0; k < 4; k++) { g.fillStyle = 'rgba(20,30,40,0.25)'; g.fillRect(k * 64 + 30, 0, 4, 64); }
-  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  return t;
-}
 function poolTexture() {
   const c = document.createElement('canvas');
   c.width = c.height = 128;
@@ -115,7 +106,7 @@ function poolTexture() {
 }
 
 export class Stations {
-  constructor(scene, sites, { obstacles = null } = {}) {
+  constructor(scene, sites, { obstacles = null, low = false } = {}) {
     this.list = sites;
     const parts = { white: [], teal: [], concrete: [], asphalt: [], dark: [], steel: [], glass: [], panel: [], sign: [], pool: [], washSign: [] };
     const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), v = new THREE.Vector3(), sc = new THREE.Vector3();
@@ -208,21 +199,8 @@ export class Stations {
       if (k === 'pool') mesh.renderOrder = 2;
       scene.add(mesh);
     }
-    // The brushes: two upright either side and one across the top, each a bristled cylinder
-    // that spins while a car is in the wash.
-    const bristle = new THREE.MeshStandardMaterial({ map: brushTexture(), roughness: 0.95 });
-    this.brushes = [];
-    for (const s of sites) {
-      const g = new THREE.Group(), p = stationPoint(s, WASH.u, WASH.w);
-      g.position.set(p.x, s.y, p.z); g.rotation.y = s.heading;
-      const side = new THREE.CylinderGeometry(0.42, 0.42, 2.5, 18, 1, true), top = new THREE.CylinderGeometry(0.36, 0.36, WASH.gap * 2 - 0.5, 18, 1, true);
-      const parts2 = [];
-      for (const du of [-1.85, 1.85]) { const m = new THREE.Mesh(side, bristle); m.position.set(du, 1.35, -0.4); parts2.push({ m, axis: 'y', dir: Math.sign(du) }); g.add(m); }
-      const t = new THREE.Mesh(top, bristle); t.rotation.z = Math.PI / 2; t.position.set(0, 2.35, 0.6); parts2.push({ m: t, axis: 'top', dir: 1 }); g.add(t);
-      for (const b of parts2) { b.m.castShadow = true; b.m.receiveShadow = true; }
-      scene.add(g);
-      this.brushes.push({ s, parts: parts2, spin: 0 });
-    }
+    // The brushes: strips on spinning shafts (washbrush.js), one set moved to the wash in sight.
+    this.brushes = new WashBrushes(scene, { low });
     this.washMat = mats.washSign;
   }
 
@@ -237,12 +215,14 @@ export class Stations {
   }
   // Where water sprays from in a wash: the bar and the brushes, in world space.
   washPoints(s) { return [-1.6, -0.6, 0.6, 1.6].map((du) => ({ ...stationPoint(s, WASH.u + du, WASH.w + 1.2), y: s.y + 2.7 })); }
-  updateWash(dt, active) {
-    for (const b of this.brushes) {
-      const on = active && active.s === b.s;
-      b.spin += ((on ? 9 : 0) - b.spin) * Math.min(1, dt * (on ? 2 : 0.7));
-      for (const p of b.parts) { if (p.axis === 'y') p.m.rotation.y += b.spin * p.dir * dt; else p.m.rotation.x += b.spin * dt; }
-    }
+  // Each frame: brushes at the wash nearest the eye (within sight), spinning while the car is in
+  // it and folding against the car's body. emit(x, y, z, vx, vy, vz): water flung off them.
+  updateWash(dt, active, { t, eye, body, emit }) {
+    let near = null, bd = 110;
+    for (const s of this.list) { const p = stationPoint(s, WASH.u, WASH.w), d = Math.hypot(p.x - eye.x, p.z - eye.z); if (d < bd) { bd = d; near = s; } }
+    const at = near && { ...stationPoint(near, WASH.u, WASH.w), y: near.y, heading: near.heading, s: near };
+    if (at && this.brushAt?.s === near) Object.assign(this.brushAt, at); else this.brushAt = at;
+    this.brushes.update(dt, t, this.brushAt, active, body, emit);
   }
 
   // The station nearest a point, with its straight-line distance.

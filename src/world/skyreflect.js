@@ -37,19 +37,23 @@ export class SkyReflection {
     for (const c of this.cam.children) c.layers.set(SKY_LAYER);
     nightSky.uNightSky.value = this.rt.texture;
     this.next = 0; this.primed = false;
+    // Set by the governor (perf.js): faces redrawn per update (0: the reflection is off), and how
+    // many frames apart.
+    this.faces = 2; this.every = 1; this.n = 0;
   }
   // Each frame: where the eye is, and how strongly the night sky shows in the water (0 by day).
   update(scene, position, strength) {
-    if (this.off) strength = 0; // testing: chasingGreen.skyRefl.off = true
+    if (this.off || !this.faces) strength = 0; // testing: chasingGreen.skyRefl.off = true
     nightSky.uNightRefl.value = strength;
     if (strength < 0.01) { this.primed = false; return; }
+    if (this.primed && this.n++ % this.every) return;
     const r = this.renderer, prev = r.getRenderTarget(), auto = r.shadowMap.autoUpdate;
     r.shadowMap.autoUpdate = false;
     this.cam.position.copy(position);
     this.cam.updateMatrixWorld();
     if (!this.primed) { this.cam.update(r, scene); this.primed = true; } // all six the first time (sets the faces up too)
     else {
-      for (let k = 0; k < 2; k++) {
+      for (let k = 0; k < this.faces; k++) {
         const i = FACES[this.next]; this.next = (this.next + 1) % FACES.length;
         r.setRenderTarget(this.rt, i);
         r.render(scene, this.cam.children[i]);

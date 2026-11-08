@@ -43,6 +43,8 @@ import { Skydiver, MIN_JUMP, fitGear, bonesOf } from './vehicle/skydiver.js';
 import { solidTopAt } from './world/solids.js';
 import { BoatWater } from './vehicle/boat.js';
 import { WaterFx } from './world/waterfx.js';
+import { Surf } from './world/surf.js';
+import { Governor, LEVELS } from './perf.js';
 import { PhotoMode } from './ui/photomode.js';
 import { Wildlife, WILDLIFE_NOTES } from './world/wildlife.js';
 import { Input } from './vehicle/input.js';
@@ -75,7 +77,6 @@ const qualityFor = (name) => {
   const q = weakDevice && name === 'low' ? { ...CONFIG.quality.low, ...LITE } : CONFIG.quality[name];
   return wantHD && name === 'medium' ? { ...q, pixelRatio: Math.min(q.pixelRatio, 1) } : q;
 };
-const FRAME_GAP = isTouch ? 1000 / 30 : 0;
 // settings.autoQuality: where the game stepped itself down on this device last time, so a slow
 // machine starts there instead of struggling (and being told so) on every visit.
 let qualityName = settings.quality || settings.autoQuality || (isTouch ? 'low' : CONFIG.defaultQuality);
@@ -129,6 +130,7 @@ audio.setLevels(volumes);
 let world = null, sky, aurora, landmarks, jeep, walker, heli, diver, scatter, grass, props, post = null;
 let obstacles, puddles, spray, boatWater, waterFx, washDust, rain, windscreen, skids, trailDust, wetTracks, tyreWet = [0, 0, 0, 0], tyreLast = [], tyreIn = [], tyreSpray = [], wetness = 0, forceRain = null, forceSnow = null, roadSnow = 0, iceWarned = false, wildlife, dust, powder, powderCloud, mapUI, towns, snow, nav, stations, stationSites = [];
 let lastPostState = { aurora: 0, dark: 0 };
+let surfFx = null, surfWet = 0, sneakerSeen = false;
 const snowNoise = createNoise2D(4040);
 let wasInPuddle = false, wasInWater = false, shake = 0, sitting = false, sitSpeedBefore = 1, camHeading = null;
 let started = false;
@@ -156,11 +158,8 @@ const startGameHours = clock.gameHours;
 const startNight = clock.nightIndex;
 let fpsAcc = 0, fpsFrames = 0, autoDowngraded = false, boostGlowOn = false, coverWarmFrames = 3;
 
-// Dynamic resolution: a share of the quality preset's pixel ratio. It drops a step while frames
-// run long and climbs back once there is room, but not within 20 s of a drop, so it settles
-// instead of flickering between sizes.
-const RES_MIN = 0.6;
-let resScale = 1, lastResDrop = -Infinity;
+// Dynamic resolution: a share of the quality preset's pixel ratio, set by the governor below.
+let resScale = 1;
 function applyPixelRatio() {
   // Never below 0.55 of a CSS pixel, so even the weakest phone stays sharp enough to read.
   renderer.setPixelRatio(Math.max(Math.min(devicePixelRatio, 0.55), Math.min(devicePixelRatio, Q.pixelRatio) * resScale));
@@ -187,17 +186,21 @@ function holdFrame(change) {
   const wait = () => { if (++n < 6) { requestAnimationFrame(wait); return; } o.classList.add('is-gone'); setTimeout(() => { o.remove(); frameHold = null; }, 450); };
   requestAnimationFrame(wait);
 }
-function adaptResolution(fps) {
-  const now = performance.now();
-  if (fps < (isTouch ? 26 : 48) && resScale > RES_MIN) {
-    resScale = Math.max(RES_MIN, Math.round((resScale - 0.15) * 100) / 100);
-    lastResDrop = now;
-    holdFrame(applyPixelRatio);
-  } else if (fps > (isTouch ? 29 : 57) && resScale < 1 && now - lastResDrop > 20000) {
-    resScale = Math.min(1, Math.round((resScale + 0.1) * 100) / 100);
-    holdFrame(applyPixelRatio);
-  }
-}
+// Smoothness and battery (perf.js): sheds and restores work as frames run long or have room, and
+// sets the frame cap. lastInput: when you last touched anything, so a parked car watching the sky
+// can drop to 30 frames a second.
+let shadowEvery = 1, frameN = 0, lastInput = performance.now();
+for (const ev of ['pointerdown', 'pointermove', 'keydown', 'wheel', 'touchstart']) addEventListener(ev, () => { lastInput = performance.now(); }, { passive: true, capture: true });
+const governor = new Governor({ touch: isTouch, apply: (level, why) => {
+  const L = LEVELS[level];
+  if (resScale !== L.res) { resScale = L.res; holdFrame(applyPixelRatio); }
+  if (skyRefl) { skyRefl.faces = L.sky; skyRefl.every = L.skyEvery; }
+  mirrors.extra = L.mirrors;
+  shadowEvery = L.shadowEvery;
+  aurora?.setSteps(auroraSteps());
+  track('graphics_governor', { level, why, fps: Math.round(governor.fps) });
+} });
+const auroraSteps = () => Math.max(4, Math.round(Q.auroraSteps * LEVELS[governor.level].aurora));
 
 // ---------- Build world ----------
 // Built in stages so the Start button can fill as it goes. Before each stage the bar is sent
@@ -240,6 +243,7 @@ async function buildWorld(progress) {
   sky = new Sky(scene, { shadowSize: Q.shadowSize, renderer });
   // The night sky (aurora, moon, stars) as the water mirrors it.
   skyRefl = new SkyReflection(renderer, qualityName === 'low' ? 64 : 128);
+  skyRefl.faces = LEVELS[governor.level].sky; skyRefl.every = LEVELS[governor.level].skyEvery;
   if (HD.on) sky.light = { env: 0.55, hemi: 0.5, sun: 1.3 };
   aurora = new Aurora(scene, Q.auroraSteps);
   await stage('Placing landmarks', 0.67, 220);
@@ -282,7 +286,7 @@ async function buildWorld(progress) {
   props = new Props(scene, { farms: qualityName === 'low' ? 14 : 26, landmarks: landmarks.list, keepClear: [START, ...stationSites], obstacles });
   // Realistic look: scanned detail on landmark and prop surfaces (not town houses, cars or people).
   if (HD.on) detailScene(scene);
-  stations = new Stations(scene, stationSites, { obstacles });
+  stations = new Stations(scene, stationSites, { obstacles, low: qualityName === 'low' });
   towns = new Towns(scene, { landmarks: landmarks.list, obstacles, scale: qualityName === 'low' ? 0.6 : 1, clear: stationSites.map((st) => ({ x: st.pad.x, z: st.pad.z, r: 34 })).concat(landmarks.list.filter((l) => l.kind === 'stadium').map((l) => ({ x: l.x, z: l.z, r: 84 }))) });
   snow = new SnowFall(scene, qualityName === 'low' ? 900 : 2200);
   rain = new RainFall(scene, qualityName === 'low' ? 1300 : 2800);
@@ -298,6 +302,7 @@ async function buildWorld(progress) {
   bathSteam = new Particles(scene, { count: qualityName === 'low' ? 90 : 200, color: 0xeef2f4, size: 1.8, opacity: 0.06, gravity: -0.12, drag: 0.9, fadeNear: [0.8, 2.6] });
   boatWater = new BoatWater(scene, { low: qualityName === 'low' });
   waterFx = new WaterFx(scene, { low: qualityName === 'low' });
+  surfFx = new Surf(scene, { low: qualityName === 'low' });
   wildlife = new Wildlife(scene, { low: qualityName === 'low' });
   // The rotor's dust: bigger, thicker billows than a car's.
   washDust = new Particles(scene, { count: qualityName === 'low' ? 260 : 600, color: 0xbfa77f, size: 5.5, opacity: 0.16, gravity: -0.12, drag: 0.9 });
@@ -1192,7 +1197,7 @@ function toggleRecording() {
 const settingsDialog = $('settings');
 function openSettings() {
   $('quick-walk').textContent = mode === 'sky' ? 'In the air' : mode === 'walk' ? (afterJump && ride === 'heli' && !heliBeside() ? 'Call helicopter' : 'Get in') : 'Step out';
-  $('set-quality').value = qualityName;
+  $('set-quality').value = settings.quality ? qualityName : 'auto';
   $('set-month').value = String(clock.month);
   $('set-speed').value = String(clock.speed);
   $('set-rocks').value = settings.rocks || 'normal';
@@ -1281,12 +1286,18 @@ $('set-haptics').addEventListener('change', (e) => {
   haptics.enabled = settings.haptics !== 'off';
   haptics.play('medium');
 });
-$('set-quality').addEventListener('change', (e) => { holdFrame(() => setQuality(e.target.value, true)); track('setting_change', { setting: 'graphics', setting_value: e.target.value }); });
+$('set-quality').addEventListener('change', (e) => { holdFrame(() => (e.target.value === 'auto' ? autoQuality() : setQuality(e.target.value, true))); track('setting_change', { setting: 'graphics', setting_value: e.target.value }); });
+// Auto: back to the quality the game picks for this device, with the governor keeping it smooth.
+function autoQuality() {
+  delete settings.quality; delete settings.autoQuality; autoDowngraded = false; governor.exhausted = false;
+  store.save();
+  setQuality(isTouch ? 'low' : CONFIG.defaultQuality, false);
+}
 function setQuality(name, save) {
   qualityName = name; Q = qualityFor(name);
   renderer.setPixelRatio(Math.min(devicePixelRatio, Q.pixelRatio) * resScale);
   renderer.setSize(innerWidth, innerHeight, false);
-  aurora?.setSteps(Q.auroraSteps);
+  aurora?.setSteps(auroraSteps());
   camera.far = Q.far || 3000; camera.updateProjectionMatrix();
   if (world) {
     if (Q.post && !post) post = new Post(renderer, scene, camera, { ao: !!Q.ao, samples: Q.msaa ?? 4 });
@@ -1624,7 +1635,7 @@ function carWash(dt, sp) {
     carDirt.saved = carDirt.dirt; store.save();
   }
   washing = W;
-  stations.updateWash(dt, W);
+  stations.updateWash(dt, W, { t: clock.realSeconds, eye: camera.position, body: ride === 'car' ? jeep.body : null, emit: (x, y, z, vx, vy, vz) => spray.emit(x, y, z, vx, vy, vz, 1, 0.4, 0.5) });
   if (!W) return;
   const slow = clamp(1.5 - sp / 5, 0.3, 1);
   carDirt.dirt = Math.max(0, carDirt.dirt - dt * 1.1 * slow);
@@ -1645,6 +1656,41 @@ function footprints() {
   footStep = step;
   const h = walker.heading, side = step ? 1 : -1, x = walker.pos.x + Math.cos(h) * 0.11 * side, z = walker.pos.z - Math.sin(h) * 0.11 * side;
   if (onSnow(x, z)) snowTracks.foot(x, walker.groundAt(x, z) + 0.03, z, h, performance.now() / 1000);
+}
+
+// ---------- Surf ----------
+// Waves running up the beach (surf.js): a splash round your feet or the tyres when one reaches
+// you, and the first time a sneaker wave does, a word of warning. A sneaker wave catching you on
+// foot shoves you up the beach as it comes in and tugs you down it as it slides back.
+function surfUpdate(dt) {
+  if (!surfFx) return;
+  surfFx.update(dt, camera.position, coastAt(camera.position.x, camera.position.z));
+  if (!dt || !started) return;
+  const p = mode === 'walk' ? walker.pos : ride === 'car' && mode === 'chase' && jeep.boat < 0.1 ? jeep.pos : null;
+  if (!p || coastAt(p.x, p.z) > 70) { surfWet = 0; return; }
+  const w = surfFx.waterAt(p.x, p.z);
+  if (w.sheet < 0.02) { surfWet = 0; return; }
+  const y = heightAt(p.x, p.z) + Math.min(0.14, w.sheet * 0.6), foot = mode === 'walk';
+  if (!surfWet) {
+    audio.splash(Math.min(0.45, 0.1 + w.sheet * 0.5), 'puddle'); haptics.play(w.big ? 'heavy' : 'light');
+    waterFx.ring(p.x, y, p.z, 0.5, { r0: foot ? 0.3 : 1, speed: 1.4, life: 2 });
+  }
+  surfWet = 1;
+  const r = foot ? 0.22 : 1.1;
+  for (let k = Math.floor(dt * (w.up ? 36 : 10) * Math.min(1, w.sheet * 5) + Math.random()); k > 0; k--) {
+    const a = Math.random() * Math.PI * 2;
+    waterFx.splash.emit(p.x + Math.cos(a) * r, y, p.z + Math.sin(a) * r, Math.cos(a) * 0.7, (w.up ? 1 : 0.4) * (0.6 + Math.random() * 1.4), Math.sin(a) * 0.7, 0.5, 0.12 + Math.random() * 0.14);
+  }
+  if (w.big && !sneakerSeen) {
+    sneakerSeen = true;
+    hud.toast('Sneaker wave! On these beaches, never turn your back on the sea.', { seconds: 4.5, priority: 2 });
+    track('sneaker_wave', {});
+  }
+  if (foot && w.big && w.sheet > 0.12 && walker.state === 'walk') {
+    const gx = coastAt(p.x + 2, p.z) - coastAt(p.x - 2, p.z), gz = coastAt(p.x, p.z + 2) - coastAt(p.x, p.z - 2), L = Math.hypot(gx, gz) || 1;
+    const push = Math.min(1.6, w.sheet * 3) * (w.up ? 1 : -0.6) * dt;
+    walker.pos.x += (gx / L) * push; walker.pos.z += (gz / L) * push;
+  }
 }
 
 // ---------- Hot pools ----------
@@ -2313,11 +2359,15 @@ function fastTravel(x, z, label, face) {
 let last = performance.now();
 function frame(now) {
   requestAnimationFrame(frame);
-  // Skip frames to hold the cap: 30 fps on phones, 20 fps behind the intro and menus.
+  // Skip frames to hold the cap (perf.js): 30 fps on phones, 20 fps behind the intro and menus,
+  // 30 on a computer while nothing moves, in the background or on a low battery.
   const idle = !started || !!document.querySelector('dialog[open]');
-  if (now - last < (idle ? 1000 / 20 : FRAME_GAP) - 2) return;
+  const moving = !world || mode === 'fly' || mode === 'sky' || (mode === 'walk' ? walker.speedSmooth > 0.1 : (ride === 'heli' ? heli.speed : jeep.speed) > 0.3);
+  const gapMs = governor.gap({ menu: idle, photo: !!photo?.on, still: started && !moving && now - lastInput > 20000 });
+  if (now - last < gapMs - 2) return;
   const dt = Math.min(0.05, (now - last) / 1000);
-  last = now;
+  governor.frame(now - last, gapMs, started && !idle && !photo?.on);
+  last = now; frameN++;
   if (!world) return;
   const paused = !started || !!document.querySelector('dialog[open]') || !!photo?.on;
   input.enabled = !paused;
@@ -2526,7 +2576,8 @@ function frame(now) {
   // sheep close by.
   {
     const inCar = mode !== 'walk' && mode !== 'sky' && started && !(ride === 'heli' && driveView !== 'cockpit' && mode !== 'fly');
-    const surf = Math.pow(clamp(1 - coastAt(p.x, p.z) / 140, 0, 1), 1.6) * (ride === 'heli' && heli.agl > 40 ? 0.3 : 1);
+    // The surf swells as each wave breaks (louder for a big one) and eases between them.
+    const surf = Math.pow(clamp(1 - coastAt(p.x, p.z) / 140, 0, 1), 1.6) * (ride === 'heli' && heli.agl > 40 ? 0.3 : 1) * (surfFx ? 0.55 + 0.75 * surfFx.breaking(p.x, p.z) : 1);
     const high = clamp((heightAt(p.x, p.z) - 22) / 50, 0, 1) * clamp(exposureAt(p.x, p.z) * 1.4, 0, 1) * (0.6 + 0.4 * clamp(w.strength / 8, 0, 1));
     audio.placeUpdate(audio.ctx?.currentTime || 0, { fall: waterProx, surf, high, inCar });
     if (started && !paused && wildlife && Math.random() < dt * 0.5) {
@@ -2571,10 +2622,13 @@ function frame(now) {
     });
   }
 
+  surfUpdate(paused ? 0 : dt);
   mirrors.update(renderer, scene, camera, jeep.body, started && mode === 'chase' && driveView === 'cockpit' && !!jeep.model.mirrors);
   // Behind the cover the island is hidden: draw a few frames to warm it up, then none until Start.
   if (started || coverWarmFrames-- > 0) {
     skyRefl?.update(scene, camera.position, smoothstep(0.25, 0.75, dark));
+    // Shedding work: shadows redrawn every few frames (the sun hardly moves between them).
+    if (shadowEvery > 1 && renderer.shadowMap.autoUpdate) { renderer.shadowMap.autoUpdate = false; renderer.shadowMap.needsUpdate = frameN % shadowEvery === 0; }
     if (post) post.render(t, (lastPostState = { aurora: auroraVisSmoothed, dark }));
     else renderer.render(scene, camera);
   }
@@ -2598,8 +2652,8 @@ function frame(now) {
   if (fpsAcc > 4) {
     const fps = fpsFrames / fpsAcc;
     window.__fps = fps;
-    if (started && !paused) adaptResolution(fps);
-    if (started && fps < (isTouch ? 24 : 40) && resScale <= RES_MIN && !autoDowngraded && !settings.quality && qualityName !== 'low') {
+    // Shedding detail was not enough: step the quality down once.
+    if (started && fps < (isTouch ? 24 : 40) && governor.exhausted && !autoDowngraded && !settings.quality && qualityName !== 'low') {
       autoDowngraded = true;
       holdFrame(() => setQuality(qualityName === 'high' ? 'medium' : 'low', false));
       settings.autoQuality = qualityName; store.save();
@@ -2684,7 +2738,7 @@ window.chasingGreen = {
   get obstacles() { return obstacles; }, get scene() { return scene; }, Vec3: THREE.Vector3, get puddles() { return puddles; }, get mapUI() { return mapUI; }, get snow() { return snow; },
   nearestRoad: (x, z, r) => nearestRoad(x, z, r), coastAt, roadDistAt, shoreDistAt, groundAt, solidTopAt, get wildlife() { return wildlife; },
   roadPaths: () => roadPaths, fuel, putCar, get stations() { return stations; }, stageTimes,
-  heightAt: (x, z) => heightAt(x, z), get skyRefl() { return skyRefl; },
+  heightAt: (x, z) => heightAt(x, z), get skyRefl() { return skyRefl; }, get surf() { return surfFx; }, governor,
   snowAt: (x, z) => snowAt(x, z),
   waterLevelAt: (x, z) => waterLevelAt(x, z),
   get kerid() { return KERID; },
@@ -2769,7 +2823,7 @@ const SET_NOTE = {
   'set-fuel': 'Off and the tank never runs dry. On and you stop at stations to fill up.',
   'set-nitro': 'A burst of speed on Space. The tank refills on its own as you drive.',
   'set-places': 'When the place panel shows: at every place, only places you have not stamped, or never.',
-  'set-quality': 'Low runs smoothest; High draws more grass, rocks and longer views.',
+  'set-quality': 'Auto keeps the picture smooth and saves battery, easing off detail when frames run slow. Low runs smoothest; High draws more grass, rocks and longer views.',
   'set-look': 'Realistic uses real Icelandic elevation and textures. Classic is the original, simpler look.',
   'set-rocks': 'How many rocks lie around the land. Changes on the next load.',
   'set-full': 'Fill the whole screen with the island.',

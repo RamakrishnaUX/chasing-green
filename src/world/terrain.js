@@ -956,7 +956,7 @@ export async function buildTerrain(scene, res, season, onProgress) {
   surfaceUniforms.uGridStep.value.set(grid.dx, grid.dz);
   surfaceUniforms.uGridN.value.set(grid.nx, grid.nz);
   // North Atlantic: green-teal shallows over black sand, dark blue offshore.
-  const waterMat = createWaterMaterial(0x0a161c, { roughness: 0.08, ripple: 0.55, shallow: [0.17, 0.4, 0.4], deep: [0.01, 0.045, 0.07], clarity: 0.5 });
+  const waterMat = createWaterMaterial(0x0a161c, { roughness: 0.08, ripple: 0.55, shallow: [0.17, 0.4, 0.4], deep: [0.01, 0.045, 0.07], clarity: 0.5, surf: true });
   const water = new THREE.Mesh(waterGeo, waterMat);
   water.receiveShadow = true;
   water.position.y = 0;

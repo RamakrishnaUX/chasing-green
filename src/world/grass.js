@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { waterlineAt } from './surf.js';
 import { BOUNDS, grid, roadField, coastAt, waterLevelAt, glacierMask, lavaMask, sandMask, heightAt } from './terrain.js';
 import { NOISE, surfaceUniforms } from './materials.js';
 import { mulberry32 } from './noise.js';
@@ -57,6 +58,10 @@ function buildDensityTexture(clear = []) {
       const h = heightAt(x, z);
       if (h < waterLevelAt(x, z) + 0.3) continue;
       if ((coastAt(x, z) < 22 && h < 4) || sandMask(x, z, h) > 0.2) continue; // black sand
+      // Beaches: nothing grows on the sand the waves run up (surf.js), thinning in behind it.
+      const wl = h < 9 ? waterlineAt(x, z) : 99;
+      if (wl < 30) continue;
+      d *= Math.min(1, (wl - 30) / 14);
       const slope = Math.abs(heightAt(x + 1.5, z) - h) + Math.abs(heightAt(x, z + 1.5) - h);
       d *= Math.min(1, Math.max(0, (1.6 - slope) / 0.8));
       if (d === 0) continue;

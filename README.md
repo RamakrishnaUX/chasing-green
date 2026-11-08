@@ -280,6 +280,16 @@ Driving picks up dirt (`grime.js`): pale dust off gravel, dark peaty mud off the
 
 **Car wash.** Every fuel station has a drive-through wash past the end of its roof, in the lane between the pumps, under a BÍLAÞVOTTUR sign (Icelandic for car wash). Roll through slowly and the brushes spin up, water sprays down from the bar and drums on the roof, and the car comes out clean; faster than a crawl it only half works, and it tells you to go through again (`washAt` and `updateWash` in stations.js, `carWash` in main.js).
 
+The brushes (`src/world/washbrush.js`) are made of foam strips, about 3,000 of them over two upright brushes and one across the top, mostly blue with a few grey and white. Standing still the strips hang limp off the shaft like a mop (the upright ones slump down their shafts); spinning, they fling straight out, trail behind the turn and flutter. Against the car they fold over and lie along its panels: each strip is worked out in the vertex shader, step by step from the shaft, and a step that would end inside the car is pushed back out onto its surface. The car is two rounded boxes (its body to the bonnet line, and its cabin), measured once from the vertices of the model you drive. The overhead brush rides up over the bonnet and the windscreen on a spring. Wet brushes go darker and glossy, fling water off their tips along the turn and drip once they stop, drying over a minute and a half. Only the wash nearest you has brushes: one set moves to it.
+
+## Waves on the shore
+
+(`src/world/surf.js`.) Swell rolls in from the open sea every nine seconds or so, each wave a different size. It rises as the sea shallows, steepens, and breaks where the water gets too shallow to hold it (about 1.1 to 1.7 times its height): out on a gentle beach, right at the water's edge on a steep one like Reynisfjara. A breaking wave throws white water down its face, glows green-blue at its thin top, and runs on as a churning band that leaves lacy foam on the water. Crests reach the shore at slightly different moments along it, so they break in sections.
+
+At the shore each wave runs up the sand as a thin glassy sheet with a band of bubbles at its front, slows, and slides back, leaving the black sand dark and softly shining for a while. Most waves run 3 to 7 m up the beach. About one in ten is a **sneaker wave** that runs nearly three times as far: the first time one reaches you it warns you never to turn your back on the sea, and on foot it shoves you up the beach and tugs you back down it. Any wave that reaches you splashes round your feet or the tyres, and the surf you hear swells as each wave breaks.
+
+It is drawn as a patch of water (280 m across, 200 m on Low) laid over the sea and the shore round you whenever you are near the coast. It is clear wherever nothing is happening, so the sea shows through, and the sea's own shoreline foam fades out under it. Everything is a function of time, place, the ground height and the distance from the waterline. That distance is worked out once for the whole island from the height grid (where the ground drops below the sea, placed between grid points, then spread with a chamfer sweep), and the game asks the same question of any point (`waterAt`) for the splashes and the warning. Nothing grows on the sand the waves reach.
+
 ## Hot pools
 
 The Blue Lagoon, Secret Lagoon, Hvammsvík, Mývatn Nature Baths, GeoSea and Hveravellir have pools you can get into (`kit.bath` in the landmark builders; `bathAt` and `rimAt` in landmarks.js). Park, step out and walk up over the rim: you sink to your shoulders and wade slowly. Stand still for a few seconds and you lean back to watch the sky: the sitting view with your eyes just above the water and time passing six times faster, so a hot pool is a warm place to wait for the lights, and a display seen from the water is logged like any other. The water mirrors the aurora overhead. Steam drifts low over the water round you, and the pools' own steam thins out close to you so it never blots out the sky. Walk on to sit up, and on out over the rim to leave.
@@ -441,7 +451,7 @@ Cost: on the test machine the realistic look took about twice the classic frame 
 
 **Rock density** (Few, Normal or Many) is in Settings and applies on the next load. Normal has about 73% fewer rocks than earlier versions; rocks gather in clusters near slopes, cliffs, the coast and lava, never on roads or shoulders.
 
-If the frame rate stays under 40, the game drops one preset by itself (unless you picked one in Settings). Terrain detail changes apply on the next load.
+Graphics: **Auto** (the default) picks Low on phones and Medium on computers and keeps the frame rate up by shedding detail as it needs to (see Performance); only if that is not enough does it drop one preset, and it remembers that for the device. Picking Low, Medium or High fixes the preset. Terrain detail changes apply on the next load.
 
 ## Tuning in `src/config.js`
 
@@ -487,6 +497,7 @@ chasingGreen.photo(64.86, -22.75);       // stand on the road at a latitude and 
 src/
   main.js            game loop, cameras, sightings, landmarks, UI wiring
   config.js          every tunable number
+  perf.js            the governor: sheds and restores detail, sets the frame cap
   storage.js         localStorage for sightings, thumbnails, stamps, settings
   challenges.js      daily challenge from the date seed
   world/
@@ -506,6 +517,8 @@ src/
     post.js          bloom, colour grade, vignette
     obstacles.js     solid rocks, cliffs, buildings and trees
     stations.js      the six fuel stations: sites, buildings and night lights
+    washbrush.js     car wash brushes made of foam strips that fold against the car
+    surf.js          waves breaking and running up the beach, sneaker waves
     effects.js       road puddles, spray and dust particles
   aurora/
     forecast.js      Kp curve, clouds, city light, visibility rules, aurora type
@@ -595,7 +608,7 @@ Nothing can be driven into, either. A mound or crater rim built as a landform is
 ## Performance
 
 - Landmarks, farms and the car are built from many small parts. Once their collisions are read, static parts that share a material are merged into one mesh (`src/world/bake.js`), which took the scene from about 5,500 meshes to about 1,600 and cut draw calls roughly in half. Moving parts (wheels, mud bubbles, the geyser) and see-through or locally shaded materials are left as they are.
-- Dynamic resolution: when frames run long the game draws fewer pixels (down to 60% of the preset, never below 0.55 of a CSS pixel) and steps back up when there is room. Only if that is not enough does it drop the quality preset.
+- **Keeping it smooth, cool and easy on the battery** (`src/perf.js`). A governor watches how long frames take. When they run long (the slowest quarter of frames over 20% past the target for 1.5 s) it sheds work one step at a time: first how often the water's night reflection and the mirrors are redrawn, then fewer pixels (down to 60% of the preset, never below 0.55 of a CSS pixel), then shadows redrawn every other or third frame, then fewer aurora ray steps, and last the night reflection altogether. After 12 s with room to spare it brings a step back; if a step it brings back has to go again soon after, it waits twice as long next time, so it settles instead of see-sawing. Only when every step is shed and frames are still slow does it drop the quality preset (Graphics: Auto, the default). The frame cap: phones run at 30 fps; a computer runs at the screen's rate but drops to 30 while nothing moves for 20 s (parked, watching the sky), while the window is in the background, in photo mode, and when the battery is low and not charging (which also keeps the first step shed); menus and the title run at 20. Snow tracks are not drawn at all once the last one has faded (on a phone they cost about 2 ms a frame even when empty). `chasingGreen.governor` shows the level and the measured fps.
 - Bloom only runs from dusk on, when lights and the aurora need it, and Medium uses 2x instead of 4x multisampling.
 - **Terrain tiles.** The island is one height grid but is drawn as tiles that share its vertex buffers, so the camera and the sun's shadow camera skip the tiles they cannot see instead of drawing the whole island (over three million triangles on the realistic look) in every pass.
 - **Bridges** are merged like landmarks (each was some 75 parts).

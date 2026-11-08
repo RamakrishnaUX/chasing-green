@@ -546,8 +546,10 @@ export class SnowTracks {
     scene.add(this.mesh);
     this.next = 0; this.used = 0; this.last = new Map();
   }
-  update(t) { this.uniforms.uTime.value = t; }
+  // Nothing to draw once the last track has faded (it costs a phone a couple of ms a frame).
+  update(t) { this.uniforms.uTime.value = t; this.mesh.visible = this.used > 0 && t - (this.lastAt ?? -1e9) < 250; }
   quad(c, kind, t) {
+    this.lastAt = t;
     // c: four corners [x, y, z, u, v] in order, as two triangles.
     const i = this.next;
     [c[0], c[1], c[2], c[0], c[2], c[3]].forEach((v, k) => { const o = i * 6 + k; this.pos.set([v[0], v[1], v[2]], o * 3); this.uv.set([v[3], v[4]], o * 2); this.born[o] = t; this.kind[o] = kind; });
