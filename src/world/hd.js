@@ -470,40 +470,6 @@ export function naturalize(root, kind) {
   }
 }
 
-// ---------- Road grime on the cars ----------
-// Mud and dust build up towards the wheels, in patches, and turn the paint matte there. The
-// pattern is fixed to the car's own geometry; the height is measured from the ground under it.
-export const carGround = { value: 0 };
-export function weatherCar(group) {
-  const done = new Set();
-  group.traverse((o) => {
-    if (!o.isMesh) return;
-    for (const mat of [].concat(o.material)) {
-      if (done.has(mat)) continue;
-      done.add(mat);
-      if (!mat.isMeshStandardMaterial || mat.transparent || mat.userData?.glass) continue;
-      if (mat.emissive && Math.max(mat.emissive.r, mat.emissive.g, mat.emissive.b) * (mat.emissiveIntensity ?? 1) > 0.05) continue;
-      if (Object.prototype.hasOwnProperty.call(mat, 'onBeforeCompile')) continue;
-      mat.customProgramCacheKey = () => 'hd-car';
-      mat.onBeforeCompile = (shader) => {
-        shader.uniforms.uCarGround = carGround;
-        shader.vertexShader = shader.vertexShader
-          .replace('#include <common>', '#include <common>\nvarying vec3 vCarL; varying float vCarY;')
-          .replace('#include <begin_vertex>', '#include <begin_vertex>\nvCarL = transformed;\nvCarY = (modelMatrix * vec4(transformed, 1.0)).y;');
-        shader.fragmentShader = shader.fragmentShader
-          .replace('#include <common>', `#include <common>\nvarying vec3 vCarL; varying float vCarY; uniform float uCarGround;\nfloat cvh(vec3 p){ p = fract(p * 0.1031); p += dot(p, p.zyx + 31.32); return fract((p.x + p.y) * p.z); }\nfloat cvn(vec3 p){ vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);\n  return mix(mix(mix(cvh(i), cvh(i + vec3(1,0,0)), f.x), mix(cvh(i + vec3(0,1,0)), cvh(i + vec3(1,1,0)), f.x), f.y),\n             mix(mix(cvh(i + vec3(0,0,1)), cvh(i + vec3(1,0,1)), f.x), mix(cvh(i + vec3(0,1,1)), cvh(i + vec3(1,1,1)), f.x), f.y), f.z); }`)
-          .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
-          {
-            float cn = cvn(vCarL * 3.1) * 0.6 + cvn(vCarL * 11.0 + 5.0) * 0.4;
-            float grime = smoothstep(1.25, 0.3, vCarY - uCarGround + (cn - 0.5) * 0.45) * smoothstep(0.15, 0.5, cn + 0.15);
-            diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.13, 0.1, 0.075), grime * 0.72);
-            roughnessFactor = mix(roughnessFactor, 0.92, grime);
-          }`);
-      };
-    }
-  });
-}
-
 // ---------- Scanned rocks ----------
 // The scatter's rock spots, drawn with the scanned models. Only rocks near the camera are drawn:
 // every few frames the instance lists are rebuilt from the rocks within reach.

@@ -533,6 +533,22 @@ function makeMist(count, spread, height) {
   return pts;
 }
 
+// Steam thins out right round the eye: from inside a hot pool the nearest puffs would otherwise
+// be big grey blots across the sky.
+function nearFade(pts) {
+  const m = pts.material;
+  if (m.userData.nearFade) return pts;
+  m.userData.nearFade = true;
+  m.onBeforeCompile = (sh) => {
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying float vNear;')
+      .replace('#include <fog_vertex>', '#include <fog_vertex>\nvNear = 0.25 + 0.75 * smoothstep(4.0, 18.0, -mvPosition.z);');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vNear;')
+      .replace('#include <premultiplied_alpha_fragment>', 'gl_FragColor.a *= vNear;\n#include <premultiplied_alpha_fragment>');
+  };
+  m.customProgramCacheKey = () => 'mist-nearfade';
+  return pts;
+}
+
 const mistWind = { x: 0, z: 0 };
 function animateMist(pts, dt) {
   pts.material.color.setScalar(0.35 + waterUniforms.uLight.value * 0.6);
@@ -716,6 +732,8 @@ export class Landmarks {
     this.mists = [];
     this.ice = [];
     this.steam = [];
+    // Hot pools you can get into: { x, z, rx, rz, cs, sn, y (the water), lm }.
+    this.baths = [];
     this.updaters = [];
     this.nightMats = [];
     this.auroraMats = [];
@@ -820,7 +838,9 @@ export class Landmarks {
       update: (fn) => this.updaters.push(fn),
       emit: (type) => this.onEvent?.(type, lm),
       mists: (list) => this.mists.push(...list),
-      steam: (pts, speed = 0.6) => this.steam.push(pts),
+      steam: (pts, speed = 0.6) => this.steam.push(nearFade(pts)),
+      // A hot pool to bathe in: an ellipse at local (lx, lz), radii rx (across) and rz, water at local height ly.
+      bath: (lx, lz, rx, rz, ly) => this.baths.push({ x: lm.x + lx * cs + lz * sn, z: lm.z - lx * sn + lz * cs, rx, rz, cs, sn, y: y + ly, lm }),
     };
     const builders = {
       hallgrimskirkja: More.buildHallgrimskirkja, harpa: More.buildHarpa, sunvoyager: More.buildSunVoyager, perlan: More.buildPerlan,
@@ -916,6 +936,31 @@ export class Landmarks {
   }
 
   // The smallest walk-in room containing the point, or null.
+  // The stone or rock rim round a hot pool, as ground to walk up and over, or -Infinity away from one.
+  rimAt(x, z) {
+    for (const b of this.baths) {
+      const dx = x - b.x, dz = z - b.z;
+      if (dx * dx + dz * dz > (Math.max(b.rx, b.rz) + 3) ** 2) continue;
+      const lx = dx * b.cs - dz * b.sn, lz = dx * b.sn + dz * b.cs;
+      // How far out across the rim, 0 at the water to 1 at its outer edge: it slopes down from just
+      // under the surface, so he walks up it rather than climbing.
+      const rr = Math.sqrt((lx / b.rx) ** 2 + (lz / b.rz) ** 2), u = (rr - 1) / (1.8 / Math.min(b.rx, b.rz));
+      if (u >= 0 && u < 1) return b.y - 0.04 - u * 0.9;
+    }
+    return -Infinity;
+  }
+
+  // The hot pool at a point, if any (inside its rim by margin metres).
+  bathAt(x, z, margin = 0) {
+    for (const b of this.baths) {
+      const dx = x - b.x, dz = z - b.z;
+      if (dx * dx + dz * dz > (Math.max(b.rx, b.rz) + 2) ** 2) continue;
+      const lx = dx * b.cs - dz * b.sn, lz = dx * b.sn + dz * b.cs;
+      if ((lx / Math.max(0.5, b.rx - margin)) ** 2 + (lz / Math.max(0.5, b.rz - margin)) ** 2 < 1) return b;
+    }
+    return null;
+  }
+
   roomAt(x, z, y) {
     let best = null;
     for (const r of this.rooms) {
@@ -1072,7 +1117,7 @@ export class Landmarks {
       s.material.size = 4.5;
       { const [wx, wz] = worldOf(-24 - i * 6, 4 + i * 3); s.position.set(-24 - i * 6, heightAt(wx, wz) - baseY + 0.5, 4 + i * 3); }
       root.add(s);
-      this.steam.push(s);
+      this.steam.push(nearFade(s));
     }
   }
 

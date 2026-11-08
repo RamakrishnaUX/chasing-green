@@ -841,6 +841,14 @@ export function snowAt(x, z) {
   return Math.max(flat, dust * 0.7, glacierMask(x, z));
 }
 
+// Black ice on the roads in winter (0 to 1): the same patches the road shader glazes over.
+export function iceAt(x, z) {
+  const rs = surfaceUniforms.uRoadSnow.value;
+  if (rs < 0.15) return 0;
+  const n = gN(x * 0.03, z * 0.03) * 0.7 + gN(x * 0.11 + 5, z * 0.11 + 9) * 0.3;
+  return smoothstep(0.6, 0.67, n) * smoothstep(0.15, 0.5, rs);
+}
+
 // How exposed a spot is to wind: highlands and open coast catch the most.
 export function exposureAt(x, z) {
   const h = heightAt(x, z);
@@ -977,9 +985,13 @@ export async function buildTerrain(scene, res, season, onProgress) {
   });
 
   // A ford above sea level gets a patch of river of its own; the land hides all but the crossing.
+  // It is shallow, clear river water: the stony bed shows through, brown at the edges and darker
+  // where it deepens, with the sky laid over it. (The lake's water put foam on anything this
+  // shallow, which turned the whole crossing milky blue.)
+  const fordMat = createWaterMaterial(0x2a3a3c, { roughness: 0.035, ripple: 0.9, shallow: [0.29, 0.26, 0.21], deep: [0.035, 0.055, 0.06], clarity: 1.5, foam: 0.1 });
   for (const f of fordPools) {
     if (f.level <= 0) continue;
-    const disc = new THREE.Mesh(new THREE.CircleGeometry(f.r, 32), lakeMat);
+    const disc = new THREE.Mesh(new THREE.CircleGeometry(f.r, 32), fordMat);
     disc.receiveShadow = true;
     disc.rotation.x = -Math.PI / 2;
     disc.position.set(f.x, f.level, f.z);
@@ -1153,7 +1165,7 @@ function buildRoadRibbons(scene) {
         // The skirt hangs straight down below the shoulder's edge.
         const e = Math.abs(o) > W ? Math.sign(o) * W : o;
         const x = row.x + nx * e, z = row.z + nz * e;
-        const lift = Math.abs(o) > W + 0.4 ? -1.2 : Math.abs(o) > hw ? 0.08 : 0.13;
+        const lift = Math.abs(o) > W + 0.4 ? -1.2 : Math.abs(o) > hw ? 0.15 : 0.13; // the shoulder sits a touch higher, so the land never pokes through its edge in teeth
         const dk = deckAt(x, z);
         pos.push(x, (dk ?? heightAt(x, z)) + lift, z);
         road.push(o, row.along);

@@ -395,6 +395,7 @@ export function buildBlueLagoon(kit) {
     for (let k = 0; k < 8; k++) top = Math.max(top, kit.ground(cx + Math.cos(k) * rx, cz + Math.sin(k) * rz));
     const pool = M(geo, milky, cx, top + 0.25, cz);
     g.add(pool);
+    kit.bath(cx, cz, rx, rz, top + 0.25);
     // Black lava rim around the pool.
     for (let i = 0; i < 26; i++) {
       const a = (i / 26) * Math.PI * 2, w = 1.05 + kit.rand() * 0.15;
@@ -552,6 +553,7 @@ export function buildHveravellir(kit) {
     const pool = M(new THREE.CircleGeometry(r, 28), hot, x, y + 0.52, z);
     pool.rotation.x = -Math.PI / 2;
     g.add(pool);
+    kit.bath(x, z, r, r, y + 0.52);
     const s = kit.makeMist(50, r, 9);
     s.material = s.material.clone(); s.material.opacity = 0.24; s.material.size = 4;
     s.position.set(x, y + 0.6, z);

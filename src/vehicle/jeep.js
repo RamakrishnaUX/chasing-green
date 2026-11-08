@@ -1,14 +1,16 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
-import { surfaceHeightAt, surfaceAt, roadDistAt, shoreDistAt, exposureAt, waterLevelAt, bridgeGuard, isleAt, BOUNDS } from '../world/terrain.js';
+import { surfaceHeightAt, surfaceAt, iceAt, roadDistAt, shoreDistAt, exposureAt, waterLevelAt, bridgeGuard, isleAt, BOUNDS } from '../world/terrain.js';
 import { clamp, lerp } from '../world/noise.js';
 import { buildVehicleModel } from './models.js';
+import { surfaceUniforms } from '../world/materials.js';
 import { VEHICLES, SURFACE_DRAG } from './specs.js';
 import { NitroFX } from './nitrofx.js';
 import { bakeStatic } from '../world/bake.js';
 import { solidStep, solidTopAt, solidRoofAt } from '../world/solids.js';
 import { buildInterior } from './interiors.js';
-import { HD, weatherCar, carGround } from '../world/hd.js';
+import { HD } from '../world/hd.js';
+import { applyGrime, grime } from './grime.js';
 import { buildBoatKit, stages } from './boat.js';
 import { VOICES } from '../audio/engines.js';
 
@@ -95,7 +97,10 @@ export class Jeep {
     this.spec = VEHICLES[kind];
     this.wheelie = 0; this.wheelieV = 0;
     this.model = buildVehicleModel(kind);
-    if (HD.on && !this.model.glb) weatherCar(this.model.group); // the Sketchfab cars carry their own wear in their textures
+    // Dirt that builds up as you drive (grime.js). The realistic look's built-in cars keep a little
+    // road grime even when clean; the Sketchfab cars carry their own wear in their textures.
+    applyGrime(this.model.group);
+    grime.uBase.value = HD.on && !this.model.glb ? 0.3 : 0;
     this.kit = this.model.bike ? bikeKit(this.model) : buildBoatKit(this.model);
     // Wheels turn and steer; the rest of the body is merged into a few meshes.
     for (const w of this.model.wheels) w.pivot.userData.dynamic = true;
@@ -154,7 +159,7 @@ export class Jeep {
   get name() { return this.spec.name; }
 
   update(dt, input, wind, active) {
-    carGround.value = this.pos.y;
+    grime.uGround.value = this.pos.y;
     clearTop = this.pos.y + this.kit.height + 0.1; carBase = this.pos.y;
     this.bobT += dt;
     const S = this.spec, V = CONFIG.vehicle;
@@ -167,6 +172,12 @@ export class Jeep {
     const steer = this.steerSmooth;
     const handbrake = active ? input.handbrake : !active;
     this.surface = surfaceAt(this.pos.x, this.pos.z);
+    // Winter roads: packed snow takes some of the grip, black ice most of it, and snow off the
+    // road some too. Slick: 0 (dry tarmac) to about 0.9 (glazed ice).
+    const onRoad = this.surface === 'paved' || this.surface === 'gravel';
+    this.ice = onRoad ? iceAt(this.pos.x, this.pos.z) : 0;
+    const slick = clamp(this.ice * 0.8 + (onRoad ? surfaceUniforms.uRoadSnow.value * 0.22 : this.surface === 'snow' ? 0.28 : 0), 0, 0.9);
+    this.slick = slick;
     this.depth = Math.max(0, waterLevelAt(this.pos.x, this.pos.z) - heightAt(this.pos.x, this.pos.z));
     const fx = Math.sin(this.heading), fz = Math.cos(this.heading);
 
@@ -192,7 +203,8 @@ export class Jeep {
     const waterF = inWater ? lerp(1, 0.5, clamp(this.depth / S.wade, 0, 1)) : 1;
     // While the kit unfolds (either way) it only paddles along.
     const maxV = wet ? (afloat ? B.maxSpeed * (this.boosting ? S.nitro.speed : 1) : 3.5) : S.maxSpeed * (S.offroad[this.surface] ?? 1) * waterF * (this.boosting ? S.nitro.speed : 1);
-    const accel = wet ? (afloat ? B.accel * (this.boosting ? S.nitro.accel : 1) : 3) : S.accel * (this.boosting ? S.nitro.accel : 1);
+    const accel = wet ? (afloat ? B.accel * (this.boosting ? S.nitro.accel : 1) : 3) : S.accel * (this.boosting ? S.nitro.accel : 1) * (1 - slick * 0.55);
+    const brake = S.brake * (1 - slick * 0.62); // on ice the wheels lock and it slides on
 
     // In the air there is no grip: no engine, brakes or steering, just momentum.
     const air = !!this.air;
@@ -236,11 +248,11 @@ export class Jeep {
     // Engine and brakes.
     this.braking = 0;
     if (air) { /* coasting */ } else if (throttle > 0) {
-      if (this.vF < -0.5) { this.vF += S.brake * dt; this.braking = 1; }
+      if (this.vF < -0.5) { this.vF += brake * dt; this.braking = 1; }
       else if (drive > 0) this.vF += accel * throttle * this.power * drive * dt * clamp(1.05 - this.vF / (maxV + 0.01), 0, 1);
       else this.vF -= Math.min(this.vF, 1.6 * dt); // clutch in: no drive, a little drag
     } else if (throttle < 0) {
-      if (this.vF > 0.5) { this.vF -= S.brake * dt; this.braking = 1; }
+      if (this.vF > 0.5) { this.vF -= brake * dt; this.braking = 1; }
       else this.vF = Math.max(this.vF - S.accel * 0.6 * this.power * dt, -S.reverseMax);
     }
     // Rolling resistance: small on tarmac, more off-road for cars that are bad at it.
@@ -270,8 +282,11 @@ export class Jeep {
     if (S.bike) this.wheelieStep(dt, active && !!input.wheelie && !air && this.depth < 0.3 && this.vF > -0.5 && (throttle > 0 || sp > 5), air);
     const steerAmt = (S.bike ? 1 - 0.35 * clamp(this.wheelie / 0.5, 0, 1) : 1) * wet
       ? steer * S.steerRate * 0.55 * clamp(this.vF / 3, -1, 1) * (1 - 0.35 * clamp(sp / B.maxSpeed, 0, 1))
-      : steer * S.steerRate * 0.72 * clamp(this.vF / 6, -1, 1) * (1 - 0.62 * clamp(sp / (S.maxSpeed * 1.2), 0, 1));
+      : steer * S.steerRate * 0.72 * clamp(this.vF / 6, -1, 1) * (1 - 0.62 * clamp(sp / (S.maxSpeed * 1.2), 0, 1)) * (1 - slick * 0.3);
     if (!air) this.heading += steerAmt * dt;
+    // On ice the car turns but its weight carries on the way it was going: the turn becomes a
+    // slide that the little grip there is slowly pulls back into line.
+    if (!air && !wet && slick > 0.05) this.vL -= this.vF * Math.sin(steerAmt * dt) * slick;
     this.yawRate = air ? 0 : steerAmt;
     // A bike's bars turn well over at walking pace and only a little at speed (it leans instead).
     this.steerVis = lerp(this.steerVis, steer * (S.bike ? lerp(0.5, 0.06, clamp(sp / 25, 0, 1)) : 0.45), Math.min(1, dt * 8));
@@ -283,7 +298,7 @@ export class Jeep {
     // A boat has little grip, so the wind only nudges it, or it would drift sideways like a leaf.
     if (!holding) this.vL += windSide * dt * (wet ? 0.6 : 3);
     // Afloat it slides through turns, as a boat does.
-    const grip = wet ? 1.4 : (handbrake && active ? S.handbrakeGrip : S.grip) * (inWater ? 0.7 : 1);
+    const grip = wet ? 1.4 : (handbrake && active ? S.handbrakeGrip : S.grip) * (inWater ? 0.7 : 1) * (1 - slick * 0.93);
     this.vL -= this.vL * Math.min(1, grip * dt);
     if (handbrake) this.vF -= this.vF * Math.min(1, 1.6 * dt);
     if (handbrake && active && sp > 4 && !wet) this.vL += steer * -this.vF * 0.12 * dt * 8;
@@ -295,6 +310,8 @@ export class Jeep {
     const lock = Math.abs(steer), corner = clamp((lock * Math.abs(this.vF) - 7) / 8, 0, 1);
     this.latAcc = air || wet ? 0 : (this.yawRate || 0) * this.vF;
     this.slip = air || wet || S.bike ? 0 : Math.max(corner, clamp((Math.abs(this.vL) - 1.2) / 3, 0, 1), throttle < 0 && this.vF > 7 ? 0.34 + clamp((this.vF - 7) / 15, 0, 0.5) : 0);
+    // Ice is quiet and leaves no rubber: the tyres slide rather than scrub.
+    this.slip *= 1 - this.ice * 0.85;
     // Parking hold: no throttle and below walking pace means the car is parked. It stops dead,
     // so wind and slopes cannot creep it along (which made the whole world seem to slide).
     // A boat just drifts to a stop.

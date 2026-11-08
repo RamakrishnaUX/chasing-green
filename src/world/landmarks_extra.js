@@ -596,6 +596,7 @@ export const EXTRA = {
       const y = kit.ground(x, z);
       g.add(M(new THREE.CylinderGeometry(r + 1.2, r + 2, 0.7, 36), stone, x, y + 0.2, z));
       const pool = M(new THREE.CircleGeometry(r, 36), water, x, y + 0.58, z); pool.rotation.x = -Math.PI / 2; g.add(pool);
+      kit.bath(x, z, r, r, y + 0.58);
       const s = kit.makeMist(50, r * 1.5, 7); s.material = s.material.clone(); s.material.opacity = 0.2; s.material.size = 5; s.position.set(x, y + 0.7, z);
       g.add(s); kit.steam(s);
     }

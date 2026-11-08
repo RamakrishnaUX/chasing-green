@@ -667,8 +667,8 @@ body.has-touch .touch-left { align-items: flex-end; }
   body.has-touch .touch-right { display: flex; grid-template-areas: none; }
   body.has-touch .touch-left { gap: min(8px, 2vw); }
   body.has-touch .pad-steer { --size: var(--steer); }
-  body.has-touch #t-look, body.has-touch #t-brake, body.has-touch #t-sit { width: var(--btn); height: var(--btn); min-width: 0; padding: 0; border-radius: 50%; flex-direction: column; gap: 2px; }
-  body.has-touch #t-look span, body.has-touch #t-brake span, body.has-touch #t-sit span { font-size: 0.56rem; letter-spacing: 0.06em; text-transform: uppercase; }
+  body.has-touch #t-look, body.has-touch #t-brake, body.has-touch #t-sit, body.has-touch #t-walk { width: var(--btn); height: var(--btn); min-width: 0; padding: 0; border-radius: 50%; flex-direction: column; gap: 2px; }
+  body.has-touch #t-look span, body.has-touch #t-brake span, body.has-touch #t-sit span, body.has-touch #t-walk span { font-size: 0.56rem; letter-spacing: 0.06em; text-transform: uppercase; }
   body.has-touch #t-look svg, body.has-touch #t-brake svg { width: 18px; height: 18px; }
   body.has-touch #t-brake svg { width: 15px; height: 15px; }
   body.has-touch #t-gas { --size: var(--go); }
@@ -679,6 +679,10 @@ body.has-touch .touch-left { align-items: flex-end; }
      screen. The landmark card lifts clear of it. */
   body.has-touch .touch-right { position: relative; }
   body.has-touch #t-sit { position: absolute; left: 0; bottom: calc(var(--btn) + 12px); }
+  /* Out (or In) stacks above Look too, and above Sit when that is showing. */
+  body.has-touch #t-walk { position: absolute; left: 0; bottom: calc(var(--btn) + 12px); }
+  body.has-touch .touch-right:has(#t-sit:not([hidden])) #t-walk { bottom: calc(var(--btn) * 2 + 24px); }
+  body.has-touch:has(#t-walk:not([hidden])) .infocard { bottom: calc(178px + var(--safe-b)); }
   body.has-touch:has(#t-sit:not([hidden])) .infocard { bottom: calc(178px + var(--safe-b)); }
 }
 @media (max-height: 520px) {

@@ -202,6 +202,22 @@ export class Puddles {
   }
 }
 
+// ---------- Headlights in falling snow and rain ----------
+// Flakes and drops in the beams catch the light: a cone from the lamps reaching as far as the
+// beam does (further on full beam), brightest close in. uLight dims the rest at night.
+export const headlightUniforms = {
+  uLampPos: { value: new THREE.Vector3() }, uLampDir: { value: new THREE.Vector3(0, 0, 1) },
+  uBeamOn: { value: 0 }, uBeamReach: { value: 90 }, uAmbient: { value: 1 },
+};
+const LAMP_GLSL = /* glsl */ `
+uniform vec3 uLampPos; uniform vec3 uLampDir; uniform float uBeamOn, uBeamReach;
+float lampLit(vec3 wp) {
+  if (uBeamOn < 0.01) return 0.0;
+  vec3 d = wp - uLampPos; float r = length(d);
+  float cone = smoothstep(0.86, 0.97, dot(d / max(r, 1e-3), uLampDir));
+  return uBeamOn * cone * (1.0 - smoothstep(uBeamReach * 0.12, uBeamReach * 0.45, r)) * smoothstep(0.6, 2.5, r);
+}`;
+
 // ---------- Snowfall ----------
 // Flakes in a box around the camera that wrap as it moves. Intensity 0..1 fades them in and out.
 // One layer of flakes. Flakes stay put in the world apart from falling and drifting, and wrap
@@ -224,10 +240,12 @@ class FlakeLayer {
     this.fade = { value: 0.4 };
     this.mat.onBeforeCompile = (sh) => {
       sh.uniforms.uFade = this.fade;
-      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform float uFade;\nvarying float vNear;')
-        .replace('#include <fog_vertex>', '#include <fog_vertex>\nvNear = smoothstep(uFade, uFade * 2.0, -mvPosition.z);');
-      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vNear;')
-        .replace('#include <premultiplied_alpha_fragment>', 'gl_FragColor.a *= vNear;\n#include <premultiplied_alpha_fragment>');
+      Object.assign(sh.uniforms, headlightUniforms);
+      sh.vertexShader = sh.vertexShader.replace('#include <common>', `#include <common>\nuniform float uFade;\nvarying float vNear; varying float vLit;\n${LAMP_GLSL}`)
+        .replace('#include <fog_vertex>', '#include <fog_vertex>\nvNear = smoothstep(uFade, uFade * 2.0, -mvPosition.z);\nvLit = lampLit((modelMatrix * vec4(transformed, 1.0)).xyz);');
+      // At night the flakes are grey shapes against the dark, until they drift into the beams.
+      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vNear; varying float vLit; uniform float uAmbient;')
+        .replace('#include <premultiplied_alpha_fragment>', 'gl_FragColor.rgb = gl_FragColor.rgb * uAmbient + vec3(1.0, 0.96, 0.88) * vLit * 1.8;\ngl_FragColor.a *= vNear * min(1.0, 0.55 + 0.45 * uAmbient + vLit);\n#include <premultiplied_alpha_fragment>');
     };
     this.points = new THREE.Points(g, this.mat);
     this.points.frustumCulled = false;
@@ -294,16 +312,18 @@ export class RainFall {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3));
     this.mat = new THREE.ShaderMaterial({
-      uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uOpacity: { value: 0 }, uFade: { value: 0.6 }, uLight: { value: 1 } }]),
-      vertexShader: `uniform float uFade; varying float vNear;
+      uniforms: { ...THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uOpacity: { value: 0 }, uFade: { value: 0.6 }, uLight: { value: 1 } }]), ...headlightUniforms },
+      vertexShader: `uniform float uFade; varying float vNear; varying float vLit;
+        ${LAMP_GLSL}
         #include <fog_pars_vertex>
         void main() { vec4 mvPosition = modelViewMatrix * vec4(position, 1.0); gl_Position = projectionMatrix * mvPosition;
           vNear = smoothstep(uFade, uFade * 2.5, -mvPosition.z);
+          vLit = lampLit((modelMatrix * vec4(position, 1.0)).xyz);
           #include <fog_vertex>
         }`,
-      fragmentShader: `uniform float uOpacity, uLight; varying float vNear;
+      fragmentShader: `uniform float uOpacity, uLight; varying float vNear; varying float vLit;
         #include <fog_pars_fragment>
-        void main() { gl_FragColor = vec4(vec3(0.78, 0.83, 0.88) * (0.35 + 0.65 * uLight), uOpacity * vNear);
+        void main() { gl_FragColor = vec4(vec3(0.78, 0.83, 0.88) * (0.35 + 0.65 * uLight) + vec3(1.0, 0.96, 0.88) * vLit * 1.4, uOpacity * vNear * (1.0 + vLit * 1.5));
           #include <fog_fragment>
         }`,
       transparent: true, depthWrite: false, fog: true,

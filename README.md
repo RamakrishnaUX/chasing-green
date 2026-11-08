@@ -29,7 +29,7 @@ Push the repo to GitHub and import it in Vercel. Vercel detects Vite on its own,
 | Brake and reverse | S or down arrow; keep holding once stopped to reverse | Brake pill, labelled "Brake & reverse"; keep holding once stopped and it switches to a down arrow and "Reverse". A one-time bubble points it out on the first drive |
 | Handbrake | Shift | |
 | Change view (chase, hood, cockpit) | C | Steering-wheel button, top right |
-| Step out and get back in | E | Menu, Step out / Get in |
+| Step out and get back in | E | Out (shows once the car has stopped) / In |
 | Look up (quick toggle) | L | Look button (glows green when the aurora is out) |
 | Capture a postcard | Click the shutter while looking up, or press P | Tap the shutter while looking up (postcards also save on their own when the aurora is out, again at each new place) |
 | Sit down (on foot) | X | Sit button |
@@ -71,7 +71,7 @@ On both maps you are a blue arrow with a white rim and a pulsing halo (and a "Yo
 
 The interiors and the eye position for each view are built in `src/vehicle/interiors.js`.
 
-**Step out and sit.** Park, press E (or Menu, Step out) to get out, walk anywhere near the car (black sand at Reynisfjara and Diamond Beach included), then press X to sit. Sitting lowers the view to your own eyes (your body is not drawn meanwhile), lets you look freely, and makes time pass six times faster so you can wait for the sky. Press X again or start walking to stand up.
+**Step out and sit.** Park, press E (or tap Out on a phone) to get out, walk anywhere near the car (black sand at Reynisfjara and Diamond Beach included), then press X to sit. Sitting lowers the view to your own eyes (your body is not drawn meanwhile), lets you look freely, and makes time pass six times faster so you can wait for the sky. Press X again or start walking to stand up.
 
 ## Splash
 
@@ -247,6 +247,7 @@ Dipped beam by default; B (or the Beam button that shows on a phone once it is d
 - **Rotor downwash.** The air comes straight down under the rotor, turns at the ground and runs out flat in every direction, strongest at full rotor speed close down and gone by about 25 m up, so everything is pushed outward from under it. Grass is blown flat in pulses as the blades pass. On land, dust billows out low along the ground in a ring, coloured by the ground: black off the volcanic beaches, grey off gravel, a pale dun off dry grass and earth (snow is lifted as powder). On water, a band of water roughened by gusts and flecked with white races outward, rings spread from under the rotor a few a second, and mist and spray are thrown out flat across the surface.
 - **Kerið's crater lake** is part of the land's water level (`waterLevelAt`), like the big lakes: drive down the scree and the car wades in, then floats as a boat where it gets deep, instead of driving about on the lake bed under the water.
 - **Pools and crater lakes** (waterfall plunge pools, Kerið's lake, ponds) are water too, not just the sea and the big lakes: every mesh in a water material is found (`scanPools` in main.js), so wheels splash, spray and send rings across them and the rotor wash ruffles them like the sea, kept inside a small pool's edge. A pool laid on the ground gets a bowl depth (`bowl` in createWaterMaterial), clear and dark in the middle with foam only round its rim, where before the shallow-water foam turned it into a white disc. Each set of water options compiles its own shader.
+- **Fords** are shallow, clear river water (their own water material in terrain.js): the stony bed shows through, brown at the edges and darker where it deepens, with the sky laid over it and a little flow on the surface. They used the lakes' water before, whose shoreline foam covered anything that shallow and turned the whole crossing milky blue.
 - **Splashes** play recordings (`public/sounds/water`), each a little faster or slower every time: a tyre through a puddle, a splash into water, and a big one for a fast or deep plunge.
 
 | Sound | Recording | By | Licence |
@@ -254,6 +255,23 @@ Dipped beam by default; B (or the Beam button that shows on a phone once it is d
 | Tyre through a puddle | [Water Puddle Splash](https://freesound.org/s/563021/) | cookies policy | CC0 |
 | Splash | [Watersplash](https://freesound.org/s/469608/) | Sheyvan | CC0 |
 | Big splash | [Big Water Splash](https://freesound.org/s/442773/) | qubodup | CC0 |
+
+## Winter
+
+From October to April the months bring winter (`WINTER` in main.js, strongest from December to February):
+
+- **Snow on the roads.** Packed snow lies on the road, worn back to dark tracks by the wheels, with drifts reaching in from the edges and the ploughed snow banked along both sides; the yellow marker posts stand along the edges as before (road shader in materials.js, `uRoadSnow`). There is more of it where the land is white and while it snows, and it changes slowly as you drive, so it never switches in view. Wet weather does not darken the snow the way it darkens bare tarmac.
+- **Black ice.** Patches of glazed ice, dark and glossy enough to mirror the sky and headlights, lie on the roads. `iceAt` (terrain.js) finds the same patches as the shader, so they are really slippery: on ice the car keeps going the way it was heading while you turn, slides, brakes and pulls away poorly, and grips again once off it; it is quiet and leaves no rubber. Packed snow takes some grip too, and so does snow off the road. The first patch of each trip gets a word of warning.
+- **Snow showers** drift across the island under cloud, more often in midwinter and heavier on high ground and in the north (`chasingGreen.snowFall = 1` forces them). At night the flakes are dim grey shapes until they drift into the headlights, where they light up, further out on full beam; raindrops catch the beams the same way (`headlightUniforms` in effects.js).
+- Skid marks on a snowy road are pale scuffs, not black rubber.
+
+## A car that gets dirty
+
+Driving picks up dirt (`grime.js`): pale dust off gravel, dark peaty mud off the moss and wet gravel, black grit off the sand, grey slush off winter roads, silt from fords and road spray in the wet. It builds up from the wheels: a solid coat on the sills and arches, a patchy band above that reaches higher the dirtier the car gets, and spatters above that, with the paint gone matte and the shine gone from the clearcoat under it. New dirt blends into the colour of what is already there. Rain slowly rinses it off, and deep water or a spell as a boat washes most of it away. It is kept between visits, so a long drive leaves its mark, and it shows in postcards. Every car gets it, the Sketchfab cars included.
+
+## Hot pools
+
+The Blue Lagoon, Secret Lagoon, Hvammsvík, Mývatn Nature Baths, GeoSea and Hveravellir have pools you can get into (`kit.bath` in the landmark builders; `bathAt` and `rimAt` in landmarks.js). Park, step out and walk up over the rim: you sink to your shoulders and wade slowly. Stand still for a few seconds and you lean back to watch the sky: the sitting view with your eyes just above the water and time passing six times faster, so a hot pool is a warm place to wait for the lights, and a display seen from the water is logged like any other. Steam drifts low over the water round you, and the pools' own steam thins out close to you so it never blots out the sky. Walk on to sit up, and on out over the rim to leave.
 
 ## Fuel
 

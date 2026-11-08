@@ -4,7 +4,7 @@ import { CONFIG } from './config.js';
 import { store } from './storage.js';
 import { createNoise2D, clamp, smoothstep, lerp } from './world/noise.js';
 import { START, PLACES, CANYONS, JUMPS, KERID } from './world/geo.js';
-import { buildTerrain, paintTerrain, flattenPads, bridges, roadPaths, nearestRoad, heightAt, coastAt, nearestRoadAnywhere, exposureAt, waterLevelAt, postReflectorMat, lakeMat, snowAt, groundAt, roadDistAt, shoreDistAt, surfaceAt } from './world/terrain.js';
+import { buildTerrain, paintTerrain, iceAt, flattenPads, bridges, roadPaths, nearestRoad, heightAt, coastAt, nearestRoadAnywhere, exposureAt, waterLevelAt, postReflectorMat, lakeMat, snowAt, groundAt, roadDistAt, shoreDistAt, surfaceAt } from './world/terrain.js';
 import { Scatter } from './world/scatter.js';
 import { Grass } from './world/grass.js';
 import { Post } from './world/post.js';
@@ -12,7 +12,7 @@ import { carThumbs, resetCarThumbs } from './ui/carthumbs.js';
 import { Props } from './world/props.js';
 import { Towns } from './world/towns.js';
 import { Obstacles } from './world/obstacles.js';
-import { Puddles, Particles, SnowFall, RainFall, Windscreen, SkidMarks, WetTracks } from './world/effects.js';
+import { Puddles, Particles, SnowFall, RainFall, Windscreen, SkidMarks, WetTracks, headlightUniforms } from './world/effects.js';
 import { MapUI } from './ui/minimap.js';
 import { Cover } from './ui/cover.js';
 import { startAuroraSky } from './ui/auroraSky.js';
@@ -35,6 +35,7 @@ import { updateInterior, turnWheel, trackTitle } from './vehicle/interiors.js';
 import { Walker } from './vehicle/walker.js';
 import { Heli } from './vehicle/heli.js';
 import { loadCarModels, modelReady, whenModel } from './vehicle/models.js';
+import { grime, updateGrime, setDirtColor } from './vehicle/grime.js';
 import { Mirrors } from './vehicle/mirrors.js';
 import { Driver } from './vehicle/driver.js';
 import { Skydiver, MIN_JUMP, fitGear, bonesOf } from './vehicle/skydiver.js';
@@ -125,7 +126,7 @@ const volumes = settings.volumes || (settings.volumes = { master: 1, music: sett
 audio.setLevels(volumes);
 
 let world = null, sky, aurora, landmarks, jeep, walker, heli, diver, scatter, grass, props, post = null;
-let obstacles, puddles, spray, boatWater, waterFx, washDust, rain, windscreen, skids, trailDust, wetTracks, tyreWet = [0, 0, 0, 0], tyreLast = [], tyreIn = [], tyreSpray = [], wetness = 0, forceRain = null, wildlife, dust, powder, powderCloud, mapUI, towns, snow, nav, stations, stationSites = [];
+let obstacles, puddles, spray, boatWater, waterFx, washDust, rain, windscreen, skids, trailDust, wetTracks, tyreWet = [0, 0, 0, 0], tyreLast = [], tyreIn = [], tyreSpray = [], wetness = 0, forceRain = null, forceSnow = null, roadSnow = 0, iceWarned = false, wildlife, dust, powder, powderCloud, mapUI, towns, snow, nav, stations, stationSites = [];
 let lastPostState = { aurora: 0, dark: 0 };
 const snowNoise = createNoise2D(4040);
 let wasInPuddle = false, wasInWater = false, shake = 0, sitting = false, sitSpeedBefore = 1, camHeading = null;
@@ -289,6 +290,8 @@ async function buildWorld(progress) {
   windscreen = new Windscreen($('rain-glass'));
   puddles = new Puddles(scene, qualityName === 'low' ? 100 : 180);
   spray = new Particles(scene, { count: qualityName === 'low' ? 260 : 600, color: 0xe6f0f4, size: 0.5, opacity: 0.75, gravity: 9.5, drag: 1.2 });
+  // Steam curling off a hot pool round you while you soak.
+  bathSteam = new Particles(scene, { count: qualityName === 'low' ? 90 : 200, color: 0xeef2f4, size: 1.8, opacity: 0.06, gravity: -0.12, drag: 0.9, fadeNear: [0.8, 2.6] });
   boatWater = new BoatWater(scene, { low: qualityName === 'low' });
   waterFx = new WaterFx(scene, { low: qualityName === 'low' });
   wildlife = new Wildlife(scene, { low: qualityName === 'low' });
@@ -414,6 +417,9 @@ function wind(t) {
   const strength = W.baseStrength + W.gustStrength * (0.5 + 0.5 * windNoise(t * W.gustSpeed, 4.2));
   return { x: Math.sin(dir) * strength, z: Math.cos(dir) * strength, strength, dir };
 }
+
+// How wintry each month is (0 to 1): snow showers and snow and ice on the roads.
+const WINTER = [1, 1, 0.85, 0.5, 0.05, 0, 0, 0, 0, 0.25, 0.7, 1];
 
 // Snow line by month. With real elevation (realistic look) it is set in real metres, roughly as
 // in Iceland, and turned into game units the same way the land is.
@@ -661,7 +667,8 @@ function updateCamera(dt) {
     if (sitting) {
       look.pitch = clamp(look.pitch - l.dy * 0.005, -0.2, 1.5);
       const h = walker.heading + look.walkYaw;
-      camera.position.set(walker.pos.x, walker.pos.y + 1.05, walker.pos.z);
+      // In a hot pool he leans back with his eyes just above the water.
+      camera.position.set(walker.pos.x, walker.soaking && walker.bath ? walker.bath.y + 0.32 : walker.pos.y + 1.05, walker.pos.z);
       camTarget.set(camera.position.x + Math.sin(h) * Math.cos(look.pitch), camera.position.y + Math.sin(look.pitch), camera.position.z + Math.cos(h) * Math.cos(look.pitch));
       camera.lookAt(camTarget);
     } else if (walkTilt) {
@@ -761,7 +768,7 @@ function flyCamera(dt, l) {
 const skyOff = new THREE.Vector3(), _sk = new THREE.Vector3(), _sh = new THREE.Vector3();
 const smooth01 = (agl, top) => 1 - smoothstep(0, top, Math.max(0, agl));
 let skyHeading = null, skyAim = null;
-let swimTipShown = false;
+let swimTipShown = false, soakTipShown = false, soakStill = 0, bathSteam = null, lastSkyDark = 0;
 function skyCamera(dt, l) {
   const d = diver, agl = Math.max(0, d.agl), fallingNow = d.falling;
   const far = Math.min(16000, Math.max(Q.far || 3000, 2600 + agl * 3.6));
@@ -1599,6 +1606,33 @@ addEventListener('keydown', (e) => {
   else if (k === 'o') openPhoto();
 });
 
+// ---------- Hot pools ----------
+// In: a soft splash and, the first time, a word on what to do. Standing still a few seconds he
+// leans back to watch the sky (the sitting view, with time running faster), and steam curls off
+// the water round about.
+function soakUpdate(dt) {
+  const ev = walker.soakEvent; walker.soakEvent = null;
+  if (ev === 'in') {
+    audio.splash(0.18, 'puddle'); haptics.play('light');
+    track('hot_pool', { place: walker.bath?.lm?.id });
+    if (!soakTipShown) { soakTipShown = true; hud.toast(`${walker.bath?.lm?.name || 'Hot water'}. Warm at last. Stand still to lean back and watch the sky.`, { seconds: 4.5, priority: 2 }); }
+  }
+  if (ev === 'out' && sitting) toggleSit(false);
+  if (!walker.soaking) { soakStill = 0; return; }
+  const B = walker.bath, still = walker.speedSmooth < 0.08 && !input.throttle && !input.steer && dt > 0;
+  soakStill = still ? soakStill + dt : 0;
+  if (soakStill > 3 && !sitting) toggleSit(true);
+  if (dt && bathSteam) {
+    // Pale wisps that hang low over the water: lit faintly at night, never darker than the sky.
+    const light = 1 - (lastSkyDark || 0) * 0.6;
+    bathSteam.mat.color.setRGB(0.93 * light, 0.95 * light, 0.96 * light);
+    for (let k = Math.floor(dt * 8 + Math.random()); k > 0; k--) {
+      const a = Math.random() * Math.PI * 2, r = 1 + Math.random() * 3.5;
+      bathSteam.emit(walker.pos.x + Math.cos(a) * r, B.y + 0.05, walker.pos.z + Math.sin(a) * r, 0, 0.1 + Math.random() * 0.15, 0, 1, 0.3, 2.5 + Math.random() * 1.5);
+    }
+  }
+}
+
 // ---------- Learn, sitting, nitro option ----------
 const learn = new Learn();
 sheet.register('learn', () => learn.open());
@@ -1612,11 +1646,12 @@ function toggleSit(force) {
     sitSpeedBefore = clock.speed; clock.speed = Math.max(clock.speed, 6);
     track('sit_down');
     look.pitch = 0.45; look.walkYaw = 0;
-    hud.toast('Sitting down. Time passes faster while you rest. Drag to look around, X to stand.', { seconds: 4, priority: 2 });
+    hud.toast(walker.soaking ? `Leaning back in the hot water. Time passes faster while you soak. Drag to look around${isTouch ? '' : ', X to sit up'}, move to get going.` : 'Sitting down. Time passes faster while you rest. Drag to look around, X to stand.', { seconds: 4.5, priority: 2 });
   } else clock.speed = sitSpeedBefore;
   $('t-sit').setAttribute('aria-pressed', String(sitting));
 }
 $('t-sit').addEventListener('click', () => toggleSit());
+$('t-walk').addEventListener('click', () => toggleWalk());
 function applyNitroSetting() {
   const on = settings.nitro !== 'off'; // on unless switched off in Settings
   input.nitroAllowed = on;
@@ -2040,9 +2075,15 @@ function flyFeedback(dt) {
 }
 
 // Spray, dust, splashes and knocks.
+// The dirt on the car, kept between visits: a long drive leaves its mark.
+const carDirt = store.data.carDirt ||= { dirt: 0, color: [0.36, 0.3, 0.22] };
+carDirt.saved = carDirt.dirt;
+grime.uDirt.value = carDirt.dirt; setDirtColor(carDirt.color);
+
 function vehicleEffects(dt) {
   const fx = Math.sin(jeep.heading), fz = Math.cos(jeep.heading), rx = fz, rz = -fx;
   const sp = jeep.speed;
+  if (dt && updateGrime(carDirt, { dt, surface: jeep.surface, sp, depth: jeep.depth, rain: rain.intensity, wet: wetness, roadSnow, boat: jeep.boat })) { carDirt.saved = carDirt.dirt; store.save(); }
   const wheelsWorld = jeep.wheels.map((w) => [jeep.pos.x + rx * w.x + fx * w.z, jeep.pos.z + rz * w.x + fz * w.z, w.x]);
   const inPuddle = wheelsWorld.some(([x, z]) => puddles.at(x, z));
   const inWater = jeep.depth > 0.05;
@@ -2135,7 +2176,7 @@ function vehicleEffects(dt) {
     });
   }
   // Skid marks from the rear wheels while the tyres slide: rubber on tarmac, scuffs elsewhere.
-  if (jeep.boat < 0.1 && !jeep.air && dt) wheelsWorld.slice(2).forEach(([x, z], i) => skids.mark(i, x, heightAt(x, z) + (jeep.surface === 'paved' ? 0.17 : 0.05), z, jeep.heading, jeep.slip || 0, jeep.surface === 'paved'));
+  if (jeep.boat < 0.1 && !jeep.air && dt) wheelsWorld.slice(2).forEach(([x, z], i) => skids.mark(i, x, heightAt(x, z) + (jeep.surface === 'paved' ? 0.17 : 0.05), z, jeep.heading, jeep.slip || 0, jeep.surface === 'paved' && surfaceUniforms.uRoadSnow.value < 0.4));
   // Landings after a jump: thud, camera knock, a burst of dust or spray.
   if (jeep.landImpact > 2.5) {
     audio.thud(jeep.landImpact * 1.6);
@@ -2240,13 +2281,22 @@ function frame(now) {
 
   if (sitting && (mode !== 'walk' || input.throttle || input.steer)) toggleSit(false);
   $('t-sit').hidden = mode !== 'walk';
+  // Phones: Out when the car has stopped, In while on foot (E on a keyboard).
+  {
+    const tw = $('t-walk'), on = ride === 'car' && (mode === 'walk' || (mode === 'chase' && jeep.speed < 1 && jeep.boat < 0.1 && !jeep.air));
+    if (tw.hidden === on) tw.hidden = !on;
+    const lbl = mode === 'walk' ? 'In' : 'Out';
+    if (on && tw.lastChild.textContent !== lbl) { tw.lastChild.textContent = lbl; tw.setAttribute('aria-label', mode === 'walk' ? 'Get back in' : 'Step out'); }
+  }
   $('t-up').hidden = $('t-down').hidden = mode !== 'fly';
   if (mode === 'sky') {
     heli.fly(paused ? 0 : dt, w, diver.pos);
     diverEvents(diver.update(paused ? 0 : dt, { throttle: input.throttle, steer: input.steer }, w));
   } else if (mode === 'walk') {
     if (ride === 'heli') heli.fly(paused ? 0 : dt, w, walker.pos); else jeep.update(dt, input, w, false);
+    if (landmarks && !walker.bathAt) { walker.bathAt = (x, z, m) => landmarks.bathAt(x, z, m); walker.rimAt = (x, z) => landmarks.rimAt(x, z); }
     walker.update(dt, input, walkLeash(), obstacles);
+    soakUpdate(dt);
     if (afterJump) {
       // Still in his pack and helmet (not while sitting: the camera is in his head), the canopy
       // falling in where he landed, and word when the helicopter is down beside him.
@@ -2277,6 +2327,7 @@ function frame(now) {
     if (!paused) vehicleEffects(dt);
   }
   spray.update(dt);
+  bathSteam?.update(dt);
   dust.update(dt);
   washDust.update(dt);
   trailDust.update(dt);
@@ -2296,6 +2347,7 @@ function frame(now) {
   forecast.cloudOffset(clock.realSeconds, cloudOffset);
   auroraVisSmoothed = aurora.update(dt, t, camera, a);
   const { dark, sunDir } = sky.update({ camera, clock, cloud: a.cloud, cloudOffset, city: a.city, auroraVis: auroraVisSmoothed, auroraTint: aurora.tint, t, focus: p });
+  lastSkyDark = dark;
   surfaceUniforms.uCloudCover.value = a.cloud;
   surfaceUniforms.uCloudOffset.value.copy(cloudOffset);
   surfaceUniforms.uSunDir.value.copy(sunDir);
@@ -2321,13 +2373,38 @@ function frame(now) {
     hud.toast(WILDLIFE_NOTES[sp], { seconds: 4.5, priority: 1 });
     track('wildlife_seen', { species: sp });
   }
-  // Snow showers: winter months, cold ground (high or far north) and thick cloud, in drifting bands.
-  const cold = clock.month >= 9 || clock.month <= 3;
+  // Snow showers: winter months under cloud, in drifting bands, heavier on high ground and in the
+  // north. In midwinter most cloud brings some snow.
+  const winter = WINTER[clock.month];
   const band = snowNoise(p.x * 0.0022 + clock.realSeconds * 0.004, p.z * 0.0022) * 0.5 + 0.5;
   const altitude = Math.max(0, (heightAt(p.x, p.z) - 6) / 30) + Math.max(0, -p.z / 1050);
-  const snowTarget = cold && a.cloud > 0.5 ? clamp((band - 0.45) * 3 + altitude * 0.8, 0, 1) * (clock.month === 11 || clock.month === 0 || clock.month === 1 ? 1 : 0.6) : 0;
+  let snowTarget = winter > 0.2 && a.cloud > 0.4 ? clamp((band - 0.5 + winter * 0.25) * 2.6 + altitude * 0.8, 0, 1) * clamp((a.cloud - 0.4) * 4, 0, 1) * Math.min(1, winter * 1.1) : 0;
+  if (forceSnow != null) snowTarget = forceSnow;
   const inside = mode === 'chase' && driveView === 'cockpit';
   snow.update(dt, camera, snowTarget, w, inside ? jeep.interior.views.cockpit.snowFade ?? 0.6 : 0.4);
+  // Winter on the roads: packed snow, ploughed banks and black ice, more where the land is white
+  // and while it snows. It changes slowly, so driving along never shows it switching.
+  const roadSnowTarget = winter * clamp(0.5 + snowAt(p.x, p.z) * 0.7 + snow.intensity * 0.4, 0, 1);
+  roadSnow += (roadSnowTarget - roadSnow) * Math.min(1, dt / (Math.abs(roadSnowTarget - roadSnow) > 0.5 ? 1 : 25));
+  surfaceUniforms.uRoadSnow.value = roadSnow;
+  // The first patch of black ice of the trip gets a word of warning.
+  if (!iceWarned && started && ride === 'car' && mode === 'chase' && jeep.ice > 0.5 && jeep.kmh > 25) {
+    iceWarned = true;
+    hud.toast('Black ice. Brake gently and steer smoothly, or it slides.', { seconds: 4.5, priority: 1 });
+  }
+  // Headlights: the flakes and drops in their beams light up.
+  {
+    const H = headlightUniforms, lit = ride === 'car' && mode !== 'walk' && mode !== 'sky' && jeep.boat < 0.5;
+    H.uAmbient.value = 1 - dark * 0.88;
+    H.uBeamOn.value = lit ? smoothstep(0.3, 0.7, dark) : 0;
+    H.uBeamReach.value = jeep.highBeam ? 190 : 90;
+    const hl = jeep.model.headlight;
+    H.uLampPos.value.set(0, hl[1], hl[2]).applyMatrix4(jeep.root.matrixWorld);
+    H.uLampDir.value.set(Math.sin(jeep.heading), jeep.highBeam ? -0.02 : -0.08, Math.cos(jeep.heading)).normalize();
+  }
+  // The dirt's pattern is fixed to the car: the shader takes the world into the car's frame.
+  jeep.root.updateMatrixWorld();
+  grime.uCarInv.value.copy(jeep.root.matrixWorld).invert();
   if (snow.intensity > 0.02) { sky.fog.density += snow.intensity * 0.0012; sky.fog.color.lerp(new THREE.Color(0xd9dfe4), snow.intensity * 0.5); }
   // Rain: under thick cloud, in drifting bands of showers, where it is not cold enough to snow.
   // The ground gets wet within half a minute of rain and takes a few minutes to dry.
@@ -2562,7 +2639,7 @@ window.chasingGreen = {
   waterLevelAt: (x, z) => waterLevelAt(x, z),
   get kerid() { return KERID; },
   // Make it rain (0 to 1), or null to let the weather decide.
-  set rain(v) { forceRain = v; }, get rain() { return rain?.intensity || 0; }, get wetness() { return wetness; }, set wetness(v) { wetness = v; },
+  set rain(v) { forceRain = v; }, set snowFall(v) { forceSnow = v; }, get roadSnow() { return roadSnow; }, iceAt: (x, z) => iceAt(x, z), setMonth: (m) => setMonth(m), get dirt() { return carDirt; }, setDirt(v, c) { carDirt.dirt = v; if (c) carDirt.color = c; grime.uDirt.value = v; setDirtColor(carDirt.color); }, get rain() { return rain?.intensity || 0; }, get wetness() { return wetness; }, set wetness(v) { wetness = v; },
   poolAt: (x, z) => poolAt(x, z), get pools() { return poolSurfaces; }, get skids() { return skids; }, get wetTracks() { return wetTracks; }, get waterFx() { return waterFx; },
   get bridges() { return bridges; },
   get jumps() { return JUMPS; },
