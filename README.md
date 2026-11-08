@@ -202,6 +202,29 @@ Above 12 degrees the sky is physical (Preetham scattering). Below it a painted s
 - **Clouds** are lit from below: gold, then orange, crimson, pink and last violet as the sun sinks, hottest toward the sun, cool lilac-grey away from it. Under a full deck the low sun reaches only the cloud near the horizon on its own side, so overcast evenings are a grey-violet lid over a glowing strip.
 - The water and wet ground reflect this sky (it is in the environment map too), the fog takes the horizon's colour so distant hills fade into it, and sunlight turns deep orange near the horizon. Sunrise runs the same in reverse.
 
+## Photo mode
+
+O (or Photo mode in the aurora bar) holds the game still, hides the HUD and hands you the camera (`src/ui/photomode.js`): drag to look, WASD to move (Shift for faster), Q and E to go down and up, scroll or pinch to zoom; on a phone, drag, pinch and a move pad. Exposure brightens or darkens the shot; where the picture runs through the effects pipeline (not on Low), Focus and Blur throw the background or foreground soft (a depth-of-field pass, on only in photo mode). Take postcard (or Enter) saves the frame to the Journey like any sighting. Esc or O leaves.
+
+## The aurora at its strongest
+
+On top of the substorm phases (a quiet arc, a breakup, pulsing patches): in a breakup the curtains flicker several times a second, unevenly along their length, and the lower border flushes magenta (nitrogen). At high Kp a faint red glow hangs high above the curtains. A strong breakup overhead at Kp 5 and up brings a corona: rays all round converging on a point near the zenith, each flaring and fading, light streaming along them toward the centre, green low and violet to red toward the radiant point, which is itself dim.
+
+## Driving feel
+
+How hard the tyres are working sideways (the cornering load against what the car can hold, a slide, or locking up under hard braking at speed) drives three things: a tyre squeal on tarmac (a rough, wavering tone near 1 kHz that rises with speed), skid marks from the rear wheels (dark rubber on tarmac, pale scuffs on gravel and grass, the oldest overwritten after 1,600 strips), and the chase camera, which swings a little to the outside of a corner and leans with it. Off the tarmac a trail of soft dust billows up behind the rear wheels, thicker the faster you go, coloured by the ground and gone when it is wet.
+
+## Places you can hear
+
+From recordings (`public/sounds/place`): the roar of a waterfall grows as you come near it, surf runs along the sea coast, strong gusting wind blows up on the passes and high exposed ground, and sheep close by bleat now and then. From inside a vehicle all of it is quieter and muffled.
+
+| Sound | Recording | By | Licence |
+| --- | --- | --- | --- |
+| Waterfall | [Waterfall](https://freesound.org/s/840024/) | Ultra-Edward | CC0 |
+| Surf | [Ambiance_Ocean_Ribeira_Grande_Loop_Stereo_02](https://freesound.org/s/829629/) | Nox_Sound | CC0 |
+| Wind | [mountain wind heavy strong gusts Swiss Alps](https://freesound.org/s/454092/) | kyles | CC0 |
+| Sheep | [Sheep baa](https://freesound.org/s/669765/), [Ewe Shetland Sheep Baa](https://freesound.org/s/692900/), [Sheep baaing 5](https://freesound.org/s/710300/) | Chipsplease, satoristudios3, michaelperfect | CC0 |
+
 ## Rain
 
 Under thick cloud, showers drift across the island in bands, wherever it is not cold enough to snow (main.js; `chasingGreen.rain = 1` forces it). Streaks fall through a box that follows the camera, slanted by the wind and fading close to the eye so none fall inside the cabin, and drops burst on the ground and water all round (`RainFall` in effects.js). Raindrop rings spread on every puddle, pool, lake and the sea. The ground gets wet within half a minute and takes a few minutes to dry: wet tarmac darkens and turns smooth enough to mirror the sky and headlights, the land darkens a little. From the driver's seat drops land on the windscreen and gather, creep down it when slow and are driven up and aside at speed, and the wipers sweep them away, faster in heavier rain (`Windscreen`). The rain is heard all round outside, and from inside a vehicle as drumming on the roof with the rain outside muffled.

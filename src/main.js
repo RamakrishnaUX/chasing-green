@@ -12,7 +12,7 @@ import { carThumbs, resetCarThumbs } from './ui/carthumbs.js';
 import { Props } from './world/props.js';
 import { Towns } from './world/towns.js';
 import { Obstacles } from './world/obstacles.js';
-import { Puddles, Particles, SnowFall, RainFall, Windscreen } from './world/effects.js';
+import { Puddles, Particles, SnowFall, RainFall, Windscreen, SkidMarks } from './world/effects.js';
 import { MapUI } from './ui/minimap.js';
 import { Cover } from './ui/cover.js';
 import { startAuroraSky } from './ui/auroraSky.js';
@@ -41,6 +41,7 @@ import { Skydiver, MIN_JUMP, fitGear, bonesOf } from './vehicle/skydiver.js';
 import { solidTopAt } from './world/solids.js';
 import { BoatWater } from './vehicle/boat.js';
 import { WaterFx } from './world/waterfx.js';
+import { PhotoMode } from './ui/photomode.js';
 import { Wildlife, WILDLIFE_NOTES } from './world/wildlife.js';
 import { Input } from './vehicle/input.js';
 import { Hud } from './ui/hud.js';
@@ -124,7 +125,7 @@ const volumes = settings.volumes || (settings.volumes = { master: 1, music: sett
 audio.setLevels(volumes);
 
 let world = null, sky, aurora, landmarks, jeep, walker, heli, diver, scatter, grass, props, post = null;
-let obstacles, puddles, spray, boatWater, waterFx, washDust, rain, windscreen, wetness = 0, forceRain = null, wildlife, dust, powder, powderCloud, mapUI, towns, snow, nav, stations, stationSites = [];
+let obstacles, puddles, spray, boatWater, waterFx, washDust, rain, windscreen, skids, trailDust, camLean = 0, wetness = 0, forceRain = null, wildlife, dust, powder, powderCloud, mapUI, towns, snow, nav, stations, stationSites = [];
 let lastPostState = { aurora: 0, dark: 0 };
 const snowNoise = createNoise2D(4040);
 let wasInPuddle = false, wasInWater = false, shake = 0, sitting = false, sitSpeedBefore = 1, camHeading = null;
@@ -281,6 +282,9 @@ async function buildWorld(progress) {
   towns = new Towns(scene, { landmarks: landmarks.list, obstacles, scale: qualityName === 'low' ? 0.6 : 1, clear: stationSites.map((st) => ({ x: st.pad.x, z: st.pad.z, r: 34 })).concat(landmarks.list.filter((l) => l.kind === 'stadium').map((l) => ({ x: l.x, z: l.z, r: 84 }))) });
   snow = new SnowFall(scene, qualityName === 'low' ? 900 : 2200);
   rain = new RainFall(scene, qualityName === 'low' ? 1300 : 2800);
+  skids = new SkidMarks(scene);
+  // The dust a car raises off a gravel road: big soft billows that hang and drift.
+  trailDust = new Particles(scene, { count: qualityName === 'low' ? 260 : 600, color: 0xb6a07c, size: 3.2, opacity: 0.17, gravity: -0.08, drag: 0.8 });
   windscreen = new Windscreen($('rain-glass'));
   puddles = new Puddles(scene, qualityName === 'low' ? 100 : 180);
   spray = new Particles(scene, { count: qualityName === 'low' ? 260 : 600, color: 0xe6f0f4, size: 0.5, opacity: 0.75, gravity: 9.5, drag: 1.2 });
@@ -603,6 +607,7 @@ function insideCamera(dt, l) {
 let openingCam = null;
 const _openLook = new THREE.Vector3();
 function updateCamera(dt) {
+  if (photo?.on) { input.consumeLook(); photo.update(dt); return; }
   const l = input.consumeLook();
   if (mode === 'photo') return; // camera placed by hand from the console
   if (mode === 'fly') { flyCamera(dt, l); return; }
@@ -637,7 +642,13 @@ function updateCamera(dt) {
       camTarget.lerpVectors(_openLook.set(jeep.pos.x, jeep.pos.y + 1, jeep.pos.z), camTarget, e);
       if (u >= 1) openingCam = null;
     }
+    // Into a corner the camera swings a little to the outside and leans with the turn, more the
+    // harder you corner, settling as you straighten up.
+    const leanTo = clamp((jeep.latAcc || 0) / 9, -1, 1) * (openingCam ? 0 : 1);
+    camLean += (leanTo - camLean) * Math.min(1, dt * 2.5);
+    camera.position.x -= Math.cos(h) * camLean * 0.6; camera.position.z += Math.sin(h) * camLean * 0.6;
     camera.lookAt(camTarget);
+    camera.rotateZ(-camLean * 0.045);
     // Knocks from rocks and walls shake the camera briefly.
     if (shake > 0.01) { camera.position.x += (Math.random() - 0.5) * shake; camera.position.y += (Math.random() - 0.5) * shake; }
     // Wider view at speed and under nitro.
@@ -1557,6 +1568,15 @@ function playOpening() {
   setTimeout(() => document.body.classList.remove('is-opening'), dur + 400);
 }
 
+// ---------- Photo mode ----------
+let lastSky = null;
+const photo = new PhotoMode({
+  camera, renderer, canvas, getPost: () => post, groundAt: (x, z) => Math.max(heightAt(x, z), waterLevelAt(x, z)),
+  onShot: () => { const a = lastAurora || lastSky; if (a && performance.now() - lastShot > 900) logSighting(a, { manual: true }); },
+  onChange: (on) => { track(on ? 'photo_open' : 'photo_close'); if (on) hud.toast('Photo mode. Esc to leave.', { seconds: 2, priority: 2 }); },
+});
+function openPhoto() { if (started && !document.querySelector('dialog[open]') && mode !== 'sky') photo.open(); }
+$('mo-photo')?.addEventListener('click', () => openPhoto());
 function snapPostcard() { if (lastAurora && performance.now() - lastShot > 1200) logSighting(lastAurora, { manual: true }); }
 $('mo-look').addEventListener('click', () => { if (mode === 'chase' || mode === 'walk') toggleLookUp(); });
 $('mo-rec').addEventListener('click', () => toggleRecording());
@@ -1581,6 +1601,7 @@ addEventListener('keydown', (e) => {
   else if (k === 'f') fuelAction();
   else if (k === 'k') $('radio').classList.toggle('is-open');
   else if (k === 'b') toggleBeam();
+  else if (k === 'o') openPhoto();
 });
 
 // ---------- Learn, sitting, nitro option ----------
@@ -2083,11 +2104,17 @@ function vehicleEffects(dt) {
       if (k >= 2 && Math.random() < Math.min(1, sp / 12)) powderCloud.emit(x, heightAt(x, z) + 0.6, z, rx * Math.sign(side) * 0.8 - fx * sp * 0.15, 1.2, rz * Math.sign(side) * 0.8 - fz * sp * 0.15, 1, 1.2, 1.6);
     });
   }
-  // Dust off-road.
-  if (!inWater && sp > 8 && (jeep.surface === 'gravel' || jeep.surface === 'sand' || jeep.surface === 'moss')) {
-    const rear = wheelsWorld.slice(2);
-    if (Math.random() < Math.min(1, sp / 30)) for (const [x, z] of rear) dust.emit(x, heightAt(x, z) + 0.3, z, -fx * 2, 0.6, -fz * 2, 1, 1.2, 1.6);
+  // Dust off-road: a trail of soft billows thrown up behind the rear wheels, thicker the faster
+  // you go, hanging in the air and drifting with the wind, the colour of the ground. Not when
+  // the ground is wet.
+  const dusty = jeep.surface === 'gravel' || jeep.surface === 'sand' || jeep.surface === 'moss';
+  if (!inWater && sp > 4 && dusty && wetness < 0.4 && dt && !jeep.air) {
+    trailDust.mat.color.setHex(jeep.surface === 'sand' ? 0x55514c : jeep.surface === 'moss' ? 0x9a9274 : 0xb6a07c);
+    trailCarry += Math.min(1, (sp - 4) / 20) * 28 * (1 - wetness * 2) * dt;
+    for (; trailCarry >= 1; trailCarry--) for (const [x, z] of wheelsWorld.slice(2)) trailDust.emit(x, heightAt(x, z) + 0.35, z, -fx * (1 + sp * 0.12) + (Math.random() - 0.5), 0.5 + Math.random() * 0.6, -fz * (1 + sp * 0.12) + (Math.random() - 0.5), 1, 1.4, 2.4);
   }
+  // Skid marks from the rear wheels while the tyres slide: rubber on tarmac, scuffs elsewhere.
+  if (jeep.boat < 0.1 && !jeep.air && dt) wheelsWorld.slice(2).forEach(([x, z], i) => skids.mark(i, x, heightAt(x, z) + (jeep.surface === 'paved' ? 0.17 : 0.05), z, jeep.heading, jeep.slip || 0, jeep.surface === 'paved'));
   // Landings after a jump: thud, camera knock, a burst of dust or spray.
   if (jeep.landImpact > 2.5) {
     audio.thud(jeep.landImpact * 1.6);
@@ -2107,7 +2134,7 @@ function vehicleEffects(dt) {
 }
 
 // Boat mode: say when it changes; the wake, foam and spray are drawn by BoatWater.
-let boatToldOnce = false, wasPuddleRing = false, wasInPool = false;
+let boatToldOnce = false, wasPuddleRing = false, wasInPool = false, trailCarry = 0;
 function boatEffects(dt) {
   const ev = jeep.boatEvent; jeep.boatEvent = null;
   if (ev === 'boat') {
@@ -2183,7 +2210,7 @@ function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
   if (!world) return;
-  const paused = !started || !!document.querySelector('dialog[open]');
+  const paused = !started || !!document.querySelector('dialog[open]') || !!photo?.on;
   input.enabled = !paused;
   const t = now / 1000;
 
@@ -2231,6 +2258,7 @@ function frame(now) {
   spray.update(dt);
   dust.update(dt);
   washDust.update(dt);
+  trailDust.update(dt);
   powder.update(dt);
   powderCloud.update(dt);
 
@@ -2242,6 +2270,7 @@ function frame(now) {
   }
   const a = forecast.evaluate({ x: p.x, z: p.z, clock, dt, guaranteeActive: g });
 
+  lastSky = a;
   if (!(started && document.querySelector('dialog[open]'))) updateCamera(dt); // the view holds still while a menu is open
   forecast.cloudOffset(clock.realSeconds, cloudOffset);
   auroraVisSmoothed = aurora.update(dt, t, camera, a);
@@ -2345,7 +2374,20 @@ function frame(now) {
     }
     void near;
   }
-  audio.update(dt, { heli: ride === 'heli' ? { rpm: heli.rpm, load: heli.thrust / 9.81, inside: mode === 'fly' && driveView === 'cockpit', near: mode === 'walk' ? Math.hypot(walker.pos.x - heli.pos.x, walker.pos.z - heli.pos.z) : mode === 'sky' ? Math.max(1, diver.pos.distanceTo(heli.pos)) : 0 } : null, speed: mode === 'walk' ? 0 : mode === 'sky' ? diver.speed : ride === 'heli' ? heli.speed * 0.5 : jeep.speed, wind: w.strength, exposure: exposureAt(p.x, p.z), waterProx, iceProx, inCar: mode !== 'walk' && mode !== 'sky' && started, wade: mode === 'walk' || mode === 'sky' ? 0 : jeep.wadeLevel || 0, nitro: mode !== 'walk' && mode !== 'sky' && jeep.boosting, throttle: mode === 'chase' ? input.throttle : 0, voice: ride === 'car' ? jeep.spec.engine?.voice : null, surface: jeep.surface, grounded: !jeep.air, gear: ride === 'car' ? jeep.gear || 0 : 0, shifting: ride === 'car' && !!jeep.shifting, rain: rain?.intensity || 0, boat: ride === 'car' && mode !== 'walk' && mode !== 'sky' ? Math.max(0, Math.min(1, (jeep.boat - 0.4) / 0.4)) : 0 });
+  // Places you can hear: surf near the sea coast, strong wind up high and in exposed country,
+  // sheep close by.
+  {
+    const inCar = mode !== 'walk' && mode !== 'sky' && started && !(ride === 'heli' && driveView !== 'cockpit' && mode !== 'fly');
+    const surf = Math.pow(clamp(1 - coastAt(p.x, p.z) / 140, 0, 1), 1.6) * (ride === 'heli' && heli.agl > 40 ? 0.3 : 1);
+    const high = clamp((heightAt(p.x, p.z) - 22) / 50, 0, 1) * clamp(exposureAt(p.x, p.z) * 1.4, 0, 1) * (0.6 + 0.4 * clamp(w.strength / 8, 0, 1));
+    audio.placeUpdate(audio.ctx?.currentTime || 0, { fall: waterProx, surf, high, inCar });
+    if (started && !paused && wildlife && Math.random() < dt * 0.5) {
+      let nearest = 1e9;
+      for (const an of wildlife.animals) if (an.sp === 'sheep') nearest = Math.min(nearest, Math.hypot(an.x - p.x, an.z - p.z));
+      if (nearest < 60 && Math.random() < 0.6) audio.bleat(nearest, inCar);
+    }
+  }
+  audio.update(dt, { heli: ride === 'heli' ? { rpm: heli.rpm, load: heli.thrust / 9.81, inside: mode === 'fly' && driveView === 'cockpit', near: mode === 'walk' ? Math.hypot(walker.pos.x - heli.pos.x, walker.pos.z - heli.pos.z) : mode === 'sky' ? Math.max(1, diver.pos.distanceTo(heli.pos)) : 0 } : null, speed: mode === 'walk' ? 0 : mode === 'sky' ? diver.speed : ride === 'heli' ? heli.speed * 0.5 : jeep.speed, wind: w.strength, exposure: exposureAt(p.x, p.z), waterProx, iceProx, inCar: mode !== 'walk' && mode !== 'sky' && started, wade: mode === 'walk' || mode === 'sky' ? 0 : jeep.wadeLevel || 0, nitro: mode !== 'walk' && mode !== 'sky' && jeep.boosting, throttle: mode === 'chase' ? input.throttle : 0, voice: ride === 'car' ? jeep.spec.engine?.voice : null, surface: jeep.surface, grounded: !jeep.air, gear: ride === 'car' ? jeep.gear || 0 : 0, shifting: ride === 'car' && !!jeep.shifting, rain: rain?.intensity || 0, slip: ride === 'car' && mode === 'chase' ? jeep.slip || 0 : 0, boat: ride === 'car' && mode !== 'walk' && mode !== 'sky' ? Math.max(0, Math.min(1, (jeep.boat - 0.4) / 0.4)) : 0 });
 
   if (started) {
     if (jeep.warning && mode !== 'walk' && mode !== 'sky') hud.toast(jeep.warning, { seconds: 2.5, priority: 1 });

@@ -288,6 +288,12 @@ export class Jeep {
     if (handbrake) this.vF -= this.vF * Math.min(1, 1.6 * dt);
     if (handbrake && active && sp > 4 && !wet) this.vL += steer * -this.vF * 0.12 * dt * 8;
 
+    // How hard the tyres are working sideways (0 to 1): the cornering load against what this car
+    // can hold, a slide (handbrake, wind), or locking up under hard braking at speed. It drives
+    // the squeal, the skid marks and the camera's lean.
+    const latAcc = Math.abs((this.yawRate || 0) * this.vF), gripLimit = S.grip * 0.9;
+    this.latAcc = air || wet ? 0 : (this.yawRate || 0) * this.vF;
+    this.slip = air || wet || S.bike ? 0 : Math.max(clamp((latAcc - gripLimit * 0.7) / (gripLimit * 0.45), 0, 1), clamp((Math.abs(this.vL) - 1.2) / 3, 0, 1), throttle < 0 && this.vF > 14 ? 0.45 : 0);
     // Parking hold: no throttle and below walking pace means the car is parked. It stops dead,
     // so wind and slopes cannot creep it along (which made the whole world seem to slide).
     // A boat just drifts to a stop.

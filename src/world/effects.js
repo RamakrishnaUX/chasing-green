@@ -392,3 +392,37 @@ export class Windscreen {
     }
   }
 }
+
+// ---------- Skid marks ----------
+// Dark rubber laid on the tarmac (and pale scuffs on gravel) where a tyre slides: a strip from
+// each rear wheel, the newest overwriting the oldest once the pool is full.
+const SKID_MAX = 1600;
+export class SkidMarks {
+  constructor(scene) {
+    this.pos = new Float32Array(SKID_MAX * 6 * 3); this.col = new Float32Array(SKID_MAX * 6 * 4);
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3));
+    g.setAttribute('color', new THREE.BufferAttribute(this.col, 4));
+    this.mesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -5, polygonOffsetUnits: -5 }));
+    this.mesh.frustumCulled = false; this.mesh.renderOrder = 1; this.mesh.userData.noAO = true;
+    scene.add(this.mesh);
+    this.next = 0; this.used = 0; this.last = new Map();
+  }
+  // A wheel (key) at (x, y, z), heading h, sliding by s (0 to 1); paved: black rubber, else a scuff.
+  mark(key, x, y, z, h, s, paved) {
+    const L = this.last.get(key);
+    if (s < 0.25) { this.last.delete(key); return; }
+    if (!L) { this.last.set(key, { x, y, z, h }); return; }
+    if (Math.hypot(x - L.x, z - L.z) < 0.35) return;
+    if (Math.hypot(x - L.x, z - L.z) > 4) { this.last.set(key, { x, y, z, h }); return; }
+    const w = 0.13, ax = Math.cos(L.h) * w, az = -Math.sin(L.h) * w, bx = Math.cos(h) * w, bz = -Math.sin(h) * w;
+    const q = [[L.x - ax, L.y, L.z - az], [L.x + ax, L.y, L.z + az], [x + bx, y, z + bz], [L.x - ax, L.y, L.z - az], [x + bx, y, z + bz], [x - bx, y, z - bz]];
+    const i = this.next, a = Math.min(0.75, s) * (paved ? 0.8 : 0.4), c = paved ? 0.02 : 0.32;
+    q.forEach((v, k) => { this.pos.set(v, (i * 6 + k) * 3); this.col.set([c, c * 0.95, c * 0.9, a], (i * 6 + k) * 4); });
+    this.next = (this.next + 1) % SKID_MAX; this.used = Math.min(SKID_MAX, this.used + 1);
+    const g = this.mesh.geometry;
+    g.setDrawRange(0, this.used * 6);
+    g.attributes.position.needsUpdate = g.attributes.color.needsUpdate = true;
+    this.last.set(key, { x, y, z, h });
+  }
+}

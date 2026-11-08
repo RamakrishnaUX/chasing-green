@@ -37,6 +37,20 @@
 <body>
   <canvas id="game" aria-label="Chasing Green game view"></canvas>
   <canvas id="rain-glass" class="rain-glass" aria-hidden="true" hidden></canvas>
+  <div class="photo" id="photo" hidden>
+    <div class="ph-top"><span class="ph-title">Photo mode</span><span class="ph-hint ph-desk">Drag to look · WASD to move · Q and E down and up · Scroll to zoom · Enter for a postcard</span><span class="ph-hint ph-touch">Drag to look · Pinch to zoom</span><button type="button" class="ph-close" id="ph-close" aria-label="Leave photo mode"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+    <div class="ph-panel">
+      <div class="ph-move" aria-label="Move the camera">
+        <button type="button" data-move="up" aria-label="Up">▲</button><button type="button" data-move="fwd" aria-label="Forward">Fwd</button><button type="button" data-move="down" aria-label="Down">▼</button>
+        <button type="button" data-move="left" aria-label="Left">◀</button><button type="button" data-move="back" aria-label="Back">Back</button><button type="button" data-move="right" aria-label="Right">▶</button>
+      </div>
+      <label class="ph-slider"><span>Exposure</span><input type="range" id="ph-ev" min="-2" max="2" step="0.1" value="0"></label>
+      <label class="ph-slider"><span>Zoom</span><input type="range" id="ph-fov" min="15" max="100" step="1" value="60" style="direction: rtl"></label>
+      <label class="ph-slider ph-focus"><span>Focus</span><input type="range" id="ph-focus" min="2" max="300" step="1" value="40"></label>
+      <label class="ph-slider ph-focus"><span>Blur</span><input type="range" id="ph-blur" min="0" max="1" step="0.05" value="0"></label>
+      <button type="button" class="ph-shot" id="ph-shot"><svg viewBox="0 0 24 24"><path d="M4 8h3l2-2.5h6L17 8h3v11H4z"/><circle cx="12" cy="13.2" r="3.4"/></svg>Take postcard</button>
+    </div>
+  </div>
 
   <!-- Intro -->
   <section id="intro" class="screen" aria-labelledby="intro-title">
@@ -202,6 +216,7 @@
       <div class="mo-acts">
         <button class="mo-act" id="mo-look"><i><svg viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></svg></i><span><kbd>L</kbd>Look up</span></button>
         <button class="mo-act" id="mo-rec"><i><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="6" class="dot"/></svg></i><span><kbd>R</kbd>Record</span></button>
+        <button class="mo-act" id="mo-photo"><i><svg viewBox="0 0 24 24"><path d="M4 8h3l2-2.5h6L17 8h3v11H4z"/><circle cx="12" cy="13.2" r="3.4"/></svg></i><span><kbd>O</kbd>Photo mode</span></button>
         <button class="mo-act" id="mo-card"><i><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="13" rx="1"/><path d="M3 15l5-4 4 3 3-2 6 4"/></svg></i><span><kbd>P</kbd>Postcard</span></button>
       </div>
     </section>

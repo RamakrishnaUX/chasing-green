@@ -89,7 +89,7 @@ export const LANDMARKS = [
   },
   {
     id: 'dettifoss', name: 'Dettifoss', kind: 'waterfall', glyph: 'falls',
-    ll: [65.8147, -16.3846], away: 28,
+    ll: [65.8147, -16.3846], away: 80, // its pool is 31 m across: set back so it stops short of the road
     legend: 'Just north, the horseshoe canyon of Ásbyrgi is said to be the hoofprint of Sleipnir, Odin’s eight-legged horse.',
     fact: 'One of Europe’s most powerful waterfalls. Grey glacial water from Vatnajökull falls about 44 metres, and you feel the spray before you see it.',
   },

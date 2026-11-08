@@ -108,6 +108,21 @@ export class AudioEngine {
     this.washLowGain = ctx.createGain(); this.washLowGain.gain.value = 0;
     loop(this.brown).connect(this.washLow).connect(this.washLowGain).connect(car);
 
+    // Tyre squeal: a tyre sliding on tarmac sings, a rough tone near 1 kHz and its overtone,
+    // wavering as the grip comes and goes.
+    this.squealGain = ctx.createGain(); this.squealGain.gain.value = 0;
+    const sq1 = ctx.createBiquadFilter(); sq1.type = 'bandpass'; sq1.frequency.value = 1150; sq1.Q.value = 9;
+    const sq2 = ctx.createBiquadFilter(); sq2.type = 'bandpass'; sq2.frequency.value = 2350; sq2.Q.value = 7;
+    loop(this.white).connect(sq1).connect(this.squealGain); loop(this.white).connect(sq2).connect(this.squealGain);
+    const sqOsc = ctx.createOscillator(); sqOsc.type = 'sawtooth'; sqOsc.frequency.value = 1100;
+    const sqOscBand = ctx.createBiquadFilter(); sqOscBand.type = 'bandpass'; sqOscBand.frequency.value = 1100; sqOscBand.Q.value = 3;
+    const sqOscGain = ctx.createGain(); sqOscGain.gain.value = 0.35;
+    sqOsc.connect(sqOscBand).connect(sqOscGain).connect(this.squealGain); sqOsc.start();
+    const wob = ctx.createOscillator(); wob.frequency.value = 6.5; const wobAmt = ctx.createGain(); wobAmt.gain.value = 60;
+    wob.connect(wobAmt).connect(sqOsc.frequency); wob.start();
+    this.squealOsc = sqOsc;
+    this.squealGain.connect(car);
+
     // Helicopter. The rotor: low noise chopped into a beat at the blade-passing rate (four
     // blades at about 6.6 turns a second), the deep "whop" of each blade's wake. The turbines: a
     // high whine that rises as they spool up. The Fenestron: a band of hiss near 900 Hz.
@@ -134,6 +149,7 @@ export class AudioEngine {
 
     this.ready = true;
     this.loadWater();
+    this.loadPlace();
     if (this.levels.music > 0) this.playMusic();
   }
 
@@ -452,7 +468,40 @@ export class AudioEngine {
     this.rainRoof.gain.setTargetAtTime(inCar ? level * 0.3 : 0, t, 0.4);
   }
 
-  update(dt, { speed, wind, exposure, waterProx, iceProx, inCar, wade = 0, nitro = false, heli = null, throttle = 0, voice = null, surface = 'paved', grounded = true, boat = 0, gear = 0, shifting = false, rain = 0 }) {
+  // Places, from recordings (public/sounds/place, credited in the README): the roar of a
+  // waterfall as you come near it, surf along the sea coast, strong wind up on the passes and
+  // high ground, and the bleat of sheep close by. Fetched once the sound starts. From inside a
+  // vehicle all of it is quieter and muffled by the doors.
+  loadPlace() {
+    const url = (f) => `${import.meta.env.BASE_URL}sounds/place/${f}.wav`;
+    const get = (f) => fetch(url(f)).then((r) => { if (!r.ok) throw new Error(f); return r.arrayBuffer(); }).then((b) => this.ctx.decodeAudioData(b));
+    this.placeLoad ||= Promise.all(['waterfall', 'surf', 'wind', 'sheep1', 'sheep2', 'sheep3'].map(get)).then(([fall, surf, wind, ...sheep]) => {
+      const ctx = this.ctx;
+      this.placeLP = ctx.createBiquadFilter(); this.placeLP.type = 'lowpass'; this.placeLP.frequency.value = 14000;
+      this.placeLP.connect(this.bus.ambience);
+      const mk = (buf) => { const s = ctx.createBufferSource(), g = ctx.createGain(); s.buffer = buf; s.loop = true; g.gain.value = 0; s.connect(g).connect(this.placeLP); s.start(ctx.currentTime, Math.random() * buf.duration); return g; };
+      this.place = { fall: mk(fall), surf: mk(surf), wind: mk(wind), sheep };
+    }).catch(() => { this.placeLoad = null; });
+  }
+  placeUpdate(t, { fall = 0, surf = 0, high = 0, inCar = false }) {
+    if (!this.place) return;
+    const P = this.place, m = inCar ? 0.45 : 1;
+    P.fall.gain.setTargetAtTime(0.7 * fall * m, t, 0.5);
+    P.surf.gain.setTargetAtTime(0.45 * surf * m, t, 0.8);
+    P.wind.gain.setTargetAtTime(0.35 * high * (inCar ? 0.6 : 1), t, 1.2);
+    this.placeLP.frequency.setTargetAtTime(inCar ? 1300 : 14000, t, 0.3);
+  }
+  // A sheep d metres away bleats.
+  bleat(d, inCar) {
+    if (!this.place || !this.ready) return;
+    const ctx = this.ctx, src = ctx.createBufferSource(), g = ctx.createGain();
+    src.buffer = this.place.sheep[Math.floor(Math.random() * this.place.sheep.length)];
+    src.playbackRate.value = 0.9 + Math.random() * 0.25;
+    g.gain.value = 0.35 / (1 + d / 12) * (inCar ? 0.5 : 1);
+    src.connect(g).connect(this.placeLP); src.start();
+  }
+
+  update(dt, { speed, wind, exposure, waterProx, iceProx, inCar, wade = 0, nitro = false, heli = null, throttle = 0, voice = null, surface = 'paved', grounded = true, boat = 0, gear = 0, shifting = false, rain = 0, slip = 0 }) {
     if (!this.ready) return;
     const t = this.ctx.currentTime;
     // The helicopter replaces the car engine: rotor, turbines and fan, louder under load and
@@ -471,13 +520,17 @@ export class AudioEngine {
     this.windGain.gain.setTargetAtTime(0.32 * windLevel, t, ease);
     this.windBand.frequency.setTargetAtTime(320 + windLevel * 700 + Math.sin(t * 0.7) * 120, t, 0.4);
     this.windHissGain.gain.setTargetAtTime(0.02 * windLevel * windLevel, t, ease);
-    this.waterGain.gain.setTargetAtTime(0.45 * waterProx, t, 0.3);
+    this.waterGain.gain.setTargetAtTime((this.place ? 0.12 : 0.45) * waterProx, t, 0.3);
     const v = heli ? null : voice;
     if (v !== this.voiceName) this.setVoice(v);
     // Afloat, the outboard takes over from the car's engine.
     this.afloat = heli ? 0 : boat;
     this.engineUpdate(t, dt, inCar && !heli, speed, throttle, nitro, gear, shifting);
     this.rainUpdate(t, rain, inCar);
+    // Squeal only on tarmac, and only once the slide is real; it rises in pitch with speed.
+    const sq = inCar && !heli && grounded && surface === 'paved' ? Math.max(0, slip - 0.15) / 0.85 : 0;
+    this.squealGain.gain.setTargetAtTime(0.11 * sq * sq * (0.5 + Math.min(1, speed / 25) * 0.5) * (CONFIG.engineVolume ?? 1) / 0.7, t, sq > 0 ? 0.05 : 0.12);
+    this.squealOsc.frequency.setTargetAtTime(950 + Math.min(1, speed / 30) * 350 + Math.random() * 40, t, 0.08);
     this.boatUpdate(t, dt, inCar && !heli ? boat : 0, speed, throttle, nitro);
     // Tyres: only rolling on the ground, not in the air or on the water.
     const roll = inCar && !heli && grounded && wade < 0.3 && surface !== 'ford' ? Math.min(1, speed / 35) : 0;

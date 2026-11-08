@@ -179,7 +179,9 @@ export class Forecast {
       }
     }
     if (this.corona.active && (t > this.corona.until || vis < 0.25)) this.corona.active = false;
-    this.corona.level = clamp(this.corona.level + (this.corona.active ? dt / 6 : -dt / 6), 0, 1);
+    // A strong breakup sweeping overhead is itself a corona while it lasts.
+    const crown = ph.breakup * smoothstep(5, 6.5, kp) * (vis > 0.4 ? 1 : 0);
+    this.corona.level = clamp(this.corona.level + ((this.corona.active || crown > 0.5) ? dt / 6 : -dt / 6), 0, 1);
 
     const red = smoothstep(A.redKp - 0.3, A.redKp + 0.8, kp);
     const pink = smoothstep(4.5, 6.5, kp);

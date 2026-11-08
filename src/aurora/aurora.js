@@ -68,6 +68,9 @@ void main(){
     }
     // Pulsating patches: soft blobs of sky that switch on and off every few seconds. Two layers on
     // different beats, so patches do not all blink together.
+    // In a breakup the curtains flicker, fast and uneven along their length, as the electrons
+    // raining in come and go several times a second.
+    dens *= 1.0 + uBreak * 0.5 * (vnoise(vec2(pm.x * 2.7 + float(s) * 0.13, uTime * 9.0)) - 0.5);
     if (uPulse > 0.001) {
       vec2 q = vec2(pm.x, py) * 1.3;
       float on = max(patchOn(q, uTime / 3.1), patchOn(q + 9.0, uTime / 4.7 + 0.5));
@@ -76,21 +79,30 @@ void main(){
     float prof = smoothstep(0.0, 0.07, hn) * exp(-hn * 2.0);
     vec3 c = mix(green, top, smoothstep(0.3, 0.85, hn) * (0.35 + 0.65 * uPink));
     c = mix(c, red, uRed * smoothstep(0.25, 0.75, hn));
+    // A strong breakup flushes the lower border magenta (nitrogen), a thin fringe under the green.
+    c = mix(c, vec3(1.0, 0.24, 0.66), uBreak * (0.3 + 0.7 * uPink) * (1.0 - smoothstep(0.0, 0.1, hn)) * 0.85);
     col += c * dens * prof;
   }
   col *= (3.1 / float(STEPS)) * uIntensity * smoothstep(0.015, 0.22, d.y);
+  // At high Kp a faint red glow hangs high above the curtains (oxygen at 250 km and up).
+  col += red * uRed * 0.06 * uIntensity * smoothstep(0.3, 0.7, d.y) * (0.6 + 0.4 * vnoise(dir * 0.8 + t * 0.02));
   // A breakup is far brighter than the arc before it, and shimmers.
   col *= 1.0 + uBreak * (0.7 + 0.18 * sin(uFlow * 9.0 + dir.x * 3.0));
 
-  // Corona: rays converging on the point overhead.
+  // Corona: when the curtains are right overhead, perspective draws their rays together into
+  // one point near the zenith, so the sky looks like a crown of light. Narrow rays all round,
+  // each flaring and fading on its own, light streaming along them toward the centre; green low,
+  // turning violet and, at high Kp, red toward the radiant point, which is itself dim.
   if (uCorona > 0.001){
-    float zen = smoothstep(0.7, 0.96, d.y) * (1.0 - smoothstep(0.985, 1.0, d.y) * 0.7);
-    float az = atan(d.z, d.x);
-    float r = vnoise(vec2(az * 6.0, t * 0.2)) * vnoise(vec2(az * 15.0 + 4.0, t * 0.33));
-    r = smoothstep(0.15, 0.7, r);
-    float halo = smoothstep(0.9, 1.0, d.y) * 0.25;
-    vec3 cc = mix(green, top, 0.3 + 0.5 * (1.0 - zen));
-    col += cc * (r * 0.4 + halo) * zen * uCorona * uIntensity;
+    float y = d.y, az = atan(d.z, d.x);
+    float zen = smoothstep(0.5, 0.92, y);
+    float ray = vnoise(vec2(az * 9.0 + t * 0.04, t * 0.1)) * 0.6 + vnoise(vec2(az * 31.0 - t * 0.07, 3.0 + t * 0.15)) * 0.5;
+    float r = pow(smoothstep(0.38, 0.85, ray), 1.4);
+    float stream = 0.55 + 0.45 * sin((1.0 - y) * 42.0 + t * 2.6 + ray * 7.0);
+    float centre = 1.0 - smoothstep(0.975, 0.998, y) * 0.8;
+    vec3 cc = mix(green, mix(top, red, uRed * 0.6), smoothstep(0.72, 0.97, y));
+    col += cc * r * stream * zen * centre * uCorona * uIntensity * 1.5;
+    col += cc * smoothstep(0.93, 0.99, y) * 0.12 * uCorona * uIntensity; // a soft glow round the point
   }
   // Soft roll-off keeps bright displays coloured instead of clipping to white.
   col = 1.0 - exp(-col * 1.15);

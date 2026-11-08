@@ -5,6 +5,7 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
+import { BokehPass } from 'three/examples/jsm/postprocessing/BokehPass.js';
 
 // Removes bad pixels (NaN or infinity from very bright sun glints) before bloom can smear them
 // into black blocks, and caps extreme highlights so they bloom softly instead of overflowing.
@@ -82,6 +83,10 @@ export class Post {
     }
     this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), 0.22, 0.55, 0.92);
     this.composer.addPass(this.bloom);
+    // Depth of field, for photo mode only (off otherwise: it draws the scene a second time).
+    this.bokeh = new BokehPass(scene, camera, { focus: 40, aperture: 0.0002, maxblur: 0.008 });
+    this.bokeh.enabled = false;
+    this.composer.addPass(this.bokeh);
     this.composer.addPass(new OutputPass());
     this.grade = new ShaderPass(GradeShader);
     this.composer.addPass(this.grade);
