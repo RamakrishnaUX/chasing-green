@@ -212,7 +212,7 @@ On top of the substorm phases (a quiet arc, a breakup, pulsing patches): in a br
 
 ## Driving feel
 
-How hard the tyres are working sideways (the cornering load against what the car can hold, a slide, or locking up under hard braking at speed) drives three things: a tyre squeal on tarmac (a rough, wavering tone near 1 kHz that rises with speed), skid marks from the rear wheels (dark rubber on tarmac, pale scuffs on gravel and grass, the oldest overwritten after 1,600 strips), and the chase camera, which swings a little to the outside of a corner and leans with it. Off the tarmac a trail of soft dust billows up behind the rear wheels, thicker the faster you go, coloured by the ground and gone when it is wet.
+How hard the tyres are working sideways (the cornering load against what the car can hold, a slide, or locking up under hard braking at speed) drives two things: a tyre squeal on tarmac (a rough, wavering tone near 1 kHz that rises with speed) and skid marks from the rear wheels (dark rubber on tarmac, pale scuffs on gravel and grass, the oldest overwritten after 1,600 strips). The chase camera stays level through corners. Off the tarmac a trail of soft dust billows up behind the rear wheels, thicker the faster you go, coloured by the ground and gone when it is wet.
 
 ## Places you can hear
 

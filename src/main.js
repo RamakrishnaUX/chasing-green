@@ -125,7 +125,7 @@ const volumes = settings.volumes || (settings.volumes = { master: 1, music: sett
 audio.setLevels(volumes);
 
 let world = null, sky, aurora, landmarks, jeep, walker, heli, diver, scatter, grass, props, post = null;
-let obstacles, puddles, spray, boatWater, waterFx, washDust, rain, windscreen, skids, trailDust, camLean = 0, wetness = 0, forceRain = null, wildlife, dust, powder, powderCloud, mapUI, towns, snow, nav, stations, stationSites = [];
+let obstacles, puddles, spray, boatWater, waterFx, washDust, rain, windscreen, skids, trailDust, wetness = 0, forceRain = null, wildlife, dust, powder, powderCloud, mapUI, towns, snow, nav, stations, stationSites = [];
 let lastPostState = { aurora: 0, dark: 0 };
 const snowNoise = createNoise2D(4040);
 let wasInPuddle = false, wasInWater = false, shake = 0, sitting = false, sitSpeedBefore = 1, camHeading = null;
@@ -642,13 +642,7 @@ function updateCamera(dt) {
       camTarget.lerpVectors(_openLook.set(jeep.pos.x, jeep.pos.y + 1, jeep.pos.z), camTarget, e);
       if (u >= 1) openingCam = null;
     }
-    // Into a corner the camera swings a little to the outside and leans with the turn, more the
-    // harder you corner, settling as you straighten up.
-    const leanTo = clamp((jeep.latAcc || 0) / 9, -1, 1) * (openingCam ? 0 : 1);
-    camLean += (leanTo - camLean) * Math.min(1, dt * 2.5);
-    camera.position.x -= Math.cos(h) * camLean * 0.6; camera.position.z += Math.sin(h) * camLean * 0.6;
     camera.lookAt(camTarget);
-    camera.rotateZ(-camLean * 0.045);
     // Knocks from rocks and walls shake the camera briefly.
     if (shake > 0.01) { camera.position.x += (Math.random() - 0.5) * shake; camera.position.y += (Math.random() - 0.5) * shake; }
     // Wider view at speed and under nitro.
