@@ -354,13 +354,20 @@ export class AnimalRigs {
     this.loading = {};
     this.loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
     this.seals = null;
+    // warm(object): builds an object's shaders in the background and resolves when they are
+    // ready (set by the game). A species shows once its shaders are built, a moment after it
+    // arrives, instead of stalling the game the first time it is drawn.
+    this.warm = null;
   }
   ready(sp) { return !!this.kinds[sp]; }
   // Fetch a species the first time it is wanted.
   want(sp) {
     if (this.kinds[sp] || this.loading[sp]) return;
     this.loading[sp] = this.loader.loadAsync(`${import.meta.env.BASE_URL}models/${sp}.glb`)
-      .then((g) => { this.kinds[sp] = new Kind(sp, g, { low: this.low }); })
+      .then((g) => {
+        const K = new Kind(sp, g, { low: this.low }), done = () => { this.kinds[sp] = K; };
+        return this.warm ? this.warm(K.template).then(done, done) : done();
+      })
       .catch((e) => console.warn('animal model', sp, e));
   }
 
@@ -370,7 +377,12 @@ export class AnimalRigs {
     this.want(sp);
     const K = this.kinds[sp];
     if (!K) return false;
-    if (!K.far) K.bakeFar(this.scene, cap);
+    if (!K.far) {
+      K.bakeFar(this.scene, cap);
+      // The far herd's own (instanced) shaders: built in the background, drawn once ready.
+      K.farReady = !this.warm;
+      if (this.warm) Promise.all(K.far.map((im) => this.warm(im))).finally(() => { K.farReady = true; });
+    }
     const nMax = Math.round(K.S.near * (this.low ? 0.45 : 1)), near = this.low ? 45 : NEAR;
     const want = new Set();
     for (const a of list) { if (want.size >= nMax || a.dist > near) break; want.add(a); }
@@ -387,7 +399,7 @@ export class AnimalRigs {
     // Far ones: one instance each, in the pose nearest to what it is doing.
     const counts = K.far.map(() => 0);
     for (const a of list) {
-      if (a._rig || counts.reduce((s, c) => s + c, 0) >= cap) continue;
+      if (a._rig || !K.farReady || counts.reduce((s, c) => s + c, 0) >= cap) continue;
       const k = a.moving ? 2 + (Math.floor((a.step / (Math.PI * 2)) * 4) & 3) : a.state === 'graze' && !a.alert ? 1 : 0;
       const im = K.far[k], j = counts[k]++;
       E.set(0, a.heading, 0); Q.setFromEuler(E); P.set(a.x, a.y, a.z);

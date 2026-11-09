@@ -69,7 +69,7 @@ export class AudioEngine {
     this.engLP = ctx.createBiquadFilter(); this.engLP.type = 'lowpass'; this.engLP.Q.value = 0.8; this.engLP.frequency.value = 900;
     this.engGain = ctx.createGain(); this.engGain.gain.value = 0;
     this.engBody.connect(this.engLP).connect(this.engGain).connect(car);
-    this.engSrc = null; this.voice = null; this.voiceName = undefined; this.voiceBufs = {};
+    this.engSrc = null; this.voice = null; this.voiceName = undefined; this.voiceBufs ||= {};
     this.recSrc = null; this.recLoads = {};
     this.gear = 1; this.lastThrottle = 0; this.popsLeft = 0; this.nextPop = 0; this.shiftT = -1;
 
@@ -188,6 +188,17 @@ export class AudioEngine {
   // Each vehicle has its own engine (its spec's engine.voice, from engines.js). The helicopter has
   // none here: its rotor and turbines are their own sounds.
   setEngine(e) { this.engine = e; }
+  // Build an engine's sound before it is needed (while the island loads), so the first frame of
+  // driving is not spent on it. Before Start there is no audio context yet, so it is built at the
+  // usual rate; a different one is resampled on playback.
+  prepare(name) {
+    const V = VOICES[name];
+    if (!V || this.voiceBufs?.[name]) return;
+    try {
+      const ctx = this.ctx || { sampleRate: 48000, createBuffer: (c, n, sr) => new AudioBuffer({ numberOfChannels: c, length: n, sampleRate: sr }) };
+      (this.voiceBufs ||= {})[name] = pulseBuffer(ctx, V);
+    } catch { /* built when first needed */ }
+  }
   setVoice(name) {
     this.voiceName = name;
     const V = VOICES[name] || null;

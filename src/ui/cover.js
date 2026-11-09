@@ -277,10 +277,15 @@ export class Cover {
     this.renderer.render(this.scene, cam);
   }
 
-  dispose() {
+  // Stop drawing. Letting go of the drawing context (dispose) is a stall of its own, so the game
+  // does that later, at a quiet moment.
+  stop() {
     this.done = true;
     cancelAnimationFrame(this.raf);
     removeEventListener('resize', this.onResize);
+  }
+  dispose() {
+    this.stop();
     this.renderer.dispose();
     this.renderer.forceContextLoss();
   }

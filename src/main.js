@@ -194,9 +194,12 @@ function holdFrame(change) {
 // can drop to 30 frames a second.
 let shadowEvery = 1, frameN = 0, lastInput = performance.now(), dialogOpen = false, startedAt = 0;
 for (const ev of ['pointerdown', 'pointermove', 'keydown', 'wheel', 'touchstart']) addEventListener(ev, () => { lastInput = performance.now(); }, { passive: true, capture: true });
+// A new resolution is put in at the start of the next frame, just before it is drawn, so the
+// resized canvas never shows empty and nothing has to cover it.
+let pendingRes = null;
 const governor = new Governor({ touch: isTouch, apply: (level, why) => {
   const L = LEVELS[level];
-  if (resScale !== L.res) { resScale = L.res; holdFrame(applyPixelRatio); }
+  if (resScale !== L.res) pendingRes = L.res;
   if (skyRefl) { skyRefl.faces = L.sky; skyRefl.every = L.skyEvery; }
   mirrors.extra = L.mirrors;
   shadowEvery = L.shadowEvery;
@@ -308,6 +311,7 @@ async function buildWorld(progress) {
   // The road ribbons never move: their matrices are worked out once.
   for (const o of scene.children) if (o.isMesh && 'roadLift' in o.userData) { o.updateMatrixWorld(true); o.matrixAutoUpdate = false; o.matrixWorldAutoUpdate = false; o.userData.static = true; }
   wildlife = new Wildlife(scene, { low: qualityName === 'low' });
+  wildlife.rigs.warm = warmShaders;
   // The rotor's dust: bigger, thicker billows than a car's.
   washDust = new Particles(scene, { count: qualityName === 'low' ? 260 : 600, color: 0xbfa77f, size: 5.5, opacity: 0.16, gravity: -0.12, drag: 0.9 });
   dust = new Particles(scene, { count: qualityName === 'low' ? 220 : 520, color: 0xb39a74, size: 1.3, opacity: 0.28, gravity: -0.4, drag: 1.4 });
@@ -343,16 +347,54 @@ async function buildWorld(progress) {
   // Things hidden at load (night lights, the aurora, the route beacon) are compiled too, shown just
   // for the call, so dusk or the first aurora never freezes the game while their shaders build.
   // Never wait more than 2.5 s here; anything left compiles on the first frame as before.
+  // The driver and the bike helmet join the car later; build theirs too (waiting a moment for
+  // them to arrive if they are still downloading).
+  await Promise.race([driver.ready, new Promise((r) => setTimeout(r, 1500))]);
+  // Seat him now (rays cast through the car to find the cushion: a stall on the first frame).
+  try { if (ride === 'car') { driver.update(jeep, true, false); driver.group.visible = false; } } catch { /* seated on the first frame */ }
+  audio.prepare(jeep.spec.engine?.voice);
+  const extra = [driver.group, driver.helmet].filter((g) => !g.parent);
+  for (const g of extra) scene.add(g);
   const hidden = [];
   scene.traverse((o) => { if (!o.visible) { hidden.push(o); o.visible = true; } });
+  // A shader is built for where it draws: straight to the screen, or into the picture the
+  // finishing passes (grade, glow) work on, which wants a different build. Build the ones the
+  // game will really use, or each object stalls the game the first time it comes into view,
+  // which is just as you set off.
+  // The sky's light map (for reflections) is made on its first update; make it now, so the
+  // shaders are built with it, as they will be drawn.
+  try { sky.update({ camera, clock, cloud: 0.05, cloudOffset, city: { overhead: 0, horizon: 0, dirX: 1, dirZ: 0 }, auroraVis: 0, auroraTint: aurora.tint, t: 0 }); } catch { /* made on the first frame instead */ }
   let compiled;
+  const was = renderer.getRenderTarget();
+  if (post) renderer.setRenderTarget(post.composer.renderTarget1);
   try { compiled = renderer.compileAsync(scene, camera); } catch { renderer.compile(scene, camera); }
+  renderer.setRenderTarget(was);
   for (const o of hidden) o.visible = false;
+  for (const g of extra) scene.remove(g);
   if (compiled) try { await Promise.race([compiled, new Promise((r) => setTimeout(r, 2500))]); } catch { /* compiles on first use */ }
+  // A built shader still has a setup step the first time it is drawn (its inputs are looked up,
+  // and the browser finishes linking it). Do that here too, behind the loading bar.
+  for (const pr of renderer.info.programs) try { pr.getUniforms(); pr.getAttributes(); } catch { /* done on first use */ }
   // Bloom only runs from dusk on: draw one frame with it now so its passes are ready by then.
   if (post) { const was = post.bloom.enabled; post.bloom.enabled = true; post.composer.render(); post.bloom.enabled = was; }
   stageTimes[current] = Math.round(performance.now() - tStage);
   console.info(`World built in ${Math.round(performance.now() - t0)} ms`, stageTimes);
+}
+
+// Things that arrive while you play (animals as you near a herd): build their shaders in the
+// background, for where they will be drawn, and do each one's first-use setup once it is ready,
+// so the first frame they are in does not stall. Resolves when done (never rejects).
+function warmShaders(obj) {
+  const was = renderer.getRenderTarget();
+  let p = null;
+  try {
+    if (post) renderer.setRenderTarget(post.composer.renderTarget1);
+    p = renderer.compileAsync(obj, camera, scene);
+  } catch { /* built on first use */ }
+  renderer.setRenderTarget(was);
+  return Promise.race([p || Promise.resolve(), new Promise((r) => setTimeout(r, 3000))]).catch(() => {}).then(() => {
+    for (const pr of renderer.info.programs) try { pr.getUniforms(); pr.getAttributes(); } catch { /* on first use */ }
+  });
 }
 
 // ---------- Water surfaces ----------
@@ -1561,11 +1603,15 @@ startBtn.addEventListener('click', () => {
   $('intro').classList.add('is-leaving');
   document.body.classList.remove('pre-start');
   // The cover fades out over the island; then its two canvases let go of their GPU contexts.
-  setTimeout(() => { $('intro').hidden = true; cover.dispose(); introSky.stop(); }, 900);
+  setTimeout(() => { $('intro').hidden = true; cover.stop(); introSky.stop(); }, 900);
+  whenCalm(() => cover.dispose(), 2000);
   hud.show();
   syncTouch();
   playOpening();
-  setTimeout(() => { if (!document.getElementById('sheet').open) ggPrewarm(); }, 9000);
+  // The garage's car is readied out of sight so it opens at once. That takes a new drawing
+  // context and its shaders, a stall you would feel at speed, so it waits until you are stopped
+  // and have left the controls alone for a moment.
+  whenCalm(() => { if (!gg.cover) ggPrewarm(); }, 9000);
   // On a computer the refuel line sits under the fuel reading, as text, and nothing moves for it.
   if (!document.body.classList.contains('has-touch')) $('hx-fuelside').append($('fuel-act'));
   if (settings.steering === 'tilt') Input.askTilt().then(applySteering);
@@ -2132,6 +2178,15 @@ $('sheet').addEventListener('keydown', (e) => {
   else if (e.key === 'Enter' && !e.target.matches?.('button')) { e.preventDefault(); $('gg-drive').click(); }
 });
 $('sheet').addEventListener('close', ggClose);
+// Run a one-off chore that stalls the game for a moment (a drawing context made or let go) when
+// it will not be felt: stopped, no menu open, hands off the controls for a moment.
+function whenCalm(fn, after = 1000) {
+  setTimeout(function check() {
+    const still = mode === 'sky' ? false : mode === 'walk' ? walker.speedSmooth < 0.3 : ride === 'heli' ? heli.speed < 0.5 : jeep.speed < 0.5;
+    if (still && !document.querySelector('dialog[open]') && performance.now() - lastInput > 1500) fn();
+    else setTimeout(check, 1000);
+  }, after);
+}
 function openGarage() { $('garage-list').dataset.wantThumbs = '1'; renderGarage(); $('garage').showModal(); ggOpen(); }
 sheet.register('garage', openGarage);
 sheet.register('map', () => mapUI?.open());
@@ -2391,8 +2446,11 @@ function frame(now) {
   const gapMs = governor.gap({ menu: idle, photo: !!photo?.on, still: started && !moving && now - lastInput > 20000 });
   if (now - last < gapMs - 2) return;
   const dt = Math.min(0.05, (now - last) / 1000);
-  // (Not in the first seconds after Start, while the island settles in.)
-  governor.frame(now - last, gapMs, started && !idle && !photo?.on && now - startedAt > 5000);
+  // (Not in the first seconds after Start, while the island settles in.) Calm: going slowly or
+  // standing still, when the hitch of a sharper picture coming back goes unnoticed.
+  const calm = !moving || (mode === 'walk' ? walker.speedSmooth < 2 : ride === 'heli' ? heli.speed < 3 : jeep.speed < 3);
+  governor.frame(now - last, gapMs, started && !idle && !photo?.on && now - startedAt > 6000, calm);
+  if (pendingRes !== null) { resScale = pendingRes; pendingRes = null; applyPixelRatio(); }
   last = now; frameN++;
   if (!world) return;
   const paused = !started || dialogOpen || !!photo?.on;
@@ -2684,7 +2742,7 @@ function frame(now) {
     const fps = fpsFrames / fpsAcc;
     window.__fps = fps;
     // Shedding detail was not enough: step the quality down once.
-    if (started && fps < (isTouch ? 24 : 40) && governor.exhausted && !autoDowngraded && !settings.quality && qualityName !== 'low') {
+    if (started && calm && fps < (isTouch ? 24 : 40) && governor.exhausted && !autoDowngraded && !settings.quality && qualityName !== 'low') {
       autoDowngraded = true;
       holdFrame(() => setQuality(qualityName === 'high' ? 'medium' : 'low', false));
       settings.autoQuality = qualityName; store.save();
