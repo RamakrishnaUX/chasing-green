@@ -2,7 +2,7 @@
 //
 // The governor watches how long frames take. When they run long it sheds work one step at a time,
 // starting with what the eye misses least (how often the water's night reflection and the mirrors
-// are redrawn), then draws fewer pixels, then shadows and aurora detail. When frames have room to
+// are redrawn), then draws fewer pixels, then shadows. When frames have room to
 // spare for a good while it brings each step back, and waits longer each time a step it brought
 // back had to go again, so it settles instead of see-sawing.
 //
@@ -13,12 +13,13 @@
 export const LEVELS = [
   // res: share of the quality's pixel ratio; sky: night reflection faces per frame (0 = off) and
   // how many frames apart; mirrors: extra frames between mirror redraws; shadowEvery: frames
-  // between shadow redraws; aurora: share of the aurora's ray steps.
-  { res: 1, sky: 2, skyEvery: 1, mirrors: 0, shadowEvery: 1, aurora: 1 },
-  { res: 0.9, sky: 1, skyEvery: 1, mirrors: 1, shadowEvery: 1, aurora: 1 },
-  { res: 0.8, sky: 1, skyEvery: 2, mirrors: 1, shadowEvery: 2, aurora: 1 },
-  { res: 0.7, sky: 1, skyEvery: 3, mirrors: 2, shadowEvery: 2, aurora: 0.75 },
-  { res: 0.6, sky: 0, skyEvery: 3, mirrors: 3, shadowEvery: 3, aurora: 0.6 },
+  // between shadow redraws. (The aurora's detail is left alone: changing it rebuilds its shader,
+  // a stall in the middle of play.)
+  { res: 1, sky: 2, skyEvery: 1, mirrors: 0, shadowEvery: 1 },
+  { res: 0.9, sky: 1, skyEvery: 1, mirrors: 1, shadowEvery: 1 },
+  { res: 0.8, sky: 1, skyEvery: 2, mirrors: 1, shadowEvery: 2 },
+  { res: 0.7, sky: 1, skyEvery: 3, mirrors: 2, shadowEvery: 2 },
+  { res: 0.6, sky: 0, skyEvery: 3, mirrors: 3, shadowEvery: 3 },
 ];
 
 export class Governor {

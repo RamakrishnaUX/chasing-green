@@ -47,8 +47,10 @@ export class SkyReflection {
     nightSky.uNightRefl.value = strength;
     if (strength < 0.01) { this.primed = false; return; }
     if (this.primed && this.n++ % this.every) return;
-    const r = this.renderer, prev = r.getRenderTarget(), auto = r.shadowMap.autoUpdate;
-    r.shadowMap.autoUpdate = false;
+    const r = this.renderer, prev = r.getRenderTarget(), auto = r.shadowMap.autoUpdate, autoM = scene.matrixWorldAutoUpdate;
+    // (Neither the shadows nor the whole scene's matrices are redone for each face: only the sky
+    // is drawn, and it has hardly moved since the last frame.)
+    r.shadowMap.autoUpdate = false; scene.matrixWorldAutoUpdate = false;
     this.cam.position.copy(position);
     this.cam.updateMatrixWorld();
     if (!this.primed) { this.cam.update(r, scene); this.primed = true; } // all six the first time (sets the faces up too)
@@ -60,6 +62,6 @@ export class SkyReflection {
       }
     }
     r.setRenderTarget(prev);
-    r.shadowMap.autoUpdate = auto;
+    r.shadowMap.autoUpdate = auto; scene.matrixWorldAutoUpdate = autoM;
   }
 }

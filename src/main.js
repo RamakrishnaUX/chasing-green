@@ -4,7 +4,7 @@ import { CONFIG } from './config.js';
 import { store } from './storage.js';
 import { createNoise2D, clamp, smoothstep, lerp } from './world/noise.js';
 import { START, PLACES, CANYONS, JUMPS, KERID } from './world/geo.js';
-import { buildTerrain, paintTerrain, iceAt, flattenPads, bridges, roadPaths, nearestRoad, heightAt, coastAt, nearestRoadAnywhere, exposureAt, waterLevelAt, postReflectorMat, lakeMat, snowAt, groundAt, roadDistAt, shoreDistAt, surfaceAt } from './world/terrain.js';
+import { updateTerrainLod, buildTerrain, paintTerrain, iceAt, flattenPads, bridges, roadPaths, nearestRoad, heightAt, coastAt, nearestRoadAnywhere, exposureAt, waterLevelAt, postReflectorMat, lakeMat, snowAt, groundAt, roadDistAt, shoreDistAt, surfaceAt } from './world/terrain.js';
 import { Scatter } from './world/scatter.js';
 import { Grass } from './world/grass.js';
 import { Post } from './world/post.js';
@@ -93,6 +93,9 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: qualityName !== 'l
 renderer.setPixelRatio(Math.min(devicePixelRatio, Q.pixelRatio));
 renderer.setSize(innerWidth, innerHeight, false);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
+// Checking each new shader for errors makes the browser wait for it to finish compiling: a stall
+// in the middle of play. Only while developing.
+renderer.debug.checkShaderErrors = !!import.meta.env.DEV;
 renderer.shadowMap.enabled = Q.shadowSize > 0;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -189,7 +192,7 @@ function holdFrame(change) {
 // Smoothness and battery (perf.js): sheds and restores work as frames run long or have room, and
 // sets the frame cap. lastInput: when you last touched anything, so a parked car watching the sky
 // can drop to 30 frames a second.
-let shadowEvery = 1, frameN = 0, lastInput = performance.now();
+let shadowEvery = 1, frameN = 0, lastInput = performance.now(), dialogOpen = false, startedAt = 0;
 for (const ev of ['pointerdown', 'pointermove', 'keydown', 'wheel', 'touchstart']) addEventListener(ev, () => { lastInput = performance.now(); }, { passive: true, capture: true });
 const governor = new Governor({ touch: isTouch, apply: (level, why) => {
   const L = LEVELS[level];
@@ -197,10 +200,9 @@ const governor = new Governor({ touch: isTouch, apply: (level, why) => {
   if (skyRefl) { skyRefl.faces = L.sky; skyRefl.every = L.skyEvery; }
   mirrors.extra = L.mirrors;
   shadowEvery = L.shadowEvery;
-  aurora?.setSteps(auroraSteps());
   track('graphics_governor', { level, why, fps: Math.round(governor.fps) });
 } });
-const auroraSteps = () => Math.max(4, Math.round(Q.auroraSteps * LEVELS[governor.level].aurora));
+const auroraSteps = () => Q.auroraSteps;
 
 // ---------- Build world ----------
 // Built in stages so the Start button can fill as it goes. Before each stage the bar is sent
@@ -303,6 +305,8 @@ async function buildWorld(progress) {
   boatWater = new BoatWater(scene, { low: qualityName === 'low' });
   waterFx = new WaterFx(scene, { low: qualityName === 'low' });
   surfFx = new Surf(scene, { low: qualityName === 'low' });
+  // The road ribbons never move: their matrices are worked out once.
+  for (const o of scene.children) if (o.isMesh && 'roadLift' in o.userData) { o.updateMatrixWorld(true); o.matrixAutoUpdate = false; o.matrixWorldAutoUpdate = false; o.userData.static = true; }
   wildlife = new Wildlife(scene, { low: qualityName === 'low' });
   // The rotor's dust: bigger, thicker billows than a car's.
   washDust = new Particles(scene, { count: qualityName === 'low' ? 260 : 600, color: 0xbfa77f, size: 5.5, opacity: 0.16, gravity: -0.12, drag: 0.9 });
@@ -1551,7 +1555,7 @@ addEventListener('keydown', (e) => {
 startBtn.addEventListener('click', () => {
   audio.start();
   audio.setMuted(audio.muted);
-  started = true;
+  started = true; startedAt = performance.now();
   store.data.trips++; store.save();
   track('game_start', { month: clock.m.name, vehicle: settings.vehicle || 'jeep', graphics: qualityName, input: isTouch ? 'touch' : 'keyboard', trip_number: store.data.trips });
   $('intro').classList.add('is-leaving');
@@ -1656,6 +1660,26 @@ function footprints() {
   footStep = step;
   const h = walker.heading, side = step ? 1 : -1, x = walker.pos.x + Math.cos(h) * 0.11 * side, z = walker.pos.z - Math.sin(h) * 0.11 * side;
   if (onSnow(x, z)) snowTracks.foot(x, walker.groundAt(x, z) + 0.03, z, h, performance.now() / 1000);
+}
+
+// ---------- Far landmarks ----------
+// Small landmarks are not drawn past a distance that grows with their size (sooner on Low), and
+// while hidden their matrices are not worked out each frame. Mountains and glaciers stay in view.
+const _cullV = new THREE.Vector3();
+let roadPieces = null, lodOff = false; // lodOff: testing, chasingGreen.lodOff = true
+function cullFar() {
+  if (!landmarks) return;
+  const e = camera.position, k = qualityName === 'low' ? 1 : qualityName === 'medium' ? 1.8 : 2.6;
+  // Road pieces far off are a thread a pixel wide: on Low they stop beyond 1.3 km.
+  roadPieces ||= scene.children.filter((o) => o.isMesh && o.userData.roadEdge && o.geometry.boundingBox);
+  const roadFar = qualityName === 'low' ? 1300 : Infinity;
+  for (const o of roadPieces) { const b = o.geometry.boundingBox; o.visible = Math.hypot(Math.max(b.min.x - e.x, 0, e.x - b.max.x), Math.max(b.min.z - e.z, 0, e.z - b.max.z)) < roadFar; }
+  for (const lm of landmarks.list) {
+    const r = lm.root; if (!r) continue;
+    if (lm.cullR == null) { const b = new THREE.Box3().setFromObject(r); lm.cullR = b.isEmpty() ? 10 : b.getSize(_cullV).length() / 2; lm.cullC = b.isEmpty() ? r.position.clone() : b.getCenter(new THREE.Vector3()); }
+    const show = Math.hypot(lm.cullC.x - e.x, lm.cullC.z - e.z) - lm.cullR < Math.max(450, lm.cullR * 12) * k;
+    if (show !== r.visible) { r.visible = show; r.matrixWorldAutoUpdate = show; }
+  }
 }
 
 // ---------- Surf ----------
@@ -2361,15 +2385,17 @@ function frame(now) {
   requestAnimationFrame(frame);
   // Skip frames to hold the cap (perf.js): 30 fps on phones, 20 fps behind the intro and menus,
   // 30 on a computer while nothing moves, in the background or on a low battery.
-  const idle = !started || !!document.querySelector('dialog[open]');
+  dialogOpen = !!document.querySelector('dialog[open]');
+  const idle = !started || dialogOpen;
   const moving = !world || mode === 'fly' || mode === 'sky' || (mode === 'walk' ? walker.speedSmooth > 0.1 : (ride === 'heli' ? heli.speed : jeep.speed) > 0.3);
   const gapMs = governor.gap({ menu: idle, photo: !!photo?.on, still: started && !moving && now - lastInput > 20000 });
   if (now - last < gapMs - 2) return;
   const dt = Math.min(0.05, (now - last) / 1000);
-  governor.frame(now - last, gapMs, started && !idle && !photo?.on);
+  // (Not in the first seconds after Start, while the island settles in.)
+  governor.frame(now - last, gapMs, started && !idle && !photo?.on && now - startedAt > 5000);
   last = now; frameN++;
   if (!world) return;
-  const paused = !started || !!document.querySelector('dialog[open]') || !!photo?.on;
+  const paused = !started || dialogOpen || !!photo?.on;
   input.enabled = !paused;
   const t = now / 1000;
 
@@ -2441,7 +2467,7 @@ function frame(now) {
   const a = forecast.evaluate({ x: p.x, z: p.z, clock, dt, guaranteeActive: g });
 
   lastSky = a;
-  if (!(started && document.querySelector('dialog[open]'))) updateCamera(dt); // the view holds still while a menu is open
+  if (!(started && dialogOpen)) updateCamera(dt); // the view holds still while a menu is open
   forecast.cloudOffset(clock.realSeconds, cloudOffset);
   auroraVisSmoothed = aurora.update(dt, t, camera, a);
   const { dark, sunDir } = sky.update({ camera, clock, cloud: a.cloud, cloudOffset, city: a.city, auroraVis: auroraVisSmoothed, auroraTint: aurora.tint, t, focus: p });
@@ -2604,14 +2630,14 @@ function frame(now) {
     if (!paused) fuelTick(dt);
     nav.update(dt, activePos(), activeHeading(), t);
     mapUI.route = nav.route?.pts || null; mapUI.dest = nav.dest;
-    mapUI.lineMode = !!document.querySelector('.hx')?.offsetParent;
+    mapUI.lineMode = hud.hxShown;
     if (mapUI.lineMode) worldMarks(dt);
     mapUI.update(dt, activePos(), activeHeading());
     if (jeep.boatOn && started) badges.feat('boat');
     hud.update(dt, {
       kmh: mode === 'sky' ? diver.kmh : ride === 'heli' ? heli.kmh : jeep.kmh, walking: mode === 'walk', altitude: mode === 'fly' ? heli.pos.y : mode === 'sky' ? diver.agl : null, where: hud.whereText || '', clockLabel: clock.label(), season: clock.season, monthName: clock.m.name, aurora: a,
       bearingDeg: THREE.MathUtils.radToDeg(bearing), windBearingDeg: THREE.MathUtils.radToDeg(Math.atan2(w.x, -w.z)), windStrength: w.strength,
-      lookingUp: up, lookingUpWrongWay: upAnyDir && !up, lookTimer, loggedThisWindow, busy: !started || paused || mode === 'sky' || !!document.querySelector('dialog[open]'),
+      lookingUp: up, lookingUpWrongWay: upAnyDir && !up, lookTimer, loggedThisWindow, busy: !started || paused || mode === 'sky' || dialogOpen,
       now: clock.gameHours, nightStart: clock.nightIndex * 24 + 12 + 4, history: forecast.history.get(clock.nightIndex),
       predict: (h) => forecast.predictedAt(h, clock.gameHours), nextWindow: hud.nextWindowText,
       kick: mode === 'walk' ? 'On foot' : ride === 'heli' ? 'Helicopter' : jeep.spec.name, next: hud.nextText, gear: gearText(),
@@ -2626,6 +2652,11 @@ function frame(now) {
   mirrors.update(renderer, scene, camera, jeep.body, started && mode === 'chase' && driveView === 'cockpit' && !!jeep.model.mirrors);
   // Behind the cover the island is hidden: draw a few frames to warm it up, then none until Start.
   if (started || coverWarmFrames-- > 0) {
+    updateTerrainLod(camera.position, ...(lodOff ? [1e9, 1e9] : qualityName === 'low' ? [240, 800] : qualityName === 'medium' ? [360, 1100] : [500, 1500]));
+    if (frameN % 15 === 0) cullFar();
+    // Hidden things (the parked helicopter, the walker while you drive, far landmarks) skip having
+    // their matrices worked out each frame; anything that never moves (userData.static) never does.
+    for (const c of scene.children) if (!c.userData.static && c.matrixWorldAutoUpdate !== c.visible) c.matrixWorldAutoUpdate = c.visible;
     skyRefl?.update(scene, camera.position, smoothstep(0.25, 0.75, dark));
     // Shedding work: shadows redrawn every few frames (the sun hardly moves between them).
     if (shadowEvery > 1 && renderer.shadowMap.autoUpdate) { renderer.shadowMap.autoUpdate = false; renderer.shadowMap.needsUpdate = frameN % shadowEvery === 0; }
@@ -2738,7 +2769,7 @@ window.chasingGreen = {
   get obstacles() { return obstacles; }, get scene() { return scene; }, Vec3: THREE.Vector3, get puddles() { return puddles; }, get mapUI() { return mapUI; }, get snow() { return snow; },
   nearestRoad: (x, z, r) => nearestRoad(x, z, r), coastAt, roadDistAt, shoreDistAt, groundAt, solidTopAt, get wildlife() { return wildlife; },
   roadPaths: () => roadPaths, fuel, putCar, get stations() { return stations; }, stageTimes,
-  heightAt: (x, z) => heightAt(x, z), get skyRefl() { return skyRefl; }, get surf() { return surfFx; }, governor,
+  heightAt: (x, z) => heightAt(x, z), get skyRefl() { return skyRefl; }, get surf() { return surfFx; }, governor, set lodOff(v) { lodOff = v; },
   snowAt: (x, z) => snowAt(x, z),
   waterLevelAt: (x, z) => waterLevelAt(x, z),
   get kerid() { return KERID; },

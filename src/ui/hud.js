@@ -34,6 +34,11 @@ export class Hud {
       const b = tl.getBoundingClientRect().bottom;
       if (b > 0) this.el.hud.style.setProperty('--tl-bottom', `${Math.round(b)}px`);
     }).observe(tl);
+    // Whether the driving display shows (it depends on the screen): asked of the page only when its
+    // size changes, never each frame (asking each frame makes the browser lay the page out again).
+    const hx = this.el.hud.querySelector('.hx') || document.querySelector('.hx');
+    this.hxShown = !!hx?.offsetParent;
+    if (hx) new ResizeObserver(() => { this.hxShown = !!hx.offsetParent; }).observe(hx);
   }
 
   show() { this.el.hud.hidden = false; }
@@ -129,7 +134,7 @@ export class Hud {
   // The driving display: only drawn when it shows (computers), and only what changed.
   drive(s, kp) {
     const h = this.hx;
-    if (!h.tape || !h.tape.closest('.hx').offsetParent) return;
+    if (!h.tape || !this.hxShown) return;
     const set = (el, v) => { if (el.textContent !== v) el.textContent = v; };
     const b = ((s.bearingDeg % 360) + 360) % 360;
     h.tape.setAttribute('transform', `translate(${(380 - (b + 90) * this.ppd).toFixed(1)} 0)`);

@@ -1058,28 +1058,63 @@ function writeMasks() {
 // pass; heights and colours written to the grid still reach every tile. Each tile's bounds allow
 // for the pads and roads reshaping the land after it is built.
 const TILE = 96;
+// Each tile has three index buffers over the shared vertices: every grid point, every second and
+// every fourth. Far tiles draw the coarser ones (updateTerrainLod), which took a phone from about
+// 680,000 triangles of land a frame to under 200,000. The outermost ring of a coarse tile still
+// meets its edge at every grid point (a fan from each border cell's centre), so neighbouring
+// tiles always share the same edge, whatever their detail, and no cracks open between them.
+const terrainTiles = [];
+function tileIndex(nx, tx, tz, x1, z1, s) {
+  const W = x1 - tx, H = z1 - tz;
+  if (s > 1 && (W % s || H % s || W < 2 * s || H < 2 * s)) return null;
+  const out = [], v = (ix, iz) => iz * nx + ix;
+  for (let cz = tz; cz < z1; cz += s) for (let cx = tx; cx < x1; cx += s) {
+    const L = cx === tx, T = cz === tz, Rr = cx + s === x1, B = cz + s === z1;
+    if (s === 1 || !(L || T || Rr || B)) {
+      const a = v(cx, cz), b = v(cx + s, cz), c = v(cx, cz + s), d = v(cx + s, cz + s);
+      out.push(a, c, b, b, c, d);
+      continue;
+    }
+    // Round the cell from its centre: down the left side, along the bottom, up the right, back
+    // along the top; fine along any side on the tile's edge.
+    const m = v(cx + s / 2, cz + s / 2), ring = [];
+    const side = (fine, x0, z0, dx, dz) => { const st = fine ? 1 : s; for (let k = 0; k < s; k += st) ring.push(v(x0 + dx * k, z0 + dz * k)); };
+    side(L, cx, cz, 0, 1); side(B, cx, cz + s, 1, 0); side(Rr, cx + s, cz + s, 0, -1); side(T, cx + s, cz, -1, 0);
+    for (let k = 0; k < ring.length; k++) out.push(m, ring[k], ring[(k + 1) % ring.length]);
+  }
+  return new THREE.BufferAttribute(new Uint32Array(out), 1);
+}
 function addTerrainTiles(scene, mesh, nx, nz) {
   const geo = mesh.geometry, P = geo.attributes.position.array;
+  terrainTiles.length = 0;
   for (let tz = 0; tz < nz - 1; tz += TILE) for (let tx = 0; tx < nx - 1; tx += TILE) {
     const x1 = Math.min(tx + TILE, nx - 1), z1 = Math.min(tz + TILE, nz - 1);
-    const idx = new Uint32Array((x1 - tx) * (z1 - tz) * 6);
-    let k = 0, y0 = Infinity, y1 = -Infinity;
-    for (let iz = tz; iz < z1; iz++) for (let ix = tx; ix < x1; ix++) {
-      const a = iz * nx + ix, b = a + 1, c = a + nx, d = c + 1;
-      idx[k++] = a; idx[k++] = c; idx[k++] = b;
-      idx[k++] = b; idx[k++] = c; idx[k++] = d;
-    }
+    let y0 = Infinity, y1 = -Infinity;
     for (let iz = tz; iz <= z1; iz++) for (let ix = tx; ix <= x1; ix++) { const y = P[(iz * nx + ix) * 3 + 1]; y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
     const g = new THREE.BufferGeometry();
     for (const name in geo.attributes) g.setAttribute(name, geo.attributes[name]);
-    g.setIndex(new THREE.BufferAttribute(idx, 1));
+    const lods = [tileIndex(nx, tx, tz, x1, z1, 1), tileIndex(nx, tx, tz, x1, z1, 2), tileIndex(nx, tx, tz, x1, z1, 4)];
+    g.setIndex(lods[0]);
     const lo = P[(tz * nx + tx) * 3], hi = P[(z1 * nx + x1) * 3], lz = P[(tz * nx + tx) * 3 + 2], hz = P[(z1 * nx + x1) * 3 + 2];
     g.boundingBox = new THREE.Box3(new THREE.Vector3(lo, y0 - 40, lz), new THREE.Vector3(hi, y1 + 40, hz));
     g.boundingSphere = g.boundingBox.getBoundingSphere(new THREE.Sphere());
     const t = new THREE.Mesh(g, mesh.material);
     t.receiveShadow = mesh.receiveShadow; t.castShadow = mesh.castShadow;
     t.userData.terrainTile = true;
+    t.matrixAutoUpdate = false; t.matrixWorldAutoUpdate = false; t.updateMatrixWorld(true); t.userData.static = true;
     scene.add(t);
+    terrainTiles.push({ g, lods, lod: 0, box: g.boundingBox });
+  }
+}
+// Each frame (cheap): the detail of each tile by how far its nearest point is from the eye.
+// near and far (metres): full detail within near, every fourth point beyond far.
+export function updateTerrainLod(eye, near = 260, far = 900) {
+  for (const t of terrainTiles) {
+    const b = t.box, dx = Math.max(b.min.x - eye.x, 0, eye.x - b.max.x), dz = Math.max(b.min.z - eye.z, 0, eye.z - b.max.z);
+    const d = Math.hypot(dx, dz), slack = t.lod ? 20 : 0; // a little hysteresis at each step
+    let lod = d < near - slack ? 0 : d < far - slack ? 1 : 2;
+    while (lod > 0 && !t.lods[lod]) lod--;
+    if (lod !== t.lod) { t.lod = lod; t.g.setIndex(t.lods[lod]); }
   }
 }
 
@@ -1185,12 +1220,37 @@ function buildRoadRibbons(scene) {
     geo.setAttribute('aJunction', new THREE.Float32BufferAttribute(jd, 1));
     geo.setIndex(idx);
     geo.computeVertexNormals();
-    const mesh = new THREE.Mesh(geo, createRoadMaterial({ paved: path.type === 'paved', halfWidth: hw }));
-    mesh.receiveShadow = true;
+    const mat = createRoadMaterial({ paved: path.type === 'paved', halfWidth: hw });
+    const mesh = new THREE.Mesh(geo, mat);
     mesh.userData.roadLift = (o) => (Math.abs(o) > W + 0.4 ? -1.2 : Math.abs(o) > hw ? 0.08 : 0.13);
     mesh.userData.roadEdge = W;
-    roadMeshes.push(mesh);
-    scene.add(mesh);
+    roadMeshes.push(mesh); // kept whole for refitting (refitRoads), not drawn itself
+    // Drawn in pieces about 250 m long that share its vertices, so the camera skips the stretches
+    // it cannot see instead of drawing the whole Ring Road (over 100,000 triangles) every frame.
+    let from = 0;
+    const piece = (to) => {
+      const sub = [];
+      for (let i = from; i < to; i++) {
+        if (rows[i].hidden && rows[i + 1].hidden) continue;
+        for (let j = 0; j < K - 1; j++) { const a = i * K + j, b = a + 1, c = a + K, d = c + 1; sub.push(a, b, c, b, d, c); }
+      }
+      from = to;
+      if (!sub.length) return;
+      const g = new THREE.BufferGeometry();
+      for (const name in geo.attributes) g.setAttribute(name, geo.attributes[name]);
+      g.setIndex(sub);
+      const box = new THREE.Box3(), v = new THREE.Vector3(), P = geo.attributes.position;
+      for (const k of sub) box.expandByPoint(v.fromBufferAttribute(P, k));
+      box.expandByScalar(4);
+      g.boundingBox = box; g.boundingSphere = box.getBoundingSphere(new THREE.Sphere());
+      const m = new THREE.Mesh(g, mat);
+      m.receiveShadow = true;
+      m.userData.roadLift = mesh.userData.roadLift; m.userData.roadEdge = W; m.userData.static = true;
+      m.matrixAutoUpdate = false; m.matrixWorldAutoUpdate = false; m.updateMatrixWorld(true);
+      scene.add(m);
+    };
+    for (let i = 1; i < rows.length - 1; i++) if (rows[i].along - rows[from].along > 250) piece(i);
+    piece(rows.length - 1);
 
     // Yellow marker posts every 30 units on both sides, like every rural road in Iceland.
     let next = 10;

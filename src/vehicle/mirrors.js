@@ -101,9 +101,12 @@ export class Mirrors {
     body.visible = false;
     const hide = this.lite ? scene.children.filter((o) => o.isInstancedMesh && o.userData.noAO && o.visible) : [];
     for (const o of hide) o.visible = false;
+    // The scene's matrices were worked out for this frame already: not again for the mirror.
+    const autoM = scene.matrixWorldAutoUpdate; scene.matrixWorldAutoUpdate = false;
     renderer.setRenderTarget(this.rt);
     renderer.render(scene, cam);
     renderer.setRenderTarget(target);
+    scene.matrixWorldAutoUpdate = autoM;
     for (const o of hide) o.visible = true;
     body.visible = true;
     renderer.shadowMap.autoUpdate = shadows;

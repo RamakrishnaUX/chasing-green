@@ -41,7 +41,10 @@ float sFront(float R, float tau){
   if (tau < tu) { float a = 1.0 - tau / tu; return R * (1.0 - a * a); }
   float b = (tau - tu) / td; return R * (1.0 - b * b);
 }
-float sLift, sFoam, sLace, sCover, sSheet, sEdge, sWet, sThin, sBigNow;
+float sLift, sFoam, sLace, sCover, sSheet, sEdge, sWet, sThin, sBigNow, sMark, sFlow;
+float sNh(vec2 p){ vec3 q = fract(vec3(p.xyx) * 0.1031); q += dot(q, q.yzx + 33.33); return fract((q.x + q.y) * q.z); }
+float sNz(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(sNh(i), sNh(i + vec2(1, 0)), f.x), mix(sNh(i + vec2(0, 1)), sNh(i + vec2(1, 1)), f.x), f.y); }
 void surfAt(vec2 p, float h, float d){
   float t = uSurfT - sOff(p);
   sLift = 0.0; sFoam = 0.0; sLace = 0.0; sThin = 0.0;
@@ -64,23 +67,34 @@ void surfAt(vec2 p, float h, float d){
     sLace = brN * exp(-u * SP / 7.5) * grow;
   }
   // The run-up of the last few waves to reach the shore: d here is the distance from the waterline.
-  // Up a steep bank the water climbs only so high.
+  // Running up, the water comes as a sheet with a bubbly front. Sliding back, it does not retreat
+  // as one piece: it drains, thinning from the top down so the sand shows through, its edge going
+  // ragged in scallops and fingers, and it leaves a line of foam where it reached, which fades.
   float t0 = t / SP, n0 = floor(t0), tau0 = fract(t0) * SP;
   float x = max(d, 0.0);
-  sCover = 0.0; sSheet = 0.0; sEdge = 0.0; sWet = 0.0; sBigNow = 0.0;
+  float rag = sNz(p * 0.22) * 0.6 + sNz(p * 0.85 + 4.0) * 0.4 - 0.5; // -0.5..0.5, metres apart
+  sCover = 0.0; sSheet = 0.0; sEdge = 0.0; sWet = 0.0; sBigNow = 0.0; sMark = 0.0; sFlow = 0.0;
   for (int k = 0; k < 3; k++) {
     float n = n0 - float(k), tau = tau0 + float(k) * SP;
     float R = sRun(n), tu = sTup(R), td = tu * 1.4;
     float e = sFront(R, tau);
-    float reach = (e - x) * step(h, 0.6 + 0.5 * e);
-    if (reach > 0.0) {
-      sCover = max(sCover, smoothstep(0.0, 0.25, reach));
-      sSheet = max(sSheet, reach);
-      sEdge = max(sEdge, exp(-pow(reach / 1.3, 2.0)) * (tau < tu ? 1.0 : 0.3));
+    // Up a steep bank the water climbs only so high (eased, so it never cuts off in a hard line).
+    float capK = 1.0 - smoothstep(0.2 + 0.5 * R, 0.6 + 0.5 * R, h);
+    float b = clamp((tau - tu) / td, 0.0, 1.0), back = step(tu, tau);
+    float reach = e + rag * mix(0.5, 0.8 + 2.4 * b, back) - x;
+    if (reach > 0.0 && capK > 0.0 && e > -1.0) {
+      // Draining: shallow near the edge, and shallower all over as it goes.
+      float cov = smoothstep(0.0, mix(0.3, 0.8 + 3.0 * b, back), reach) * mix(1.0, 1.0 - 0.75 * b, back) * capK;
+      if (cov > sCover) sFlow = e;
+      sCover = max(sCover, cov);
+      sSheet = max(sSheet, reach * mix(1.0, 1.0 - b, back));
+      sEdge = max(sEdge, exp(-pow(reach / 1.3, 2.0)) * (1.0 - back) * capK);
       sBigNow = max(sBigNow, sBig(n));
     }
+    // The line of foam left at the top of the run-up, scalloped like the edge, fading as it sinks in.
+    if (back > 0.0) sMark = max(sMark, exp(-pow((x - R - rag * 1.2) / 0.3, 2.0)) * exp(-(tau - tu) / 3.5) * capK);
     // The sand stays dark and shining for a while after the water has slid back off it.
-    if (x < R && h < 0.6 + 0.5 * R) {
+    if (x < R + rag * 1.2 && h < 0.6 + 0.5 * R) {
       float tl = tu + td * sqrt(max(0.0, 1.0 - x / R)), age = tau - tl;
       sWet = max(sWet, age > 0.0 ? exp(-age / 10.0) : (reach > 0.0 ? 1.0 : 0.0));
     }
@@ -88,9 +102,9 @@ void surfAt(vec2 p, float h, float d){
   sWet = max(sWet, (1.0 - smoothstep(0.0, 1.5, x)) * 0.75);
 }`;
 
-function surfMaterial(uniforms) {
-  const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.1, metalness: 0, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
-  mat.customProgramCacheKey = () => 'surf';
+function surfMaterial(uniforms, low) {
+  const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.1, metalness: 0, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -6 });
+  mat.customProgramCacheKey = () => `surf-${low ? 'low' : 'full'}`;
   mat.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, surfaceUniforms, nightSky, uniforms);
     const head = `uniform sampler2D uHeightTex; uniform vec2 uGridMin; uniform vec2 uGridStep; uniform vec2 uGridN;
@@ -101,6 +115,7 @@ float groundAt(vec2 p){
   return (t.x + t.y < 1.0) ? a + (b - a) * t.x + (cc - a) * t.y : d + (cc - d) * (1.0 - t.x) + (b - d) * (1.0 - t.y);
 }
 ${SURF_GLSL}
+${low ? '#define SURF_LOW' : ''}
 uniform vec3 uPatch; // centre x, z and half size
 varying vec3 vWP; varying float vH; varying float vD;`;
     sh.vertexShader = sh.vertexShader
@@ -109,14 +124,21 @@ float surfY(vec2 p, out float h, out float d){
   h = groundAt(p); d = coastD(p);
   surfAt(p, h, d);
   if (h < 0.0) return max(sLift, 0.0);
-  return h + (sCover > 0.0 ? clamp(sSheet * 0.04, 0.025, 0.14) : 0.025);
+  // A little above the ground, so its folds (the land's triangles are coarser than the patch's)
+  // never poke through the thin water.
+  return h + clamp(sSheet * 0.03, 0.06, 0.12);
 }`)
       .replace('#include <beginnormal_vertex>', `
         vec2 sp = position.xz + uPatch.xy;
         float sh0, sd0, shx, sdx, shz, sdz;
         float y0 = surfY(sp, sh0, sd0);
+        #ifdef SURF_LOW
+        // (Phones: one sum per point, the slope of the waves left to the ripples.)
+        vec3 objectNormal = vec3(0.0, 1.0, 0.0);
+        #else
         float yx = surfY(sp + vec2(0.6, 0.0), shx, sdx), yz = surfY(sp + vec2(0.0, 0.6), shz, sdz);
         vec3 objectNormal = normalize(vec3(-(yx - y0) / 0.6, 1.0, -(yz - y0) / 0.6));
+        #endif
         vH = sh0; vD = sd0;
         // Far from the coast nothing happens: tuck the patch under the ground there.
         if (sd0 > 60.0 || sd0 < -140.0) y0 = sh0 - 3.0;
@@ -126,6 +148,8 @@ float surfY(vec2 p, out float h, out float d){
       .replace('#include <common>', `#include <common>\n${head}\n${NOISE}\n${NIGHT_SKY_GLSL}\nfloat sfFoam; float sfWetSand;\nuniform float uTime;\nfloat sWv(vec2 p){ return g_n(p * 0.09 + vec2(uTime * 0.04, uTime * 0.025)) * 0.6 + g_n(p * 0.37 - vec2(uTime * 0.11, -uTime * 0.07)) * 0.3 + g_n(p * 1.3 + uTime * 0.2) * 0.1; }`)
       .replace('#include <color_fragment>', `
         surfAt(vWP.xz, vH, vD);
+        // Most of the patch is clear water or dry sand most of the time: stop there.
+        if (max(max(sLift - 0.02, sFoam), max(sLace, max(sCover, max(sWet, sMark)))) < 0.01) discard;
         float dist = length(vViewPosition);
         // Lacy foam: thin bright threads round darker holes, drifting, plus soft churned patches.
         vec2 q = vWP.xz * 0.85 + vec2(sin(uSurfT * 0.21), cos(uSurfT * 0.17)) * 0.7;
@@ -146,12 +170,17 @@ float surfY(vec2 p, out float h, out float d){
         vec3 waveC = mix(seaC * 0.45, clearC, clamp(sThin * 0.9, 0.0, 1.0));
         float fSea = clamp(sFoam * churn + sLace * lace * 0.75, 0.0, 1.0);
         // On the sand: a thin glassy sheet with a bubbly line at its front, and wet sand behind.
-        float sheetA = sCover * mix(0.45, 0.8, smoothstep(0.0, 3.0, sSheet));
+        float sheetA = sCover * mix(0.4, 0.75, smoothstep(0.0, 3.0, sSheet));
         // The front is a band of bubbles, broken up into clumps, thinning to lace behind it.
         float bub = smoothstep(0.35, 0.75, g_n(vWP.xz * 3.1 + uSurfT * 0.2) * 0.6 + g_n(vWP.xz * 7.3) * 0.4);
-        vec2 qs = vWP.xz * 2.4 + vec2(sin(uSurfT * 0.3), cos(uSurfT * 0.23)) * 0.5;
+        // Foam on the sheet moves with the water: up the beach on the run-up, down it on the way back.
+        // (Uphill is found from how the distance to the waterline changes across the screen.)
+        vec2 gx = dFdx(vWP.xz), gy = dFdy(vWP.xz); float ddx = dFdx(vD), ddy = dFdy(vD);
+        float det = gx.x * gy.y - gx.y * gy.x;
+        vec2 up = abs(det) > 1e-6 ? normalize(vec2(ddx * gy.y - ddy * gx.y, gx.x * ddy - gy.x * ddx) / det + 1e-5) : vec2(0.0);
+        vec2 qs = (vWP.xz - up * sFlow) * 2.4;
         float laceS = smoothstep(0.07, 0.01, min(abs(g_n(qs) - 0.5), abs(g_n(qs * 2.1 + 3.0) - 0.5) * 1.4));
-        float fSand = clamp(sEdge * mix(0.35, 1.0, bub) * 1.15 + sCover * laceS * 0.18 * smoothstep(0.4, 2.5, sSheet), 0.0, 1.0);
+        float fSand = clamp(sEdge * mix(0.35, 1.0, bub) * 1.15 + sCover * laceS * 0.22 * smoothstep(0.3, 2.0, sSheet) + sMark * mix(0.2, 0.85, bub), 0.0, 1.0);
         vec3 sheetC = vec3(0.025, 0.04, 0.045);
         float wetA = sWet * (1.0 - sCover) * 0.62;
         sfWetSand = (1.0 - sea) * wetA / max(1e-3, wetA + sheetA);
@@ -173,7 +202,13 @@ float surfY(vec2 p, out float h, out float d){
           // The same ripples as the sea round it (materials.js), so the two meet without a seam.
           float k = 0.55 * 2.2 * (1.0 - smoothstep(40.0, 700.0, dist)) + 0.15;
           float e = 0.35;
+          #ifdef SURF_LOW
+          vec2 rp = vWP.xz * 0.37 - vec2(uTime * 0.11, -uTime * 0.07);
+          float h0 = g_n(rp), hx = g_n(rp + vec2(e * 0.37, 0.0)), hz = g_n(rp + vec2(0.0, e * 0.37));
+          k *= 0.5;
+          #else
           float h0 = sWv(vWP.xz), hx = sWv(vWP.xz + vec2(e, 0.0)), hz = sWv(vWP.xz + vec2(0.0, e));
+          #endif
           normal = normalize(normal + (viewMatrix * vec4(-(hx - h0) / e * k, 0.0, -(hz - h0) / e * k, 0.0)).xyz);
         }`)
       .replace('#include <opaque_fragment>', 'outgoingLight += nightMirror(normal) * (1.0 - sfFoam) * diffuseColor.a;\n// Wet sand: darker, with a soft sheen rather than a mirror.\noutgoingLight *= 1.0 - 0.55 * sfWetSand;\n#include <opaque_fragment>');
@@ -190,7 +225,7 @@ export class Surf {
     const tex = new THREE.DataTexture(this.field, grid.nx, grid.nz, THREE.RedFormat, THREE.FloatType);
     tex.magFilter = tex.minFilter = THREE.NearestFilter; tex.needsUpdate = true;
     this.uniforms = { uCoastTex: { value: tex }, uSurfT: { value: 0 }, uPatch: { value: new THREE.Vector3(0, 0, size / 2) } };
-    this.mesh = new THREE.Mesh(geo, surfMaterial(this.uniforms));
+    this.mesh = new THREE.Mesh(geo, surfMaterial(this.uniforms, low));
     this.mesh.frustumCulled = false; this.mesh.renderOrder = 1; this.mesh.receiveShadow = true; this.mesh.userData.noAO = true;
     this.mesh.visible = false;
     scene.add(this.mesh);
