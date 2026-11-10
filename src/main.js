@@ -40,6 +40,7 @@ import { grime, updateGrime, setDirtColor } from './vehicle/grime.js';
 import { Mirrors } from './vehicle/mirrors.js';
 import { Driver } from './vehicle/driver.js';
 import { Skydiver, MIN_JUMP, fitGear, bonesOf } from './vehicle/skydiver.js';
+import { HorseRide } from './vehicle/horseride.js';
 import { solidTopAt } from './world/solids.js';
 import { BoatWater } from './vehicle/boat.js';
 import { WaterFx } from './world/waterfx.js';
@@ -130,7 +131,7 @@ audio.muted = !!settings.muted;
 const volumes = settings.volumes || (settings.volumes = { master: 1, music: settings.music === 'off' ? 0 : 1, car: 1, ambience: 1 });
 audio.setLevels(volumes);
 
-let world = null, sky, aurora, landmarks, jeep, walker, heli, diver, scatter, grass, props, post = null;
+let world = null, sky, aurora, landmarks, jeep, walker, heli, diver, scatter, grass, props, post = null, riding = null;
 let obstacles, puddles, spray, boatWater, waterFx, washDust, rain, windscreen, skids, trailDust, wetTracks, tyreWet = [0, 0, 0, 0], tyreLast = [], tyreIn = [], tyreSpray = [], wetness = 0, forceRain = null, forceSnow = null, roadSnow = 0, iceWarned = false, wildlife, dust, powder, powderCloud, mapUI, towns, snow, nav, stations, stationSites = [];
 let lastPostState = { aurora: 0, dark: 0 };
 let surfFx = null, surfWet = 0, sneakerSeen = false;
@@ -192,6 +193,7 @@ function holdFrame(change) {
 // Smoothness and battery (perf.js): sheds and restores work as frames run long or have room, and
 // sets the frame cap. lastInput: when you last touched anything, so a parked car watching the sky
 // can drop to 30 frames a second.
+let nearHorse = null, rideTipShown = false, rideBlockAt = 0;
 let shadowEvery = 1, frameN = 0, lastInput = performance.now(), dialogOpen = false, startedAt = 0;
 for (const ev of ['pointerdown', 'pointermove', 'keydown', 'wheel', 'touchstart']) addEventListener(ev, () => { lastInput = performance.now(); }, { passive: true, capture: true });
 // A new resolution is put in at the start of the next frame, just before it is drawn, so the
@@ -326,6 +328,7 @@ async function buildWorld(progress) {
   jeep.setView(driveView);
   jeep.obstacles = obstacles;
   walker = new Walker(scene);
+  riding = new HorseRide({ wildlife, walker });
   heli = new Heli(scene);
   heli.obstacles = obstacles;
   diver = new Skydiver(scene);
@@ -624,7 +627,7 @@ function worldMarks(dt = 0.016) {
 }
 // What the gear readout says: a gear from the speed when driving, R reversing, N standing.
 function gearText() {
-  if (mode === 'walk') return 'On foot';
+  if (mode === 'walk') return riding?.on ? 'On horseback' : 'On foot';
   if (mode === 'sky') return 'Freefall';
   if (ride === 'heli') return heli.landed ? 'Landed' : 'Flying';
   if (jeep.boosting) return 'Nitro';
@@ -668,7 +671,9 @@ function insideCamera(dt, l) {
 }
 let openingCam = null;
 const _openLook = new THREE.Vector3();
+let camHold = false; // debug: the camera stays where it was put (chasingGreen.camHold)
 function updateCamera(dt) {
+  if (camHold) return;
   if (photo?.on) { input.consumeLook(); photo.update(dt); return; }
   const l = input.consumeLook();
   if (mode === 'photo') return; // camera placed by hand from the console
@@ -742,8 +747,10 @@ function updateCamera(dt) {
       const indoors = landmarks.roomAt(walker.pos.x, walker.pos.z, walker.pos.y);
       // Swimming, he is low in the water: the camera comes closer and looks down on him a little more.
       const swim = walker.swimming;
-      const cd = indoors ? 4.2 : swim ? 4.4 : 6 + run * 0.8;
-      const desired = new THREE.Vector3(walker.pos.x - Math.sin(h) * cd, walker.pos.y + (indoors ? 2.2 : swim ? 3.3 : 2.8), walker.pos.z - Math.cos(h) * cd);
+      // On horseback: higher and further back, pulling back more at a gallop.
+      const horse = riding.on, gal = horse ? clamp(riding.speed / 10, 0, 1) : 0;
+      const cd = horse ? 6.6 + gal * 0.8 : indoors ? 4.2 : swim ? 4.4 : 6 + run * 0.8;
+      const desired = new THREE.Vector3(walker.pos.x - Math.sin(h) * cd, walker.pos.y + (horse ? 3.6 : indoors ? 2.2 : swim ? 3.3 : 2.8), walker.pos.z - Math.cos(h) * cd);
       desired.y = Math.max(desired.y, groundAt(desired.x, desired.z) + 1);
       if (indoors) {
         const r = indoors, cs = Math.cos(r.rot), sn = Math.sin(r.rot), dx = desired.x - r.x, dz = desired.z - r.z, m = 0.5;
@@ -751,10 +758,10 @@ function updateCamera(dt) {
         desired.x = r.x + lx * cs + lz * sn; desired.z = r.z - lx * sn + lz * cs;
         desired.y = Math.min(desired.y, r.y1 - 0.5);
       }
-      camera.position.lerp(desired, Math.min(1, dt * 5));
-      camTarget.set(walker.pos.x, walker.pos.y + 1.6, walker.pos.z);
+      camera.position.lerp(desired, Math.min(1, dt * (horse ? 4 + gal * 6 : 5)));
+      camTarget.set(walker.pos.x, walker.pos.y + (horse ? 2.2 : 1.6), walker.pos.z);
       camera.lookAt(camTarget);
-      const fov = 52 + run * 4;
+      const fov = 52 + (horse ? gal * 7 : run * 4);
       if (Math.abs(camera.fov - fov) > 0.05) { camera.fov += (fov - camera.fov) * Math.min(1, dt * 3); camera.updateProjectionMatrix(); }
     }
   }
@@ -881,7 +888,7 @@ function toggleBeam() {
 $('t-beam')?.addEventListener('click', () => toggleBeam());
 function cycleView() {
   if (mode === 'sky') { skyView = skyView === 'eyes' ? 'chase' : 'eyes'; hud.toast(skyView === 'eyes' ? 'Through your own eyes. Drag to look around.' : 'Chase view.', { seconds: 2, priority: 2 }); return; }
-  if (mode === 'walk') { getIn(); return; }
+  if (mode === 'walk') { if (!riding.on) getIn(); return; }
   if (mode === 'fly') { if (flySky) flySky = false; else setView(driveView === 'cockpit' ? 'chase' : 'cockpit'); look.cabPitch = 0; look.cabYaw = 0; syncLookButton(); return; }
   if (mode === 'lookup') { mode = 'chase'; syncLookButton(); }
   setView(VIEWS[(VIEWS.indexOf(driveView) + 1) % VIEWS.length]);
@@ -911,6 +918,7 @@ function stepOut() {
   syncLookButton();
 }
 function getIn() {
+  endRide();
   if (afterJump && ride === 'heli' && !heliBeside()) { callHeli(); return; }
   if (afterJump) endJump();
   if (ride === 'heli') { heli.auto = null; heli.touchdown = false; }
@@ -919,7 +927,37 @@ function getIn() {
   if (ride === 'heli') heli.engineOn = true;
   walker.exit(); syncLookButton();
 }
-function toggleWalk() { if (mode === 'walk') getIn(); else stepOut(); }
+function toggleWalk() {
+  if (mode === 'walk') {
+    if (riding.on) { getOffHorse(); return; }
+    const h = !sitting && !walker.swimming && !walker.soaking && walker.state === 'walk' && riding.near(walker.pos);
+    if (h) { getOnHorse(h); return; }
+    getIn();
+  } else stepOut();
+}
+// Riding (horseride.js): on foot beside a horse, E (Ride on a phone) gets on; E again, off.
+function getOnHorse(a) {
+  riding.mount(a); walkTilt = false; look.walkYaw = 0;
+  track('horse_mount'); badges.feat?.('ride');
+  hud.toast(isTouch ? 'In the saddle. Hold Go to walk on; keep holding to canter and gallop. Slide up from Go to jump. Off gets you down.' : 'In the saddle. Up walks on; hold it to canter and gallop (Shift keeps a walk). Space jumps, Down stops and backs up. E gets you down.', { seconds: 5, priority: 2 });
+  syncLookButton();
+}
+// Down beside it; if you have ridden a long way from the car, it is brought to the road nearest
+// you (left on its own it would be out of reach on foot).
+function getOffHorse() {
+  const at = riding.dismount(); if (!at) return;
+  walker.land(at.x, at.z, at.heading);
+  const v = ride === 'heli' ? heli : jeep;
+  if (!afterJump && Math.hypot(at.x - v.pos.x, at.z - v.pos.z) > CONFIG.vehicle.walkRadius * 0.8) {
+    if (ride === 'heli') { const s = at.heading - Math.PI / 2; heli.place(at.x + Math.sin(s) * 14, at.z + Math.cos(s) * 14, at.heading); }
+    else { const r = nearestRoadAnywhere(at.x, at.z); if (r) jeep.place(r.x, r.z, r.heading); }
+    hud.toast(ride === 'heli' ? 'Down from the saddle. The helicopter is waiting beside you.' : 'Down from the saddle. Your car is parked on the road nearest you.', { seconds: 3.5, priority: 2 });
+  }
+  if (!afterJump) walker.setCar(ride === 'heli' ? heli : jeep);
+  track('horse_dismount');
+}
+// Off the horse quietly, before anything that takes you somewhere else (travel, a new vehicle).
+function endRide() { if (riding?.on) { const at = riding.dismount(); if (at) walker.land(at.x, at.z, at.heading); } }
 // The lights usually sit to the north, so looking up turns you that way, the way a person would.
 function wrapAngle(a) { return Math.atan2(Math.sin(a), Math.cos(a)); }
 function enterLookUp() { track('look_up'); mode = 'lookup'; look.yaw = wrapAngle(Math.PI - jeep.heading); look.pitch = 0.75; }
@@ -1797,6 +1835,7 @@ sheet.register('learn', () => learn.open());
 function toggleSit(force) {
   if (mode === 'sky') return;
   if (mode !== 'walk') { hud.toast('Step out of the car first (E), then sit down.', { seconds: 2.5 }); return; }
+  if (riding.on) return;
   sitting = force ?? !sitting;
   walker.setSitting?.(sitting);
   if (sitting) {
@@ -2053,7 +2092,7 @@ function boardHeli(announce = true) {
   if (!jeep || !heli) return;
   if (!heli.model) { heli.ready.then(() => boardHeli(announce)).catch(() => hud.toast('The helicopter could not load. Try again in a moment.', { seconds: 3 })); return; }
   if (ride === 'heli') return;
-  if (mode === 'walk') walker.exit();
+  if (mode === 'walk') { endRide(); walker.exit(); }
   ride = 'heli';
   heli.place(jeep.pos.x, jeep.pos.z, jeep.heading);
   heli.root.visible = true; heli.engineOn = true; heli.rpm = 0;
@@ -2083,7 +2122,7 @@ function leaveHeli() {
   if (airborne) { $('flash').classList.remove('is-on'); void $('flash').offsetWidth; $('flash').classList.add('is-on'); }
   const from = jumped ? walker.pos.clone() : heli.pos.clone();
   if (jumped) { endJump(); heli.auto = null; heli.engineOn = false; }
-  if (mode === 'walk') walker.exit();
+  if (mode === 'walk') { endRide(); walker.exit(); }
   ride = 'car';
   heli.root.visible = false; heli.engineOn = false; heli.rpm = 0;
   jeep.root.add(jeep.headlight, jeep.headlight.target, jeep.spread, jeep.spread.target);
@@ -2413,7 +2452,7 @@ function driveTo(x, z, label) {
 // Put the car down somewhere new, back in it, with the camera behind.
 function putCar(x, z, heading) {
   if (afterJump || mode === 'sky') endJump();
-  if (mode === 'walk') walker.exit();
+  if (mode === 'walk') { endRide(); walker.exit(); }
   jeep.place(x, z, heading);
   if (ride === 'heli') { heli.place(x, z, heading); mode = 'fly'; flyHeading = null; camOff.set(0, 0, 0); infoDismissed = null; return; }
   mode = 'chase';
@@ -2461,13 +2500,17 @@ function frame(now) {
   const w = wind(clock.realSeconds);
 
   if (sitting && (mode !== 'walk' || input.throttle || input.steer)) toggleSit(false);
-  $('t-sit').hidden = mode !== 'walk';
+  $('t-sit').hidden = mode !== 'walk' || riding.on;
   // Phones: Out when the car has stopped, In while on foot (E on a keyboard).
   {
-    const tw = $('t-walk'), on = ride === 'car' && (mode === 'walk' || (mode === 'chase' && jeep.speed < 1 && jeep.boat < 0.1 && !jeep.air));
+    // On foot beside a horse: Ride; in the saddle: Off.
+    const horse = mode === 'walk' && !riding.on && frameN % 6 === 0 ? (nearHorse = walker.state === 'walk' && !sitting ? riding.near(walker.pos) : null) : mode === 'walk' && !riding.on ? nearHorse : null;
+    const tw = $('t-walk'), on = riding.on || !!horse || (ride === 'car' && (mode === 'walk' || (mode === 'chase' && jeep.speed < 1 && jeep.boat < 0.1 && !jeep.air)));
     if (tw.hidden === on) tw.hidden = !on;
-    const lbl = mode === 'walk' ? 'In' : 'Out';
-    if (on && tw.lastChild.textContent !== lbl) { tw.lastChild.textContent = lbl; tw.setAttribute('aria-label', mode === 'walk' ? 'Get back in' : 'Step out'); }
+    const lbl = riding.on ? 'Off' : horse ? 'Ride' : mode === 'walk' ? 'In' : 'Out';
+    if (on && tw.lastChild.textContent !== lbl) { tw.lastChild.textContent = lbl; tw.setAttribute('aria-label', riding.on ? 'Get down from the horse' : horse ? 'Ride this horse' : mode === 'walk' ? 'Get back in' : 'Step out'); }
+    // The first time you are beside one, how to get on.
+    if (horse && !rideTipShown) { rideTipShown = true; hud.toast(isTouch ? 'A horse. Tap Ride to get in the saddle.' : 'A horse. Press E to ride it.', { seconds: 3.5, priority: 2 }); }
   }
   $('t-up').hidden = $('t-down').hidden = mode !== 'fly';
   if (mode === 'sky') {
@@ -2476,9 +2519,14 @@ function frame(now) {
   } else if (mode === 'walk') {
     if (ride === 'heli') heli.fly(paused ? 0 : dt, w, walker.pos); else jeep.update(dt, input, w, false);
     if (landmarks && !walker.bathAt) { walker.bathAt = (x, z, m) => landmarks.bathAt(x, z, m); walker.rimAt = (x, z) => landmarks.rimAt(x, z); }
-    walker.update(dt, input, walkLeash(), obstacles);
-    soakUpdate(dt);
-    if (dt) footprints();
+    if (riding.on) {
+      riding.update(paused ? 0 : dt, input);
+      if (riding.blocked && performance.now() - (rideBlockAt || 0) > 3000) { rideBlockAt = performance.now(); hud.toast(riding.blocked === 'deep' ? 'Too deep for the horse.' : 'Too steep for the horse here.', { seconds: 2 }); }
+    } else {
+      walker.update(dt, input, walkLeash(), obstacles);
+      soakUpdate(dt);
+      if (dt) footprints();
+    }
     if (afterJump) {
       // Still in his pack and helmet (not while sitting: the camera is in his head), the canopy
       // falling in where he landed, and word when the helicopter is down beside him.
@@ -2488,8 +2536,9 @@ function frame(now) {
       fitGear(walkerBones, diver.pack, sitting ? null : diver.helmet);
       if (heliComing && !heli.auto) { heliComing = false; hud.toast(isTouch ? 'The helicopter has landed. Tap Get in when you are beside it.' : 'The helicopter has landed. Walk over and press E to get in.', { seconds: 3.5, priority: 2 }); }
     }
-    obstacles.resolve(walker.pos, 0.4, true);
-    wildlife.pushOut(walker.pos, 0.3); // nor through the animals
+    obstacles.resolve(walker.pos, riding.on ? 0.8 : 0.4, true);
+    wildlife.pushOut(walker.pos, riding.on ? 0.5 : 0.3); // nor through the animals
+    if (riding.on) { riding.a.x = walker.pos.x; riding.a.z = walker.pos.z; }
     // Swimming: a splash going in, and spray off his arms as he strokes.
     if (walker.splashed) { audio.splash(walker.splashed); const wl = waterLevelAt(walker.pos.x, walker.pos.z); spray.emit(walker.pos.x, wl + 0.1, walker.pos.z, 0, 2.6, 0, Math.ceil(walker.splashed * 14), 1.4, 0.7); walker.splashed = 0; if (!swimTipShown) { swimTipShown = true; hud.toast('Swimming. The water is cold, so stay near the shore.', { seconds: 3, priority: 2 }); } }
     if (walker.swimming && walker.speedSmooth > 0.3 && Math.random() < dt * 7) {
@@ -2548,7 +2597,9 @@ function frame(now) {
 
   landmarks.update(dt, t, { wind: w, dark, auroraTint: aurora.tint, auroraVis: auroraVisSmoothed, player: p });
   // Wildlife, and a word about each species the first time you see it.
-  for (const sp of wildlife.update(paused ? 0 : dt, { pos: p, car: ride === 'heli' ? null : jeep, camera, clock, dark, highBeam: !!jeep.highBeam, walking: mode === 'walk', walkSpeed: walker.speedSmooth })) {
+  const wildEvents = wildlife.update(paused ? 0 : dt, { pos: p, car: ride === 'heli' ? null : jeep, camera, clock, dark, highBeam: !!jeep.highBeam, walking: mode === 'walk', walkSpeed: walker.speedSmooth });
+  if (riding.on) riding.pose(paused ? 0 : dt); // the rider in the saddle, now the horse has moved
+  for (const sp of wildEvents) {
     const seen = store.data.wildlife || (store.data.wildlife = {});
     if (seen[sp]) continue;
     seen[sp] = new Date().toISOString(); store.save();
@@ -2693,12 +2744,12 @@ function frame(now) {
     mapUI.update(dt, activePos(), activeHeading());
     if (jeep.boatOn && started) badges.feat('boat');
     hud.update(dt, {
-      kmh: mode === 'sky' ? diver.kmh : ride === 'heli' ? heli.kmh : jeep.kmh, walking: mode === 'walk', altitude: mode === 'fly' ? heli.pos.y : mode === 'sky' ? diver.agl : null, where: hud.whereText || '', clockLabel: clock.label(), season: clock.season, monthName: clock.m.name, aurora: a,
+      kmh: mode === 'walk' && riding?.on ? Math.round(riding.speed * 3.6) : mode === 'sky' ? diver.kmh : ride === 'heli' ? heli.kmh : jeep.kmh, walking: mode === 'walk' && !riding?.on, altitude: mode === 'fly' ? heli.pos.y : mode === 'sky' ? diver.agl : null, where: hud.whereText || '', clockLabel: clock.label(), season: clock.season, monthName: clock.m.name, aurora: a,
       bearingDeg: THREE.MathUtils.radToDeg(bearing), windBearingDeg: THREE.MathUtils.radToDeg(Math.atan2(w.x, -w.z)), windStrength: w.strength,
       lookingUp: up, lookingUpWrongWay: upAnyDir && !up, lookTimer, loggedThisWindow, busy: !started || paused || mode === 'sky' || dialogOpen,
       now: clock.gameHours, nightStart: clock.nightIndex * 24 + 12 + 4, history: forecast.history.get(clock.nightIndex),
       predict: (h) => forecast.predictedAt(h, clock.gameHours), nextWindow: hud.nextWindowText,
-      kick: mode === 'walk' ? 'On foot' : ride === 'heli' ? 'Helicopter' : jeep.spec.name, next: hud.nextText, gear: gearText(),
+      kick: mode === 'walk' ? (riding?.on ? 'On horseback' : 'On foot') : ride === 'heli' ? 'Helicopter' : jeep.spec.name, next: hud.nextText, gear: gearText(),
       dayText: `${clock.m.name} · ${a.summer ? 'Midnight sun' : a.active ? 'Aurora out now' : hud.nextWindowText ? `Lights likely ${hud.nextWindowText}` : a.dark < CONFIG.aurora.minDarkness ? 'Waiting for dark' : 'Dark sky'}`,
       nitro: jeep.nitro, boosting: jeep.boosting,
       fuel: fuel.on && ride === 'car' && mode !== 'walk' ? { level: fuel.level(jeep.kind), litres: fuel.litres(jeep.kind) } : null,
@@ -2826,7 +2877,9 @@ window.chasingGreen = {
   clock, forecast, CONFIG, store, linkFor, scene, renderer, camera, mirrors, driver, setVehicle, fastTravel, input, badges, hud, notebook, THREE, get jeep() { return jeep; },
   get obstacles() { return obstacles; }, get scene() { return scene; }, Vec3: THREE.Vector3, get puddles() { return puddles; }, get mapUI() { return mapUI; }, get snow() { return snow; },
   nearestRoad: (x, z, r) => nearestRoad(x, z, r), coastAt, roadDistAt, shoreDistAt, groundAt, solidTopAt, get wildlife() { return wildlife; },
-  roadPaths: () => roadPaths, fuel, putCar, get stations() { return stations; }, stageTimes,
+  roadPaths: () => roadPaths, fuel, putCar, get stations() { return stations; }, stageTimes, get riding() { return riding; }, get walker() { return walker; },
+  set camHold(v) { camHold = !!v; },
+  walkerSet: (x, z, h) => { if (mode === 'walk' && !riding.on) { walker.pos.set(x, groundAt(x, z), z); walker.heading = h; } },
   heightAt: (x, z) => heightAt(x, z), get skyRefl() { return skyRefl; }, get surf() { return surfFx; }, governor, set lodOff(v) { lodOff = v; },
   snowAt: (x, z) => snowAt(x, z),
   waterLevelAt: (x, z) => waterLevelAt(x, z),

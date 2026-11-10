@@ -23,14 +23,15 @@ const EYES = [new THREE.Vector3(), new THREE.Vector3()];
 // hair colour), and habits. flee: how close a car (or someone running) gets before they run off;
 // shy: how close someone walking gets before they amble a few steps away. stride: ground covered in
 // one walk cycle, so far-off ones step in time. body: half its length and its girth, in metres,
-// which nobody on foot walks through. A horse flees in a fast tölt.
+// which nobody on foot walks through. A horse flees at a gallop.
 // Eyeshine colours by animal.
 const EYESHINE = { fox: [0.55, 1.1, 0.3], sheep: [0.6, 1.0, 0.55], horse: [0.35, 0.95, 0.85], reindeer: [0.3, 0.55, 1.2] };
 const HERD = {
   sheep: { cap: 140, walk: 0.8, run: 3.2, flee: 14, shy: 5, stride: 0.42, body: [0.55, 0.32],
     looks: [[0xf1ece0, 0xe9e4d9], [0xf1ece0, 0xe9e4d9], [0xf1ece0, 0xe9e4d9], [0xf1ece0, 0x2e2824], [0x2a2522, 0x1e1a18], [0x6d4c33, 0x4b3322], [0x9a948b, 0x3b3633]] },
-  horse: { cap: 60, walk: 1.1, run: 2.8, flee: 9, shy: 3.5, stride: 1.55, body: [0.95, 0.42],
-    looks: [[0x6b3f24, 0x15100d], [0x8a4a25, 0x6e3519, 0x8a4a25], [0x8a4a25, 0xdcc79e, 0x8a4a25], [0x1f1a17, 0x141110], [0x8f8b85, 0x5f5b57, 0x77736d], [0xcfa86c, 0xefe6cf, 0xcfa86c], [0xae8e64, 0x2a211b], [0xe4e0d6, 0xdcd8ce, 0xe4e0d6]] },
+  horse: { cap: 60, walk: 1.1, run: 7, flee: 9, shy: 1.6, stride: 1.55, body: [0.95, 0.42],
+    // [coat, mane, lower legs, paint]: paint 1 keeps the white patches (skewbald, piebald).
+    looks: [[0x6b3f24, 0x15100d], [0x8a4a25, 0x6e3519, 0x8a4a25], [0x8a4a25, 0xdcc79e, 0x8a4a25], [0x1f1a17, 0x141110], [0x8f8b85, 0x5f5b57, 0x77736d], [0xcfa86c, 0xefe6cf, 0xcfa86c], [0xae8e64, 0x2a211b], [0xe4e0d6, 0xdcd8ce, 0xe4e0d6], [0x7a4424, 0x3a2416, 0x7a4424, 1], [0x1f1a17, 0x2a2420, 0x1f1a17, 1]] },
   reindeer: { cap: 60, walk: 1.0, run: 7, flee: 38, shy: 20, stride: 1.34, body: [0.8, 0.38], looks: [[0x6c5d4c, 0x3a3029], [0x7a6b59, 0x40362d], [0x5f5446, 0x332b25]] },
   fox: { cap: 14, walk: 1.2, run: 2.4, flee: 26, shy: 12, stride: 0.74, body: [0.38, 0.16], looks: [[0xf2f1ec, 0xe2dfd8]] },
   seal: { cap: 30, walk: 0.5, run: 1.6, flee: 22, shy: 22, stride: 1, body: [0.75, 0.32], looks: [[0xb4b4b4], [0xbcb0a4], [0x9ea4a8]] }, // tints over the real coat
@@ -226,10 +227,17 @@ export class Wildlife {
       if (!this.cells.has(k)) this.cells.set(k, this.fill(i, j, month));
     }
     for (const k of this.cells.keys()) if (!keep.has(k)) this.cells.delete(k);
-    this.animals = [...this.cells.values()].flat();
+    // A horse being ridden, and one left where its rider got down, go with you or stay where they
+    // are, not back to their field (until you are far away).
+    this.kept = (this.kept || []).filter((a) => a === this.ridden || Math.hypot(a.x - pos.x, a.z - pos.z) < 600);
+    for (const a of this.kept) for (const list of this.cells.values()) { const i = list.indexOf(a); if (i >= 0) list.splice(i, 1); }
+    this.animals = [...this.cells.values()].flat().concat(this.kept);
   }
+  // Keep an animal where it is (see manage).
+  keep(a) { (this.kept ||= []); if (!this.kept.includes(a)) this.kept.push(a); }
 
   behave(a, dt, threat) {
+    if (a.ridden) return; // moved by the rider (horseride.js)
     const H = HERD[a.sp];
     const dx = a.x - threat.x, dz = a.z - threat.z, d = Math.hypot(dx, dz);
     // A car or a runner sends them off at a run; someone walking up, a few unhurried steps aside.
@@ -284,6 +292,7 @@ export class Wildlife {
   // Someone on foot at pos (radius r) is kept out of every animal's body: a capsule along it.
   pushOut(pos, r) {
     const push = (a) => {
+      if (a.ridden) return;
       const B = HERD[a.sp].body, dx = pos.x - a.x, dz = pos.z - a.z;
       if (Math.abs(dx) > 3 || Math.abs(dz) > 3 || pos.y > (a.y ?? pos.y) + 1.6) return;
       const fx = Math.sin(a.heading), fz = Math.cos(a.heading), along = clamp(dx * fx + dz * fz, -B[0], B[0]);

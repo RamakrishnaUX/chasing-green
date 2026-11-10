@@ -25,41 +25,80 @@ const SPECS = {
   // pts: lower legs (fraction of height) and face (beyond this z, in model units) that take the
   // third colour; tint: meshes coloured with the coat or hair colour; gain: darkens the coat;
   // wide: broader than the model (the Icelandic horse is stockier than this one).
-  horse: { scale: 0.85, eyeAt: [0.1, 0.3],  wide: 1.1, speed: { walk: 1.25 }, neck: ['neckOff_01', 'neck_01', 'neck_02', 'neck_03', 'neck_04', 'neck_05'], head: 'head', tint: { M_Body: 'coat', M_Hair: 'hair' }, pts: { legs: 0.27 }, near: 6 },
-  sheep: { scale: 1.4, eyeAt: [0.06, 0.12],  speed: {}, neck: ['Neck'], head: 'Head', tint: { '*': 'coat' }, pts: { legs: 0.36, face: 0.3 }, near: 14, stride: 0.42,
+  horse: { scale: 0.09, wide: 1.08, eyeAt: [0.1, 0.3], speed: { walk: 9.93, run: 42.6 }, runAt: 2.4, neck: ['BN_Neck_00', 'BN_Neck_01', 'BN_Neck_02', 'BN_Neck_03'], head: 'BN_Head_00', tint: { Horse: 'coat', Hair: 'hair' }, paint: true, gain: 1.15, pts: { legs: 0.27 }, tack: /Saddle|Bridle/, near: 6 },
+  sheep: { scale: 1.4, eyeAt: [0.06, 0.12], sheen: 0.7, speed: {}, neck: ['Neck'], head: 'Head', tint: { '*': 'coat' }, pts: { legs: 0.36, face: 0.3 }, near: 14, stride: 0.42,
     legs: { up: ['FrontUpLegL', 'FrontUpLegR', 'BackUpLegL', 'BackUpLegR'], low: ['FrontLowLegL', 'FrontLowLegR', 'BackLowLegL', 'BackLowLegR'] } },
-  fox: { scale: 0.62, speed: { walk: 1.3 }, neck: ['Neck1', 'Neck2', 'Neck3'], head: 'Head', tint: { '*': 'coat' }, eyes: ['EyeL', 'EyeR'], near: 3 },
-  reindeer: { scale: 0.8, eyeAt: [0.08, 0.22],  speed: { walk: 1.68, trot: 7.84, run: 12.6 }, root: 'RigRoot', neck: ['RigNeck1', 'RigNeck2', 'RigNeck3'], head: 'RigHead', tint: { Head: 'coat', Body: 'coat' }, gain: 1.35, near: 8 },
+  fox: { scale: 0.62, sheen: 0.6, speed: { walk: 1.3 }, neck: ['Neck1', 'Neck2', 'Neck3'], head: 'Head', tint: { '*': 'coat' }, eyes: ['EyeL', 'EyeR'], near: 3 },
+  reindeer: { scale: 0.8, sheen: 0.4, eyeAt: [0.08, 0.22],  speed: { walk: 1.68, trot: 7.84, run: 12.6 }, root: 'RigRoot', neck: ['RigNeck1', 'RigNeck2', 'RigNeck3'], head: 'RigHead', tint: { Head: 'coat', Body: 'coat' }, gain: 1.35, near: 8 },
   seal: { scale: 0.84, yaw: -Math.PI / 2 },
   puffin: { scale: 0.12 }, // a scan of a standing bird, about 29 cm tall
   humpback: { scale: 0.47, yaw: -Math.PI / 2, center: true, shade: 0.5 }, // its texture is pale for a humpback
   orca: { scale: 0.113, center: true },
   dolphin: { scale: 0.52, center: true },
 };
-// Sheep legs, swung by code. Each leg's place in the stride: a four-beat walk, and a trot with the
-// diagonal pairs together (front-left, front-right, hind-left, hind-right).
+// Sheep legs, by code (the model has no walk): each hoof is placed, and the two bones of the leg
+// bent to reach it (two-bone inverse kinematics), so a hoof stays planted on the ground while the
+// body passes over it, then lifts in an arc and comes down ahead, and knees and hocks fold the way
+// they really do (the way each leg already bends at rest). Each leg's place in the stride: a
+// four-beat walk, and a trot with the diagonal pairs together (front-left, front-right, hind-left,
+// hind-right).
 const GAIT = { walk: [0.25, 0.75, 0, 0.5], trot: [0, 0.5, 0.5, 0] };
-// One leg at phase u (0 to 1) of its stride: planted and pushed back for the first share (duty),
-// then lifted, folded and swung forward quickly. Returns [swing, fold] in radians.
-function legAt(u, amp, duty, fold) {
-  if (u < duty) return [amp * (1 - (2 * u) / duty), 0];
-  const w = (u - duty) / (1 - duty), e = w * w * (3 - 2 * w);
-  return [amp * (2 * e - 1), Math.sin(Math.PI * w) * fold];
-}
-// The sheep's gait at ground speed v: how far a stride, how much a trot, and how wide the swing.
-// The stride lengthens with speed, so a running sheep reaches out rather than pattering.
+// The sheep's gait at ground speed v: how far a stride, how much a trot, how long each hoof is down
+// (duty) and how high it lifts. The stride lengthens with speed, so a running sheep reaches out
+// rather than pattering.
 export function sheepGait(v, stride) {
   const trot = clamp((v - 1.2) / 1.0, 0, 1);
-  return { stride: stride * (1 + 0.55 * Math.max(0, v - 0.8)), trot, amp: lerp(0.3, 0.58, trot), duty: lerp(0.62, 0.48, trot), fold: lerp(0.55, 0.95, trot) };
+  return { stride: stride * (1 + 0.55 * Math.max(0, v - 0.8)), trot, duty: lerp(0.64, 0.46, trot), lift: lerp(0.07, 0.11, trot) };
 }
-// Bend a sheep's legs (bones at rest) to stride phase p (0 to 1), blending walk and trot.
-function sheepLegs(K, bones, p, g, amount = 1) {
-  for (let i = 0; i < 4; i++) {
-    const U = K.legUp[i], L = K.legLow[i];
-    const w = legAt((p + GAIT.walk[i]) % 1, g.amp, g.duty, g.fold), t = legAt((p + GAIT.trot[i]) % 1, g.amp, g.duty, g.fold);
-    const sw = lerp(w[0], t[0], g.trot) * amount, fo = lerp(w[1], t[1], g.trot) * amount;
-    bones[U.name].quaternion.multiply(Q2.setFromAxisAngle(U.pitch, sw * U.sign));
-    bones[L.name].quaternion.multiply(Q2.setFromAxisAngle(L.pitch, fo * L.sign));
+const IK = { H: new THREE.Vector3(), K: new THREE.Vector3(), T: new THREE.Vector3(), tip: new THREE.Vector3(), d: new THREE.Vector3(), n: new THREE.Vector3(), p: new THREE.Vector3(), o: new THREE.Vector3(), a: new THREE.Vector3(), b: new THREE.Vector3(), q: new THREE.Quaternion(), pq: new THREE.Quaternion() };
+// Turn bone b (in the world) by the rotation that takes direction from to direction to.
+function turnBone(b, from, to) {
+  IK.q.setFromUnitVectors(from, to);
+  b.parent.getWorldQuaternion(IK.pq);
+  b.quaternion.premultiply(IK.pq).premultiply(IK.q).premultiply(IK.pq.invert());
+  b.updateMatrixWorld(true);
+}
+// Bend leg L (its upper and lower bones, and the hoof's place in the lower bone) so the hoof is at T.
+function reach(bones, L, T) {
+  const U = bones[L.up], D = bones[L.low];
+  U.getWorldPosition(IK.H); D.getWorldPosition(IK.K); IK.tip.copy(L.tip); D.localToWorld(IK.tip);
+  const a = IK.K.distanceTo(IK.H), b = IK.tip.distanceTo(IK.K);
+  // The plane the leg bends in now, and which side of the hip-to-hoof line the knee is.
+  IK.a.subVectors(IK.K, IK.H); IK.b.subVectors(IK.tip, IK.H);
+  IK.n.crossVectors(IK.a, IK.b);
+  if (IK.n.lengthSq() < 1e-10) IK.n.set(1, 0, 0); else IK.n.normalize();
+  IK.d.subVectors(T, IK.H);
+  const dist = clamp(IK.d.length(), Math.abs(a - b) * 1.02 + 1e-4, (a + b) * 0.999);
+  IK.d.normalize();
+  const cosA = clamp((a * a + dist * dist - b * b) / (2 * a * dist), -1, 1), sinA = Math.sqrt(1 - cosA * cosA);
+  IK.p.crossVectors(IK.n, IK.d).normalize();
+  IK.o.copy(IK.b).normalize(); IK.o.multiplyScalar(IK.a.dot(IK.o)); IK.o.subVectors(IK.a, IK.o); // the knee's offset now
+  if (IK.p.dot(IK.o) < 0) IK.p.negate();
+  // Upper bone: toward where the knee must be.
+  IK.K.copy(IK.H).addScaledVector(IK.d, a * cosA).addScaledVector(IK.p, a * sinA);
+  IK.a.normalize(); IK.b.subVectors(IK.K, IK.H).normalize();
+  turnBone(U, IK.a, IK.b);
+  // Lower bone: from the knee to the hoof's place.
+  D.getWorldPosition(IK.K); IK.tip.copy(L.tip); D.localToWorld(IK.tip);
+  IK.a.subVectors(IK.tip, IK.K).normalize();
+  IK.T.copy(IK.H).addScaledVector(IK.d, dist);
+  IK.b.subVectors(IK.T, IK.K).normalize();
+  turnBone(D, IK.a, IK.b);
+}
+// All four hooves at stride phase p (0 to 1), blending walk into trot; amount fades the stride in
+// and out as it starts and stops. groundY: the ground under the animal (the body may bob above it).
+function sheepFeet(K, root, bones, p, g, amount, groundY) {
+  root.updateMatrixWorld(true);
+  const offs = g.trot > 0.5 ? GAIT.trot : GAIT.walk, half = (g.stride * g.duty) / 2;
+  for (let i = 0; i < K.legs.length; i++) {
+    const L = K.legs[i], u = (p + offs[i]) % 1;
+    let dz, dy = 0;
+    if (u < g.duty) dz = half - (2 * half * u) / g.duty;
+    else { const w = (u - g.duty) / (1 - g.duty), e = w * w * (3 - 2 * w); dz = -half + 2 * half * e; dy = g.lift * Math.sin(Math.PI * w); }
+    IK.T.copy(L.rest); IK.T.z += (dz * amount) / root.scale.z;
+    root.localToWorld(IK.T);
+    IK.T.y = groundY + L.rest.y * root.scale.y + dy * amount;
+    reach(bones, L, IK.T.clone());
   }
 }
 const NEAR = 70;
@@ -68,41 +107,69 @@ const V = new THREE.Vector3(), V2 = new THREE.Vector3(), Q = new THREE.Quaternio
 const E = new THREE.Euler(0, 0, 0, 'YXZ'), P = new THREE.Vector3(), S = new THREE.Vector3(1, 1, 1);
 
 // Coat colour from the texture's brightness: the coat, hair or lower-leg colour times how light the
-// texture is there against its typical brightness, so markings and shading stay.
-const TINT_VS = `attribute float aPts; varying float vPts;
+// texture is there against its typical brightness, so markings and shading stay. A paint coat
+// (the horse's texture is a skewbald) is read three ways: white patches (pale and grey), the coat
+// (darker and coloured), and bare skin (pink: muzzle, gums), which keeps its own colour. Each patch
+// is shaded against its own typical brightness, so a solid bay keeps the folds of the white patches
+// too, and a paint horse keeps them white.
+//
+// Lighting, up close: a soft sheen (light caught in the tips of the hair, brightest at grazing
+// angles, as fur and wool look against the light), and the belly and the insides of the legs a
+// little darker (the sky reaches them less).
+const TINT_VS = `attribute float aPts; varying float vPts; varying float vUnder;
 #ifdef TINT_INST
-attribute vec3 iCoat; attribute vec3 iHair; attribute vec3 iPts; varying vec3 vCoat; varying vec3 vHair; varying vec3 vPtsC;
+attribute vec3 iCoat; attribute vec3 iHair; attribute vec3 iPts; attribute float iPaint; varying vec3 vCoat; varying vec3 vHair; varying vec3 vPtsC; varying float vPaint;
 #endif
 `;
-function tintMaterial(src, role, ref, instanced) {
-  const m = new THREE.MeshStandardMaterial({ map: src.map, normalMap: src.normalMap, roughness: 0.85, metalness: 0, alphaTest: src.alphaTest, side: src.alphaTest > 0 ? THREE.DoubleSide : THREE.FrontSide, envMapIntensity: 0.45 });
-  const u = m.userData.tint = { uCoat: { value: new THREE.Color(1, 1, 1) }, uHair: { value: new THREE.Color(1, 1, 1) }, uPts: { value: new THREE.Color(1, 1, 1) }, uRef: { value: ref } };
+// role: coat or hair. ref: { ref, refW } typical brightness of the coat and of white patches.
+// opt: { paint, sheen, low }.
+function tintMaterial(src, role, ref, instanced, opt = {}) {
+  const fancy = !opt.low && !instanced;
+  const base = { map: src.map, normalMap: src.normalMap, aoMap: opt.paint && role === 'coat' ? src.aoMap : null, aoMapIntensity: 0, roughness: role === 'hair' ? 0.62 : 0.86, metalness: 0, alphaTest: src.alphaTest, side: src.alphaTest > 0 ? THREE.DoubleSide : THREE.FrontSide, envMapIntensity: 0.5 };
+  const m = fancy ? new THREE.MeshPhysicalMaterial({ ...base, sheen: role === 'hair' ? 0.08 : opt.sheen ?? 0.3, sheenRoughness: 0.75, sheenColor: new THREE.Color(0.5, 0.48, 0.45), specularIntensity: role === 'hair' ? 0.45 : 0.2 }) : new THREE.MeshStandardMaterial(base);
+  if (src.normalMap) m.normalScale.set(1.2, 1.2);
+  const u = m.userData.tint = { uCoat: { value: new THREE.Color(1, 1, 1) }, uHair: { value: new THREE.Color(1, 1, 1) }, uPts: { value: new THREE.Color(1, 1, 1) }, uPaint: { value: 0 }, uRef: { value: ref.ref }, uRefW: { value: ref.refW } };
+  const paint = opt.paint && role === 'coat' && !!src.aoMap;
   m.onBeforeCompile = (s) => {
     Object.assign(s.uniforms, u);
-    if (instanced) s.defines = { ...s.defines, TINT_INST: '' };
+    s.defines = { ...s.defines, ...(instanced ? { TINT_INST: '' } : {}), ...(paint ? { TINT_PAINT: '' } : {}) };
     s.vertexShader = TINT_VS + s.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
-vPts = aPts;
+vPts = aPts; vUnder = normal.y;
 #ifdef TINT_INST
-vCoat = iCoat; vHair = iHair; vPtsC = iPts;
+vCoat = iCoat; vHair = iHair; vPtsC = iPts; vPaint = iPaint;
 #endif`);
-    s.fragmentShader = `uniform vec3 uCoat; uniform vec3 uHair; uniform vec3 uPts; uniform float uRef; varying float vPts;
+    s.fragmentShader = `uniform vec3 uCoat; uniform vec3 uHair; uniform vec3 uPts; uniform float uPaint; uniform float uRef; uniform float uRefW; varying float vPts; varying float vUnder;
 #ifdef TINT_INST
-varying vec3 vCoat; varying vec3 vHair; varying vec3 vPtsC;
+varying vec3 vCoat; varying vec3 vHair; varying vec3 vPtsC; varying float vPaint;
 #define COAT vCoat
 #define HAIR vHair
 #define PTS vPtsC
+#define PAINT vPaint
 #else
 #define COAT uCoat
 #define HAIR uHair
 #define PTS uPts
+#define PAINT uPaint
 #endif
 ` + s.fragmentShader.replace('#include <map_fragment>', `
   vec4 tex = texture2D(map, vMapUv);
   float lum = dot(tex.rgb, vec3(0.2126, 0.7152, 0.0722));
-  vec3 tint = ${role === 'hair' ? 'HAIR' : 'mix(COAT, PTS, vPts)'};
-  diffuseColor *= vec4(min(tint * (lum / uRef), vec3(1.0)), tex.a);`);
+  ${role === 'hair' ? `vec3 col = HAIR * pow(lum / uRef, 0.6);` : `
+  vec3 tint = mix(COAT, PTS, vPts);
+  #ifdef TINT_PAINT
+    // The paint mask (tools/animals/process.mjs): shading over two, white patch, bare skin.
+    vec3 pm = texture2D(aoMap, vAoMapUv).rgb;
+    float shade = pm.r * 2.0 / uRef, white = pm.g, skin = pm.b;
+    vec3 col = mix(tint * shade, vec3(0.86, 0.85, 0.82) * min(shade, 1.15), white * PAINT);
+    col = mix(col, tex.rgb, skin);
+  #else
+    vec3 col = tint * (lum / uRef);
+  #endif`}
+  // Under the belly and between the legs: less sky.
+  col *= mix(0.72, 1.0, smoothstep(-0.85, 0.15, vUnder));
+  diffuseColor *= vec4(min(col, vec3(1.0)), tex.a);`);
   };
-  m.customProgramCacheKey = () => `tint-${role}-${instanced ? 1 : 0}`;
+  m.customProgramCacheKey = () => `tint2-${role}-${instanced ? 1 : 0}-${paint ? 1 : 0}-${fancy ? 1 : 0}`;
   return m;
 }
 
@@ -123,10 +190,19 @@ function medianLum(tex) {
   const img = tex.image, c = document.createElement('canvas'); c.width = c.height = 64;
   const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(img, 0, 0, 64, 64);
   const d = g.getImageData(0, 0, 64, 64).data, lin = (v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
-  const L = [];
-  for (let i = 0; i < d.length; i += 4) { if (d[i + 3] < 128) continue; const l = 0.2126 * lin(d[i]) + 0.7152 * lin(d[i + 1]) + 0.0722 * lin(d[i + 2]); if (l > 0.01) L.push(l); }
-  L.sort((a, b) => a - b);
-  return L.length ? L[L.length >> 1] : 0.5;
+  // As the shader sorts them: white patches (pale, hardly coloured), bare skin, and the coat.
+  const L = [], W = [];
+  for (let i = 0; i < d.length; i += 4) {
+    if (d[i + 3] < 128) continue;
+    const r = lin(d[i]), gg = lin(d[i + 1]), b = lin(d[i + 2]), l = 0.2126 * r + 0.7152 * gg + 0.0722 * b;
+    if (l <= 0.01) continue;
+    const mx = Math.max(r, gg, b), sat = (mx - Math.min(r, gg, b)) / mx;
+    if (b - gg > 0.02 && l > 0.08) continue;
+    (sat < 0.23 && l > 0.085 ? W : L).push(l);
+  }
+  const med = (a) => { a.sort((x, y) => x - y); return a.length ? a[a.length >> 1] : 0; };
+  const all = med([...L, ...W]) || 0.5, coat = L.length > W.length * 0.15 ? med(L) : all;
+  return { all, ref: coat, refW: med(W) || all };
 }
 
 // One species: the loaded model, normalised (facing +z, feet at y = 0, real size), its clips,
@@ -177,10 +253,18 @@ class Kind {
     for (const m of meshes) {
       const role = S.tint ? (S.tint[m.material.name] ?? S.tint['*'] ?? null) : null;
       if (!this.mats.has(m.material.name)) {
-        const ref = role && m.material.map ? medianLum(m.material.map) : 1;
-        // Fur and skin are matt: the sky's reflection must not wash them out.
-        if (!role) { m.material.envMapIntensity = 0.35; m.material.roughness = Math.max(m.material.roughness, 0.7); if (S.shade) m.material.color.multiplyScalar(S.shade); }
-        this.mats.set(m.material.name, role ? { role, near: tintMaterial(m.material, role, ref * (S.gain || 1), false), far: tintMaterial(m.material, role, ref * (S.gain || 1), true) } : { role: null, near: m.material, far: m.material });
+        const L = role && m.material.map ? medianLum(m.material.map) : { all: 1, ref: 1, refW: 1 }, gain = S.gain || 1;
+        // A paint coat's mask is already shading against the typical brightness: only the gain.
+        const ref = S.paint && m.material.aoMap ? { ref: gain, refW: gain } : { ref: L.all * gain, refW: L.all * gain };
+        const opt = { paint: S.paint, sheen: S.sheen, low: this.low };
+        // Eyes are wet and glossy; tack is leather. Other untinted fur and skin is matt: the sky's
+        // reflection must not wash them out.
+        if (!role) {
+          if (/cornea|eye/i.test(m.material.name)) { m.material.roughness = 0.05; m.material.envMapIntensity = 1.2; }
+          else { m.material.envMapIntensity = 0.35; m.material.roughness = Math.max(m.material.roughness, S.tack?.test(m.material.name) ? 0.55 : 0.7); }
+          if (S.shade) m.material.color.multiplyScalar(S.shade);
+        }
+        this.mats.set(m.material.name, role ? { role, near: tintMaterial(m.material, role, ref, false, opt), far: tintMaterial(m.material, role, ref, true, opt) } : { role: null, near: m.material, far: m.material });
       }
       m.material = this.mats.get(m.material.name).near;
       m.castShadow = true; m.receiveShadow = true;
@@ -227,19 +311,16 @@ class Kind {
       }
       this.graze = { a: p.a, b: p.b, q };
     }
-    // Legs swung by code (sheep): which way swings a hoof forward and lifts it.
+    // Legs placed by code (sheep): each leg's two bones, where its hoof is (under the lower joint,
+    // on the ground) in the lower bone's frame, and that place at rest in the animal's frame.
     if (S.legs) {
       this.legUp = S.legs.up.map(bone).map((b) => ({ name: b.name, ...axes(b) }));
       this.legLow = S.legs.low.map(bone).map((b) => ({ name: b.name, ...axes(b) }));
-      const foot = (b) => { let f = b; while (f.children.find((c) => c.isBone)) f = f.children.find((c) => c.isBone); return f; };
-      for (const [list, test] of [[this.legUp, 'z'], [this.legLow, 'y']]) for (const L of list) {
-        const b = bone(L.name), f = foot(b);
-        holder.updateMatrixWorld(true); const before = f.getWorldPosition(V)[test];
-        b.quaternion.copy(L.rest).multiply(Q2.setFromAxisAngle(L.pitch, 0.2)); holder.updateMatrixWorld(true);
-        const after = f.getWorldPosition(V2)[test];
-        b.quaternion.copy(L.rest); holder.updateMatrixWorld(true);
-        L.sign = after > before ? 1 : -1;
-      }
+      holder.updateMatrixWorld(true);
+      this.legs = this.legUp.map((U, i) => {
+        const D = bone(this.legLow[i].name), lp = D.getWorldPosition(new THREE.Vector3()), tipW = new THREE.Vector3(lp.x, 0.012, lp.z);
+        return { up: U.name, low: D.name, tip: D.worldToLocal(tipW.clone()), rest: holder.worldToLocal(tipW.clone()) };
+      });
     }
     // Eyes (fox eyeshine), at rest, in the animal's own frame.
     if (S.eyes) { holder.updateMatrixWorld(true); this.eyes = S.eyes.map((n) => bone(n)?.getWorldPosition(new THREE.Vector3())).filter(Boolean); }
@@ -275,16 +356,19 @@ class Kind {
   actor(scene) {
     const root = cloneRig(this.template), mats = new Map();
     const bones = {};
+    let tack = null;
     root.traverse((o) => {
       if (o.isBone) bones[o.name] = o;
       if (!o.isMesh) return;
       if (/_lod$/.test(o.name)) { o.visible = false; return; }
       o.frustumCulled = false;
+      // Saddle and bridle: only on a horse being ridden (see setTack).
+      if (this.S.tack?.test(o.name + ' ' + o.material.name)) { o.visible = false; (tack ||= []).push(o); return; }
       // Its own copy of each tinted material, with its own colours, sharing the compiled shader.
       const base = o.material, t = base.userData.tint;
       if (!t) return;
       if (!mats.has(base)) {
-        const c = base.clone(), u = { uCoat: { value: new THREE.Color() }, uHair: { value: new THREE.Color() }, uPts: { value: new THREE.Color() }, uRef: t.uRef };
+        const c = base.clone(), u = { uCoat: { value: new THREE.Color() }, uHair: { value: new THREE.Color() }, uPts: { value: new THREE.Color() }, uPaint: { value: 0 }, uRef: t.uRef, uRefW: t.uRefW };
         c.userData.tint = u;
         c.onBeforeCompile = (s, r) => { base.onBeforeCompile(s, r); Object.assign(s.uniforms, u); };
         c.customProgramCacheKey = base.customProgramCacheKey;
@@ -293,7 +377,7 @@ class Kind {
       o.material = mats.get(base);
     });
     const meshes = []; root.traverse((o) => { if (o.isMesh && o.visible) meshes.push(o); });
-    const A = { root, bones, meshes, mats: [...mats.values()], mixer: new THREE.AnimationMixer(root), actions: {}, cur: null, a: null, pitch: 0, yaw: 0, gait: 0, acc: 0 };
+    const A = { root, bones, meshes, tack, mats: [...mats.values()], mixer: new THREE.AnimationMixer(root), actions: {}, cur: null, a: null, pitch: 0, yaw: 0, gait: 0, acc: 0 };
     for (const [name, clip] of Object.entries(this.clips)) A.actions[name] = A.mixer.clipAction(clip);
     root.visible = false;
     scene.add(root);
@@ -311,7 +395,7 @@ class Kind {
       mixer.stopAllAction();
       for (const B of this.bent) bones[B.name].quaternion.copy(B.rest);
       if (clip) { const a = mixer.clipAction(clip); a.play(); mixer.setTime(t); }
-      if (legs >= 0 && this.legUp) sheepLegs(this, bones, legs, sheepGait(this.S.walkSpeed || 0.8, this.S.stride));
+      if (legs >= 0 && this.legs) { rig.updateMatrixWorld(true); sheepFeet(this, rig, bones, legs, sheepGait(this.S.walkSpeed || 0.8, this.S.stride), 1, 0); }
       if (graze && this.graze) {
         for (const n of this.neck) { const b = bones[n.name]; b.quaternion.multiply(Q2.setFromAxisAngle(n.pitch, n === this.neck[0] ? this.graze.a : this.graze.b)); }
         if (this.head) { const b = bones[this.head.name]; b.quaternion.multiply(Q2.setFromAxisAngle(this.head.pitch, this.graze.q)); }
@@ -337,7 +421,7 @@ class Kind {
     for (let k = 0; k < 4; k++) poses.push(walk ? pose(walk, (walk.duration * k) / 4, false) : pose(idle, 0, false, k / 4));
     const inst = (n) => new THREE.InstancedBufferAttribute(new Float32Array(n * 3).fill(1), 3);
     this.far = poses.map(({ geo, mats }) => {
-      geo.setAttribute('iCoat', inst(cap)); geo.setAttribute('iHair', inst(cap)); geo.setAttribute('iPts', inst(cap));
+      geo.setAttribute('iCoat', inst(cap)); geo.setAttribute('iHair', inst(cap)); geo.setAttribute('iPts', inst(cap)); geo.setAttribute('iPaint', new THREE.InstancedBufferAttribute(new Float32Array(cap), 1));
       const im = new THREE.InstancedMesh(geo, mats, cap);
       im.count = 0; im.visible = false; im.frustumCulled = false; im.receiveShadow = true; // too far off for a shadow to show
       scene.add(im); return im;
@@ -387,13 +471,13 @@ export class AnimalRigs {
     const want = new Set();
     for (const a of list) { if (want.size >= nMax || a.dist > near) break; want.add(a); }
     // Let go of animals that have moved off, then give a rig to each new one.
-    for (const A of K.actors) if (A.a && !want.has(A.a)) { A.a._rig = null; A.a = null; A.root.visible = false; }
+    for (const A of K.actors) if (A.a && !want.has(A.a)) { A.a._rig = null; A.a = null; A.root.visible = false; if (A.tack) for (const m of A.tack) m.visible = false; }
     for (const a of want) {
       if (a._rig && a._rig.kind === K) continue;
       const A = K.actors.find((x) => !x.a) || K.actor(this.scene);
       A.kind = K; A.a = a; a._rig = A; A.cur = null; A.pitch = 0; A.yaw = 0;
       A.mixer.stopAllAction();
-      for (const m of A.mats) { const t = m.userData.tint; t.uCoat.value.set(a.look[0]); t.uHair.value.set(a.look[1] ?? a.look[0]); t.uPts.value.set(a.look[2] ?? a.look[1] ?? a.look[0]); }
+      for (const m of A.mats) { const t = m.userData.tint; t.uCoat.value.set(a.look[0]); t.uHair.value.set(a.look[1] ?? a.look[0]); t.uPts.value.set(a.look[2] ?? a.look[1] ?? a.look[0]); t.uPaint.value = a.look[3] ?? 0; }
     }
     for (const A of K.actors) if (A.a) this.drive(K, A, dt);
     // Far ones: one instance each, in the pose nearest to what it is doing.
@@ -408,10 +492,11 @@ export class AnimalRigs {
       C.set(a.look[0]); g.iCoat.setXYZ(j, C.r, C.g, C.b);
       C.set(a.look[1] ?? a.look[0]); g.iHair.setXYZ(j, C.r, C.g, C.b);
       C.set(a.look[2] ?? a.look[1] ?? a.look[0]); g.iPts.setXYZ(j, C.r, C.g, C.b);
+      g.iPaint.setX(j, a.look[3] ?? 0);
     }
     K.far.forEach((im, k) => {
       im.count = counts[k]; im.visible = counts[k] > 0;
-      if (counts[k]) { im.instanceMatrix.needsUpdate = true; for (const n of ['iCoat', 'iHair', 'iPts']) im.geometry.attributes[n].needsUpdate = true; }
+      if (counts[k]) { im.instanceMatrix.needsUpdate = true; for (const n of ['iCoat', 'iHair', 'iPts', 'iPaint']) im.geometry.attributes[n].needsUpdate = true; }
     });
     return true;
   }
@@ -428,11 +513,13 @@ export class AnimalRigs {
     const v = a.moving ? a.v || 0 : 0;
     let clip = 'idle', rate = 1;
     if (a.moving && v > 0.05) {
-      if (S.speed.run && v > 6.5) clip = 'run';
+      if (S.speed.run && v > (S.runAt ?? 6.5)) clip = 'run';
       else if (S.speed.trot && v > 2.4) clip = 'trot';
       else if (S.speed.walk) clip = 'walk';
       if (S.speed[clip]) rate = clamp(v / (S.speed[clip] * S.scale), 0.45, 2.5);
     } else if (a.state === 'graze' && !a.alert && K.clips.graze) clip = 'graze';
+    // Set from outside (a ridden horse jumping).
+    if (a.clip && A.actions[a.clip]) { clip = a.clip; rate = 1.15; }
     if (!A.actions[clip]) clip = 'idle';
     const act = A.actions[clip];
     if (A.cur !== act) {
@@ -440,7 +527,7 @@ export class AnimalRigs {
       if (A.cur) { act.crossFadeFrom(A.cur, A.cur ? 0.35 : 0, false); } else act.time = Math.random() * act.getClip().duration;
       A.cur = act;
     }
-    act.timeScale = rate;
+    act.timeScale = rate * (a.dir || 1); // a ridden horse backing up plays its walk in reverse
     // Rigs further off are stepped at half rate: nobody sees the difference at that size.
     A.acc += dt;
     if (a.dist > 35 && A.acc < 1 / 30) return;
@@ -463,12 +550,12 @@ export class AnimalRigs {
     }
     // Sheep legs: each hoof planted and pushed back, then lifted and swung forward; a walk that
     // turns into a trot as it speeds up, the body rising and dipping a little with each step.
-    if (K.legUp) {
+    if (K.legs) {
       const moving = a.moving && v > 0.05, g = sheepGait(v, S.stride);
       A.gait = (A.gait + (moving ? (v * step) / g.stride : 0)) % 1;
       A.legAmp = lerp(A.legAmp || 0, moving ? 1 : 0, Math.min(1, step * 6));
-      sheepLegs(K, A.bones, A.gait, g, A.legAmp);
-      A.root.position.y += (lerp(0.012, 0.035, g.trot) * (0.5 + 0.5 * Math.cos(A.gait * Math.PI * 4)) - lerp(0.012, 0.035, g.trot)) * A.legAmp;
+      A.root.position.y += (lerp(0.012, 0.03, g.trot) * (0.5 + 0.5 * Math.cos(A.gait * Math.PI * 4)) - lerp(0.012, 0.03, g.trot)) * A.legAmp;
+      sheepFeet(K, A.root, A.bones, A.gait, g, A.legAmp, a.y);
     }
   }
   hideHerd(sp) {

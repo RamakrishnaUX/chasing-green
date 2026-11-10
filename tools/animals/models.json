@@ -1,33 +1,42 @@
 {
   "horse": {
-    "src": "downloads/horse/scene.gltf",
+    "src": "downloads/horse2/horse.glb",
     "out": "public/models/horse.glb",
-    "drop": "Saddle",
     "clips": {
-      "idle": "Horse|Horse_Idle",
-      "walk": "Horse|Horse_Walk"
+      "idle": "Skeleton|1 Ilde",
+      "idle2": "Skeleton|2 Ilde",
+      "graze": "Skeleton|6 Eat",
+      "walk": "Skeleton|Walk",
+      "run": "Skeleton|Gallop",
+      "jump": "Skeleton|Jump"
     },
     "ratio": {
-      "Body": 0.3,
-      "Hair": 0.35,
-      "Eye": 0.2
+      "Horse": 0.55,
+      "Hair": 0.6,
+      "Saddle": 0.5,
+      "Horseshoe": 0.3
     },
-    "lod": 0.05,
-    "lodSkip": "Eye",
-    "tex": 1024
+    "lod": 0.04,
+    "lodSkip": "Cornea|Saddle|Horseshoe",
+    "tex": 2048,
+    "normals": true,
+    "texN": 1024,
+    "animTol": 0.002,
+    "level": "high",
+    "paintMask": "Horse"
   },
   "sheep": {
-    "src": "downloads/sheep/scene.gltf",
+    "src": "downloads/sheep2/sheep.glb",
     "out": "public/models/sheep.glb",
     "join": true,
     "clips": {
       "idle": "idle"
     },
     "ratio": {
-      ".": 0.1
+      ".": 0.15
     },
     "error": 0.01,
-    "lod": 0.025,
+    "lod": 0.012,
     "tex": 1024
   },
   "fox": {

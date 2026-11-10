@@ -1,5 +1,5 @@
 // Clean a downloaded animal for the game: node tools/animals/process.mjs <name>, with its settings
-// in models.json: { src, out, drop: regex of meshes to remove, clips: {newName: oldName},
+// in models.json: { src, out, drop: regex of meshes to remove, clips: {newName: oldName}, texN: normal map size, paintMask: material to build a paint mask for, animTol: keyframe tolerance, level: meshopt level,
 // ratio: {meshRegex: r}, lod: r, lodSkip: regex, error, join: weld a scan's chunks into one mesh,
 // tex: max texture size, normals: keep normal maps }. Needs, not saved to package.json:
 // npm i --no-save @gltf-transform/core@4 @gltf-transform/functions@4 @gltf-transform/extensions@4 meshoptimizer@0.22 sharp@0.33
@@ -33,7 +33,7 @@ for (const mat of root.listMaterials()) {
 // Clips: keep and rename the ones we use.
 if (C.clips) {
   const want = new Map(Object.entries(C.clips).map(([k, v]) => [v, k]));
-  for (const a of root.listAnimations()) { if (want.has(a.getName())) a.setName(want.get(a.getName())); else a.dispose(); }
+  for (const a of root.listAnimations()) { if (want.has(a.getName())) a.setName(want.get(a.getName())); else { for (const c of a.listChannels()) c.dispose(); for (const sm of a.listSamplers()) { sm.getInput()?.dispose(); sm.getOutput()?.dispose(); sm.dispose(); } a.dispose(); } }
 }
 await doc.transform(prune());
 
@@ -83,6 +83,8 @@ for (const [node, paths] of byTarget) for (const [path, chs] of Object.entries(p
   } else keptC += chs.length;
 }
 if (anims.length) log('tracks dropped', dropC, 'kept', keptC);
+// Their keyframes too: a dropped track's sampler (and its data) would otherwise stay in the file.
+for (const a of root.listAnimations()) { const live = new Set(a.listChannels().map((c) => c.getSampler())); for (const sm of a.listSamplers()) if (!live.has(sm)) { const i = sm.getInput(), o = sm.getOutput(); sm.dispose(); if (o && !o.listParents().some((p) => p !== root)) o.dispose(); if (i && !i.listParents().some((p) => p !== root)) i.dispose(); } }
 
 for (const mesh of root.listMeshes()) for (const p of mesh.listPrimitives()) for (const s of p.listSemantics()) if (/TEXCOORD_[1-9]|COLOR_|TANGENT/.test(s)) p.setAttribute(s, null);
 // Scans split into chunks: one primitive, welded by position and UV, with smooth normals.
@@ -97,6 +99,51 @@ if (C.join) for (const node of root.listNodes()) {
   for (const n of meshes.slice(1)) n.setMesh(null);
 }
 await doc.transform(prune(), dedup(), ...(C.join ? [] : [weld()]));
+// A paint coat (paintMask: material name): a mask the game recolours by, stored in the material's
+// occlusion slot (the game reads it itself; there is no baked occlusion). Red: shading, the
+// texture's brightness against the typical brightness of what is there (coat or white patch), over
+// two; green: white patch; blue: bare skin (pink: muzzle, gums), which keeps its own colour. Along
+// the edge of a patch the texture is part one, part the other: the shading there is filled in
+// from either side, so no line shows when the coat is recoloured solid.
+if (C.paintMask) {
+  const mat = root.listMaterials().find((m) => m.getName() === C.paintMask), tex = mat.getBaseColorTexture();
+  const N = 1024, { data } = await sharp(Buffer.from(tex.getImage())).resize(N, N).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+  const lin = (v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+  const sm = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+  const L = new Float32Array(N * N), Wm = new Float32Array(N * N), Km = new Float32Array(N * N);
+  const coat = [], white = [];
+  for (let i = 0; i < N * N; i++) {
+    const r = lin(data[i * 3]), g = lin(data[i * 3 + 1]), b = lin(data[i * 3 + 2]), l = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    const mx = Math.max(r, g, b), sat = mx > 0 ? (mx - Math.min(r, g, b)) / mx : 0;
+    L[i] = l; Wm[i] = (1 - sm(0.16, 0.3, sat)) * sm(0.05, 0.12, l); Km[i] = sm(0.004, 0.03, b - g) * sm(0.06, 0.14, l);
+    if (l > 0.01 && Km[i] < 0.5) (Wm[i] > 0.5 ? white : coat).push(l);
+  }
+  const med = (a) => { a.sort((x, y) => x - y); return a[a.length >> 1] || 0.3; };
+  const ref = med(coat), refW = med(white);
+  const S = new Float32Array(N * N), edge = new Uint8Array(N * N);
+  for (let i = 0; i < N * N; i++) S[i] = L[i] / (ref + (refW - ref) * Wm[i]);
+  // The edge band: anywhere within 3 px of a change between coat and patch, or itself in between.
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const i = y * N + x, w = Wm[i] > 0.5;
+    let e = Wm[i] > 0.15 && Wm[i] < 0.85;
+    for (let dy = -3; dy <= 3 && !e; dy++) for (let dx = -3; dx <= 3 && !e; dx++) { const xx = x + dx, yy = y + dy; if (xx >= 0 && yy >= 0 && xx < N && yy < N && (Wm[yy * N + xx] > 0.5) !== w) e = true; }
+    edge[i] = e ? 1 : 0;
+  }
+  // Fill the band from the shading around it (a blur that counts only pixels outside the band).
+  const R = 6, out = S.slice();
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const i = y * N + x; if (!edge[i]) continue;
+    let s = 0, n = 0;
+    for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) { const xx = x + dx, yy = y + dy; if (xx < 0 || yy < 0 || xx >= N || yy >= N) continue; const j = yy * N + xx; if (edge[j]) continue; const k = Math.exp(-(dx * dx + dy * dy) / (R * R * 0.5)); s += S[j] * k; n += k; }
+    if (n > 0) out[i] = s / n;
+  }
+  const px = Buffer.alloc(N * N * 3);
+  for (let i = 0; i < N * N; i++) { px[i * 3] = Math.round(Math.min(1, out[i] / 2) * 255); px[i * 3 + 1] = Math.round(Wm[i] * 255); px[i * 3 + 2] = Math.round(Km[i] * 255); }
+  const png = await sharp(px, { raw: { width: N, height: N, channels: 3 } }).png().toBuffer();
+  const mask = doc.createTexture('paintMask').setImage(new Uint8Array(png)).setMimeType('image/png');
+  mat.setOcclusionTexture(mask);
+  log('paint mask: coat', ref.toFixed(3), 'white', refW.toFixed(3), 'edge px', edge.reduce((a, b) => a + b, 0));
+}
 // Slim each mesh, and add the low-poly copy.
 for (const mesh of root.listMeshes()) for (const p of mesh.listPrimitives()) if (!p.getIndices()) weldPrimitive(p, {});
 const ratioOf = (name) => { for (const [re, r] of Object.entries(C.ratio || {})) if (new RegExp(re).test(name)) return r; return 1; };
@@ -113,9 +160,11 @@ for (const node of root.listNodes()) {
   }
 }
 await doc.transform(
-  resample(), prune(), dedup(),
+  resample({ tolerance: C.animTol || 1e-4 }), prune(), dedup(),
+  // texN: a smaller size for normal maps (fine detail that holds up at half the colour's size).
+  ...(C.texN ? [textureCompress({ encoder: sharp, targetFormat: 'webp', slots: /normal/, resize: [C.texN, C.texN], quality: 82 })] : []),
   textureCompress({ encoder: sharp, targetFormat: 'webp', resize: [C.tex || 1024, C.tex || 1024], quality: 82 }),
-  meshopt({ encoder: MeshoptEncoder, level: 'medium' }),
+  meshopt({ encoder: MeshoptEncoder, level: C.level || 'medium' }),
 );
 for (const mesh of root.listMeshes()) log(' ', mesh.getName(), mesh.listPrimitives().map((p) => (p.getIndices() ? p.getIndices().getCount() / 3 : 0) + 't').join(','));
 log('clips', root.listAnimations().map((a) => a.getName()).join(','), '| tex', root.listTextures().map((t) => t.getSize().join('x')).join(','));
