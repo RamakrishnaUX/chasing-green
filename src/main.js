@@ -670,10 +670,15 @@ function insideCamera(dt, l) {
   camHeading = jeep.heading; // so switching back to the chase view does not swing round
 }
 let openingCam = null;
-const _openLook = new THREE.Vector3();
+const _openLook = new THREE.Vector3(), openOff = new THREE.Vector3(), followCar = new THREE.Vector3();
+let followFrame = -1;
+const CHASE_FOV = 52, CHASE_TAN = Math.tan(THREE.MathUtils.degToRad(CHASE_FOV / 2));
 let camHold = false; // debug: the camera stays where it was put (chasingGreen.camHold)
 function updateCamera(dt) {
   if (camHold) return;
+  // The opening sweep is drawn as an offset on top of the follow camera. Take last frame's off
+  // first, so the follow camera underneath carries on as if it had never been moved.
+  if (openOff.lengthSq()) { camera.position.sub(openOff); openOff.set(0, 0, 0); }
   if (photo?.on) { input.consumeLook(); photo.update(dt); return; }
   const l = input.consumeLook();
   if (mode === 'photo') return; // camera placed by hand from the console
@@ -692,28 +697,47 @@ function updateCamera(dt) {
     const wrapA = (a) => Math.atan2(Math.sin(a), Math.cos(a));
     camHeading = camHeading == null ? jeep.heading : camHeading + wrapA(jeep.heading - camHeading) * Math.min(1, dt * 2.2);
     const h = camHeading + look.orbit;
-    const cd = jeep.model.camDist + (jeep.boosting ? 1.2 : 0), ch = jeep.model.camHeight;
+    // The view widens with speed and nitro; the camera comes in by as much, so the car keeps its
+    // size on screen and only the world around it stretches. Speeding up adds a hint of pull-back.
+    const zoomIn = CHASE_TAN / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+    const cd = jeep.model.camDist * zoomIn + Math.min(1, jeep.speed / 40) * 0.5 + (jeep.boosting ? 1 : 0), ch = jeep.model.camHeight * zoomIn;
     const desired = new THREE.Vector3(jeep.pos.x - Math.sin(h) * cd, jeep.pos.y + ch, jeep.pos.z - Math.cos(h) * cd);
     // Under a sea arch the camera follows the car through rather than jumping over the roof.
     desired.y = Math.max(desired.y, groundAt(desired.x, desired.z, jeep.pos.y + jeep.kit.height + 0.1) + 1.5);
-    // A small vehicle (the bike) is followed more closely, or at speed it shrinks into the distance.
-    camera.position.lerp(desired, Math.min(1, dt * (jeep.model.camFollow || 4)));
-    if (jeep.speed < 0.3 && camera.position.distanceTo(desired) < 0.08) camera.position.copy(desired);
+    // Across the ground the camera eases toward its place relative to the car, not toward a point
+    // in the world, so it swings softly round turns but never drops back as you speed up. Up and
+    // down it eases in the world, so bumps and crests are smoothed. (A jump of the car, or coming
+    // back from another view, starts it afresh from where it is.)
+    const k = Math.min(1, dt * (jeep.model.camFollow || 4));
+    if (followFrame !== frameN - 1 || followCar.distanceToSquared(jeep.pos) > 900) followCar.copy(jeep.pos);
+    const rx = camera.position.x - followCar.x, rz = camera.position.z - followCar.z;
+    camera.position.x = jeep.pos.x + rx + (desired.x - jeep.pos.x - rx) * k;
+    camera.position.z = jeep.pos.z + rz + (desired.z - jeep.pos.z - rz) * k;
+    camera.position.y += (desired.y - camera.position.y) * k;
+    followCar.copy(jeep.pos); followFrame = frameN;
+    if (jeep.speed < 0.3 && camera.position.distanceTo(desired) < 0.01) camera.position.copy(desired);
     camTarget.set(jeep.pos.x + Math.sin(h) * 14, jeep.pos.y + ch * 0.7, jeep.pos.z + Math.cos(h) * 14);
     // The opening shot: from high over the land, off to one side, the camera sweeps round and
-    // down onto the car and settles behind it.
+    // down onto the car. The sweep is how far it still is from the follow camera, shrinking to
+    // nothing as it eases out, so it lands exactly where the follow camera is, already moving
+    // with it if you set off early: nothing left to settle, no snap.
     if (openingCam) {
       const u = Math.min(1, (performance.now() - openingCam.t0) / openingCam.dur), e = u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2;
       const a = h + (1 - e) * 1.9, d = cd + (1 - e) * 70, y = ch + (1 - e) * 46;
-      camera.position.set(jeep.pos.x - Math.sin(a) * d, Math.max(jeep.pos.y + y, groundAt(jeep.pos.x - Math.sin(a) * d, jeep.pos.z - Math.cos(a) * d, jeep.pos.y + y) + 3), jeep.pos.z - Math.cos(a) * d);
+      openOff.set(Math.sin(h) * cd - Math.sin(a) * d, y - ch, Math.cos(h) * cd - Math.cos(a) * d);
+      // Kept clear of hills on the way down (3 m over them high up, easing to the follow camera's 1.5 m).
+      const px = camera.position.x + openOff.x, pz = camera.position.z + openOff.z, py = camera.position.y + openOff.y;
+      const floor = groundAt(px, pz, py) + 1.5 + 1.5 * (1 - e);
+      if (py < floor) openOff.y += floor - py;
+      camera.position.add(openOff);
       camTarget.lerpVectors(_openLook.set(jeep.pos.x, jeep.pos.y + 1, jeep.pos.z), camTarget, e);
-      if (u >= 1) openingCam = null;
+      if (u >= 1) { openingCam = null; camera.position.sub(openOff); openOff.set(0, 0, 0); }
     }
     camera.lookAt(camTarget);
     // Knocks from rocks and walls shake the camera briefly.
     if (shake > 0.01) { camera.position.x += (Math.random() - 0.5) * shake; camera.position.y += (Math.random() - 0.5) * shake; }
     // Wider view at speed and under nitro.
-    const fov = 52 + Math.min(1, jeep.speed / 60) * 6 + (jeep.boosting ? 8 : 0);
+    const fov = CHASE_FOV + Math.min(1, jeep.speed / 60) * 6 + (jeep.boosting ? 8 : 0);
     if (Math.abs(camera.fov - fov) > 0.05) { camera.fov += (fov - camera.fov) * Math.min(1, dt * 3); camera.updateProjectionMatrix(); }
   } else if (mode === 'lookup') {
     look.yaw -= l.dx * 0.005;
