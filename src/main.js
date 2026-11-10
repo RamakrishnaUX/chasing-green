@@ -8,7 +8,6 @@ import { updateTerrainLod, buildTerrain, paintTerrain, iceAt, flattenPads, bridg
 import { Scatter } from './world/scatter.js';
 import { Grass } from './world/grass.js';
 import { Post } from './world/post.js';
-import { carThumbs, resetCarThumbs } from './ui/carthumbs.js';
 import { Props } from './world/props.js';
 import { Towns } from './world/towns.js';
 import { Obstacles } from './world/obstacles.js';
@@ -78,9 +77,15 @@ const qualityFor = (name) => {
   const q = weakDevice && name === 'low' ? { ...CONFIG.quality.low, ...LITE } : CONFIG.quality[name];
   return wantHD && name === 'medium' ? { ...q, pixelRatio: Math.min(q.pixelRatio, 1) } : q;
 };
-// settings.autoQuality: where the game stepped itself down on this device last time, so a slow
-// machine starts there instead of struggling (and being told so) on every visit.
-let qualityName = settings.quality || settings.autoQuality || (isTouch ? 'low' : CONFIG.defaultQuality);
+// settings.autoQuality: where the game stepped itself down on this device, so a slow machine
+// starts there instead of struggling (and being told so) on every visit. A busy spell (a browser
+// full of tabs, a video playing in another window) can cause a drop as much as a slow machine,
+// so the drop is not kept for ever: the full preset is tried again after a day, then after two,
+// four and so on each time it has to drop again. A visit that holds the full preset forgets it.
+const AUTO_DAY = 864e5;
+const autoQualityKept = !!settings.autoQuality && Date.now() - (settings.autoQualityAt || 0) < AUTO_DAY * 2 ** Math.max(0, (settings.autoQualityDrops || 1) - 1);
+function forgetAutoQuality() { delete settings.autoQuality; delete settings.autoQualityAt; delete settings.autoQualityDrops; }
+let qualityName = settings.quality || (autoQualityKept ? settings.autoQuality : null) || (isTouch ? 'low' : CONFIG.defaultQuality);
 // The realistic look is desktop only (and not on Low): phones keep the classic look and never
 // download its textures. It is chosen at load, so a change applies on the next reload.
 const wantHD = !isTouch && qualityName !== 'low' && settings.look !== 'classic';
@@ -162,6 +167,14 @@ const startGameHours = clock.gameHours;
 const startNight = clock.nightIndex;
 let fpsAcc = 0, fpsFrames = 0, autoDowngraded = false, boostGlowOn = false, coverWarmFrames = 3;
 
+// Behind an open menu the game is paused and blurred out of sight, so the island is drawn a
+// couple of times and then held, instead of being redrawn 20 times a second under a full-screen
+// blur (on a busy graphics card the two together stalled the whole page). Anything that changes
+// the picture underneath asks for fresh frames.
+let menuDraws = 0;
+const redrawUnderMenu = () => { menuDraws = 2; };
+addEventListener('resize', redrawUnderMenu);
+
 // Dynamic resolution: a share of the quality preset's pixel ratio, set by the governor below.
 let resScale = 1;
 function applyPixelRatio() {
@@ -169,6 +182,7 @@ function applyPixelRatio() {
   renderer.setPixelRatio(Math.max(Math.min(devicePixelRatio, 0.55), Math.min(devicePixelRatio, Q.pixelRatio) * resScale));
   renderer.setSize(innerWidth, innerHeight, false);
   post?.setSize();
+  redrawUnderMenu();
 }
 // Changing the pixel ratio or the quality wipes the canvas and the next frame can take a while
 // (a resize, a rebuilt pipeline, shaders to compile), which showed as a flash of black. Instead,
@@ -1397,7 +1411,7 @@ $('set-haptics').addEventListener('change', (e) => {
 $('set-quality').addEventListener('change', (e) => { holdFrame(() => (e.target.value === 'auto' ? autoQuality() : setQuality(e.target.value, true))); track('setting_change', { setting: 'graphics', setting_value: e.target.value }); });
 // Auto: back to the quality the game picks for this device, with the governor keeping it smooth.
 function autoQuality() {
-  delete settings.quality; delete settings.autoQuality; autoDowngraded = false; governor.exhausted = false;
+  delete settings.quality; forgetAutoQuality(); autoDowngraded = false; governor.exhausted = false;
   store.save();
   setQuality(isTouch ? 'low' : CONFIG.defaultQuality, false);
 }
@@ -1420,7 +1434,8 @@ function setQuality(name, save) {
       sky.sun.shadow.map = null;
     }
   }
-  if (save) { settings.quality = name; delete settings.autoQuality; store.save(); }
+  if (save) { settings.quality = name; forgetAutoQuality(); store.save(); }
+  redrawUnderMenu();
 }
 $('set-month').addEventListener('change', (e) => setMonth(+e.target.value, true));
 // Months drive the sun path, darkness and aurora chance. The visual season follows from the month.
@@ -1447,6 +1462,7 @@ function setMonth(m, announce = false) {
 }
 function setSeason(season, announce = true) {
   if (world) { paintTerrain(season); scatter?.setSeason(season); }
+  redrawUnderMenu();
   if (!announce) return;
   if (started) hud.toast(clock.midnightSun ? `${clock.m.name}. Midnight sun. No aurora this month.` : `${clock.m.name}. Aurora chance: ${clock.m.chance.toLowerCase()}. ${clock.m.tip}`, { seconds: 5 });
 }
@@ -1632,7 +1648,6 @@ addEventListener('keydown', (e) => { if ($('intro').classList.contains('is-splas
 loadCarModels((kind) => {
   cover.refresh(kind);
   gg.cover?.refresh(kind);
-  resetCarThumbs();
   if (jeep && jeep.kind === kind && ride === 'car') jeep.setType(kind);
   renderGarage();
 });
@@ -2172,19 +2187,17 @@ function cycleVehicle() {
 function renderGarage() {
   const list = $('garage-list');
   if (!list) return;
-  const thumbs = $('garage').open || list.dataset.wantThumbs ? carThumbs(VEHICLE_ORDER) : {};
   const bar = (v, max) => `<i><b style="width:${Math.round(Math.min(1, v / max) * 100)}%"></b></i>`;
   list.innerHTML = VEHICLE_ORDER.map((k) => {
     const v = VEHICLES[k];
     const off = (v.offroad.gravel + v.offroad.moss + v.offroad.sand) / 3;
     const on = (settings.vehicle || 'jeep') === k;
-    const img = thumbs[k] ? `<img class="car-pic" src="${thumbs[k]}" alt="" />` : '';
-    return `<button class="car-card ${on ? 'is-on' : ''}" data-pick="${k}" aria-pressed="${on}">${img}<span class="car-info"><h3>${v.name}</h3><p class="car-tag">${v.tagline}</p><p class="car-blurb">${v.blurb}</p>
+    return `<button class="car-card ${on ? 'is-on' : ''}" data-pick="${k}" aria-pressed="${on}"><span class="car-info"><h3>${v.name}</h3><p class="car-tag">${v.tagline}</p><p class="car-blurb">${v.blurb}</p>
       <span class="car-stats"><span>Top speed</span>${bar(v.maxSpeed, 66)}<span>Off-road</span>${bar(off, 1)}<span>Water</span>${bar(v.wade, 1.9)}</span></span></button>`;
   }).join('');
   // The helicopter, after the cars.
-  const hs = $('garage').open || list.dataset.wantThumbs ? heli?.thumb() : null, onH = settings.vehicle === 'heli';
-  list.insertAdjacentHTML('beforeend', `<button class="car-card ${onH ? 'is-on' : ''}" data-pick="heli" aria-pressed="${onH}">${hs ? `<img class="car-pic" src="${hs}" alt="" />` : ''}<span class="car-info"><h3>Helicopter</h3><p class="car-tag">Fly anywhere and see the whole island.</p><p class="car-blurb">A twin-engine Eurocopter EC135 in red and white. Follow the coast, climb over the glaciers, and land on any flat ground.</p>
+  const onH = settings.vehicle === 'heli';
+  list.insertAdjacentHTML('beforeend', `<button class="car-card ${onH ? 'is-on' : ''}" data-pick="heli" aria-pressed="${onH}"><span class="car-info"><h3>Helicopter</h3><p class="car-tag">Fly anywhere and see the whole island.</p><p class="car-blurb">A twin-engine Eurocopter EC135 in red and white. Follow the coast, climb over the glaciers, and land on any flat ground.</p>
       <span class="car-stats"><span>Top speed</span>${bar(62, 66)}<span>Reach</span>${bar(1, 1)}<span>Altitude</span>${bar(1, 1)}</span></span></button>`);
   list.querySelectorAll('[data-pick]').forEach((b) => b.addEventListener('click', () => { haptics.play('medium'); setVehicle(b.dataset.pick); $('garage').close(); }));
 }
@@ -2250,7 +2263,7 @@ function whenCalm(fn, after = 1000) {
     else setTimeout(check, 1000);
   }, after);
 }
-function openGarage() { $('garage-list').dataset.wantThumbs = '1'; renderGarage(); $('garage').showModal(); ggOpen(); }
+function openGarage() { renderGarage(); $('garage').showModal(); ggOpen(); }
 sheet.register('garage', openGarage);
 sheet.register('map', () => mapUI?.open());
 // Opening the menu stops the vehicle where it is: no speed carried into the pause, so closing
@@ -2542,7 +2555,9 @@ function frame(now) {
   requestAnimationFrame(frame);
   // Skip frames to hold the cap (perf.js): 30 fps on phones, 20 fps behind the intro and menus,
   // 30 on a computer while nothing moves, in the background or on a low battery.
+  const wasOpen = dialogOpen;
   dialogOpen = !!document.querySelector('dialog[open]');
+  if (dialogOpen && !wasOpen) redrawUnderMenu();
   const idle = !started || dialogOpen;
   const moving = !world || mode === 'fly' || mode === 'sky' || (mode === 'walk' ? walker.speedSmooth > 0.1 : (ride === 'heli' ? heli.speed : jeep.speed) > 0.3);
   const gapMs = governor.gap({ menu: idle, photo: !!photo?.on, still: started && !moving && now - lastInput > 20000 });
@@ -2556,6 +2571,9 @@ function frame(now) {
   last = now; frameN++;
   if (!world) return;
   const paused = !started || dialogOpen || !!photo?.on;
+  // Under a menu: hold the picture once it has been drawn (a postcard still gets its frame).
+  const holdUnderMenu = started && dialogOpen && menuDraws <= 0 && !captureRequest;
+  if (started && dialogOpen && menuDraws > 0) menuDraws--;
   input.enabled = !paused;
   const t = now / 1000;
 
@@ -2641,7 +2659,7 @@ function frame(now) {
   if (!(started && dialogOpen)) updateCamera(dt); // the view holds still while a menu is open
   forecast.cloudOffset(clock.realSeconds, cloudOffset);
   auroraVisSmoothed = aurora.update(dt, t, camera, a);
-  const { dark, sunDir } = sky.update({ camera, clock, cloud: a.cloud, cloudOffset, city: a.city, auroraVis: auroraVisSmoothed, auroraTint: aurora.tint, t, focus: p });
+  const { dark, sunDir } = sky.update({ camera, clock, cloud: a.cloud, cloudOffset, city: a.city, auroraVis: auroraVisSmoothed, auroraTint: aurora.tint, t, focus: p, hold: holdUnderMenu });
   lastSkyDark = dark;
   surfaceUniforms.uCloudCover.value = a.cloud;
   surfaceUniforms.uCloudOffset.value.copy(cloudOffset);
@@ -2824,9 +2842,9 @@ function frame(now) {
   }
 
   surfUpdate(paused ? 0 : dt);
-  mirrors.update(renderer, scene, camera, jeep.body, started && mode === 'chase' && driveView === 'cockpit' && !!jeep.model.mirrors);
+  if (!holdUnderMenu) mirrors.update(renderer, scene, camera, jeep.body, started && mode === 'chase' && driveView === 'cockpit' && !!jeep.model.mirrors);
   // Behind the cover the island is hidden: draw a few frames to warm it up, then none until Start.
-  if (started || coverWarmFrames-- > 0) {
+  if (!holdUnderMenu && (started || coverWarmFrames-- > 0)) {
     updateTerrainLod(camera.position, ...(lodOff ? [1e9, 1e9] : qualityName === 'low' ? [240, 800] : qualityName === 'medium' ? [360, 1100] : [500, 1500]));
     if (frameN % 15 === 0) cullFar();
     // Hidden things (the parked helicopter, the walker while you drive, far landmarks) skip having
@@ -2862,10 +2880,13 @@ function frame(now) {
     if (started && calm && fps < (isTouch ? 24 : 40) && governor.exhausted && !autoDowngraded && !settings.quality && qualityName !== 'low') {
       autoDowngraded = true;
       holdFrame(() => setQuality(qualityName === 'high' ? 'medium' : 'low', false));
-      settings.autoQuality = qualityName; store.save();
+      settings.autoQuality = qualityName; settings.autoQualityAt = Date.now(); settings.autoQualityDrops = (settings.autoQualityDrops || 0) + 1; store.save();
       track('graphics_auto_lowered', { to: qualityName, fps: Math.round(fps) });
-      hud.toast('Lowered graphics quality to keep things smooth, and it stays lower next time. You can change it in Settings.', { seconds: 5 });
+      hud.toast('Lowered graphics quality to keep things smooth. You can change it in Settings.', { seconds: 5 });
     }
+    // Trying the full preset again after an earlier drop, and five minutes in it is holding: the
+    // drop was a busy spell, not this device, so forget it.
+    if (started && settings.autoQuality && !autoQualityKept && !autoDowngraded && !settings.quality && now - startedAt > 300000) { forgetAutoQuality(); store.save(); }
     fpsAcc = 0; fpsFrames = 0;
   }
 }

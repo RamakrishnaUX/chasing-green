@@ -441,7 +441,8 @@ export class Sky {
     r.setRenderTarget(prev);
     this.panoStrip = ((this.panoStrip < 0 ? 0 : this.panoStrip) + 1) % N;
   }
-  update({ camera, clock, cloud, cloudOffset, city, auroraVis, auroraTint, t, focus }) {
+  // hold: the picture is being held (under a menu), so the clouds need not be marched.
+  update({ camera, clock, cloud, cloudOffset, city, auroraVis, auroraTint, t, focus, hold = false }) {
     const elDeg = clock.sunElevation();
     const el = THREE.MathUtils.degToRad(elDeg);
     const az = clock.sunAzimuth();
@@ -487,7 +488,7 @@ export class Sky {
     c.uAurora.value = auroraVis;
     c.uTime.value = t;
 
-    if (this.pano) this.drawPano();
+    if (this.pano && !hold) this.drawPano();
     this.sky.position.copy(camera.position);
     this.clouds.position.copy(camera.position);
     this.scatter.position.copy(camera.position);

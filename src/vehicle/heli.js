@@ -557,36 +557,4 @@ mat3 rotZ(float a) { float c = cos(a), s = sin(a); return mat3(c, s, 0.0, -s, c,
       for (const l of Object.values(this.nav)) { l.scale.setScalar(l.userData.size * k); l.material.opacity = 0.55 + 0.45 * this.dark; }
     }
   }
-
-  // A picture for the Cars tab, from the same angle as the cars.
-  thumb(w = 960, h = 600) {
-    if (this.thumbURL || !this.model) return this.thumbURL;
-    let renderer;
-    try { renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true }); } catch { return null; }
-    renderer.setSize(w, h, false);
-    renderer.outputColorSpace = THREE.SRGBColorSpace;
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    const scene = new THREE.Scene();
-    scene.add(new THREE.HemisphereLight(0xdfe9f2, 0x2a3440, 1.6));
-    const sun = new THREE.DirectionalLight(0xffffff, 2.4); sun.position.set(4, 6, 5); scene.add(sun);
-    const m = this.model.clone(true);
-    m.position.set(0, 0, 0);
-    // The rotor at rest, whatever the real one is doing (the blade materials are shared).
-    m.traverse((o) => { if (o.isSprite || o.userData.blur) o.visible = false; });
-    const was = this.bladeMats.map((b) => b.opacity);
-    for (const b of this.bladeMats) b.opacity = 1;
-    scene.add(m);
-    // Framed on the airframe (the rotor's loose bounds would leave it small in the picture).
-    const box = new THREE.Box3();
-    m.traverse((o) => { if (o.isMesh && o.visible && !o.userData.noBox) box.expandByObject(o, true); });
-    const c = box.getCenter(new THREE.Vector3()), s = box.getSize(new THREE.Vector3());
-    const cam = new THREE.PerspectiveCamera(30, w / h, 0.1, 200);
-    cam.position.copy(c).addScaledVector(new THREE.Vector3(0.92, 0.3, 0.72).normalize(), Math.max(s.x, s.z) * 1.55);
-    cam.lookAt(c);
-    renderer.render(scene, cam);
-    this.bladeMats.forEach((b, i) => { b.opacity = was[i]; });
-    this.thumbURL = renderer.domElement.toDataURL('image/webp', 0.86);
-    renderer.dispose(); renderer.forceContextLoss();
-    return this.thumbURL;
-  }
 }
