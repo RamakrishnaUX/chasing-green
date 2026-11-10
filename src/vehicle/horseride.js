@@ -203,7 +203,7 @@ export class HorseRide {
       const find = (n) => Object.values(A.bones).find((b) => b.name.startsWith(n));
       const spine = find('BN_Spine_02'), stL = find('BN_L_Stirrup'), stR = find('BN_R_Stirrup');
       // At rest, standing at the origin: the points in each bone's frame.
-      const r = A.root, keep = { p: r.position.clone(), q: r.quaternion.clone() };
+      const r = A.root, keep = { p: r.position.clone() };
       A.mixer.stopAllAction(); A.actions.idle.reset().play(); A.mixer.setTime(0);
       r.position.set(0, 0, 0); r.quaternion.identity(); r.updateMatrixWorld(true);
       const local = (b, p) => b.worldToLocal(p.clone());
@@ -211,7 +211,10 @@ export class HorseRide {
         seat: { b: spine, p: local(spine, SEAT) },
         Left: { b: stL || spine, p: local(stL || spine, IRON) }, Right: { b: stR || spine, p: local(stR || spine, new THREE.Vector3(-IRON.x, IRON.y, IRON.z)) },
       };
-      r.position.copy(keep.p); r.quaternion.copy(keep.q); r.updateMatrixWorld(true);
+      // Back as it was, as a turn about the vertical only: restored from the quaternion, the turn
+      // could come back as a half turn about x and z plus another heading, and the rig, which only
+      // ever sets the heading, would then have drawn the horse facing the wrong way under him.
+      r.position.copy(keep.p); r.rotation.set(0, a.heading, 0); r.updateMatrixWorld(true);
       A.cur = null; // let its clip be picked again
     }
     const at = (k) => this.pts[k].b.localToWorld(_v.copy(this.pts[k].p)).clone();

@@ -509,7 +509,7 @@ export class AnimalRigs {
     // Only those close enough for their shadow to matter cast one.
     const shadow = a.dist < 32;
     if (A.shadow !== shadow) { A.shadow = shadow; for (const m of A.meshes) m.castShadow = shadow; }
-    A.root.rotation.y = a.heading;
+    A.root.rotation.set(0, a.heading, 0); // all three, so a turn left in x or z can never flip it
     const v = a.moving ? a.v || 0 : 0;
     let clip = 'idle', rate = 1;
     if (a.moving && v > 0.05) {
