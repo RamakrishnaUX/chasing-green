@@ -36,7 +36,7 @@ export function siteStations(landmarks = []) {
     let best = null;
     for (let i = 0; i < N; i++) {
       const q = P[i], dc = Math.hypot(q.x - c.x, q.z - c.z);
-      if (dc < 60 || dc > 340) continue;
+      if (dc < 60 || dc > 260) continue;
       const n = P[(i + 2) % N], o = P[(i - 2 + N) % N];
       const fx = n.x - o.x, fz = n.z - o.z, L = Math.hypot(fx, fz) || 1;
       for (const side of [-1, 1]) {
@@ -46,19 +46,23 @@ export function siteStations(landmarks = []) {
         if (landmarks.some((l) => Math.hypot(l.x - x, l.z - z) < 75)) continue;
         // Not by a bridge: the road there is raised over a carved river valley, and a forecourt
         // levelled to it would stand on a mound above the fields.
-        if (bridges.some((B) => Math.hypot(B.x - x, B.z - z) < B.len * 0.5 + 130)) continue;
+        // (Only the valley itself: a town's station can still stand near its bridge, as Selfoss's
+        // does beside the Ölfusá.)
+        if (bridges.some((B) => { const ox = x - B.x, oz = z - B.z; return Math.abs(ox * B.dx + oz * B.dz) < B.len * 0.5 + 40 && Math.abs(-ox * B.dz + oz * B.dx) < B.valley * 0.75; })) continue;
         // Only its own road nearby: the far side and both ends of the forecourt stay clear.
         if (roadDistAt(x + ax * 16, z + az * 16) < 26 || roadDistAt(x + (fx / L) * 22, z + (fz / L) * 22) < OFF - 4 || roadDistAt(x - (fx / L) * 22, z - (fz / L) * 22) < OFF - 4) continue;
         let lo = Infinity, hi = -Infinity;
         for (let k = 0; k < 12; k++) { const a = (k / 12) * Math.PI * 2, h = heightAt(x + Math.cos(a) * 20, z + Math.sin(a) * 20); lo = Math.min(lo, h); hi = Math.max(hi, h); }
         // And level with the land round it, not just flat underfoot: the pad's blend reaches about
-        // 30 m out, and ground falling or rising steeply past that leaves the station on a mound
-        // or in a pit.
+        // 30 m out, and ground falling steeply past that leaves the station on a mound. Close to
+        // its town counts too, so each stays where its name says.
         const h0 = heightAt(x, z);
         let wide = 0;
-        for (let k = 0; k < 16; k++) { const a = (k / 16) * Math.PI * 2; wide += Math.abs(heightAt(x + Math.cos(a) * 42, z + Math.sin(a) * 42) - h0); }
+        // Land falling away (a mound) counts more than land rising (a cutting into a slope, as
+        // real roadside stations often are).
+        for (let k = 0; k < 16; k++) { const a = (k / 16) * Math.PI * 2, d = heightAt(x + Math.cos(a) * 42, z + Math.sin(a) * 42) - h0; wide += d < 0 ? -d : d * 0.4; }
         const curve = Math.abs(Math.atan2(n.x - q.x, n.z - q.z) - Math.atan2(q.x - o.x, q.z - o.z)) % (Math.PI * 2);
-        const score = (hi - lo) + (wide / 16) * 0.8 + dc * 0.006 + Math.min(curve, Math.PI * 2 - curve) * 20;
+        const score = (hi - lo) + (wide / 16) * 1.2 + dc * 0.015 + Math.min(curve, Math.PI * 2 - curve) * 20;
         if (!best || score < best.score) best = { score, x, z, heading: Math.atan2(fx, fz), side, ax, az, fx: fx / L, fz: fz / L };
       }
     }
