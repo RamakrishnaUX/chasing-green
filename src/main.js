@@ -2421,6 +2421,45 @@ function boatEffects(dt) {
 // flutter under hard braking, a tick each time the speed climbs past another 20 km/h,
 // and a light grumble on rough ground.
 let wasBoosting = false, hapticClock = 0, lastSpeedStep = 0, thudded = false;
+// Riding: a clop as each hoof lands, in step with its legs (horseride.hoofbeats), sounding like
+// whatever it is crossing; both hooves hard together landing a jump. A snort as you get on, now
+// and then while it stands, and blowing out once it pulls up after a long gallop.
+let wasRiding = false, snortIn = 0, gallopFor = 0;
+function horseSounds(dt) {
+  if (!riding.on) { wasRiding = false; return; }
+  if (!wasRiding) { wasRiding = true; snortIn = 0.9; gallopFor = 0; riding.hoofbeats(); }
+  if (!dt) return;
+  const a = riding.a, sp = riding.speed, beats = riding.hoofbeats();
+  if (beats.length || riding.jumpLanded) {
+    const surf = surfaceAt(a.x, a.z), pace = 0.55 + 0.45 * clamp(sp / 10, 0, 1);
+    for (const b of beats) audio.hoof(surf, b.weight * pace, Math.max(0, dt - b.ago)); // a frame late, in their true spacing
+    if (riding.jumpLanded) { riding.jumpLanded = false; audio.hoof(surf, 1.3); audio.hoof(surf, 1.2, 0.06); haptics.play('medium'); }
+  }
+  if (sp > 7) gallopFor += dt;
+  else if (sp < 1.2 && gallopFor > 5) { gallopFor = 0; snortIn = 0.4; }
+  else if (sp < 1.2) gallopFor = 0;
+  snortIn -= dt;
+  if (snortIn <= 0 && sp < 3) { audio.snort(); snortIn = 14 + Math.random() * 16; }
+}
+// Swimming: a splash as each hand goes into the water, heard (and seen, a little spray) as it
+// crosses the surface, so it keeps time with his stroke whatever the pace.
+const _hand = new THREE.Vector3(), handUnder = { L: null, R: null };
+let strokeAt = 0;
+function swimStrokes() {
+  if (!walker.swimming || !walker.man) { handUnder.L = handUnder.R = null; return; }
+  walkerBones ||= bonesOf(walker.man);
+  const wl = waterLevelAt(walker.pos.x, walker.pos.z), now = performance.now() / 1000, pace = clamp(walker.speedSmooth / 0.95, 0, 1);
+  for (const k of ['L', 'R']) {
+    const b = walkerBones[k === 'L' ? 'LeftHand' : 'RightHand']; if (!b) continue;
+    b.getWorldPosition(_hand);
+    const d = _hand.y - wl;
+    if (handUnder[k] === false && d < -0.015) {
+      handUnder[k] = true;
+      if (now - strokeAt > 0.25) { strokeAt = now; audio.stroke(0.2 + 0.8 * pace); spray.emit(_hand.x, wl + 0.04, _hand.z, 0, 1 + pace, 0, 3, 0.6, 0.4); }
+    } else if (d > 0.015) handUnder[k] = false;
+    else if (handUnder[k] === null) handUnder[k] = d < 0;
+  }
+}
 // On foot: a tap on each jump, and a thud on landing from a drop.
 function walkHaptics() {
   if (walker.jumped) { walker.jumped = false; haptics.play('light'); }
@@ -2541,6 +2580,7 @@ function frame(now) {
     if (riding.on) { riding.a.x = walker.pos.x; riding.a.z = walker.pos.z; }
     // Swimming: a splash going in, and spray off his arms as he strokes.
     if (walker.splashed) { audio.splash(walker.splashed); const wl = waterLevelAt(walker.pos.x, walker.pos.z); spray.emit(walker.pos.x, wl + 0.1, walker.pos.z, 0, 2.6, 0, Math.ceil(walker.splashed * 14), 1.4, 0.7); walker.splashed = 0; if (!swimTipShown) { swimTipShown = true; hud.toast('Swimming. The water is cold, so stay near the shore.', { seconds: 3, priority: 2 }); } }
+    if (dt) swimStrokes();
     if (walker.swimming && walker.speedSmooth > 0.3 && Math.random() < dt * 7) {
       const wl = waterLevelAt(walker.pos.x, walker.pos.z), side = Math.random() < 0.5 ? -1 : 1, h = walker.heading;
       spray.emit(walker.pos.x + Math.sin(h) * 0.9 + Math.cos(h) * side * 0.35, wl + 0.05, walker.pos.z + Math.cos(h) * 0.9 - Math.sin(h) * side * 0.35, 0, 1.2, 0, 2, 0.7, 0.45);
@@ -2599,6 +2639,8 @@ function frame(now) {
   // Wildlife, and a word about each species the first time you see it.
   const wildEvents = wildlife.update(paused ? 0 : dt, { pos: p, car: ride === 'heli' ? null : jeep, camera, clock, dark, highBeam: !!jeep.highBeam, walking: mode === 'walk', walkSpeed: walker.speedSmooth });
   if (riding.on) riding.pose(paused ? 0 : dt); // the rider in the saddle, now the horse has moved
+  horseSounds(paused ? 0 : dt);
+  audio.swimUpdate({ swimming: mode === 'walk' && walker.swimming, soaking: mode === 'walk' && walker.soaking, pace: walker.speedSmooth / 0.95 });
   for (const sp of wildEvents) {
     const seen = store.data.wildlife || (store.data.wildlife = {});
     if (seen[sp]) continue;

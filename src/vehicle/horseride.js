@@ -22,6 +22,14 @@ const WALK = 1.6, TOP = 10, ACCEL = 2.6, DECEL = 3.2, BRAKE = 6.5, BACK = 0.7;
 const DEEP = 0.95; // water this deep stops it (belly height)
 const STEEP = 0.85; // rise per metre it will not climb
 const JUMP_T = 0.85, JUMP_H = 0.75;
+// Hoofbeats: where each hoof touches down in the walk and gallop clips, as a fraction of the clip
+// (measured from the model: each hoof coming down to its lowest). The walk is the four-beat
+// left hind, left fore, right hind, right fore; the gallop lands hinds, then the leading fore.
+// Front hooves carry more weight and land a little harder.
+const FALLS = {
+  walk: [[0, 'LH', 0.85], [0.14, 'LF', 1], [0.505, 'RH', 0.85], [0.655, 'RF', 1]],
+  run: [[0.43, 'LH', 0.85], [0.57, 'RH', 0.9], [0.64, 'LF', 1], [0.895, 'RF', 1]],
+};
 
 // Points on the horse (model at its game size, standing at the origin facing +z): the seat, the
 // stirrup irons, and where the hands hold the reins. Each is kept in the frame of the bone it moves
@@ -178,7 +186,7 @@ export class HorseRide {
     if (jk && !this.jumpHeld && this.jumpT < 0 && this.v > 1.2) this.jumpT = 0;
     this.jumpHeld = jk;
     let lift = 0;
-    if (this.jumpT >= 0) { this.jumpT += dt; const u = this.jumpT / JUMP_T; if (u >= 1) this.jumpT = -1; else lift = JUMP_H * Math.sin(Math.PI * u); }
+    if (this.jumpT >= 0) { this.jumpT += dt; const u = this.jumpT / JUMP_T; if (u >= 1) { this.jumpT = -1; this.jumpLanded = true; } else lift = JUMP_H * Math.sin(Math.PI * u); }
     a.y = groundAt(a.x, a.z) + lift;
     // For its rig (animalRigs.drive): the gait follows the speed; backwards plays the walk in reverse.
     a.moving = sp > 0.05 || Math.abs(steer) > 0.1;
@@ -190,6 +198,26 @@ export class HorseRide {
     // The walker goes where the horse goes (camera, wildlife, footprints and the rest follow him).
     const w = this.walker;
     w.pos.set(a.x, a.y, a.z); w.heading = a.heading; w.speedSmooth = sp;
+  }
+
+  // The hooves that touched down since last frame, read from where its gait clip has got to (call
+  // after the rig has moved): [{ hoof, weight }]. Backing up plays the walk in reverse, so the
+  // touchdowns are crossed backwards too. None in the air. ago: how long since each touched down
+  // (several can pass in one slow frame), so the sound can keep their spacing.
+  hoofbeats() {
+    const act = this.a?._rig?.cur, out = [];
+    if (!act) { this.lastClip = null; return out; }
+    const clip = act.getClip(), name = clip.name, u = (((act.time % clip.duration) + clip.duration) % clip.duration) / clip.duration;
+    const F = FALLS[name], p = this.lastU;
+    if (F && name === this.lastClip && p !== u && this.jumpT < 0) {
+      const fwd = act.timeScale >= 0;
+      for (const [f, hoof, weight] of F) {
+        const hit = fwd ? (p <= u ? f > p && f <= u : f > p || f <= u) : (u <= p ? f < p && f >= u : f < p || f >= u);
+        if (hit) out.push({ hoof, weight, ago: ((fwd ? u - f : f - u) + 1) % 1 * clip.duration / Math.max(0.05, Math.abs(act.timeScale)) });
+      }
+    }
+    this.lastClip = name; this.lastU = u;
+    return out;
   }
 
   // Sit the rider: after the horse's rig has been posed this frame.

@@ -512,6 +512,67 @@ export class AudioEngine {
     src.connect(g).connect(this.placeLP); src.start();
   }
 
+  // Riding and swimming, from recordings (public/sounds/horse and swim, credited in the README).
+  // The one-shots are sprites: several takes of a sound in fixed slots, one picked each time (never
+  // the same twice running) and played a little faster or slower, so no two sound alike. Fetched
+  // the first time you get on a horse or into the water.
+  loadBody() {
+    const get = (f) => fetch(`${import.meta.env.BASE_URL}sounds/${f}.wav`).then((r) => { if (!r.ok) throw new Error(f); return r.arrayBuffer(); }).then((b) => this.ctx.decodeAudioData(b));
+    this.bodyLoad ||= Promise.all(['horse/hoof_hard', 'horse/hoof_soft', 'horse/snort', 'swim/stroke', 'swim/water'].map(get)).then(([hard, soft, snort, stroke, water]) => {
+      const ctx = this.ctx;
+      // The water round a swimmer: a loop, its level and brightness following his pace.
+      const s = ctx.createBufferSource(); s.buffer = water; s.loop = true;
+      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2500;
+      const g = ctx.createGain(); g.gain.value = 0;
+      s.connect(lp).connect(g).connect(this.bus.car); s.start(ctx.currentTime, Math.random() * water.duration);
+      this.body = { hard: [hard, 0.2], soft: [soft, 0.25], snort: [snort, 1], stroke: [stroke, 0.8], water: { s, lp, g }, last: {} };
+    }).catch(() => { this.bodyLoad = null; });
+  }
+  sprite(kind, gain, rate, lpHz = 0, when = 0) {
+    const B = this.body; if (!B) return;
+    const [buf, slot] = B[kind], n = Math.round(buf.duration / slot);
+    let i = Math.floor(Math.random() * n); if (i === B.last[kind]) i = (i + 1) % n; B.last[kind] = i;
+    const ctx = this.ctx, t = ctx.currentTime + when, src = ctx.createBufferSource(), g = ctx.createGain();
+    src.buffer = buf; src.playbackRate.value = rate; g.gain.value = gain;
+    let out = src;
+    if (lpHz) { const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = lpHz; f.Q.value = 0.4; out = out.connect(f); }
+    out.connect(g).connect(this.bus.car); src.start(t, i * slot, slot); src.stop(t + slot / rate + 0.05);
+  }
+  // A hoof coming down. surface as terrain.surfaceAt gives it; weight 0 to about 1.3 (a fore at
+  // the gallop, more landing a jump). Iron shoes ring on tarmac; on the gravel roads a duller
+  // thud with the crunch of stones; muffled on moss and sand, softer still in snow; a slosh in a ford.
+  hoof(surface, weight = 1, when = 0) {
+    if (!this.ready) return;
+    this.loadBody();
+    if (!this.body) return;
+    const w = Math.min(1.4, weight), r = (0.93 + Math.random() * 0.14) * (1.04 - 0.08 * Math.min(1, w));
+    if (surface === 'paved') { this.sprite('hard', 0.42 * w, r, 0, when); return; }
+    if (surface === 'gravel') { this.sprite('soft', 0.5 * w, r, 5200, when); this.burst(3800 + Math.random() * 1500, 0.9, 0.06, 0.05 * w, 'highpass', this.bus.car); return; }
+    if (surface === 'ford') { this.sprite('soft', 0.22 * w, r * 0.92, 1400, when); this.splash(0.12 + 0.12 * w, 'puddle'); return; }
+    if (surface === 'snow') { this.sprite('soft', 0.3 * w, r * 0.9, 1100, when); this.burst(1600, 1.2, 0.08, 0.04 * w, 'bandpass', this.bus.car); return; }
+    this.sprite('soft', (surface === 'sand' ? 0.32 : 0.42) * w, r * 0.95, surface === 'sand' ? 1500 : 2400, when);
+  }
+  // The horse blows out through its nose.
+  snort(gain = 0.3) { if (!this.ready) return; this.loadBody(); this.sprite('snort', gain, 0.92 + Math.random() * 0.14); }
+  // A swimmer's hand going into the water. strength 0 to 1.
+  stroke(strength) {
+    if (!this.ready) return;
+    this.loadBody();
+    const s = Math.min(1, strength);
+    this.sprite('stroke', 0.08 + 0.3 * s, 0.9 + Math.random() * 0.2, 1800 + 7000 * s);
+  }
+  // Each frame: the water moving round you while you swim (pace 0 to 1, treading water at 0), or
+  // wade through a hot pool (soak). Silent otherwise.
+  swimUpdate({ swimming = false, soaking = false, pace = 0 }) {
+    if (!this.ready) return;
+    if (swimming || soaking) this.loadBody();
+    const W = this.body?.water; if (!W) return;
+    const t = this.ctx.currentTime, p = Math.min(1, pace);
+    W.g.gain.setTargetAtTime(swimming ? 0.1 + 0.22 * p : soaking ? 0.05 * p : 0, t, 0.25);
+    W.lp.frequency.setTargetAtTime(swimming ? 900 + 4000 * p : 1200, t, 0.3);
+    W.s.playbackRate.setTargetAtTime(swimming ? 0.85 + 0.25 * p : 0.8, t, 0.4);
+  }
+
   update(dt, { speed, wind, exposure, waterProx, iceProx, inCar, wade = 0, nitro = false, heli = null, throttle = 0, voice = null, surface = 'paved', grounded = true, boat = 0, gear = 0, shifting = false, rain = 0, slip = 0 }) {
     if (!this.ready) return;
     const t = this.ctx.currentTime;

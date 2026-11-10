@@ -362,6 +362,7 @@ On foot beside one of the horses in the fields, E (or **Ride** on a phone, where
 - It will not go into water deeper than its belly or up a slope steeper than it can climb, and says so.
 - The rider leans forward into the canter and gallop. His arms and legs are posed outright each frame from his rest (T-pose) frames: each elbow and knee bends about its own hinge towards a set direction, the forearms turn the hands over by a fixed amount (thumbs on top, palms a little down), and the fingers close round the reins. Nothing is left over from his idle clip, so his arms do not twist as the horse turns or the view moves round. His hands go to a fixed place low in front of the saddle (forward and lower as he leans in), set from the seat in the horse's heading as his body is. They used to follow the horse's neck, which swings and twists a long way as it grazes and canters, and that could pull his hands round behind his back. When he gets on, the horse is briefly set back at the origin to find the seat and irons in its bones; it is turned back afterwards by its heading alone (restored from its quaternion, the turn could come back as half turns about two other axes, and the horse was then drawn facing the wrong way under him). The camera sits higher and further back than on foot and keeps up at a gallop; the speed shows in the cluster, with On horseback above it.
 - **E** (**Off**) gets you down on its left side, and it stays where you left it to graze. Ridden a long way from the car, you find the car parked on the road nearest you (the helicopter lands beside you).
+- **Sound.** A hoofbeat as each hoof lands, in step with its legs: the walk and gallop clips were measured for where each hoof comes down (`FALLS` in `horseride.js`: the walk's four-beat left hind, left fore, right hind, right fore; the gallop's two hinds then the leading fore), and `hoofbeats()` reports the ones crossed each frame, played in their true spacing a frame late so a slow frame never bunches them. Each is one of several recorded takes (`public/sounds/horse`, see "Hooves and swimming" below), on what it is crossing: shod hooves ringing on tarmac, a duller thud and a crunch of stones on gravel, muffled on moss and sand, softer still in snow, a slosh in a ford. Fore hooves land a little harder than hinds, and all harder at the gallop; landing a jump, two hard together. It snorts as you get on, now and then while it stands, and blows out once it pulls up after a long gallop.
 - The horse is the wildlife's own animal, driven by the rider instead of its herd; other animals take a galloping horse as they would someone running.
 
 ### Animal models
@@ -686,7 +687,23 @@ Each has its revs (idle and redline) and gearing: it changes up near the redline
 
 **No audible loop at high revs.** Every engine loop plays on two players at once, the second half a loop behind and 0.7% faster, so they drift against each other. Played fast, a short loop comes round several times a second and its ends can be heard; once a loop repeats faster than every 1.6 s its twin is blended in (equal power by 0.8 s), so the seams never line up and the pattern never quite repeats. The built voices are also longer (at least 32 cycles; the bike's 40), so even at the redline they take most of a second to come round. On a throttle lift above about two-fifths of the redline the exhaust may pop, how readily, how many and how hard set per engine (`pops`); each pop is a blast of noise in the pipe's band, a low punch falling in pitch and a crack on top. The helicopter has its own rotor and turbine sounds instead. Under them all, the tyres: a low roar that grows with speed, deeper and rougher off the tarmac with a gritty crunch on gravel, silent in the air and on the water.
 
-The Sound tab in the menu has a slider for each group: All sound, Music (the stereo), Car (engine, nitro, wading, splashes and knocks) and Ambience (wind, water and ice). Levels are saved; Music at zero also stops streaming. The quick Sound button and U still mute everything. The northern lights make no sound: the old high hum and crackle were removed because they sounded wrong.
+### Hooves and swimming
+
+Riding and swimming play recordings from Freesound (`loadBody` and on in `audio.js`), fetched the first time you get on a horse or into the water. The one-shots are sprites: several takes in fixed slots of one 22 kHz mono WAV, one picked each time (never the same twice running) and played a few percent faster or slower. The takes were picked by machine from each recording (the cleanest onsets, each rising well over the noise and clear of the next hit), cut from just before the onset, faded out and levelled to the same peak (strokes and snorts by loudness).
+
+- **Hooves** (`hoof_hard.wav`, six takes of 0.2 s; `hoof_soft.wav`, six of 0.25 s): shod hooves on concrete for tarmac, a horse trotting on soft ground for everything else, filtered and mixed per surface (see "Riding a horse").
+- **Snorts** (`snort.wav`, four takes of 1 s).
+- **Swimming** (`stroke.wav`, six takes of 0.8 s): a splash as each hand goes into the water, seen from his hands crossing the surface (`swimStrokes` in `main.js`, with a little spray where it goes in), louder and brighter the faster he swims. Under it `water.wav`, 5.6 s of a swimmer in open water looped with an equal-power crossfade: louder, brighter and quicker with his pace, quiet while he treads water, and faint as you wade a hot pool.
+
+| Sound | Recording | By | Licence |
+| --- | --- | --- | --- |
+| Hooves on tarmac | [Horse steps on concrete](https://freesound.org/s/813382/) | Luisa_Sanchez | CC0 |
+| Hooves off the road | [SFX - Horse - Trot.wav](https://freesound.org/s/581834/) | MrFizzywig | CC0 |
+| Snorts | [G38-16-Four Horse Snorts.wav](https://freesound.org/s/437111/) | craigsmith | CC0 |
+| Strokes | [G54-26-Person Swimming.wav](https://freesound.org/s/438845/) | craigsmith | CC0 |
+| Water round a swimmer | [Swimming in open water, sedate breaststroke](https://freesound.org/s/337682/) | YleArkisto | CC BY 4.0 |
+
+The Sound tab in the menu has a slider for each group: All sound, Music (the stereo), Car (engine, nitro, wading, splashes and knocks, and the hooves and swimming) and Ambience (wind, water and ice). Levels are saved; Music at zero also stops streaming. The quick Sound button and U still mute everything. The northern lights make no sound: the old high hum and crackle were removed because they sounded wrong.
 
 ## Analytics
 
