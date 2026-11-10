@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { toWorld } from './geo.js';
 import { WashBrushes } from './washbrush.js';
-import { roadPaths, heightAt, waterLevelAt, coastAt, roadDistAt } from './terrain.js';
+import { roadPaths, heightAt, waterLevelAt, coastAt, roadDistAt, bridges } from './terrain.js';
 
 // Fuel stations on the Ring Road, one by each of six towns, so a full tank always reaches the next.
 // Each is a forecourt beside the road: a lit roof over two pump islands, a small shop behind and a
@@ -44,12 +44,21 @@ export function siteStations(landmarks = []) {
         const x = q.x + ax * OFF, z = q.z + az * OFF;
         if (coastAt(x, z) < 45 || heightAt(x, z) < waterLevelAt(x, z) + 1.5) continue;
         if (landmarks.some((l) => Math.hypot(l.x - x, l.z - z) < 75)) continue;
+        // Not by a bridge: the road there is raised over a carved river valley, and a forecourt
+        // levelled to it would stand on a mound above the fields.
+        if (bridges.some((B) => Math.hypot(B.x - x, B.z - z) < B.len * 0.5 + 130)) continue;
         // Only its own road nearby: the far side and both ends of the forecourt stay clear.
         if (roadDistAt(x + ax * 16, z + az * 16) < 26 || roadDistAt(x + (fx / L) * 22, z + (fz / L) * 22) < OFF - 4 || roadDistAt(x - (fx / L) * 22, z - (fz / L) * 22) < OFF - 4) continue;
         let lo = Infinity, hi = -Infinity;
         for (let k = 0; k < 12; k++) { const a = (k / 12) * Math.PI * 2, h = heightAt(x + Math.cos(a) * 20, z + Math.sin(a) * 20); lo = Math.min(lo, h); hi = Math.max(hi, h); }
+        // And level with the land round it, not just flat underfoot: the pad's blend reaches about
+        // 30 m out, and ground falling or rising steeply past that leaves the station on a mound
+        // or in a pit.
+        const h0 = heightAt(x, z);
+        let wide = 0;
+        for (let k = 0; k < 16; k++) { const a = (k / 16) * Math.PI * 2; wide += Math.abs(heightAt(x + Math.cos(a) * 42, z + Math.sin(a) * 42) - h0); }
         const curve = Math.abs(Math.atan2(n.x - q.x, n.z - q.z) - Math.atan2(q.x - o.x, q.z - o.z)) % (Math.PI * 2);
-        const score = (hi - lo) + dc * 0.006 + Math.min(curve, Math.PI * 2 - curve) * 20;
+        const score = (hi - lo) + (wide / 16) * 0.8 + dc * 0.006 + Math.min(curve, Math.PI * 2 - curve) * 20;
         if (!best || score < best.score) best = { score, x, z, heading: Math.atan2(fx, fz), side, ax, az, fx: fx / L, fz: fz / L };
       }
     }
