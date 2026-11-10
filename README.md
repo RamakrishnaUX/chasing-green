@@ -693,13 +693,13 @@ Each has its revs (idle and redline) and gearing: it changes up near the redline
 
 Riding and swimming play recordings from Freesound (`loadBody` and on in `audio.js`), fetched the first time you get on a horse or into the water. The one-shots are sprites: several takes in fixed slots of one 22 kHz mono WAV, one picked each time (never the same twice running) and played a few percent faster or slower. The takes were picked by machine from each recording (the cleanest onsets, each rising well over the noise and clear of the next hit), cut from just before the onset, faded out and levelled to the same peak (strokes and snorts by loudness).
 
-- **Hooves** (`hoof_hard.wav`, six takes of 0.2 s; `hoof_soft.wav`, six of 0.25 s): shod hooves on concrete for tarmac, a horse trotting on soft ground for everything else, filtered and mixed per surface (see "Riding a horse").
+- **Hooves** (`hoof_hard.wav`, six takes of 0.25 s; `hoof_soft.wav`, six of 0.25 s): a shod horse clip-clopping down a road for tarmac, a horse trotting on soft ground for everything else, filtered and mixed per surface (see "Riding a horse"). A hoof on a road is a "clop", not a slap: a low thump of the horse's weight and a hollow ring near 800 to 900 Hz that dies away over 40 to 90 ms. The first tarmac takes, from steps on concrete, had neither (gone in 20 ms) and sounded like hand claps, so the tarmac takes were chosen by measuring that ring and decay across several road recordings, and each is cut to start just before its main strike (some begin with a faint scuff that smeared at the gallop).
 - **Snorts** (`snort.wav`, four takes of 1 s).
 - **Swimming** (`stroke.wav`, six takes of 0.8 s): a splash as each hand goes into the water, seen from his hands crossing the surface (`swimStrokes` in `main.js`, with a little spray where it goes in), louder and brighter the faster he swims. Under it `water.wav`, 5.6 s of a swimmer in open water looped with an equal-power crossfade: louder, brighter and quicker with his pace, quiet while he treads water, and faint as you wade a hot pool.
 
 | Sound | Recording | By | Licence |
 | --- | --- | --- | --- |
-| Hooves on tarmac | [Horse steps on concrete](https://freesound.org/s/813382/) | Luisa_Sanchez | CC0 |
+| Hooves on tarmac | [Horse Clip Clopping Downhill (stereo)](https://freesound.org/s/182504/) | swiftoid | CC0 |
 | Hooves off the road | [SFX - Horse - Trot.wav](https://freesound.org/s/581834/) | MrFizzywig | CC0 |
 | Snorts | [G38-16-Four Horse Snorts.wav](https://freesound.org/s/437111/) | craigsmith | CC0 |
 | Strokes | [G54-26-Person Swimming.wav](https://freesound.org/s/438845/) | craigsmith | CC0 |
