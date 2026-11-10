@@ -26,10 +26,13 @@ const JUMP_T = 0.85, JUMP_H = 0.75;
 // Points on the horse (model at its game size, standing at the origin facing +z): the seat, the
 // stirrup irons, and where the hands hold the reins. Each is kept in the frame of the bone it moves
 // with (measured from the horse model: the saddle's lowest point along its middle, the irons'
-// treads, a hand's width above the withers).
+// treads).
 const SEAT = new THREE.Vector3(0, 1.52, -0.17);
 const IRON = new THREE.Vector3(0.36, 0.83, -0.08);
-const REIN = new THREE.Vector3(0.12, 1.56, 0.33);
+// The hands: low in front of the saddle, elbows bent, set from the seat in the horse's own heading
+// (as his body is), not from its neck or withers: those swing and twist a long way as it grazes,
+// canters and gallops, and pulled his hands back behind him. Forward and lower as he leans in.
+const REIN = new THREE.Vector3(0.11, 0.36, 0.19), REIN_LEAN = new THREE.Vector3(0, -0.14, 0.26);
 
 const _v = new THREE.Vector3(), _w = new THREE.Vector3(), _q = new THREE.Quaternion();
 const PRONATE = 0.6; // how far the hands turn from thumbs-up towards palms-down (radians)
@@ -198,7 +201,7 @@ export class HorseRide {
     if (this.seatFor !== A) {
       this.seatFor = A;
       const find = (n) => Object.values(A.bones).find((b) => b.name.startsWith(n));
-      const spine = find('BN_Spine_02'), neck = find('BN_Neck_00'), stL = find('BN_L_Stirrup'), stR = find('BN_R_Stirrup');
+      const spine = find('BN_Spine_02'), stL = find('BN_L_Stirrup'), stR = find('BN_R_Stirrup');
       // At rest, standing at the origin: the points in each bone's frame.
       const r = A.root, keep = { p: r.position.clone(), q: r.quaternion.clone() };
       A.mixer.stopAllAction(); A.actions.idle.reset().play(); A.mixer.setTime(0);
@@ -207,7 +210,6 @@ export class HorseRide {
       this.pts = {
         seat: { b: spine, p: local(spine, SEAT) },
         Left: { b: stL || spine, p: local(stL || spine, IRON) }, Right: { b: stR || spine, p: local(stR || spine, new THREE.Vector3(-IRON.x, IRON.y, IRON.z)) },
-        reinL: { b: neck, p: local(neck, REIN) }, reinR: { b: neck, p: local(neck, new THREE.Vector3(-REIN.x, REIN.y, REIN.z)) },
       };
       r.position.copy(keep.p); r.quaternion.copy(keep.q); r.updateMatrixWorld(true);
       A.cur = null; // let its clip be picked again
@@ -224,7 +226,7 @@ export class HorseRide {
     if (B.Neck) B.Neck.quaternion.premultiply(_q.setFromAxisAngle(_w.set(1, 0, 0), -this.lean * 0.2));
     w.root.updateMatrixWorld(true);
     // Hips on the seat.
-    const seat = at('seat'), hips = wpos(B.Hips);
+    const seat = at('seat'), seat0 = seat.clone(), hips = wpos(B.Hips);
     w.root.position.add(seat.sub(hips)).add(_w.set(0, 0.09, 0)).add(_v.set(Math.sin(a.heading), 0, Math.cos(a.heading)).multiplyScalar(-0.05));
     w.root.updateMatrixWorld(true);
     const toW = (x, y, z) => new THREE.Vector3(x, y, z).applyAxisAngle(_w.set(0, 1, 0), a.heading);
@@ -236,7 +238,7 @@ export class HorseRide {
       const out = s === 'Left' ? 1 : -1;
       const leg = limb(R, B[s + 'UpLeg'], B[s + 'Leg'], B[s + 'Foot'], at(s), toW(out * 0.55, 0.1, 1), 0);
       if (B[s + 'ToeBase']) orient(R, B[s + 'Foot'], toW(out * 0.2, -0.36, 1).normalize(), leg.h);
-      const arm = limb(R, B[s + 'Arm'], B[s + 'ForeArm'], B[s + 'Hand'], at(s === 'Left' ? 'reinL' : 'reinR'), toW(out * 0.6, -0.8, -0.4), PRONATE * out * 0.6);
+      const arm = limb(R, B[s + 'Arm'], B[s + 'ForeArm'], B[s + 'Hand'], seat0.clone().add(toW(out * REIN.x, REIN.y + REIN_LEAN.y * this.lean, REIN.z + REIN_LEAN.z * this.lean)), toW(out * 0.6, -0.8, -0.4), PRONATE * out * 0.6);
       // The hand: on along the forearm, turned palm down a little more and bent a touch at the wrist.
       const h = arm.h.clone().applyAxisAngle(arm.f, PRONATE * out), palm = h.clone().multiplyScalar(out);
       const d = arm.f.clone().applyAxisAngle(_w.crossVectors(arm.f, palm).normalize(), 0.22);
