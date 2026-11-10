@@ -31,11 +31,14 @@ const RUN_AFTER = 0.7, RUN_BUILD = 0.8, TAP = 0.4, TAP_BOOST = 0.45;
 // The jump clip: a crouch, take-off at about a third of the way in, the top halfway, landing at
 // about 0.62, then standing again. A hop plays from the end of the crouch to just after landing.
 const JUMP = { from: 0.31, to: 0.74, speed: 1.3 };
-const CLIPS = ['idle', 'walk', 'back', 'run', 'jump', 'kneel'];
-// Swimming: past chest depth he swims, lying forward in the water with a slow stroke (the run's
-// arms, slowed down), treading water upright when he stops. The water is cold, so not far: about
-// SWIM_RANGE metres from where he went in.
-const SWIM_DEPTH = 1.15, SWIM = 1.15, SWIM_RANGE = 35, FLOAT = 1.06, CHEST = 1.2;
+const CLIPS = ['idle', 'walk', 'back', 'run', 'jump', 'kneel', 'swim', 'tread'];
+// Swimming: past chest depth he swims a front crawl, face in the water and turning to breathe, his
+// back at the surface, kicking; stopped, he treads water upright with his head and shoulders out.
+// Both are Mixamo clips (see tools/person); the crawl is played at the pace he swims. The water is
+// cold, so not far: about SWIM_RANGE metres from where he went in.
+const SWIM_DEPTH = 1.15, SWIM = 0.95, SWIM_RANGE = 35;
+// How far his feet (the root) hang below the surface: treading water, and lying flat in a crawl.
+const FLOAT = 1.25, FLAT = 0.7;
 // Hot pools: in up to his shoulders (SOAK below the surface), wading slowly (SOAK_PACE m/s).
 // bathAt(x, z, margin) and rimAt(x, z) come from the landmarks (set by main.js).
 const SOAK = 1.3, SOAK_PACE = 0.8;
@@ -53,7 +56,7 @@ export class Walker {
     this.time = 0; this.held = 0; this.pushing = false; this.letGo = -1; this.fwd = 0; // the forward key's hold, and the pace it has built
     this.sitting = false;
     this.state = 'walk'; // walk, climb, mantle (pulling up over the top), fall or swim
-    this.swimFrom = null; this.swimPitch = 0; this.stroke = 0; this.splashed = 0;
+    this.swimFrom = null; this.splashed = 0;
     this.vy = 0;
     this.landed = 0;
     this.jumpT = -1; // seconds into a hop, or -1
@@ -180,8 +183,9 @@ export class Walker {
         if (deep > SWIM_DEPTH && this.pos.y <= water - FLOAT) { this.pos.y = water - FLOAT; this.vy = 0; this.startSwim(); this.splashed = 1; }
         else if (this.pos.y <= g) { this.landed = Math.min(1, -this.vy / 14); this.pos.y = g; this.vy = 0; this.state = 'walk'; }
       } else if (this.state === 'swim') {
-        // Afloat, head and shoulders out, bobbing a little; out again where he can stand.
-        this.pos.y = lerp(this.pos.y, water - FLOAT, Math.min(1, dt * 4));
+        // Afloat: treading water, head and shoulders out, or flat along the surface in a crawl,
+        // bobbing a little; out again where he can stand.
+        this.pos.y = lerp(this.pos.y, water - lerp(FLOAT, FLAT, this.weights?.swim || 0), Math.min(1, dt * 4));
         if (deep < SWIM_DEPTH - 0.2) { this.state = 'walk'; this.swimFrom = null; this.pos.y = Math.max(this.pos.y, g - 0.1); }
       } else if (this.state === 'walk' && deep > SWIM_DEPTH) { this.startSwim(); this.splashed = 0.5; } else if (this.state === 'mantle') {
         if (g > this.pos.y) this.pos.y = rise(g);
@@ -202,15 +206,7 @@ export class Walker {
     this.animate(dt, Math.sign(speed) || 1);
     this.root.position.copy(this.pos);
     this.root.rotation.y = this.heading;
-    // Swimming he lies forward about his chest; treading water he is nearly upright.
-    const swimming = this.state === 'swim';
-    this.swimPitch = lerp(this.swimPitch, swimming ? (this.speedSmooth > 0.25 ? 1.12 : 0.22) : 0, Math.min(1, dt * 3));
-    if (this.man) {
-      const a = this.swimPitch;
-      this.man.rotation.x = a;
-      this.man.position.set(0, CHEST - CHEST * Math.cos(a), -CHEST * Math.sin(a));
-      if (swimming) this.root.position.y += Math.sin(this.time * 2.1) * 0.035;
-    }
+    if (this.state === 'swim') this.root.position.y += Math.sin(this.time * 2.1) * 0.03;
   }
 
   startSwim() { this.state = 'swim'; this.swimFrom = this.pos.clone(); this.jumpT = -1; }
@@ -238,17 +234,15 @@ export class Walker {
   // airborne part for a hop, and is held or rocked for a fall, a climb and a pull-up.
   animate(dt, dir) {
     if (!this.mixer) return;
-    const want = { idle: 0, walk: 0, back: 0, run: 0, jump: 0, kneel: 0 };
+    const want = { idle: 0, walk: 0, back: 0, run: 0, jump: 0, kneel: 0, swim: 0, tread: 0 };
     const A = this.actions, J = A.jump, len = this.jumpLen;
     J.paused = true;
     if (this.sitting) want.kneel = 1;
     else if (this.state === 'swim') {
-      // A slow crawl from the run's arm swing while moving; treading water (the walk, slowly) while not.
-      const v = this.speedSmooth, rd = A.run.getClip().duration, wd = A.walk.getClip().duration;
-      this.stroke = (this.stroke + dt * (v > 0.25 ? 0.42 : 0.3)) % 1;
-      A.run.timeScale = 0; A.walk.timeScale = 0;
-      A.run.time = this.stroke * rd; A.walk.time = this.stroke * wd;
-      want.run = clamp(v / 0.6, 0, 1); want.walk = 1 - want.run;
+      // The crawl while moving, its strokes keeping pace with him; treading water while not.
+      const v = this.speedSmooth;
+      want.swim = clamp((v - 0.15) / 0.45, 0, 1); want.tread = 1 - want.swim;
+      if (A.swim) A.swim.timeScale = lerp(0.8, 1.5, clamp(v / SWIM, 0, 1)); // the clip itself swims a slow 0.36 m/s
     }
     else if (this.state === 'climb') {
       // Reaching up and pulling, rocking between the two reaches of the jump.

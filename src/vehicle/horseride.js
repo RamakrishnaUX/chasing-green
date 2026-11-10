@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { groundAt, waterLevelAt } from '../world/terrain.js';
 import { clamp, lerp } from '../world/noise.js';
-import { reach, aim, wpos } from './driver.js';
+import { wpos, setWorldQuat, frameQuat, turnWorld, CURL } from './driver.js';
 import { bonesOf } from './skydiver.js';
 
 // Riding a horse. On foot beside one of the horses grazing in the fields, E (or Ride on a phone)
@@ -32,6 +32,75 @@ const IRON = new THREE.Vector3(0.36, 0.83, -0.08);
 const REIN = new THREE.Vector3(0.12, 1.56, 0.33);
 
 const _v = new THREE.Vector3(), _w = new THREE.Vector3(), _q = new THREE.Quaternion();
+const PRONATE = 0.6; // how far the hands turn from thumbs-up towards palms-down (radians)
+
+// His rest pose, from the skeleton's bind matrices: each bone's turn there (in the model's frame),
+// the way to its child, and the hinge its joint bends about (elbows and knees), in its own frame.
+// The man is bound in a T-pose, facing +z, palms down.
+function restOf(man, B) {
+  let sk = null; man.traverse((o) => { if (o.isSkinnedMesh && !sk) sk = o; });
+  const S = sk.skeleton, R = { q: new Map(), dir: new Map(), hinge: new Map() }, P = new Map();
+  S.bones.forEach((b, i) => {
+    const p = new THREE.Vector3(), q = new THREE.Quaternion();
+    new THREE.Matrix4().copy(S.boneInverses[i]).invert().decompose(p, q, new THREE.Vector3());
+    R.q.set(b, q); P.set(b, p);
+  });
+  const up = P.get(B.Head).clone().sub(P.get(B.Hips)).normalize();
+  const side = P.get(B.LeftArm).clone().sub(P.get(B.RightArm)).normalize();
+  const front = new THREE.Vector3().crossVectors(side, up).normalize();
+  const own = (b, v) => v.clone().applyQuaternion(R.q.get(b).clone().invert()).normalize();
+  // Elbows bend the forearm forward, knees the shin back: hinge = rest direction x bend direction.
+  const chain = (bones, bend) => {
+    for (let i = 0; i < bones.length - 1; i++) {
+      const b = bones[i], c = bones[i + 1]; if (!b || !c) continue;
+      const d = P.get(c).clone().sub(P.get(b)).normalize();
+      R.dir.set(b, c.position.clone().normalize());
+      R.hinge.set(b, own(b, new THREE.Vector3().crossVectors(d, bend)));
+    }
+  };
+  for (const s of ['Left', 'Right']) {
+    chain([B[s + 'Arm'], B[s + 'ForeArm'], B[s + 'Hand'], B[s + 'HandMiddle1']], front);
+    chain([B[s + 'UpLeg'], B[s + 'Leg'], B[s + 'Foot'], B[s + 'ToeBase']], front.clone().negate());
+  }
+  return R;
+}
+// Turn a bone so that, in the world, the way to its child is dir and its hinge is hinge.
+function orient(R, b, dir, hinge) {
+  const d0 = R.dir.get(b), h0 = R.hinge.get(b);
+  const h = hinge.clone().addScaledVector(dir, -hinge.dot(dir)).normalize();
+  setWorldQuat(b, frameQuat(d0, h0.clone().addScaledVector(d0, -h0.dot(d0)).normalize(), dir, h));
+}
+// Two-bone limb, end on target, the middle joint bent towards pole: both bones set from their
+// rest frames, so their roll is fixed by the bend itself. twist turns the lower bone about its
+// length (a forearm turning the hand over). Returns the lower bone's direction and the hinge.
+function limb(R, upper, lower, end, target, pole, twist) {
+  const S = wpos(upper), a = S.distanceTo(wpos(lower)), b = wpos(lower).distanceTo(wpos(end));
+  const d = new THREE.Vector3().subVectors(target, S), L = clamp(d.length(), 0.01, (a + b) * 0.999);
+  d.normalize();
+  const cosA = clamp((a * a + L * L - b * b) / (2 * a * L), -1, 1), sinA = Math.sqrt(1 - cosA * cosA);
+  const perp = pole.clone().addScaledVector(d, -pole.dot(d)).normalize();
+  const h = new THREE.Vector3().crossVectors(perp, d).normalize();
+  const elbow = S.clone().addScaledVector(d, a * cosA).addScaledVector(perp, a * sinA);
+  orient(R, upper, elbow.sub(S).normalize(), h);
+  const f = target.clone().sub(wpos(lower)).normalize();
+  orient(R, lower, f, twist ? h.clone().applyAxisAngle(f, twist) : h);
+  return { f, h };
+}
+// Fingers set back to their rest (straight, together) and closed into a loose fist; the thumb over them.
+function fist(R, B, s, palm) {
+  for (const f of ['Thumb', 'Index', 'Middle', 'Ring', 'Pinky']) for (const j of [1, 2, 3]) {
+    const b = B[s + 'Hand' + f + j], next = B[s + 'Hand' + f + (j + 1)];
+    if (!b || !next) continue;
+    b.quaternion.copy(R.q.get(b.parent)).invert().multiply(R.q.get(b)); b.updateMatrixWorld(true);
+  }
+  for (const f of ['Index', 'Middle', 'Ring', 'Pinky', 'Thumb']) for (const j of [1, 2, 3]) {
+    const b = B[s + 'Hand' + f + j], next = B[s + 'Hand' + f + (j + 1)];
+    if (!b || !next) continue;
+    const d = wpos(next).sub(wpos(b)).normalize(), axis = new THREE.Vector3().crossVectors(d, palm);
+    if (axis.lengthSq() < 1e-6) continue;
+    turnWorld(b, axis.normalize(), f === 'Thumb' ? [0.35, 0.4, 0.3][j - 1] : CURL[j - 1] * 0.85);
+  }
+}
 
 export class HorseRide {
   constructor({ wildlife, walker }) {
@@ -159,12 +228,20 @@ export class HorseRide {
     w.root.position.add(seat.sub(hips)).add(_w.set(0, 0.09, 0)).add(_v.set(Math.sin(a.heading), 0, Math.cos(a.heading)).multiplyScalar(-0.05));
     w.root.updateMatrixWorld(true);
     const toW = (x, y, z) => new THREE.Vector3(x, y, z).applyAxisAngle(_w.set(0, 1, 0), a.heading);
-    // Legs round its sides, feet in the irons, heels down; elbows in, hands low on the reins.
+    // Legs round its sides, feet in the irons, heels down; elbows in at his sides, hands low on the
+    // reins with the thumbs on top. Every limb bone is set outright from his rest pose (none of it
+    // left over from the idle clip), so nothing in his arms or legs turns as the horse or the view does.
+    const R = (this.rest ||= restOf(w.man, B));
     for (const s of ['Left', 'Right']) {
       const out = s === 'Left' ? 1 : -1;
-      reach(B[s + 'UpLeg'], B[s + 'Leg'], B[s + 'Foot'], at(s), toW(out * 0.55, 0.1, 1));
-      if (B[s + 'ToeBase']) aim(B[s + 'Foot'], B[s + 'ToeBase'], toW(out * 0.25, -0.15, 1).normalize());
-      reach(B[s + 'Arm'], B[s + 'ForeArm'], B[s + 'Hand'], at(s === 'Left' ? 'reinL' : 'reinR'), toW(out * 0.6, -0.8, -0.4));
+      const leg = limb(R, B[s + 'UpLeg'], B[s + 'Leg'], B[s + 'Foot'], at(s), toW(out * 0.55, 0.1, 1), 0);
+      if (B[s + 'ToeBase']) orient(R, B[s + 'Foot'], toW(out * 0.2, -0.36, 1).normalize(), leg.h);
+      const arm = limb(R, B[s + 'Arm'], B[s + 'ForeArm'], B[s + 'Hand'], at(s === 'Left' ? 'reinL' : 'reinR'), toW(out * 0.6, -0.8, -0.4), PRONATE * out * 0.6);
+      // The hand: on along the forearm, turned palm down a little more and bent a touch at the wrist.
+      const h = arm.h.clone().applyAxisAngle(arm.f, PRONATE * out), palm = h.clone().multiplyScalar(out);
+      const d = arm.f.clone().applyAxisAngle(_w.crossVectors(arm.f, palm).normalize(), 0.22);
+      orient(R, B[s + 'Hand'], d, h);
+      fist(R, B, s, palm); // fingers closed round the reins
     }
   }
 }

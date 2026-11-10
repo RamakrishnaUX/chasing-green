@@ -28,7 +28,7 @@ const io = new NodeIO().registerExtensions(ALL_EXTENSIONS).registerDependencies(
 const doc = await io.read('downloads/coat/scene.gltf');
 const src = await io.read('downloads/etb/scene.gltf');
 const root = doc.getRoot();
-const base = (n) => n.replace(/_\d+$/, '');
+const base = (n) => n.replace(/_\d+$/, '').replace(/^mixamorig:?/, ''); // one name per joint, whichever file
 
 // Spec-gloss to plain PBR: the diffuse becomes the base colour; normal maps stay.
 for (const mat of root.listMaterials()) {
@@ -51,6 +51,9 @@ const hipsY = (nodes) => nodes.find((n) => /mixamorig:Hips_/.test(n.getName())).
 const srcHips = srcRoot.listNodes().filter((n) => /mixamorig:Hips_/.test(n.getName()));
 const scale = hipsY(root.listNodes()) / hipsY(srcHips);
 console.log('hips scale', scale.toFixed(3));
+// Swimming, from two more Mixamo clips on their own characters (CC BY 4.0, by Appsbypaulhamilton):
+// a front crawl ("Warrior Swimming") and treading water ("Treading Water (2)").
+const EXTRA = [['downloads/swimcrawl/scene.gltf', 'swim'], ['downloads/treadwater/scene.gltf', 'tread']];
 
 // Quaternions [x, y, z, w].
 const qmul = (a, b) => [a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1], a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0], a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3], a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2]];
@@ -91,9 +94,7 @@ const buffer = root.listBuffers()[0];
 const tgtHips = [...bones.values()].find((n) => /Hips/.test(n.getName()));
 const tgtBind = bindOf(root, root.listSkins().find((k) => k.listJoints().includes(tgtHips)));
 const kids = (n) => n.listChildren();
-for (const [i, name] of Object.entries(CLIPS)) {
-  const a = first[+i];
-  if (!a) continue;
+function retarget(srcRoot, a, name, scale, drift = false) {
   // The clip's own skeleton (the pack has eight) and its rest turns.
   const chans = new Map(), srcBones = new Map();
   for (const ch of a.listChannels()) { const n = ch.getTargetNode(); srcBones.set(base(n.getName()), n); chans.set(n.getName() + '|' + ch.getTargetPath(), ch); }
@@ -132,12 +133,25 @@ for (const [i, name] of Object.entries(CLIPS)) {
   };
   for (const [node, arr] of out) if (/mixamorig/.test(node.getName())) add(node, 'rotation', arr);
   if (hipsT.length) {
-    // In place: hold the first frame's position across the ground, keep the bounce, scaled.
-    const x0 = hipsT[0], z0 = hipsT[2];
-    for (let k = 0; k < hipsT.length; k += 3) { hipsT[k] = x0 * scale; hipsT[k + 1] *= scale; hipsT[k + 2] = z0 * scale; }
+    // In place: hold the first frame's position across the ground, keep the bounce, scaled. A clip
+    // that travels (the crawl swims forward through the water) keeps its sway and the surge of each
+    // stroke, with the steady travel taken out and the hips back over the origin; its pace (metres a
+    // second at his size) is what the game plays it against.
+    const x0 = hipsT[0], z0 = hipsT[2], zN = hipsT[hipsT.length - 1], T = times[times.length - 1] - times[0];
+    if (drift) console.log('    pace', ((zN - z0) * scale * 0.01 / T).toFixed(3), 'm/s over', T.toFixed(2), 's');
+    for (let k = 0; k < hipsT.length; k += 3) {
+      const u = (times[k / 3] - times[0]) / T;
+      hipsT[k] = (drift ? hipsT[k] : x0) * scale; hipsT[k + 1] *= scale;
+      hipsT[k + 2] = drift ? (hipsT[k + 2] - (z0 + (zN - z0) * u)) * scale : z0 * scale;
+    }
     add(tgtHips, 'translation', hipsT);
   }
-  console.log(' ', name, '<-', a.getName(), anim.listChannels().length, 'channels,', times.length, 'keys');
+  console.log(' ', name, '<-', a.getName(), anim.listChannels().length, 'channels,', times.length, 'keys', 'hips y', hipsT.length ? [Math.min(...hipsT.filter((_, k) => k % 3 === 1)).toFixed(3), Math.max(...hipsT.filter((_, k) => k % 3 === 1)).toFixed(3)] : '-');
+}
+for (const [i, name] of Object.entries(CLIPS)) if (first[+i]) retarget(srcRoot, first[+i], name, scale);
+for (const [file, name] of EXTRA) {
+  const r = (await io.read(file)).getRoot(), hips = r.listNodes().find((n) => /Hips_\d+$/.test(n.getName()));
+  retarget(r, r.listAnimations()[0], name, hipsY(root.listNodes()) / hips.getTranslation()[1], true);
 }
 
 await doc.transform(
