@@ -225,22 +225,22 @@ export class Jeep {
       // moment and the nose dips (audio.js blips the revs to match).
       if (this.gear < was && throttle <= 0 && this.vF > 3 && !air && dt) {
         this.downT = 0.3;
-        this.rockV = (this.rockV || 0) + 0.22 / Math.sqrt(this.gear) * (S.bike ? 0.5 : 1) * (this.spec.susp?.roll ?? 1);
+        this.rockV = (this.rockV || 0) + 0.09 / Math.sqrt(this.gear) * (S.bike ? 0.5 : 1) * (this.spec.susp?.roll ?? 1);
       }
       if (this.gear > was && throttle > 0.2 && this.vF > 0 && !air && dt) {
         this.shiftDur = SHIFT_TIME[S.engine.voice] ?? 0.25;
         this.shiftT = this.shiftDur;
-        this.shiftKick = 0.5 / Math.sqrt(was) * (S.bike ? 0.5 : S.engine.voice === 'race' ? 0.7 : 1) * (this.spec.susp?.roll ?? 1);
+        this.shiftKick = 0.2 / Math.sqrt(was) * (S.bike ? 0.5 : S.engine.voice === 'race' ? 0.7 : 1) * (this.spec.susp?.roll ?? 1);
         this.rockV = (this.rockV || 0) + this.shiftKick; // nose dips as the drive goes
       }
     } else if (wet) this.gear = 1;
     let drive = 1;
     if (this.shiftT > 0) {
-      drive = 0;
+      drive = 0.35; // the pull eases rather than dropping out, so speed doesn't stall mid-change
       this.shiftT -= dt || 0;
-      if (this.shiftT <= 0) { this.shiftT = 0; this.biteT = 0.3; this.rockV = (this.rockV || 0) - this.shiftKick * 1.4; } // it bites: the tail squats
+      if (this.shiftT <= 0) { this.shiftT = 0; this.biteT = 0.3; this.rockV = (this.rockV || 0) - this.shiftKick; } // it bites: the tail squats
     } else if (this.biteT > 0) {
-      drive = 1 + 0.35 * (this.biteT / 0.3); // the shove as the clutch bites
+      drive = 1 + 0.12 * (this.biteT / 0.3); // a light shove as the clutch bites
       this.biteT = Math.max(0, this.biteT - (dt || 0));
     }
     if (throttle <= 0) { this.shiftT = 0; this.biteT = 0; drive = 1; }
@@ -265,7 +265,7 @@ export class Jeep {
     let coast = wet ? 0.5 : 1.0;
     if (GV && !wet && throttle === 0 && this.vF > 2) {
       coast += 0.5 + 0.45 * (GV.tops.length - this.gear);
-      if (this.downT > 0) { coast += 3 * (this.downT / 0.3); this.downT = Math.max(0, this.downT - (dt || 0)); }
+      if (this.downT > 0) { coast += 1.2 * (this.downT / 0.3); this.downT = Math.max(0, this.downT - (dt || 0)); }
     }
     if (throttle === 0) this.vF -= Math.sign(this.vF) * Math.min(Math.abs(this.vF), coast * dt);
     if (this.vF > maxV) this.vF -= (this.vF - maxV) * 1.8 * dt;
