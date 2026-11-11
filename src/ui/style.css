@@ -2165,3 +2165,71 @@ body.has-touch .ph-move { display: grid; }
   .ph-slider input { width: 110px; }
   .ph-hint { display: none !important; }
 }
+
+/* ---------- Phones and tablets: every unit along the top wears one dress ----------
+   The place, the next spot, tips, the aurora call, badges, the route, the clock and the menu
+   button are all the same smoked glass: one fill, one hairline edge, one soft shadow, 32 px tall
+   on one line along the top, 13 px type, and a small mint glyph in front instead of a coloured disc. */
+body.has-touch {
+  --u-bg: rgba(8,16,14,0.46);
+  --u-fx: blur(16px) saturate(150%);
+  --u-edge: inset 0 0 0 1px rgba(255,255,255,0.08), inset 0 1px 0 rgba(255,255,255,0.08), 0 6px 18px rgba(0,0,0,0.18);
+  --u-h: 32px; --u-top: calc(10px + var(--safe-t)); --u-glyph: var(--green-hi);
+}
+body.has-touch :is(.hx-place, .hx-clock, .hx-spot, #hud .toast, #hud .sky-hint, .badge-pop, #hud .nav, #hud #btn-settings) {
+  background: var(--u-bg); -webkit-backdrop-filter: var(--u-fx); backdrop-filter: var(--u-fx); border: 0; box-shadow: var(--u-edge); color: var(--ink); }
+/* One-line units: a pill, a glyph, the main words, then a quieter detail after a dot. */
+body.has-touch :is(.hx-place, .hx-clock, .hx-spot, #hud .sky-hint, #hud .nav) { height: var(--u-h); border-radius: calc(var(--u-h) / 2); }
+body.has-touch :is(#hud .toast, .badge-pop) { border-radius: 16px; }
+
+/* The place you are in, top left, with a pin. */
+body.has-touch .hx .hx-tl { top: var(--u-top); max-width: 34vw; }
+body.has-touch .hx .hx-kick { display: none; }
+body.has-touch .hx .hx-place { display: flex !important; align-items: center; gap: 7px; width: max-content; max-width: 100%; margin: 0; padding: 0 13px 0 10px;
+  font: 600 13px/1 var(--sans) !important; letter-spacing: 0.01em; white-space: nowrap; overflow: hidden; }
+body.has-touch .hx .hx-place::before, body.has-touch .hx .hx-clock::before { content: ''; flex: none; width: 13px; height: 13px; background: var(--u-glyph);
+  -webkit-mask: var(--glyph) center / contain no-repeat; mask: var(--glyph) center / contain no-repeat; }
+body.has-touch .hx .hx-place::before { --glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 22s-7-6.2-7-12a7 7 0 0 1 14 0c0 5.8-7 12-7 12zm0-9.2a2.8 2.8 0 1 0 0-5.6 2.8 2.8 0 0 0 0 5.6z' fill-rule='evenodd'/%3E%3C/svg%3E"); }
+body.has-touch #hud .minimap { top: calc(var(--u-top) + var(--u-h) + 8px) !important; }
+
+/* The clock, top right beside the menu, with a moon. */
+body.has-touch .hx .hx-tr { top: var(--u-top); right: calc(14px + var(--u-h) + 8px + var(--safe-r)); }
+body.has-touch .hx .hx-clock { margin: 0; display: flex; align-items: center; gap: 7px; padding: 0 13px 0 10px; font: 600 13px/1 var(--sans); font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
+body.has-touch .hx .hx-clock::before { --glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z'/%3E%3C/svg%3E"); }
+
+/* The menu: the same glass in a 32 px circle, with a bigger invisible target for the thumb. */
+body.has-touch #hud .hud-tr { top: var(--u-top); right: calc(14px + var(--safe-r)); }
+body.has-touch #hud #btn-settings { position: relative; width: var(--u-h); height: var(--u-h); border-radius: 50%; color: var(--ink); }
+body.has-touch #hud #btn-settings::after { content: ''; position: absolute; inset: -7px; }
+body.has-touch #hud #btn-settings svg { width: 17px; height: 17px; }
+
+/* The next spot. */
+body.has-touch .hx-spot { gap: 7px; padding: 0 13px 0 10px; }
+body.has-touch .hx-spot-arrow { width: 13px; height: 13px; }
+body.has-touch .hx-spot-arrow svg { width: 12px; height: 12px; fill: var(--u-glyph); }
+
+/* Tips. */
+body.has-touch #hud .toast { padding: 8px 14px; font: 500 13px/1.35 var(--sans); }
+
+/* The aurora call: same pill; the arrow still rises gently so it is noticed. */
+body.has-touch #hud .sky-hint { gap: 7px; padding: 0 14px 0 10px; font: 600 13px/1 var(--sans); animation: none;
+  background: var(--u-bg) !important; box-shadow: var(--u-edge) !important; }
+body.has-touch #hud .sky-hint svg { width: 14px; height: 14px; padding: 0; border-radius: 0; background: none; color: var(--u-glyph); stroke-width: 2.6; }
+body.has-touch #hud .sky-hint b { color: var(--green-hi); }
+
+/* The route: one line, the arrow in the route's blue, the distance quieter after a dot. */
+body.has-touch #hud .nav { gap: 7px; padding: 0 4px 0 10px; }
+body.has-touch #hud .nav-dir { width: 13px; height: 13px; border-radius: 0; background: none; box-shadow: none; }
+body.has-touch #hud .nav-dir svg { width: 13px; height: 13px; fill: var(--blue); }
+body.has-touch #hud .nav-text { flex-direction: row; align-items: baseline; gap: 0; }
+body.has-touch #hud .nav-text b { font: 600 13px/1 var(--sans); }
+body.has-touch #hud .nav-text span { font: 500 12px/1 var(--sans); color: var(--ink-3); white-space: nowrap; }
+body.has-touch #hud .nav-text span::before { content: '·'; margin: 0 7px; }
+body.has-touch #hud .nav-stop { position: relative; width: 24px; height: 24px; background: rgba(255,255,255,0.08); color: var(--ink-2); }
+body.has-touch #hud .nav-stop::after { content: ''; position: absolute; inset: -6px; }
+body.has-touch #hud .nav-stop svg { width: 10px; height: 10px; }
+
+/* Sideways and on tablets they all sit on the one line along the top (an upright phone keeps its own stack). */
+@media not all and (orientation: portrait) and (max-width: 600px) {
+  body.has-touch :is(.hx-spot, #hud .toast, #hud .sky-hint, .badge-pop) { top: var(--u-top); }
+}
