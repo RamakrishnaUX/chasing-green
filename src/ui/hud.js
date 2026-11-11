@@ -57,15 +57,18 @@ export class Hud {
       t.style.pointerEvents = 'auto';
     } else t.style.pointerEvents = 'none';
     t.classList.add('is-on');
+    document.body.classList.add('toast-on');
     this.toastTimer = seconds;
     this.toastPriority = priority;
   }
 
   update(dt, s) {
     const e = this.el;
-    if (this.toastTimer > 0) {
+    // One message at a time at the top: while a badge shows, a tip waits under it with its clock
+    // stopped, and gets its full time once the badge has gone.
+    if (this.toastTimer > 0 && !document.body.classList.contains('badge-on')) {
       this.toastTimer -= dt;
-      if (this.toastTimer <= 0) { e.toast.classList.remove('is-on'); e.toast.style.pointerEvents = 'none'; this.toastPriority = 0; }
+      if (this.toastTimer <= 0) { e.toast.classList.remove('is-on'); e.toast.style.pointerEvents = 'none'; this.toastPriority = 0; document.body.classList.remove('toast-on'); }
     }
     e.speed.textContent = s.walking ? 'On foot' : String(s.kmh);
     e.speed.nextElementSibling.hidden = s.walking;

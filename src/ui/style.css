@@ -599,7 +599,7 @@ body.nitro-off .go-ring { display: none; }
 body.sky-on .toast { top: calc(72px + var(--safe-t)); }
 body.has-touch .sky-hint { top: calc(10px + var(--safe-t)); font-size: 0.9rem; padding: 8px 14px 8px 10px; }
 @media (orientation: portrait) and (max-width: 600px) { body.has-touch .sky-hint { top: calc(258px + var(--safe-t)); } }
-@media (max-height: 520px) { body.has-touch.sky-on .toast { top: calc(56px + var(--safe-t)); } }
+@media (max-height: 520px) { body.has-touch.sky-on .toast { top: calc(10px + var(--safe-t)); } }
 
 /* ---------- Kp, in words ---------- */
 .kp-level { font-style: normal; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; margin-left: 6px; padding: 2px 7px; border-radius: 999px; vertical-align: 3px;
@@ -1176,33 +1176,41 @@ body.has-touch .mo-act span { font-size: 12px; letter-spacing: 0.06em; }
 @media (orientation: portrait) and (max-width: 600px) { body.has-touch .moment { top: calc(250px + var(--safe-t)); } }
 @media (max-height: 520px) { body.has-touch .mo-meter { display: none; } body.has-touch .mo-acts { margin-top: 10px; } }
 
-/* ---------- Badge earned: the medal spins in like a coin, then catches the light ---------- */
-.badge-pop { position: absolute; left: 50%; top: calc(96px + var(--safe-t)); transform: translateX(-50%); z-index: 4; display: flex; align-items: center; gap: 18px;
-  perspective: 600px; pointer-events: none; color: var(--ink); white-space: nowrap; }
-.badge-pop.is-out { animation: bp-out 0.45s ease-in both; }
-@keyframes bp-out { to { opacity: 0; transform: translate(-50%, -12px); } }
-.bp-medal { position: relative; flex: none; width: 84px; height: 93px; transform-style: preserve-3d; filter: drop-shadow(0 0 22px rgba(102,223,176,0.6));
-  animation: coin 1.8s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
-.bp-medal svg { display: block; width: 100%; height: 100%; }
-@keyframes coin { 0% { transform: rotateY(-540deg) scale(0.4); opacity: 0; } 15% { opacity: 1; } 100% { transform: rotateY(0) scale(1); } }
+/* ---------- Badge earned: one small card drops in, the medal flips over once and catches the light ---------- */
+.badge-pop { position: absolute; left: 50%; top: calc(130px + var(--safe-t)); z-index: 4; display: flex; align-items: center; gap: 14px; pointer-events: none;
+  max-width: min(440px, calc(100vw - 32px)); padding: 10px 22px 10px 12px; border-radius: 16px; color: var(--ink); overflow: hidden;
+  background: rgba(8,16,14,0.6); -webkit-backdrop-filter: blur(18px) saturate(150%); backdrop-filter: blur(18px) saturate(150%);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08), inset 0 1px 0 rgba(255,255,255,0.1), 0 14px 34px rgba(0,0,0,0.32);
+  transform: translateX(-50%); animation: bp-in 0.5s var(--ease) both; }
+/* A soft green bloom behind the medal as it lands. */
+.badge-pop::before { content: ''; position: absolute; left: -30px; top: 50%; width: 150px; height: 150px; margin-top: -75px; border-radius: 50%; pointer-events: none;
+  background: radial-gradient(closest-side, rgba(102,223,176,0.32), rgba(102,223,176,0)); animation: bp-bloom 1.6s ease-out 0.35s both; }
+@keyframes bp-in { from { opacity: 0; transform: translateX(-50%) translateY(-10px) scale(0.96); } }
+@keyframes bp-bloom { 0% { opacity: 0; transform: scale(0.5); } 30% { opacity: 1; } 100% { opacity: 0.55; transform: scale(1); } }
+.badge-pop.is-out { animation: bp-out 0.3s ease-in both; }
+@keyframes bp-out { from { opacity: 1; transform: translateX(-50%); } to { opacity: 0; transform: translateX(-50%) translateY(-8px) scale(0.98); } }
+.bp-medal { position: relative; flex: none; width: 52px; height: 58px; perspective: 400px; }
+.bp-medal svg { display: block; width: 100%; height: 100%; filter: drop-shadow(0 4px 10px rgba(0,0,0,0.35)); animation: coin 0.9s cubic-bezier(0.2, 0.8, 0.25, 1) 0.15s both; }
+@keyframes coin { 0% { transform: rotateY(-360deg) scale(0.6); opacity: 0; } 25% { opacity: 1; } 100% { transform: rotateY(0) scale(1); } }
 .bp-medal::after { content: ''; position: absolute; inset: 0; -webkit-mask: var(--hexmask) center / 100% 100%; mask: var(--hexmask) center / 100% 100%;
-  background: linear-gradient(115deg, transparent 35%, rgba(255,255,255,0.55) 50%, transparent 65%) -150% 0 / 300% 100% no-repeat; animation: shine 1.4s ease-out 1.5s both; }
+  background: linear-gradient(115deg, transparent 38%, rgba(255,255,255,0.6) 50%, transparent 62%) -150% 0 / 300% 100% no-repeat; animation: shine 0.9s ease-out 1.05s both; }
 @keyframes shine { to { background-position: 150% 0; } }
-.bp-text { padding: 10px 46px 12px 18px; background: linear-gradient(90deg, rgba(20,70,54,0.94), rgba(20,70,54,0.6) 70%, rgba(20,70,54,0)); box-shadow: inset 3px 0 0 var(--green);
-  animation: slidein 0.6s ease-out 0.9s both; }
-@keyframes slidein { from { opacity: 0; transform: translateX(-14px); } }
-.bp-kick { margin: 0; font: 700 12px var(--sans); letter-spacing: 0.34em; text-transform: uppercase; color: var(--green-hi); }
-.bp-text h3 { margin: 6px 0 0; font: 400 24px/1.1 var(--serif); }
-.bp-text p:last-child { margin: 6px 0 0; font: 500 14px var(--sans); color: rgba(244,248,246,0.82); }
-body.has-touch .badge-pop { top: calc(64px + var(--safe-t)); gap: 10px; }
-body.has-touch .bp-medal { width: 54px; height: 60px; }
-body.has-touch .bp-text { padding: 7px 26px 8px 12px; }
-body.has-touch .bp-kick { font-size: 9.5px; letter-spacing: 0.24em; }
-body.has-touch .bp-text h3 { font-size: 15px; }
-body.has-touch .bp-text p:last-child { font-size: 12px; white-space: normal; max-width: 56vw; }
-@media (orientation: portrait) and (max-width: 600px) { body.has-touch .badge-pop { top: calc(250px + var(--safe-t)); } }
+.bp-text { position: relative; min-width: 0; }
+.bp-text > * { animation: bp-line 0.45s var(--ease) both; }
+.bp-text > :nth-child(1) { animation-delay: 0.3s; } .bp-text > :nth-child(2) { animation-delay: 0.38s; } .bp-text > :nth-child(3) { animation-delay: 0.46s; }
+@keyframes bp-line { from { opacity: 0; transform: translateY(4px); } }
+.bp-kick { margin: 0; font: 700 10px/1 var(--sans); letter-spacing: 0.2em; text-transform: uppercase; color: var(--green); }
+.bp-text h3 { margin: 6px 0 0; font: 600 18px/1.1 var(--sans); font-stretch: 112%; letter-spacing: 0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bp-text p:last-child { margin: 4px 0 0; font: 400 13px/1.35 var(--sans); color: var(--ink-2); }
+body.has-touch .badge-pop { top: calc(10px + var(--safe-t)); gap: 11px; padding: 7px 16px 7px 9px; border-radius: 14px; max-width: min(400px, calc(100vw - 300px)); }
+body.has-touch .bp-medal { width: 38px; height: 42px; }
+body.has-touch .bp-kick { font-size: 8.5px; letter-spacing: 0.18em; }
+body.has-touch .bp-text h3 { margin-top: 4px; font-size: 14px; }
+body.has-touch .bp-text p:last-child { margin-top: 2px; font-size: 11.5px; }
+@media (orientation: portrait) and (max-width: 600px) { body.has-touch .badge-pop { top: calc(250px + var(--safe-t)); max-width: calc(100vw - 24px); } }
 @media (prefers-reduced-motion: reduce) {
-  .bp-medal, .bp-medal::after, .bp-text, .moment, .infocard { animation: none; }
+  .badge-pop, .badge-pop::before, .bp-medal svg, .bp-medal::after, .bp-text > *, .moment, .infocard { animation: none; }
+  .badge-pop.is-out { animation: none; opacity: 0; }
   .info-board::after, .mo-bar b { animation: none; }
 }
 
@@ -1388,7 +1396,7 @@ body.has-touch .bp-text p:last-child { font-size: 12px; white-space: normal; max
   body:not(.has-touch) .toast, body:not(.has-touch).sky-on .toast { top: calc(150px + var(--safe-t)); }
   body:not(.has-touch) .sky-hint { top: calc(96px + var(--safe-t)); }
   body:not(.has-touch) .moment { top: calc(110px + var(--safe-t)); }
-  body:not(.has-touch) .badge-pop { top: calc(130px + var(--safe-t)); }
+  body:not(.has-touch) .badge-pop { top: calc(130px + var(--safe-t)); border-radius: 6px; }
   body:not(.has-touch) .infocard { bottom: calc(230px + var(--safe-b)); }
   body:not(.has-touch) .nav { top: calc(150px + var(--safe-t)); left: calc(40px + var(--safe-l)); }
   /* While looking up, the cluster and place fade like the rest. */
@@ -1399,10 +1407,15 @@ body.has-touch .bp-text p:last-child { font-size: 12px; white-space: normal; max
   .hx-place { font-size: 26px; } .hx-clock { font-size: 40px; }
 }
 
-/* A badge and a toast at once: the toast steps down below the badge. */
-body.badge-on #hud .toast { top: calc(250px + var(--safe-t)); }
-@media (orientation: portrait) and (max-width: 600px) { body.has-touch.badge-on #hud .toast { top: calc(350px + var(--safe-t)); } }
-@media (max-height: 520px) { body.has-touch.badge-on #hud .toast { top: calc(140px + var(--safe-t)); } }
+/* One message at a time at the top. A badge goes first (a tip waits under it, its clock paused,
+   and shows when the badge has gone); then a tip; then the aurora call; then, on a phone, the next spot. */
+body.badge-on #hud .toast { opacity: 0 !important; pointer-events: none !important; }
+body.has-touch:is(.badge-on, .toast-on, .sky-on) .hx-spot.is-on { opacity: 0; transform: translateX(-50%) translateY(-4px); }
+body.has-touch:is(.badge-on, .toast-on) #hud .sky-hint { opacity: 0; pointer-events: none; }
+/* On a phone the tip wears the same smoked glass as the next spot and the badge. */
+body.has-touch #hud .toast { border: 0; border-radius: 14px; padding: 8px 14px; font-size: 13px; line-height: 1.35;
+  background: rgba(8,16,14,0.55); -webkit-backdrop-filter: blur(16px) saturate(150%); backdrop-filter: blur(16px) saturate(150%);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08), inset 0 1px 0 rgba(255,255,255,0.1), 0 10px 28px rgba(0,0,0,0.28); }
 
 /* ---------- Settings, Journey (all screens) ---------- */
 .set-cats, .set-note, .step, .foot-tab { display: none; }
@@ -1828,15 +1841,21 @@ body.has-touch .hx-val small { margin: 0 6px; font: 700 8px var(--sans); letter-
 @media (max-height: 520px) { body.has-touch .hx-cluster { bottom: calc(10px + var(--safe-b)); width: min(330px, calc(100vw - 480px)); } }
 /* The road-line minimap, under the place name. */
 body.has-touch #hud .minimap { top: calc(70px + var(--safe-t)) !important; left: calc(10px + var(--safe-l)) !important; bottom: auto !important; width: 120px; height: 92px; border: 0; border-radius: 0; background: none; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
-/* The next spot: one chip at the top, with an arrow that points to it. */
-body.has-touch .hx-spot { position: absolute; left: 50%; top: calc(64px + var(--safe-t)); transform: translateX(-50%) translateY(-6px); display: flex; align-items: center; gap: 10px; padding: 7px 14px 7px 8px; border-radius: 22px;
-  background: rgba(6,16,14,0.72); box-shadow: inset 0 0 0 1px rgba(102,223,176,0.35); opacity: 0; transition: opacity 0.4s, transform 0.4s; white-space: nowrap; }
+/* The next spot: a quiet line at the top, with an arrow that points to it. Smoked glass, no
+   coloured ring or disc, so it reads like part of the sky rather than a button. */
+body.has-touch .hx-spot { position: absolute; left: 50%; top: calc(10px + var(--safe-t)); transform: translateX(-50%) translateY(-4px); display: flex; align-items: center; gap: 8px;
+  height: 30px; padding: 0 13px 0 9px; border-radius: 15px; white-space: nowrap; opacity: 0; transition: opacity 0.35s var(--ease), transform 0.35s var(--ease);
+  background: rgba(8,16,14,0.34); -webkit-backdrop-filter: blur(14px) saturate(140%); backdrop-filter: blur(14px) saturate(140%);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08), inset 0 1px 0 rgba(255,255,255,0.08); }
 body.has-touch .hx-spot.is-on { display: flex; opacity: 1; transform: translateX(-50%); }
-.hx-spot-arrow { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--green); transition: transform 0.3s ease-out; }
-.hx-spot-arrow svg { width: 14px; height: 14px; fill: var(--green-ink); }
-.hx-spot span { display: grid; line-height: 1.25; } .hx-spot small { font: 700 8.5px var(--sans); letter-spacing: 0.22em; text-transform: uppercase; color: var(--green-hi); }
-.hx-spot b { font: 700 14px var(--sans); max-width: 46vw; overflow: hidden; text-overflow: ellipsis; padding-bottom: 1px; }
-.hx-spot em { font-style: normal; font: 700 13px var(--sans); color: var(--ink-2); }
+.hx-spot-arrow { display: grid; place-items: center; width: 16px; height: 16px; transition: transform 0.3s ease-out; }
+.hx-spot-arrow svg { width: 12px; height: 12px; fill: var(--green-hi); }
+.hx-spot span { display: flex; align-items: baseline; line-height: 1; }
+/* "Next spot" stays for screen readers; the arrow says it to the eye. */
+.hx-spot small { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.hx-spot b { font: 600 13px var(--sans); letter-spacing: 0.01em; color: var(--ink); max-width: 40vw; overflow: hidden; text-overflow: ellipsis; }
+.hx-spot em { font-style: normal; font: 500 12px var(--sans); font-variant-numeric: tabular-nums; color: var(--ink-3); }
+.hx-spot em::before { content: '·'; margin-right: 8px; color: var(--ink-3); }
 @media (orientation: portrait) and (max-width: 600px) { body.has-touch .hx-spot { top: calc(170px + var(--safe-t)); } }
 body.has-touch .hx-tl .hx-small { display: none; }
 body.has-touch #hud .minimap { top: calc(52px + var(--safe-t)) !important; }
