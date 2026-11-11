@@ -40,7 +40,7 @@
 
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: var(--night); color: var(--ink); font-family: var(--sans); overflow: hidden; -webkit-tap-highlight-color: transparent; -webkit-font-smoothing: antialiased; }
-body { touch-action: none; user-select: none; -webkit-user-select: none; }
+html, body { touch-action: none; } body { user-select: none; -webkit-user-select: none; }
 #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; outline: none; }
 button, select { font: inherit; color: inherit; }
 button { cursor: pointer; }

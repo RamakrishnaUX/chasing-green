@@ -210,6 +210,19 @@ function holdFrame(change) {
 let nearHorse = null, rideTipShown = false, rideBlockAt = 0;
 let shadowEvery = 1, frameN = 0, lastInput = performance.now(), dialogOpen = false, startedAt = 0;
 for (const ev of ['pointerdown', 'pointermove', 'keydown', 'wheel', 'touchstart']) addEventListener(ev, () => { lastInput = performance.now(); }, { passive: true, capture: true });
+// No page zoom, ever. iPhone browsers (Safari and Chrome alike run WebKit) ignore user-scalable=no
+// and touch-action for pinch, so a thumb on the steering and another on the gas moving apart
+// zoomed the whole game in, with no way back out. WebKit's gesture events and any two-finger
+// move are cancelled instead; the controls and the map run on pointer events, which carry on.
+for (const ev of ['gesturestart', 'gesturechange', 'gestureend']) document.addEventListener(ev, (e) => e.preventDefault(), { passive: false });
+document.addEventListener('touchmove', (e) => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
+// A quick second tap on the game itself is not a double-tap zoom. Buttons and menus keep their taps.
+let lastTouchEnd = 0;
+document.addEventListener('touchend', (e) => {
+  const now = performance.now();
+  if (now - lastTouchEnd < 350 && !e.target.closest?.('button, a, input, select, textarea, label, dialog, .screen')) e.preventDefault();
+  lastTouchEnd = now;
+}, { passive: false });
 // A new resolution is put in at the start of the next frame, just before it is drawn, so the
 // resized canvas never shows empty and nothing has to cover it.
 let pendingRes = null;

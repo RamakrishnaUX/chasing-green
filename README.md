@@ -73,6 +73,8 @@ The interiors and the eye position for each view are built in `src/vehicle/inter
 
 **Step out and sit.** Park, press E (or tap Out on a phone) to get out, walk anywhere near the car (black sand at Reynisfjara and Diamond Beach included), then press X to sit. Sitting lowers the view to your own eyes (your body is not drawn meanwhile), lets you look freely, and makes time pass six times faster so you can wait for the sky. Press X again or start walking to stand up.
 
+The page never zooms on a phone. iPhone browsers (Safari and Chrome both run WebKit) ignore `user-scalable=no` and `touch-action` for pinch, so two thumbs on the controls moving apart used to zoom the whole game in with no way out; `main.js` cancels WebKit's `gesture*` events and every two-finger `touchmove`, and a quick second tap on the game surface (not on buttons or menus). The controls and the map's own pinch run on pointer events and are unaffected.
+
 ## Splash
 
 The game opens on a splash over the aurora: CHASING, smaller, tracking in from wide letters, and GREEN below it, wiped on in the aurora green; then one line, "Follow the forecast, find a dark sky, and look up when the green comes out.", with a thin loading line. The island loads from the first frame, behind the splash and then the garage. Any key or a tap opens the garage, and that same press lets the sound play: the chosen vehicle rolls onto the turntable with its own recorded engine (idling in, one blip of the revs as it stops, then fading) and its lights click on. The turntable grows or shrinks smoothly to each vehicle. When the drive starts the gauges power up: fuel sweeps in, then nitro from the centre out to both sides, then the Kp.
