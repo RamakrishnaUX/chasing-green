@@ -2176,21 +2176,23 @@ body.has-touch {
   --u-edge: inset 0 0 0 1px rgba(255,255,255,0.08), inset 0 1px 0 rgba(255,255,255,0.08), 0 6px 18px rgba(0,0,0,0.18);
   --u-h: 32px; --u-top: calc(10px + var(--safe-t)); --u-glyph: var(--green-hi);
 }
-body.has-touch :is(.hx-place, .hx-clock, .hx-spot, #hud .toast, #hud .sky-hint, .badge-pop, #hud .nav, #hud #btn-settings) {
+body.has-touch :is(.hx-clock, .hx-spot, #hud .toast, #hud .sky-hint, .badge-pop, #hud .nav, #hud #btn-settings) {
   background: var(--u-bg); -webkit-backdrop-filter: var(--u-fx); backdrop-filter: var(--u-fx); border: 0; box-shadow: var(--u-edge); color: var(--ink); }
 /* One-line units: a pill, a glyph, the main words, then a quieter detail after a dot. */
-body.has-touch :is(.hx-place, .hx-clock, .hx-spot, #hud .sky-hint, #hud .nav) { height: var(--u-h); border-radius: calc(var(--u-h) / 2); }
+body.has-touch :is(.hx-clock, .hx-spot, #hud .sky-hint, #hud .nav) { height: var(--u-h); border-radius: calc(var(--u-h) / 2); }
 body.has-touch :is(#hud .toast, .badge-pop) { border-radius: 16px; }
 
-/* The place you are in, top left, with a pin. */
-body.has-touch .hx .hx-tl { top: var(--u-top); max-width: 34vw; }
+/* The place you are in, top left: the same green road sign as on a computer, sized for a phone. A
+   silver border round a lit green face, inside a darker green edge, as on the computer's sign. */
+body.has-touch .hx .hx-tl { top: calc(var(--u-top) + 3px); left: calc(17px + var(--safe-l)); max-width: 38vw; }
 body.has-touch .hx .hx-kick { display: none; }
-body.has-touch .hx .hx-place { display: flex !important; align-items: center; gap: 7px; width: max-content; max-width: 100%; margin: 0; padding: 0 13px 0 10px;
-  font: 600 13px/1 var(--sans) !important; letter-spacing: 0.01em; white-space: nowrap; overflow: hidden; }
-body.has-touch .hx .hx-place::before, body.has-touch .hx .hx-clock::before { content: ''; flex: none; width: 13px; height: 13px; background: var(--u-glyph);
-  -webkit-mask: var(--glyph) center / contain no-repeat; mask: var(--glyph) center / contain no-repeat; }
-body.has-touch .hx .hx-place::before { --glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 22s-7-6.2-7-12a7 7 0 0 1 14 0c0 5.8-7 12-7 12zm0-9.2a2.8 2.8 0 1 0 0-5.6 2.8 2.8 0 0 0 0 5.6z' fill-rule='evenodd'/%3E%3C/svg%3E"); }
-body.has-touch #hud .minimap { top: calc(var(--u-top) + var(--u-h) + 8px) !important; }
+body.has-touch .hx .hx-place { display: block !important; width: max-content; max-width: 100%; margin: 0; padding: 4px 12px 5px; border: 2px solid transparent; border-radius: 6px;
+  font: 700 15px/1.2 var(--sans) !important; font-stretch: 100%; color: #fbfdfc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  background: radial-gradient(120% 90% at 22% 0%, rgba(255,255,255,0.16), rgba(255,255,255,0) 60%) padding-box,
+    linear-gradient(180deg, #23835f 0%, #1a6a4e 48%, #135240 100%) padding-box,
+    linear-gradient(180deg, #ffffff, #dfe7e3 40%, #b9c6c0) border-box;
+  box-shadow: 0 0 0 3px #17604a, 0 0 0 3.5px rgba(255,255,255,0.12), 0 8px 20px rgba(0,0,0,0.35); }
+body.has-touch #hud .minimap { top: calc(var(--u-top) + 44px) !important; }
 
 /* The clock, top right beside the menu, with a moon. */
 body.has-touch .hx .hx-tr { top: var(--u-top); right: calc(14px + var(--u-h) + 8px + var(--safe-r)); }
@@ -2232,4 +2234,22 @@ body.has-touch #hud .nav-stop svg { width: 10px; height: 10px; }
 /* Sideways and on tablets they all sit on the one line along the top (an upright phone keeps its own stack). */
 @media not all and (orientation: portrait) and (max-width: 600px) {
   body.has-touch :is(.hx-spot, #hud .toast, #hud .sky-hint, .badge-pop) { top: var(--u-top); }
+}
+
+/* Near a place, the full sign from the computer takes the top left: "New place found", the name on
+   the board, and the kind of place with how many you have found along its foot. */
+@media not all and (orientation: portrait) and (max-width: 600px) {
+  body.has-touch #hud .infocard { left: calc(17px + var(--safe-l)); top: calc(var(--u-top) + 1px); bottom: auto; width: auto !important; max-width: min(300px, 40vw); min-width: 0 !important;
+    padding: 0; background: none; border-radius: 0; pointer-events: none; animation: card-fade 0.5s ease-out both; }
+  body.has-touch .info-kick { font-size: 8.5px; letter-spacing: 0.24em; gap: 8px; } body.has-touch .info-kick::after { width: 24px; }
+  body.has-touch .info-board { display: block; width: max-content; max-width: 100%; margin: 5px 0 0; padding: 3px; border-radius: 8px; }
+  body.has-touch .ib-face { padding: 4px 12px 5px; border-width: 2px; border-radius: 6px; }
+  body.has-touch .infocard h2, body.has-touch .infocard.is-long h2 { font-size: 16px !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; overflow-wrap: normal; }
+  body.has-touch .ib-sub { margin-top: 3px; padding-top: 3px; gap: 6px; font-size: 10.5px; background-size: 100% 1px; }
+  body.has-touch .ib-sub svg { width: 12px; height: 12px; stroke-width: 3; }
+  body.has-touch .ib-sub em { padding-left: 14px; }
+  body.has-touch .infocard :is(.info-desc, .info-legend, .info-fact, .info-facts) { display: none !important; }
+  /* The sign stands in for the place name, and the minimap steps down under it. */
+  body.has-touch.card-on .hx .hx-tl { opacity: 0; }
+  body.has-touch.card-on #hud .minimap { top: calc(var(--u-top) + 92px) !important; }
 }

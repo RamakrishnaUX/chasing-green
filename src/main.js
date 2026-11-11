@@ -1171,6 +1171,7 @@ const KIND_NAME = { waterfall: 'Waterfall', beach: 'Beach', bridge: 'Bridge', bu
 const foundText = () => `${Object.keys(store.data.stamps).filter((id) => landmarks.list.some((l) => l.id === id)).length} / ${landmarks.list.length}`;
 // How often the place card pops up: for every place, only for places not yet stamped, or never
 // (the stamp toast still says where you are). Phones default to new places only.
+const uprightPhone = matchMedia('(orientation: portrait) and (max-width: 600px)');
 const placeCards = () => settings.placeCards || (isTouch ? 'new' : 'all');
 // The card's text: two lines of the description, cut at a word with an ellipsis and followed by a
 // Read more link on the second line. Read more opens the rest in place (the full description,
@@ -1255,7 +1256,9 @@ function updateLandmarks(p) {
       setCardExpanded(false);
     }
     // Never while skydiving: on a phone the card sat over the Open button.
-    card.el.hidden = infoDismissed === lm.id || !card.wanted || mode === 'sky' || document.body.classList.contains('has-touch');
+    // Phones show the same road sign as a computer, small at the top left (not on an upright phone,
+    // where there is no room for it beside the controls).
+    card.el.hidden = infoDismissed === lm.id || !card.wanted || mode === 'sky' || (document.body.classList.contains('has-touch') && uprightPhone.matches);
     document.body.classList.toggle('card-on', !card.el.hidden);
     if (!card.el.hidden && (card.fitFor !== lm.id || card.fitW !== card.el.clientWidth)) fitCard();
     // The card tucks itself away after a while of driving so it never sits over the view for good.
