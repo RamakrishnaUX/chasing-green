@@ -2042,9 +2042,11 @@ body.has-touch.pre-start #sheet .sheet-close { top: calc(12px + var(--safe-t)); 
 }
 
 /* ---------- Phones and tablets: the same layout, sized to the free space ---------- */
-/* Held sideways: the band sits centred in the gap between the steering arrows and Look. */
+/* Held sideways: the band sits centred in the gap between the steering arrows and Look, low down
+   so the speed and gear clear the back of the car. It is only a display, so it may reach into the
+   home-bar margin on an iPhone (about 21 px), keeping 10 px clear of the bar itself. */
 @media (max-height: 520px) {
-  body.has-touch .hx-cluster { left: calc((150px + 100vw - 300px) / 2); width: min(340px, calc(100vw - 480px)); bottom: calc(16px + var(--safe-b)); }
+  body.has-touch .hx-cluster { left: calc((150px + 100vw - 300px) / 2); width: min(340px, calc(100vw - 480px)); bottom: max(6px, calc(var(--safe-b) - 10px)); }
 }
 /* Tablets: a bigger band, above the controls. */
 @media (min-width: 700px) and (min-height: 600px) {
