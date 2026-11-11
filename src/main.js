@@ -1704,7 +1704,7 @@ startBtn.addEventListener('click', () => {
   // The garage's car is readied out of sight so it opens at once. That takes a new drawing
   // context and its shaders, a stall you would feel at speed, so it waits until you are stopped
   // and have left the controls alone for a moment.
-  whenCalm(() => { if (!gg.cover) ggPrewarm(); }, 9000);
+  if (!isTouch) whenCalm(() => { if (!gg.cover) ggPrewarm(); }, 9000);
   // On a computer the refuel line sits under the fuel reading, as text, and nothing moves for it.
   if (!document.body.classList.contains('has-touch')) $('hx-fuelside').append($('fuel-act'));
   if (settings.steering === 'tilt') Input.askTilt().then(applySteering);
@@ -2232,9 +2232,15 @@ function ggShow(kind, arrive) {
 }
 // Built once and kept (paused while the page is shut), so the garage opens straight away; it is
 // first made a few seconds into the drive, in the background.
+// Phones are the exception: there the garage is made when it is opened and let go when it is
+// shut. Its drawing context holds a second copy of the vehicle on the graphics card, and with it
+// kept the whole drive, iPhone ran out of memory and closed the page, loading it from the start.
 function ggMake() {
   if (gg.cover) return;
-  gg.sky = startAuroraSky($('gg-sky'));
+  gg.sky ||= startAuroraSky($('gg-sky'));
+  // A canvas whose drawing context was let go cannot give a working one again: use a fresh one.
+  if (gg.used) { const old = $('gg-hero'); old.replaceWith(old.cloneNode(false)); }
+  gg.used = true;
   gg.cover = new Cover($('gg-hero'), { spot: $('gg-spot') });
 }
 function ggOpen() {
@@ -2243,7 +2249,11 @@ function ggOpen() {
   gg.cover.paused = false; gg.sky.resume?.();
   if (gg.kind !== ggCurrent() || !gg.cover.car) ggShow(ggCurrent(), false); else ggShow(gg.kind, false);
 }
-function ggClose() { if (gg.cover) gg.cover.paused = true; gg.sky?.pause?.(); }
+function ggClose() {
+  if (gg.cover) gg.cover.paused = true;
+  gg.sky?.pause?.();
+  if (isTouch && gg.cover) { const c = gg.cover; gg.cover = null; gg.kind = null; c.dispose(); }
+}
 function ggPrewarm() {
   ggMake();
   ggShow(ggCurrent(), false);

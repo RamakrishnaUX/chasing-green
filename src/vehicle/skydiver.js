@@ -21,8 +21,7 @@
 // - ground contact is checked along his whole path each frame, so at 55 m/s and 20 frames a
 //   second he cannot pass through the ground or a roof.
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+import { loadGLTF } from '../world/gltf.js';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { groundAt, heightAt, waterLevelAt, BOUNDS } from '../world/terrain.js';
 import { clamp, lerp } from '../world/noise.js';
@@ -194,9 +193,8 @@ export class Skydiver {
     this.pack = buildPack(); this.pack.visible = false; scene.add(this.pack);
     this.helmet = new THREE.Group(); this.helmet.visible = false; this.helmet.userData.dynamic = true; scene.add(this.helmet);
     this.obstacles = null;
-    const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
     this.ready = Promise.all([
-      loader.loadAsync(`${import.meta.env.BASE_URL}models/person.glb`).then((g) => {
+      loadGLTF(`${import.meta.env.BASE_URL}models/person.glb`).then((g) => {
         const man = g.scene;
         man.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false; } });
         this.root.add(man);
@@ -205,7 +203,7 @@ export class Skydiver {
         man.updateMatrixWorld(true);
         this.hipsLocal = this.root.worldToLocal(wpos(this.bone.Hips));
       }),
-      loader.loadAsync(`${import.meta.env.BASE_URL}models/helmet.glb`).then((g) => {
+      loadGLTF(`${import.meta.env.BASE_URL}models/helmet.glb`).then((g) => {
         g.scene.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
         this.helmet.add(g.scene);
       }),

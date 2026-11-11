@@ -29,8 +29,7 @@
 //   and hovers, then finds flat, dry, open ground nearby and lands there, clear of where you are,
 //   and shuts down. Called, it starts up, flies over to flat ground beside you and lands (see fly).
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+import { loadGLTF } from '../world/gltf.js';
 import { groundAt, waterLevelAt, BOUNDS } from '../world/terrain.js';
 import { clamp, lerp } from '../world/noise.js';
 
@@ -93,7 +92,7 @@ export class Heli {
   }
 
   async load() {
-    const gltf = await new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).loadAsync(`${import.meta.env.BASE_URL}models/heli.glb`);
+    const gltf = await loadGLTF(`${import.meta.env.BASE_URL}models/heli.glb`);
     const model = gltf.scene;
     model.traverse((o) => {
       if (!o.isMesh) return;

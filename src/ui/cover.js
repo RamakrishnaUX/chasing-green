@@ -4,8 +4,7 @@
 // `spot` element, so the page layout decides where it goes and how big it is.
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+import { loadGLTF } from '../world/gltf.js';
 import { buildVehicleModel, modelReady } from '../vehicle/models.js';
 
 const FOV = 26;
@@ -91,7 +90,7 @@ export class Cover {
     this.reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
     this.t0 = performance.now();
     this.heli = null;
-    new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).loadAsync(`${import.meta.env.BASE_URL}models/heli.glb`).then((g) => {
+    loadGLTF(`${import.meta.env.BASE_URL}models/heli.glb`).then((g) => {
       if (this.done) return;
       const m = g.scene;
       m.traverse((o) => { if (o.isMesh && o.material.transparent) { o.material.depthWrite = false; o.renderOrder = 2; } });

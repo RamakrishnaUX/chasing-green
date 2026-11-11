@@ -19,8 +19,7 @@
 // tank to the clip-on bars, hands round the grips (turning with the bars), feet on the pegs,
 // head up to look down the road, in an open leather helmet with goggles.
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+import { loadGLTF } from '../world/gltf.js';
 
 const GRIP = 0.25; // a little above quarter to three: radians above the horizontal on the rim
 const SLIDE = 1.2; // how far (radians) the hands go round with the wheel before sliding
@@ -97,7 +96,7 @@ export class Driver {
     this.group = new THREE.Group();
     this.group.userData.dynamic = true;
     this.group.visible = false;
-    this.ready = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).loadAsync(`${import.meta.env.BASE_URL}models/person.glb`).then((g) => {
+    this.ready = loadGLTF(`${import.meta.env.BASE_URL}models/person.glb`).then((g) => {
       const man = g.scene;
       man.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false; } });
       this.group.add(man);
@@ -123,7 +122,7 @@ export class Driver {
     this.helmet = new THREE.Group();
     this.helmet.userData.dynamic = true;
     this.helmet.visible = false;
-    new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).loadAsync(`${import.meta.env.BASE_URL}models/helmet.glb`).then((g) => {
+    loadGLTF(`${import.meta.env.BASE_URL}models/helmet.glb`).then((g) => {
       g.scene.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
       this.helmet.add(g.scene);
     }).catch((e) => console.warn('Helmet did not load:', e));

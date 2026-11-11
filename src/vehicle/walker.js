@@ -1,6 +1,5 @@
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+import { loadGLTF } from '../world/gltf.js';
 import { CONFIG } from '../config.js';
 import { groundAt as heightAt, surfaceHeightAt, waterLevelAt } from '../world/terrain.js';
 import { clamp, lerp, smoothstep } from '../world/noise.js';
@@ -60,7 +59,7 @@ export class Walker {
     this.vy = 0;
     this.landed = 0;
     this.jumpT = -1; // seconds into a hop, or -1
-    this.ready = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).loadAsync(`${import.meta.env.BASE_URL}models/person.glb`).then((g) => {
+    this.ready = loadGLTF(`${import.meta.env.BASE_URL}models/person.glb`).then((g) => {
       const man = g.scene;
       man.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false; } });
       this.root.add(man);

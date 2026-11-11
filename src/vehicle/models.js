@@ -1,8 +1,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+import { loadGLTF } from '../world/gltf.js';
 import { mirrorMaterial } from './mirrors.js';
 
 // Four vehicles, all models from Sketchfab (see the end of this file), with code-built stand-ins
@@ -787,8 +786,7 @@ export function whenModel(kind) {
   return (waiting[kind] ||= { promise: null, done: null }).promise ||= new Promise((r) => (waiting[kind].done = r));
 }
 export function loadCarModels(onLoad) {
-  const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
-  return Promise.all(Object.keys(GLB).map((kind) => loader.loadAsync(`${import.meta.env.BASE_URL}models/car_${kind}.glb`).then((g) => {
+  return Promise.all(Object.keys(GLB).map((kind) => loadGLTF(`${import.meta.env.BASE_URL}models/car_${kind}.glb`).then((g) => {
     g.scene.updateMatrixWorld(true);
     g.scene.traverse((o) => { if (!o.isMesh) return; o.geometry = plain(o.geometry.clone()); });
     cutMirrors(g.scene, GLB[kind]);

@@ -1,6 +1,5 @@
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+import { loadGLTF } from './gltf.js';
 import { clone as cloneRig } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { clamp, lerp } from './noise.js';
@@ -436,7 +435,6 @@ export class AnimalRigs {
     this.low = low;
     this.kinds = {};
     this.loading = {};
-    this.loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
     this.seals = null;
     // warm(object): builds an object's shaders in the background and resolves when they are
     // ready (set by the game). A species shows once its shaders are built, a moment after it
@@ -447,7 +445,7 @@ export class AnimalRigs {
   // Fetch a species the first time it is wanted.
   want(sp) {
     if (this.kinds[sp] || this.loading[sp]) return;
-    this.loading[sp] = this.loader.loadAsync(`${import.meta.env.BASE_URL}models/${sp}.glb`)
+    this.loading[sp] = loadGLTF(`${import.meta.env.BASE_URL}models/${sp}.glb`)
       .then((g) => {
         const K = new Kind(sp, g, { low: this.low }), done = () => { this.kinds[sp] = K; };
         return this.warm ? this.warm(K.template).then(done, done) : done();
