@@ -18,6 +18,11 @@ import { VOICES } from '../audio/engines.js';
 // a 4x4 and camper with ordinary manual boxes, an old car with a slow crash box.
 const SHIFT_TIME = { race: 0.11, twin: 0.13, v8: 0.26, flat4: 0.3, six: 0.36 };
 
+// Hitting things. Restitution (how much of the closing speed comes back as a bounce) and friction
+// (how hard the surface drags along the car while it scrapes past) for each kind of obstacle.
+// Real cars bounce very little: the crumple zone takes the hit, more so the harder it is.
+const IMPACT = { rock: { e: 0.22, mu: 0.45 }, wall: { e: 0.16, mu: 0.35 }, tree: { e: 0.12, mu: 0.55 } };
+
 // The top of the car, so it can pass beneath a sea arch rather than treating the arch's roof as
 // ground. Set as each update and sync begins. Rock more than a little above the car is a wall
 // or a roof, not ground: the centre and bumper checks stop the car at it, and a wheel beside an
@@ -149,7 +154,7 @@ export class Jeep {
     this.air = false; this.vy = 0; this.vyPrev = 0; this.lastGround = null; this.lastSyncY = null; this.groundVy = 0;
     this.pos.set(x, y, z);
     this.heading = heading;
-    this.vF = 0; this.vL = 0; this.gear = 1; this.shiftT = 0; this.biteT = 0; this.downT = 0;
+    this.vF = 0; this.vL = 0; this.spinV = 0; this.gear = 1; this.shiftT = 0; this.biteT = 0; this.downT = 0;
     this.boat = 0; this.boatOn = false; this.kit.apply(0);
     this.sync(0);
   }
@@ -179,6 +184,18 @@ export class Jeep {
     const slick = clamp(this.ice * 0.8 + (onRoad ? surfaceUniforms.uRoadSnow.value * 0.22 : this.surface === 'snow' ? 0.28 : 0), 0, 0.9);
     this.slick = slick;
     this.depth = Math.max(0, waterLevelAt(this.pos.x, this.pos.z) - heightAt(this.pos.x, this.pos.z));
+    // Spin from a knock (collide): the body turns while its momentum carries on the way it was going,
+    // so the tyres end up sliding sideways and scrub the spin and the slide away (skids and squeal
+    // follow from the slide). The less grip, the longer it spins: on ice it can go round.
+    if (this.spinV) {
+      const h0 = this.heading, vx = Math.sin(h0) * this.vF + Math.cos(h0) * this.vL, vz = Math.cos(h0) * this.vF - Math.sin(h0) * this.vL;
+      this.heading += this.spinV * dt;
+      const h1 = this.heading;
+      this.vF = vx * Math.sin(h1) + vz * Math.cos(h1); this.vL = vx * Math.cos(h1) - vz * Math.sin(h1);
+      const hold = this.air ? 0.2 : this.boatOn ? 1.2 : lerp(6, 1.1, this.slick || 0);
+      this.spinV *= Math.exp(-dt * hold);
+      if (Math.abs(this.spinV) < 0.01) this.spinV = 0;
+    }
     const fx = Math.sin(this.heading), fz = Math.cos(this.heading);
 
     // Boat mode. Past the depth a car can wade (no deeper than 1.4 m) it floats and turns into a
@@ -317,6 +334,7 @@ export class Jeep {
     // A boat just drifts to a stop.
     const parked = !wet && throttle === 0 && Math.abs(this.vF) < 2.2 && Math.abs(this.vL) < 1.5;
     if (parked) {
+      this.spinV = (this.spinV || 0) * Math.max(0, 1 - dt * 10);
       this.vF *= Math.max(0, 1 - dt * 10);
       this.vL *= Math.max(0, 1 - dt * 10);
       if (Math.abs(this.vF) < 0.05) this.vF = 0;
@@ -327,14 +345,28 @@ export class Jeep {
     this.pos.z += (fz * this.vF + rz * this.vL) * dt;
 
     let warn = '';
+    this.impact = 0; this.scrape = 0;
     // Landmark rock and ice: drive up a slope like any hill, but a face steeper than about 50
-    // degrees is a wall. Checked under the car and at the bumper in the direction of travel.
+    // degrees is a wall. Checked under the car and at the bumper in the direction of travel. The
+    // wall's face is read from the rock's shape there, so the car hits it as it would a wall: a
+    // glancing blow slides it along the face, a square one stops it.
     const moved = Math.hypot(this.pos.x - prevX, this.pos.z - prevZ);
     const reach = (S.halfLength || 2.4) * (Math.sign(this.vF) || 1);
-    if (solidStep(this.pos.x, this.pos.z, this.pos.y, 0.6 + moved * 1.2, clearTop) ||
-        solidStep(this.pos.x + fx * reach, this.pos.z + fz * reach, this.pos.y, 0.6 + (Math.abs(reach) + moved) * 1.2, clearTop)) {
-      this.pos.x = prevX; this.pos.z = prevZ;
-      this.vF *= -0.15; this.vL = 0;
+    const blockedAt = () => solidStep(this.pos.x, this.pos.z, this.pos.y, 0.6 + moved * 1.2, clearTop) ? 0
+      : solidStep(this.pos.x + fx * reach, this.pos.z + fz * reach, this.pos.y, 0.6 + (Math.abs(reach) + moved) * 1.2, clearTop) ? 1 : -1;
+    const b = blockedAt();
+    if (b >= 0) {
+      const ox = fx * reach * b, oz = fz * reach * b, bx = this.pos.x + ox, bz = this.pos.z + oz;
+      const top = (x, z) => { const t = solidTopAt(x, z, clearTop); return t > -1e9 ? t : this.pos.y; };
+      let nx = top(bx - 1, bz) - top(bx + 1, bz), nz = top(bx, bz - 1) - top(bx, bz + 1), nl = Math.hypot(nx, nz);
+      const mx = this.pos.x - prevX, mz = this.pos.z - prevZ;
+      if (nl < 1e-3 || nx * mx + nz * mz > 0) { nx = -mx; nz = -mz; nl = Math.hypot(nx, nz) || 1; }
+      nx /= nl; nz /= nl;
+      // Keep the part of the move along the face, drop the part into it.
+      const into = Math.min(0, mx * nx + mz * nz);
+      this.pos.x = prevX + mx - into * nx; this.pos.z = prevZ + mz - into * nz;
+      if (blockedAt() >= 0) { this.pos.x = prevX; this.pos.z = prevZ; }
+      this.hitBox({ nx, nz, kind: 'rock' }, fx, fz);
     }
     // A bike cannot float: it stops at water deeper than it can ford, and can always back out.
     if (S.bike) {
@@ -364,7 +396,7 @@ export class Jeep {
     }
 
     // Solid obstacles and bridge parapets: two circles (front and back) give a car-shaped footprint.
-    this.impact = 0;
+    // Each touch is an impact at the point of contact (collide).
     for (const k of [1, -1]) {
       const ax = fx * S.halfLength * 0.62 * k, az = fz * S.halfLength * 0.62 * k;
       const c = { x: this.pos.x + ax, z: this.pos.z + az };
@@ -372,23 +404,75 @@ export class Jeep {
       const hit = bridgeGuard(prevX + ax, prevZ + az, c, S.radius) || (this.obstacles && this.obstacles.resolve(c, S.radius));
       if (hit) {
         this.pos.x += c.x - ox; this.pos.z += c.z - oz;
-        let vx = fx * this.vF + rx * this.vL, vz = fz * this.vF + rz * this.vL;
-        const vn = vx * hit.nx + vz * hit.nz;
-        if (vn < 0) {
-          // Bounce off and lose speed, harder the more head-on the hit.
-          vx -= 1.35 * vn * hit.nx; vz -= 1.35 * vn * hit.nz;
-          vx *= 0.7; vz *= 0.7;
-          this.vF = vx * fx + vz * fz;
-          this.vL = (vx * rx + vz * rz) * 0.6;
-          this.impact = Math.max(this.impact, -vn);
-          this.impactKind = hit.kind;
-        }
+        this.hitBox(hit, fx, fz);
       }
     }
     this.warning = warn;
     this.windSide = windSide;
     this.vertical(dt, sp);
     this.sync(dt);
+  }
+
+  // Where a contact touches the car and which way it pushes, against the car's own box (its length
+  // and a little under its width) rather than the round footprint that finds the contact: round
+  // ends point every push at the centre line, so a corner clipping a rock glanced off instead of
+  // being held back and slewing the car round it. A round obstacle (cx, cz) touches the box at its
+  // closest point; a flat face touches the corner (or the edge) that leads into it.
+  hitBox(hit, fx, fz) {
+    const S = this.spec, rx = fz, rz = -fx;
+    const Lh = S.halfLength * 0.62 + S.radius * 0.9, Wh = S.radius * (S.bike ? 0.5 : 0.75);
+    let nx = hit.nx, nz = hit.nz, qf, qr;
+    if (hit.circle) {
+      const dx = hit.cx - this.pos.x, dz = hit.cz - this.pos.z, of = dx * fx + dz * fz, or = dx * rx + dz * rz;
+      qf = clamp(of, -Lh, Lh); qr = clamp(or, -Wh, Wh);
+      const df = qf - of, dr = qr - or, dl = Math.hypot(df, dr);
+      if (dl > 1e-3) { nx = (df * fx + dr * rx) / dl; nz = (df * fz + dr * rz) / dl; }
+    } else {
+      qf = -Lh * clamp((nx * fx + nz * fz) * 4, -1, 1);
+      qr = -Wh * clamp((nx * rx + nz * rz) * 4, -1, 1);
+    }
+    this.collide(qf * fx + qr * rx, qf * fz + qr * rz, nx, nz, hit.kind);
+  }
+
+  // An impact, as a rigid body meeting something that does not move. (px, pz): where it touches,
+  // from the car's centre; (nx, nz): the obstacle's face, pointing out at the car. The push is
+  // worked out at the point of contact, so a hit off the centre line turns the car as well as
+  // stopping it (a front corner clipping a rock slews the nose round), and the face drags along the
+  // car while it scrapes past, so a glancing blow slides it along a wall losing a little speed
+  // while a square one stops it dead. Harder hits bounce less (the body crumples rather than
+  // springs). The body pitches and rolls on its springs with the jolt.
+  collide(px, pz, nx, nz, kind) {
+    const S = this.spec, h = this.heading, fx = Math.sin(h), fz = Math.cos(h), rx = fz, rz = -fx;
+    let vx = fx * this.vF + rx * this.vL, vz = fz * this.vF + rz * this.vL, w = this.spinV || 0;
+    // How the contact point moves: the car's motion plus its turning (heading h turns a point r at
+    // w * (r.z, -r.x)).
+    const cx = vx + w * pz, cz = vz - w * px, vn = cx * nx + cz * nz;
+    if (vn >= -1e-4) return;
+    // Yaw inertia per unit mass of the car's footprint, as a box.
+    const len = 2 * (S.halfLength * 0.62 + S.radius * 0.9), wid = S.radius * (S.bike ? 1 : 1.5), I = (len * len + wid * wid) / 12;
+    const P = IMPACT[kind] || IMPACT.wall, close = -vn;
+    // Resting against it (pushing on a wall at a crawl): no bounce, so it never judders.
+    const e = close < 1 ? 0 : P.e * clamp(1.15 - close / 22, 0.2, 1);
+    const ln = pz * nx - px * nz, jn = (1 + e) * close / (1 + ln * ln / I);
+    const tx = -nz, tz = nx, vt = cx * tx + cz * tz, lt = pz * tx - px * tz;
+    const jt = clamp(-vt / (1 + lt * lt / I), -P.mu * jn, P.mu * jn);
+    vx += jn * nx + jt * tx; vz += jn * nz + jt * tz;
+    // The tyres' side grip fights the turn while the hit lasts (they are planted at the axles), so
+    // on the ground a knock turns the car about half as much as it would a sliding box; on ice, in
+    // the air or afloat nearly the full amount.
+    const planted = this.air ? 0 : this.boatOn ? 0.2 : 1 - (this.slick || 0);
+    w += (jn * ln + jt * lt) / I * lerp(1, 0.45, planted);
+    const vF = vx * fx + vz * fz, vL = vx * rx + vz * rz, dF = vF - this.vF, dL = vL - this.vL;
+    this.vF = vF; this.vL = vL;
+    this.spinV = clamp(w, -2.5, 2.5);
+    // The body carries on for a moment on its springs: the nose dips into a hit from the front (and
+    // the tail into one from behind) and the body leans away from a hit on the side.
+    const sus = this.spec.susp || { roll: 1 }, give = clamp(sus.roll, 0.4, 2.4);
+    this.rockV = (this.rockV || 0) + clamp(-dF * 0.045 * give, -1.2, 1.2);
+    this.rollV = (this.rollV || 0) + clamp(-dL * 0.05 * give, -1, 1);
+    this.impact = Math.max(this.impact, close);
+    this.impactKind = kind;
+    this.scrape = Math.max(this.scrape || 0, Math.abs(vt) * (jn > 0 ? 1 : 0));
   }
 
   sync(dt) {
@@ -454,7 +538,7 @@ export class Jeep {
       this.blob.visible = this.root.visible && this.boat < 0.3;
     }
     this.suspend(dt);
-    this.body.rotation.set(this.pitch + this.rockP, 0, this.roll);
+    this.body.rotation.set(this.pitch + this.rockP, 0, this.roll + this.rollP);
     this.body.position.y = this.susY;
     if (this.landing > 0) this.landing -= dt || 0;
     // A model may be built at one size and scaled up (model.scale): its wheel pivots live in the
@@ -523,7 +607,7 @@ export class Jeep {
     this.suspend(dt);
     // A wheelie turns the bike about where the back tyre meets the road, so that tyre stays down.
     const wA = this.wheelie;
-    this.body.rotation.set(this.pitch + this.rockP - wA, 0, this.roll);
+    this.body.rotation.set(this.pitch + this.rockP - wA, 0, this.roll + this.rollP * 0.5);
     this.body.position.set(0, this.susY - B.z * Math.sin(wA), B.z * (1 - Math.cos(wA)));
     if (this.landing > 0) this.landing -= dt || 0;
     for (const w of this.wheels) w.spin.rotation.x += (this.vF * (dt || 0)) / this.model.R;
@@ -633,16 +717,20 @@ export class Jeep {
 
   suspend(dt) {
     this.susY = this.susY || 0; this.susV = this.susV || 0; this.rockP = this.rockP || 0; this.rockV = this.rockV || 0;
+    this.rollP = this.rollP || 0; this.rollV = this.rollV || 0;
     if (!dt) return;
     const h = Math.min(dt, 1 / 30);
     for (let t = 0; t < dt - 1e-6; t += h) {
       const k = Math.min(h, dt - t);
       this.susV += (-100 * this.susY - 2 * 0.42 * 10 * this.susV) * k; this.susY += this.susV * k;
       this.rockV += (-81 * this.rockP - 2 * 0.45 * 9 * this.rockV) * k; this.rockP += this.rockV * k;
+      // Side to side: a little stiffer than fore and aft (a car is narrower than it is long).
+      this.rollV += (-110 * this.rollP - 2 * 0.4 * 10.5 * this.rollV) * k; this.rollP += this.rollV * k;
     }
     if (this.susY < -0.3) { this.susY = -0.3; this.susV = Math.max(0, this.susV); }
     if (this.susY > 0.12) { this.susY = 0.12; this.susV = Math.min(0, this.susV); }
     this.rockP = clamp(this.rockP, -0.12, 0.12);
+    this.rollP = clamp(this.rollP, -0.09, 0.09);
   }
 
   setLights(dark) {

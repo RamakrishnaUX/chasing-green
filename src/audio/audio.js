@@ -390,6 +390,26 @@ export class AudioEngine {
     if (s > 0.4) this.burst(3200, 2, 0.12, 0.15 * s, 'bandpass'); // scrape
   }
 
+  // Metal and stone grinding while the car slides along a wall or rock: a rough band of noise that
+  // rises in pitch and level with the sliding speed (v, m/s; 0 when nothing is scraping).
+  scrape(v) {
+    if (!this.ready) return;
+    const ctx = this.ctx, t = ctx.currentTime;
+    if (!this.scr) {
+      const src = ctx.createBufferSource(); src.buffer = this.white; src.loop = true;
+      const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 1.6; bp.frequency.value = 1400;
+      const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 500;
+      const g = ctx.createGain(); g.gain.value = 0;
+      src.connect(bp).connect(hp).connect(g).connect(this.bus.car); src.start();
+      this.scr = { bp, g, level: 0 };
+    }
+    const on = v > 0.8 ? Math.min(1, (v - 0.8) / 12) : 0;
+    // Held a moment after contact ends, so a scrape along a bumpy face does not chatter.
+    this.scr.level = on > this.scr.level ? on : this.scr.level * 0.9;
+    this.scr.g.gain.setTargetAtTime(this.scr.level * 0.22 * (0.8 + 0.4 * Math.random()), t, on ? 0.02 : 0.08);
+    this.scr.bp.frequency.setTargetAtTime(900 + 2200 * this.scr.level + 400 * Math.random(), t, 0.03);
+  }
+
   setMuted(m) {
     this.muted = m;
     if (this.master) this.master.gain.setTargetAtTime(m ? 0 : 0.8 * this.levels.master, this.ctx.currentTime, 0.1);

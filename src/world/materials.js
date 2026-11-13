@@ -1,6 +1,19 @@
 import * as THREE from 'three';
 import { HD, HD_TERRAIN, HD_SUN_SHADOW, terrainUniforms, terrainShadowChunk } from './hd.js';
 import { nightSky, NIGHT_SKY_GLSL } from './skyreflect.js';
+import { NOISE_TABLE, NOISE_SIZE } from './noise.js';
+
+// The value-noise table as a texture (half floats, filtered, tiling).
+function noiseTexture() {
+  const d = new Uint16Array(NOISE_TABLE.length);
+  for (let i = 0; i < d.length; i++) d[i] = THREE.DataUtils.toHalfFloat(NOISE_TABLE[i]);
+  const t = new THREE.DataTexture(d, NOISE_SIZE, NOISE_SIZE, THREE.RedFormat, THREE.HalfFloatType);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.minFilter = t.magFilter = THREE.LinearFilter;
+  t.generateMipmaps = false;
+  t.needsUpdate = true;
+  return t;
+}
 
 // Shared uniforms for everything that changes with season, time or light.
 export const surfaceUniforms = {
@@ -26,6 +39,10 @@ export const surfaceUniforms = {
   uWet: { value: 0 },
   // Winter on the roads (0 to 1): packed snow, ploughed banks and patches of ice.
   uRoadSnow: { value: 0 },
+  // Value noise read from a table (TABLE_NOISE).
+  uNoiseTex: { value: noiseTexture() },
+  // The long sun shadows over the land (hd.js SunMap), realistic look only.
+  uSunMap: { value: null },
 };
 
 export const NOISE = /* glsl */ `
@@ -48,6 +65,17 @@ vec2 rainRings(vec2 p, float t){
   }
   return g;
 }
+`;
+
+// The ground and road shaders read their value noise from a table instead of hashing: the same
+// smoothstep-blended value noise, one filtered lookup (the blend weights moved into the texture
+// coordinate) in place of four hashes. Their CPU twins in terrain.js read the same table.
+const TABLE_NOISE = /* glsl */ `
+uniform sampler2D uNoiseTex;
+float g_nt(vec2 p){ vec2 i = floor(p), f = p - i; return textureLod(uNoiseTex, (i + f * f * (3.0 - 2.0 * f) + 0.5) * ${(1 / NOISE_SIZE).toFixed(8)}, 0.0).r; }
+float g_ft(vec2 p){ float s = 0.0, a = 0.5; for (int i = 0; i < 4; i++) { s += a * g_nt(p); p = p * 2.07 + 13.7; a *= 0.5; } return s; }
+#define g_n g_nt
+#define g_f g_ft
 `;
 
 // Colours below are written in sRGB (as you would pick them from a photo) and converted at the end.
@@ -223,7 +251,7 @@ export function createTerrainMaterial() {
       .replace('#include <common>', '#include <common>\nvarying vec3 vWPos;\nvarying vec3 vWNrm;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;\nvWNrm = normalize(mat3(modelMatrix) * objectNormal);');
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', `#include <common>\nuniform float uSnowLine; uniform float uSummer; uniform float uCloudCover; uniform vec2 uCloudOffset; uniform vec3 uSunDir; uniform float uSunUp; uniform vec3 uRhyolite;\nvarying vec3 vWPos;\nvarying vec3 vWNrm;\n${NOISE}\n${TERRAIN_COLOR}\n${hd ? HD_TERRAIN + HD_SUN_SHADOW : ''}`)
+      .replace('#include <common>', `#include <common>\nuniform float uSnowLine; uniform float uSummer; uniform float uCloudCover; uniform vec2 uCloudOffset; uniform vec3 uSunDir; uniform float uSunUp; uniform vec3 uRhyolite;\nvarying vec3 vWPos;\nvarying vec3 vWNrm;\n${NOISE}\n${TABLE_NOISE}\n${TERRAIN_COLOR}\n${hd ? HD_TERRAIN + HD_SUN_SHADOW : ''}`)
       .replace('#include <lights_fragment_end>', hd ? terrainShadowChunk() : '#include <lights_fragment_end>')
       .replace('#include <normal_pars_fragment>', `#include <normal_pars_fragment>\n${BUMP}`)
       .replace('#include <color_fragment>', hd
@@ -269,7 +297,7 @@ export function createRoadMaterial({ paved, halfWidth }) {
       // little above the land there, so the land never cuts into it in teeth.
       .replace('#include <begin_vertex>', `#include <begin_vertex>\nvRoad = aRoad;\nvJ = aJunction;\nvRW = (modelMatrix * vec4(transformed, 1.0)).xz;\nif (abs(aRoad.x) > ${(halfWidth + 1.05).toFixed(2)} && abs(aRoad.x) < ${(halfWidth + 1.4).toFixed(2)}) transformed.y += smoothstep(0.1, 0.5, uRoadSnow) * 0.32;`);
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', `#include <common>\nvarying vec2 vRoad;\nvarying float vJ;\nvarying vec2 vRW;\nuniform float uSummer; uniform float uRoadSnow;\n${NOISE}\nfloat rBump; float rRough; float rSnow;${hd ? `\nuniform sampler2D rdAlb; uniform vec3 rdMean; uniform sampler2D grAlb; uniform vec3 grMean;\nvec3 rdRatio(sampler2D t, vec3 m, vec2 uv, float chroma, out float lum){ vec3 a = texture2D(t, uv).rgb; lum = dot(a, vec3(0.2126, 0.7152, 0.0722)) / max(dot(m, vec3(0.2126, 0.7152, 0.0722)), 1e-3); return clamp(mix(vec3(lum), a / max(m, vec3(1e-3)), chroma), 0.0, 2.5); }` : ''}`)
+      .replace('#include <common>', `#include <common>\nvarying vec2 vRoad;\nvarying float vJ;\nvarying vec2 vRW;\nuniform float uSummer; uniform float uRoadSnow;\n${NOISE}\n${TABLE_NOISE}\nfloat rBump; float rRough; float rSnow;${hd ? `\nuniform sampler2D rdAlb; uniform vec3 rdMean; uniform sampler2D grAlb; uniform vec3 grMean;\nvec3 rdRatio(sampler2D t, vec3 m, vec2 uv, float chroma, out float lum){ vec3 a = texture2D(t, uv).rgb; lum = dot(a, vec3(0.2126, 0.7152, 0.0722)) / max(dot(m, vec3(0.2126, 0.7152, 0.0722)), 1e-3); return clamp(mix(vec3(lum), a / max(m, vec3(1e-3)), chroma), 0.0, 2.5); }` : ''}`)
       .replace('#include <normal_pars_fragment>', `#include <normal_pars_fragment>\n${BUMP}`)
       .replace('#include <color_fragment>', `
         float lat = abs(vRoad.x);

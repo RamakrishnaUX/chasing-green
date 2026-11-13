@@ -72,7 +72,7 @@ export class Obstacles {
   }
 
   // Push a circle of radius r out of anything it overlaps. Returns the strongest contact
-  // { nx, nz, depth, kind } or null. A climber passes rock it can stand on (see topAt).
+  // { nx, nz, depth, kind, circle, cx, cz } (cx, cz: the obstacle's centre) or null. A climber passes rock it can stand on (see topAt).
   resolve(pos, r, climber = false) {
     const cx = Math.floor(pos.x / CELL), cz = Math.floor(pos.z / CELL);
     let hit = null;
@@ -100,7 +100,7 @@ export class Obstacles {
           nx = lnx * cs + lnz * sn; nz = -lnx * sn + lnz * cs;
         }
         pos.x += nx * depth; pos.z += nz * depth;
-        if (!hit || depth > hit.depth) hit = { nx, nz, depth, kind: c.kind };
+        if (!hit || depth > hit.depth) hit = { nx, nz, depth, kind: c.kind, circle: !!c.circle, cx: c.x, cz: c.z };
       }
     }
     return hit;

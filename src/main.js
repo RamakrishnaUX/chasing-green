@@ -15,7 +15,7 @@ import { Puddles, Particles, SnowFall, RainFall, Windscreen, SkidMarks, WetTrack
 import { MapUI } from './ui/minimap.js';
 import { Cover } from './ui/cover.js';
 import { startAuroraSky } from './ui/auroraSky.js';
-import { HD, loadHD, installAtmosphere, updateAtmosphere, detailScene, naturalize, demToGame } from './world/hd.js';
+import { HD, loadHD, installAtmosphere, updateAtmosphere, detailScene, naturalize, demToGame, SunMap } from './world/hd.js';
 import { Nav, formatDistance } from './ui/nav.js';
 import { siteStations, Stations } from './world/stations.js';
 import { FuelTank, TANKS } from './vehicle/fuel.js';
@@ -179,7 +179,7 @@ addEventListener('resize', redrawUnderMenu);
 let resScale = 1;
 function applyPixelRatio() {
   // Never below 0.55 of a CSS pixel, so even the weakest phone stays sharp enough to read.
-  renderer.setPixelRatio(Math.max(Math.min(devicePixelRatio, 0.55), Math.min(devicePixelRatio, Q.pixelRatio) * resScale));
+  renderer.setPixelRatio(Math.max(Math.min(devicePixelRatio, 0.55), Math.min(devicePixelRatio, Math.min(devicePixelRatio, Q.pixelRatio) * resScale)));
   renderer.setSize(innerWidth, innerHeight, false);
   post?.setSize();
   redrawUnderMenu();
@@ -273,6 +273,7 @@ async function buildWorld(progress) {
   await stage('Shaping the island', 0.06, 1500);
   // The realistic look uses a finer terrain mesh so the eroded faces have room to show.
   world = await buildTerrain(scene, HD.on ? Math.max(Q.terrainRes, 1500) : Q.terrainRes, clock.season, (f) => progress(0.58 * f * BUILD_SHARE, 300, 'Shaping the island'));
+  if (HD.on) { sunMap = new SunMap(surfaceUniforms); sunMap.update(renderer, surfaceUniforms.uSunDir.value, 1); }
   await stage('Lighting the sky', 0.59, 40);
   sky = new Sky(scene, { shadowSize: Q.shadowSize, renderer });
   // The night sky (aurora, moon, stars) as the water mirrors it.
@@ -376,7 +377,8 @@ async function buildWorld(progress) {
   await stage('Mixing the colours', 1, 1200);
   // Things hidden at load (night lights, the aurora, the route beacon) are compiled too, shown just
   // for the call, so dusk or the first aurora never freezes the game while their shaders build.
-  // Never wait more than 2.5 s here; anything left compiles on the first frame as before.
+  // Never wait more than 4 s here (two sets: with and without the night lights); anything left
+  // compiles on the first frame as before.
   // The driver and the bike helmet join the car later; build theirs too (waiting a moment for
   // them to arrive if they are still downloading).
   await Promise.race([driver.ready, new Promise((r) => setTimeout(r, 1500))]);
@@ -397,11 +399,11 @@ async function buildWorld(progress) {
   let compiled;
   const was = renderer.getRenderTarget();
   if (post) renderer.setRenderTarget(post.composer.renderTarget1);
-  try { compiled = renderer.compileAsync(scene, camera); } catch { renderer.compile(scene, camera); }
+  try { compiled = eachLightSet(() => renderer.compileAsync(scene, camera)); } catch { renderer.compile(scene, camera); }
   renderer.setRenderTarget(was);
   for (const o of hidden) o.visible = false;
   for (const g of extra) scene.remove(g);
-  if (compiled) try { await Promise.race([compiled, new Promise((r) => setTimeout(r, 2500))]); } catch { /* compiles on first use */ }
+  if (compiled) try { await Promise.race([compiled, new Promise((r) => setTimeout(r, 4000))]); } catch { /* compiles on first use */ }
   // A built shader still has a setup step the first time it is drawn (its inputs are looked up,
   // and the browser finishes linking it). Do that here too, behind the loading bar.
   for (const pr of renderer.info.programs) try { pr.getUniforms(); pr.getAttributes(); } catch { /* done on first use */ }
@@ -409,6 +411,26 @@ async function buildWorld(progress) {
   if (post) { const was = post.bloom.enabled; post.bloom.enabled = true; post.composer.render(); post.bloom.enabled = was; }
   stageTimes[current] = Math.round(performance.now() - tStage);
   console.info(`World built in ${Math.round(performance.now() - t0)} ms`, stageTimes);
+}
+
+// Lights that only matter after dusk (the headlights, the moon, the nitro glow) are switched off
+// outright by day, not just turned down to nothing: every lit pixel pays for every light in the
+// scene whatever its brightness, and these three cost about a sixth of the frame. Shaders for both
+// sets are built at load (and for animals as they arrive), so the change at dusk does not stall.
+let nightLightsOn = true, sunMap = null;
+const nightLightList = () => [jeep.headlight, jeep.spread, sky?.moon, jeep.nitroFx?.light].filter(Boolean);
+function setNightLights(dark) {
+  const on = dark > (nightLightsOn ? 0.004 : 0.02);
+  if (on === nightLightsOn) return;
+  nightLightsOn = on;
+  for (const L of nightLightList()) L.visible = on;
+}
+// Run compile(on) with the night lights in each state, then put them back.
+async function eachLightSet(compile) {
+  const was = nightLightsOn, list = nightLightList(), out = [];
+  for (const on of [true, false]) { for (const L of list) L.visible = on; out.push(compile()); }
+  for (const L of list) L.visible = was;
+  return Promise.all(out.map((p) => Promise.resolve(p).catch(() => {})));
 }
 
 // Things that arrive while you play (animals as you near a herd): build their shaders in the
@@ -419,7 +441,7 @@ function warmShaders(obj) {
   let p = null;
   try {
     if (post) renderer.setRenderTarget(post.composer.renderTarget1);
-    p = renderer.compileAsync(obj, camera, scene);
+    p = eachLightSet(() => renderer.compileAsync(obj, camera, scene));
   } catch { /* built on first use */ }
   renderer.setRenderTarget(was);
   return Promise.race([p || Promise.resolve(), new Promise((r) => setTimeout(r, 3000))]).catch(() => {}).then(() => {
@@ -1433,7 +1455,7 @@ function autoQuality() {
 }
 function setQuality(name, save) {
   qualityName = name; Q = qualityFor(name);
-  renderer.setPixelRatio(Math.min(devicePixelRatio, Q.pixelRatio) * resScale);
+  renderer.setPixelRatio(Math.min(devicePixelRatio, Math.min(devicePixelRatio, Q.pixelRatio) * resScale));
   renderer.setSize(innerWidth, innerHeight, false);
   aurora?.setSteps(auroraSteps());
   camera.far = Q.far || 3000; camera.updateProjectionMatrix();
@@ -2459,6 +2481,7 @@ function vehicleEffects(dt) {
     for (const [x, z] of wheelsWorld) dust.emit(x, heightAt(x, z) + 0.3, z, 0, 1.5, 0, 4, 3, 1.4);
   }
   // Knocks.
+  audio.scrape?.(ride === 'car' && mode !== 'walk' && dt ? jeep.scrape || 0 : 0);
   if (jeep.impact > 2.5) {
     audio.thud(jeep.impact);
     haptics.impact(jeep.impact);
@@ -2663,7 +2686,7 @@ function frame(now) {
   } else {
     if (!paused) jeep.power = fuel.burn(dt, jeep, input.throttle);
     jeep.update(paused ? 0 : dt, input, w, !paused);
-    if (!paused) vehicleEffects(dt);
+    if (!paused) vehicleEffects(dt); else audio.scrape?.(0);
   }
   spray.update(dt);
   bathSteam?.update(dt);
@@ -2691,6 +2714,7 @@ function frame(now) {
   surfaceUniforms.uCloudOffset.value.copy(cloudOffset);
   surfaceUniforms.uSunDir.value.copy(sunDir);
   if (HD.on) updateAtmosphere(sunDir, surfaceUniforms.uSunUp.value);
+  sunMap?.update(renderer, sunDir, surfaceUniforms.uSunUp.value);
   surfaceUniforms.uSunUp.value = smoothstep(-2, 8, clock.sunElevation()) * (1 - dark);
   surfaceUniforms.uTime.value = t;
   if (postReflectorMat) {
@@ -2777,6 +2801,7 @@ function frame(now) {
   towns?.setNight(dark);
   stations?.setNight(dark);
   jeep.setLights(dark);
+  setNightLights(dark);
   if (heli) heli.dark = dark;
   waterUniforms.uLight.value = 1 - dark * 0.82;
   if (boatWater) boatWater.light = 1 - dark * 0.85;

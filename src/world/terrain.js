@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { createNoise2D, fbm, clamp, lerp, smoothstep } from './noise.js';
+import { createNoise2D, fbm, clamp, lerp, smoothstep, tableNoise } from './noise.js';
 import { COAST, ISLES, ROADS, FORDS, LAKES, GLACIERS, LAVA, SANDS, PITS, CANYONS, PASSES, FLATS, JUMPS, BRIDGES, KERID, keridU, keridProfile, WS } from './geo.js';
 import { solidTopAt } from './solids.js';
 import { bakeStatic } from './bake.js';
@@ -808,20 +808,9 @@ export function surfaceAt(x, z) {
   return 'moss';
 }
 
-// The terrain shader's noise, ported so the CPU can tell where it painted snow.
-const fract = (v) => v - Math.floor(v);
-function gH(x, y) {
-  let a = fract(x * 0.1031), b = fract(y * 0.1031), c = fract(x * 0.1031);
-  const d = a * (b + 33.33) + b * (c + 33.33) + c * (a + 33.33);
-  a += d; b += d; c += d;
-  return fract((a + b) * c);
-}
-function gN(x, y) {
-  const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy;
-  const ux = fx * fx * (3 - 2 * fx), uy = fy * fy * (3 - 2 * fy);
-  const top = lerp(gH(ix, iy), gH(ix + 1, iy), ux), bot = lerp(gH(ix, iy + 1), gH(ix + 1, iy + 1), ux);
-  return lerp(top, bot, uy);
-}
+// The terrain shader's noise (the same table it reads as a texture), so the CPU can tell where it
+// painted snow.
+const gN = tableNoise;
 function gF(x, y) {
   let s = 0, a = 0.5;
   for (let i = 0; i < 4; i++) { s += a * gN(x, y); x = x * 2.07 + 13.7; y = y * 2.07 + 13.7; a *= 0.5; }

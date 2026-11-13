@@ -29,7 +29,63 @@ float hdSunShadow(vec3 wp, vec3 n, vec3 L, float up){
 }`;
 const SHADE_DIRECT = (wp, wn) => `#include <lights_fragment_end>
 { float hdSh = hdSunShadow(${wp}, ${wn}, normalize(uSunDir), uSunUp); reflectedLight.directDiffuse *= hdSh; reflectedLight.directSpecular *= hdSh; }`;
-export const terrainShadowChunk = () => SHADE_DIRECT('vWPos', 'normalize(vWNrm)');
+// The land reads the same trace from a map of it (see SunMap below): one lookup per pixel instead of
+// sixteen, which was about a seventh of the frame. Rocks and landmarks above the land still trace.
+export const terrainShadowChunk = () => `#include <lights_fragment_end>
+{ float hdSh = uSunUp < 0.01 ? 1.0 : texture2D(uSunMap, ((vWPos.xz - uGridMin) / uGridStep + 0.5) / uGridN).r; reflectedLight.directDiffuse *= hdSh; reflectedLight.directSpecular *= hdSh; }`;
+
+// ---------- The long sun shadows as a map ----------
+// One texel per point of the island's height grid, holding hdSunShadow traced from the land there.
+// The sun moves slowly, so the map is redrawn only when it has moved (or the land has been refitted),
+// an eighth of it a frame.
+export class SunMap {
+  constructor(surface) {
+    const n = surface.uGridN.value;
+    this.rt = new THREE.WebGLRenderTarget(n.x, n.y, { type: THREE.UnsignedByteType, format: THREE.RedFormat, depthBuffer: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: false });
+    this.mat = new THREE.ShaderMaterial({
+      uniforms: { uHeightTex: surface.uHeightTex, uGridMin: surface.uGridMin, uGridStep: surface.uGridStep, uGridN: surface.uGridN, uSun: { value: new THREE.Vector3(0, 1, 0) } },
+      vertexShader: 'void main(){ gl_Position = vec4(position.xy, 0.0, 1.0); }',
+      fragmentShader: `${HD_SUN_SHADOW}
+        uniform vec3 uSun;
+        void main(){
+          vec2 c = floor(gl_FragCoord.xy), p = uGridMin + c * uGridStep, d = uGridStep;
+          float h = hdGround(p);
+          vec3 n = normalize(vec3((hdGround(p - vec2(d.x, 0.0)) - hdGround(p + vec2(d.x, 0.0))) / (2.0 * d.x), 1.0, (hdGround(p - vec2(0.0, d.y)) - hdGround(p + vec2(0.0, d.y))) / (2.0 * d.y)));
+          gl_FragColor = vec4(hdSunShadow(vec3(p.x, h, p.y), n, normalize(uSun), 1.0), 0.0, 0.0, 1.0);
+        }`,
+      depthTest: false, depthWrite: false,
+    });
+    this.scene = new THREE.Scene();
+    const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.mat);
+    quad.frustumCulled = false;
+    this.scene.add(quad);
+    this.cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    this.drawn = new THREE.Vector3(); this.strip = -1; this.ver = -1;
+    this.surface = surface;
+    surface.uSunMap.value = this.rt.texture;
+  }
+  update(renderer, sunDir, up) {
+    if (up < 0.01 && this.ver >= 0) return;
+    const hv = this.surface.uHeightTex.value?.version ?? 0;
+    // A fresh pass when the sun has moved a sixth of a degree since the last one began; the first
+    // map, and one after the land is refitted, is drawn whole.
+    if (this.strip < 0 && (this.ver !== hv || this.drawn.angleTo(sunDir) > 0.003)) {
+      this.strip = this.ver !== hv ? 99 : 0;
+      this.ver = hv; this.drawn.copy(sunDir); this.mat.uniforms.uSun.value.copy(sunDir);
+    }
+    if (this.strip < 0) return;
+    const N = 8, rt = this.rt, w = Math.ceil(rt.width / N), prev = renderer.getRenderTarget();
+    const [k0, k1] = this.strip === 99 ? [0, N] : [this.strip, this.strip + 1];
+    for (let k = k0; k < k1; k++) {
+      rt.scissor.set(k * w, 0, w, rt.height); rt.scissorTest = true;
+      renderer.setRenderTarget(rt); // (applies the scissor)
+      renderer.render(this.scene, this.cam);
+    }
+    rt.scissorTest = false;
+    renderer.setRenderTarget(prev);
+    this.strip = k1 >= N ? -1 : k1;
+  }
+}
 const sunUniforms = () => {
   const s = HD.surface;
   return { uHeightTex: s.uHeightTex, uGridMin: s.uGridMin, uGridStep: s.uGridStep, uGridN: s.uGridN, uSunDir: s.uSunDir, uSunUp: s.uSunUp };
@@ -74,9 +130,15 @@ function meanLinear(img) {
   return new THREE.Vector3(r / n, g / n, b / n);
 }
 
-function arrayTexture(imgs, size, srgb, aniso) {
+// alpha: [images, channel] to pack into the alpha channel (the scans' occlusion and roughness ride
+// in the albedo's and normal map's alpha, so each sample takes two lookups instead of three).
+function arrayTexture(imgs, size, srgb, aniso, alpha = null) {
   const data = new Uint8Array(size * size * 4 * imgs.length);
-  imgs.forEach((img, i) => data.set(pixels(img, size), i * size * size * 4));
+  imgs.forEach((img, i) => {
+    const px = pixels(img, size);
+    if (alpha) { const ap = pixels(alpha[0][i], size), c = alpha[1]; for (let k = 3; k < px.length; k += 4) px[k] = ap[k - 3 + c]; }
+    data.set(px, i * size * size * 4);
+  });
   const t = new THREE.DataArrayTexture(data, size, size, imgs.length);
   t.format = THREE.RGBAFormat;
   t.type = THREE.UnsignedByteType;
@@ -146,7 +208,8 @@ function plainTextures() {
   const layers = (c) => { const d = new Uint8Array(4 * LAYERS.length); for (let i = 0; i < LAYERS.length; i++) d.set(c, i * 4); const t = new THREE.DataArrayTexture(d, 1, 1, LAYERS.length); t.needsUpdate = true; return t; };
   const flat = (c) => { const t = new THREE.DataTexture(c, 1, 1); t.needsUpdate = true; return t; };
   const grey = px(128, 128, 128), up = px(128, 128, 255), arm = px(255, 242, 0), mean = new THREE.Vector3().setScalar(Math.pow(128 / 255, 2.2));
-  HD.terrain = { alb: layers(grey), nor: layers(up), arm: layers(arm), mean: LAYERS.map(() => mean.clone()) };
+  up[3] = 242; // roughness rides in the normal map's alpha
+  HD.terrain = { alb: layers(grey), nor: layers(up), mean: LAYERS.map(() => mean.clone()) };
   HD.road = { asphalt: { alb: flat(grey), nor: flat(up), arm: flat(arm), mean }, gravel: { alb: flat(grey), nor: flat(up), arm: flat(arm), mean } };
   HD.rocks = [];
 }
@@ -161,9 +224,8 @@ async function loadTextures(renderer) {
   ]);
   const size = 1024;
   HD.terrain = {
-    alb: arrayTexture(layerImgs.map((l) => l[0]), size, true, aniso),
-    nor: arrayTexture(layerImgs.map((l) => l[1]), size, false, aniso),
-    arm: arrayTexture(layerImgs.map((l) => l[2]), size, false, aniso),
+    alb: arrayTexture(layerImgs.map((l) => l[0]), size, true, aniso, [layerImgs.map((l) => l[2]), 0]), // + occlusion
+    nor: arrayTexture(layerImgs.map((l) => l[1]), size, false, aniso, [layerImgs.map((l) => l[2]), 1]), // + roughness
     mean: layerImgs.map((l) => meanLinear(l[0])),
   };
   HD.road = Object.fromEntries(['asphalt', 'gravel'].map((k, i) => [k, {
@@ -245,7 +307,7 @@ export function updateAtmosphere(sunDir, sunUp) {
 // detail relative to its own average colour, and blends layers with the same weights the classic
 // colours use. Normals come from the scans' normal maps, blended with the whiteout method.
 const HD_COMMON = /* glsl */ `
-uniform sampler2DArray hdAlb; uniform sampler2DArray hdNor; uniform sampler2DArray hdArm;
+uniform sampler2DArray hdAlb; uniform sampler2DArray hdNor;
 uniform vec3 hdMean[${LAYERS.length}]; uniform float hdChroma[${LAYERS.length}]; uniform float hdStrength[${LAYERS.length}];
 vec3 hdRatio(vec3 a, int L){
   vec3 m = hdMean[L];
@@ -253,36 +315,60 @@ vec3 hdRatio(vec3 a, int L){
   vec3 r = mix(vec3(lum), a / max(m, vec3(1e-3)), hdChroma[L]);
   return clamp(mix(vec3(1.0), r, hdStrength[L]), 0.0, 2.5);
 }
-// From above, with a larger rotated copy faded in by noise so the repeat never lines up.
-void hdTop(int L, vec3 p, float s, vec3 N, float v, out vec3 a, out vec3 n, out vec2 ra){
+// Albedo carries the scan's occlusion in its alpha, the normal map its roughness. Normal maps are
+// only read within near (1 up close, 0 past about 170 m): further out their bumps are smaller than
+// a pixel, so the plain normal and the material's own roughness stand in.
+// From above, with a larger rotated copy faded in by noise so the repeat never lines up. Where the
+// noise picks one copy outright (most of the ground) only that one is read.
+void hdTop(int L, vec3 p, float s, vec3 N, float v, float near, out vec3 a, out vec3 n, out vec2 ra){
   float l = float(L);
-  vec2 u1 = p.xz / s, u2 = mat2(0.8, -0.6, 0.6, 0.8) * p.xz / (s * 2.3) + 0.37;
-  a = mix(texture(hdAlb, vec3(u1, l)).rgb, texture(hdAlb, vec3(u2, l)).rgb, v);
-  vec3 t = mix(texture(hdNor, vec3(u1, l)).xyz, texture(hdNor, vec3(u2, l)).xyz, v) * 2.0 - 1.0;
-  ra = mix(texture(hdArm, vec3(u1, l)).rg, texture(hdArm, vec3(u2, l)).rg, v);
-  n = normalize(vec3(t.x + N.x, abs(t.z) * N.y, t.y + N.z));
+  vec3 u1 = vec3(p.xz / s, l), u2 = vec3(mat2(0.8, -0.6, 0.6, 0.8) * p.xz / (s * 2.3) + 0.37, l);
+  vec4 A;
+  if (v < 0.002) A = texture(hdAlb, u1); else if (v > 0.998) A = texture(hdAlb, u2); else A = mix(texture(hdAlb, u1), texture(hdAlb, u2), v);
+  a = A.rgb; ra = vec2(A.a, 0.9); n = N;
+  if (near > 0.0) {
+    vec4 T;
+    if (v < 0.002) T = texture(hdNor, u1); else if (v > 0.998) T = texture(hdNor, u2); else T = mix(texture(hdNor, u1), texture(hdNor, u2), v);
+    vec3 t = T.xyz * 2.0 - 1.0;
+    n = normalize(mix(N, normalize(vec3(t.x + N.x, abs(t.z) * N.y, t.y + N.z)), near));
+    ra.y = T.a;
+  }
 }
-// From three sides, for cliffs and steep slopes.
-void hdTri(int L, vec3 p, float s, vec3 N, out vec3 a, out vec3 n, out vec2 ra){
+// From three sides, for cliffs and steep slopes. A side that adds under 3% is left out.
+void hdTri(int L, vec3 p, float s, vec3 N, float near, out vec3 a, out vec3 n, out vec2 ra){
   float l = float(L);
   vec3 b = pow(abs(N), vec3(4.0)); b /= b.x + b.y + b.z;
-  vec2 ux = p.zy / s, uy = p.xz / s, uz = p.xy / s;
-  a = texture(hdAlb, vec3(ux, l)).rgb * b.x + texture(hdAlb, vec3(uy, l)).rgb * b.y + texture(hdAlb, vec3(uz, l)).rgb * b.z;
-  ra = texture(hdArm, vec3(ux, l)).rg * b.x + texture(hdArm, vec3(uy, l)).rg * b.y + texture(hdArm, vec3(uz, l)).rg * b.z;
-  vec3 tx = texture(hdNor, vec3(ux, l)).xyz * 2.0 - 1.0, ty = texture(hdNor, vec3(uy, l)).xyz * 2.0 - 1.0, tz = texture(hdNor, vec3(uz, l)).xyz * 2.0 - 1.0;
-  tx = vec3(tx.xy + N.zy, abs(tx.z) * N.x);
-  ty = vec3(ty.xy + N.xz, abs(ty.z) * N.y);
-  tz = vec3(tz.xy + N.xy, abs(tz.z) * N.z);
-  n = normalize(tx.zyx * b.x + ty.xzy * b.y + tz.xyz * b.z);
+  b = max(b - 0.03, 0.0); b /= b.x + b.y + b.z;
+  vec3 ux = vec3(p.zy / s, l), uy = vec3(p.xz / s, l), uz = vec3(p.xy / s, l);
+  vec4 A = vec4(0.0);
+  if (b.x > 0.0) A += texture(hdAlb, ux) * b.x;
+  if (b.y > 0.0) A += texture(hdAlb, uy) * b.y;
+  if (b.z > 0.0) A += texture(hdAlb, uz) * b.z;
+  a = A.rgb; ra = vec2(A.a, 0.9); n = N;
+  if (near > 0.0) {
+    vec4 tx = vec4(0.0, 0.0, 1.0, 0.9), ty = tx, tz = tx;
+    if (b.x > 0.0) tx = texture(hdNor, ux);
+    if (b.y > 0.0) ty = texture(hdNor, uy);
+    if (b.z > 0.0) tz = texture(hdNor, uz);
+    ra.y = tx.a * b.x + ty.a * b.y + tz.a * b.z;
+    vec3 nx = tx.xyz * 2.0 - 1.0, ny = ty.xyz * 2.0 - 1.0, nz = tz.xyz * 2.0 - 1.0;
+    nx = vec3(nx.xy + N.zy, abs(nx.z) * N.x);
+    ny = vec3(ny.xy + N.xz, abs(ny.z) * N.y);
+    nz = vec3(nz.xy + N.xy, abs(nz.z) * N.z);
+    n = normalize(mix(N, normalize(nx.zyx * b.x + ny.xzy * b.y + nz.xyz * b.z), near));
+  }
 }
 void hdMix(inout vec3 A, inout vec3 Nn, inout vec2 RA, vec3 a, vec3 n, vec2 ra, float w){
   A = mix(A, a, w); Nn = normalize(mix(Nn, n, w)); RA = mix(RA, ra, w);
 }`;
 
 export const HD_TERRAIN = HD_COMMON + /* glsl */ `
+uniform sampler2D uSunMap;
 vec3 hdA; vec3 hdN; float hdR; float hdAO;
 void hdDetail(vec3 m, vec3 p, vec3 N, float dist){
-  float fade = 1.0 - smoothstep(300.0, 1100.0, dist);
+  // The fine scans fade out by 650 m (past that a 3 to 11 m scan is a few pixels across and mip
+  // maps leave only its average, which the ratio turns to nothing); their normals by 170 m.
+  float fade = 1.0 - smoothstep(220.0, 650.0, dist), near = 1.0 - smoothstep(90.0, 170.0, dist);
   hdA = vec3(1.0); hdN = N; hdR = tRough; hdAO = 1.0;
   // Middle distance: the same scans at a large scale, so hills keep patches and grain where the
   // fine detail has blurred away (colour only, no normals; fades in past 40 m, out by 4 km).
@@ -295,9 +381,9 @@ void hdDetail(vec3 m, vec3 p, vec3 N, float dist){
     macro = mix(vec3(1.0), mix(mix(mg, mr, tRockW), ms, tSnowW), macroW);
   }
   if (fade <= 0.0) { hdA = macro; return; }
-  float v = smoothstep(0.35, 0.65, g_n(p.xz * 0.04));
+  float v = smoothstep(0.42, 0.58, g_n(p.xz * 0.04));
   vec3 a, n; vec2 ra;
-  hdTop(0, p, 3.2, N, v, a, n, ra);
+  hdTop(0, p, 3.2, N, v, near, a, n, ra);
   vec3 A = hdRatio(a, 0), Nn = n; vec2 RA = ra;
   // The other layers, each laid over what came before: (texture layer, scale in metres, weight).
   // One loop rather than six copies of the sampling code: the same result, but a much smaller
@@ -309,18 +395,18 @@ void hdDetail(vec3 m, vec3 p, vec3 N, float dist){
     if (w <= 0.01) continue;
     int li = int(hdL[i].x);
     // Rock is mapped from three sides, for cliffs; the rest from above.
-    if (li == 2) hdTri(li, p, hdL[i].y, N, a, n, ra); else hdTop(li, p, hdL[i].y, N, v, a, n, ra);
+    if (li == 2) hdTri(li, p, hdL[i].y, N, near, a, n, ra); else hdTop(li, p, hdL[i].y, N, v, near, a, n, ra);
     hdMix(A, Nn, RA, hdRatio(a, li), n, ra, w);
   }
   hdA = mix(vec3(1.0), A * mix(1.0, RA.x, 0.6), fade) * macro;
   hdN = normalize(mix(N, Nn, fade));
-  hdR = mix(tRough, RA.y, fade * 0.8);
+  hdR = mix(tRough, RA.y, near * 0.8);
 }`;
 
 export function terrainUniforms() {
   const t = HD.terrain;
   return {
-    hdAlb: { value: t.alb }, hdNor: { value: t.nor }, hdArm: { value: t.arm },
+    hdAlb: { value: t.alb }, hdNor: { value: t.nor },
     hdMean: { value: t.mean }, hdChroma: { value: LAYERS.map((l) => l.chroma) }, hdStrength: { value: LAYERS.map((l) => l.strength) },
   };
 }
@@ -373,13 +459,13 @@ export function detailScene(root) {
           .replace('#include <lights_fragment_end>', SHADE_DIRECT('vHdW', 'normalize((vec4(normal, 0.0) * viewMatrix).xyz)'))
           .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
           {
-            float hdFade = 1.0 - smoothstep(250.0, 900.0, length(vViewPosition));
+            float hdDist = length(vViewPosition), hdFade = 1.0 - smoothstep(220.0, 650.0, hdDist), hdNear = 1.0 - smoothstep(90.0, 170.0, hdDist);
             if (hdFade > 0.0) {
               vec3 hdWN = normalize((vec4(normal, 0.0) * viewMatrix).xyz), a, n; vec2 ra;
-              hdTri(${c.layer}, vHdW, ${c.scale.toFixed(1)}, hdWN, a, n, ra);
+              hdTri(${c.layer}, vHdW, ${c.scale.toFixed(1)}, hdWN, hdNear, a, n, ra);
               diffuseColor.rgb *= mix(vec3(1.0), hdRatio(a, ${c.layer}) * mix(1.0, ra.x, 0.5), hdFade * ${c.k.toFixed(2)});
               normal = normalize((viewMatrix * vec4(normalize(mix(hdWN, n, hdFade * ${c.k.toFixed(2)})), 0.0)).xyz);
-              roughnessFactor = mix(roughnessFactor, ra.y, hdFade * 0.5);
+              roughnessFactor = mix(roughnessFactor, ra.y, hdNear * 0.5);
             }
           }`);
       };

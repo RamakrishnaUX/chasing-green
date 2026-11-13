@@ -154,13 +154,14 @@ float cDens(vec3 q, float cov, bool fine){
 vec4 volClouds(vec3 d, float cov, vec3 sunCol, vec3 ambCol){
   // The march is for a deck seen from below. From inside it or above (in the helicopter, under a
   // parachute) it came out as dark seams across the sky: there the flat layer is drawn instead.
-  if (cov < 0.03 || d.y < 0.015 || uCam.y > 420.0) return vec4(0.0);
+  // (Below 0.06 the flat layer takes over outright, so the march would be thrown away.)
+  if (cov < 0.03 || d.y < 0.06 || uCam.y > 420.0) return vec4(0.0);
   float t0 = (420.0 - uCam.y) / d.y, t1 = min((800.0 - uCam.y) / d.y, t0 + 1300.0);
   if (t0 < 0.0) t0 = 0.0;
 #ifdef PANO
-  // The panorama is drawn a slice at a time, so it can afford twice the steps and needs no dither
+  // The panorama is drawn a slice at a time, so it can afford more steps and needs no dither
   // (a dither per texel would be stretched over many screen pixels into streaks).
-  const int N = 24;
+  const int N = 20;
   float jit = 0.5;
 #else
   const int N = 12;
@@ -426,15 +427,17 @@ export class Sky {
 
   setRGB(target, a) { return target.setRGB(a[0], a[1], a[2], THREE.SRGBColorSpace); }
 
-  // One eighth of the cloud panorama per call; all of it on the first call.
+  // One eighth of the cloud panorama per call; all of it on the first call. The slice's scissor
+  // must be set before the target is bound: three.js applies a target's scissor when it is bound,
+  // and with it set afterwards the whole panorama was marched every frame (half the frame time).
   drawPano() {
     const r = this.renderer, rt = this.pano, N = 8, w = rt.width / N;
     const prev = r.getRenderTarget();
     const strips = this.panoStrip < 0 ? [...Array(N).keys()] : [this.panoStrip];
-    r.setRenderTarget(rt);
     for (const k of strips) {
       rt.scissor.set(k * w, 0, w, rt.height);
       rt.scissorTest = true;
+      r.setRenderTarget(rt);
       r.render(this.panoScene, this.panoCam);
     }
     rt.scissorTest = false;

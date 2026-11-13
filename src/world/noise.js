@@ -93,3 +93,27 @@ export function smoothstep(e0, e1, x) {
   const t = clamp((x - e0) / (e1 - e0), 0, 1);
   return t * t * (3 - 2 * t);
 }
+
+// The shader hash (g_h in materials.js) over one 256 x 256 tile. The ground and road shaders read
+// their value noise from this table as a texture: one filtered lookup in place of four hashes, which
+// took the noise from about a third of the ground's cost per pixel to a few percent. The CPU reads
+// the same table (terrain.js snowAt, iceAt), so where it thinks snow and ice lie is where they show.
+export const NOISE_SIZE = 256;
+export const NOISE_TABLE = (() => {
+  const fract = (v) => v - Math.floor(v), t = new Float32Array(NOISE_SIZE * NOISE_SIZE);
+  for (let y = 0; y < NOISE_SIZE; y++) for (let x = 0; x < NOISE_SIZE; x++) {
+    let a = fract(x * 0.1031), b = fract(y * 0.1031), c = fract(x * 0.1031);
+    const d = a * (b + 33.33) + b * (c + 33.33) + c * (a + 33.33);
+    a += d; b += d; c += d;
+    t[y * NOISE_SIZE + x] = fract((a + b) * c);
+  }
+  return t;
+})();
+// Value noise with the shader's smoothstep blend, tiling every 256 cells (as the texture does).
+export function tableNoise(x, y) {
+  const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy;
+  const ux = fx * fx * (3 - 2 * fx), uy = fy * fy * (3 - 2 * fy), T = NOISE_TABLE, m = NOISE_SIZE - 1;
+  const x0 = ix & m, x1 = (ix + 1) & m, y0 = (iy & m) * NOISE_SIZE, y1 = ((iy + 1) & m) * NOISE_SIZE;
+  const top = T[y0 + x0] + (T[y0 + x1] - T[y0 + x0]) * ux, bot = T[y1 + x0] + (T[y1 + x1] - T[y1 + x0]) * ux;
+  return top + (bot - top) * uy;
+}

@@ -34,16 +34,30 @@ const GradeShader = {
     uGain: { value: new THREE.Vector3(1.0, 0.99, 0.97) },
     uTime: { value: 0 },
     uGrain: { value: 0.018 },
+    uSharp: { value: 0 },
+    uTexel: { value: new THREE.Vector2(1, 1) },
   },
   vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
   fragmentShader: `
     uniform sampler2D tDiffuse; uniform float uVignette; uniform float uSat; uniform float uContrast;
     uniform vec3 uLift; uniform vec3 uGain; uniform float uTime; uniform float uGrain;
+    uniform float uSharp; uniform vec2 uTexel;
     varying vec2 vUv;
     float h(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
     void main(){
       vec3 c = texture2D(tDiffuse, vUv).rgb;
       if (!(c.r == c.r) || !(c.g == c.g) || !(c.b == c.b)) c = vec3(0.5);
+      // Contrast-adaptive sharpening (after AMD's CAS): crisper detail where contrast is low, left
+      // alone at hard edges so nothing rings. It restores the bite a picture loses when it is drawn
+      // below the screen's own resolution and stretched to fit.
+      if (uSharp > 0.0) {
+        vec3 n = texture2D(tDiffuse, vUv + vec2(0.0, uTexel.y)).rgb, s = texture2D(tDiffuse, vUv - vec2(0.0, uTexel.y)).rgb;
+        vec3 e = texture2D(tDiffuse, vUv + vec2(uTexel.x, 0.0)).rgb, w = texture2D(tDiffuse, vUv - vec2(uTexel.x, 0.0)).rgb;
+        vec3 mn = min(min(min(n, s), min(e, w)), c), mx = max(max(max(n, s), max(e, w)), c);
+        vec3 amp = sqrt(clamp(min(mn, 2.0 - mx) / max(mx, vec3(1e-4)), 0.0, 1.0));
+        vec3 wt = amp * (-1.0 / mix(8.0, 5.0, uSharp));
+        c = clamp((c + (n + s + e + w) * wt) / (1.0 + 4.0 * wt), 0.0, 1.0);
+      }
       float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
       c = mix(vec3(l), c, uSat);
       c = (c - 0.5) * uContrast + 0.5;
@@ -64,7 +78,12 @@ export class Post {
     this.composer.addPass(new ShaderPass(SanitizeShader));
     if (ao) {
       // Ground-truth ambient occlusion: shade in corners, under cars, between rocks.
-      this.ao = new GTAOPass(scene, camera, size.x, size.y);
+      // At half resolution: occlusion is soft shading that the denoise pass blurs anyway, and the
+      // pass draws the whole scene again for its normals and depth, so a quarter of the pixels took
+      // its cost from about a fifth of the frame to a few percent with no visible change.
+      this.ao = new GTAOPass(scene, camera, Math.ceil(size.x / 2), Math.ceil(size.y / 2));
+      const aoSize = this.ao.setSize.bind(this.ao);
+      this.ao.setSize = (w, h) => aoSize(Math.ceil(w / 2), Math.ceil(h / 2));
       this.ao.output = GTAOPass.OUTPUT.Default;
       this.ao.blendIntensity = 0.75;
       this.ao.updateGtaoMaterial({ radius: 1.2, distanceExponent: 1, thickness: 1, scale: 1, samples: aoSamples, distanceFallOff: 1, screenSpaceRadius: false });
@@ -99,6 +118,10 @@ export class Post {
   }
   render(t, { aurora = 0, dark = 0 } = {}) {
     this.grade.uniforms.uTime.value = t;
+    // Sharpen more when the picture is stretched onto a denser screen.
+    const size = this.renderer.getDrawingBufferSize(this._size ||= new THREE.Vector2());
+    this.grade.uniforms.uTexel.value.set(1 / size.x, 1 / size.y);
+    this.grade.uniforms.uSharp.value = this.renderer.getPixelRatio() < devicePixelRatio - 0.05 ? 0.6 : 0.3;
     // The aurora glows more at night; daytime bloom stays subtle.
     this.bloom.strength = 0.12 + aurora * 0.55 * dark;
     this.bloom.threshold = dark > 0.5 ? 0.55 : 0.97;
