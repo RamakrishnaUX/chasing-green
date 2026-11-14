@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { CONFIG } from './config.js';
 import { store } from './storage.js';
 import { createNoise2D, clamp, smoothstep, lerp } from './world/noise.js';
-import { START, PLACES, CANYONS, JUMPS, KERID } from './world/geo.js';
+import { START, PLACES, CANYONS, JUMPS, KERID, GROW, toWorld } from './world/geo.js';
 import { updateTerrainLod, buildTerrain, paintTerrain, iceAt, flattenPads, bridges, roadPaths, nearestRoad, heightAt, coastAt, nearestRoadAnywhere, exposureAt, waterLevelAt, postReflectorMat, lakeMat, snowAt, groundAt, roadDistAt, shoreDistAt, surfaceAt, deckAt, deckJointsCrossed } from './world/terrain.js';
 import { Scatter } from './world/scatter.js';
 import { Grass } from './world/grass.js';
@@ -282,7 +282,7 @@ async function buildWorld(progress) {
   }
   await stage('Shaping the island', 0.06, 1500);
   // The realistic look uses a finer terrain mesh so the eroded faces have room to show.
-  world = await buildTerrain(scene, HD.on ? Math.max(Q.terrainRes, 1500) : Q.terrainRes, clock.season, (f) => progress(0.58 * f * BUILD_SHARE, 300, 'Shaping the island'));
+  world = await buildTerrain(scene, HD.on ? Math.max(Q.terrainRes, Math.round(1500 * Math.sqrt(GROW))) : Q.terrainRes, clock.season, (f) => progress(0.58 * f * BUILD_SHARE, 300, 'Shaping the island'));
   if (HD.on) { sunMap = new SunMap(surfaceUniforms); sunMap.update(renderer, surfaceUniforms.uSunDir.value, 1); }
   await stage('Lighting the sky', 0.59, 40);
   sky = new Sky(scene, { shadowSize: Q.shadowSize, renderer });
@@ -339,7 +339,7 @@ async function buildWorld(progress) {
   // AgX rolls highlights off like a camera does, instead of clipping bright sky and snow.
   if (HD.on) { renderer.toneMapping = THREE.AgXToneMapping; renderer.toneMappingExposure = (CONFIG.exposure ?? 0.95) * 1.2; }
   await stage('Building towns', 0.91, 80);
-  props = new Props(scene, { farms: qualityName === 'low' ? 14 : 26, landmarks: landmarks.list, keepClear: [START, ...stationSites], obstacles });
+  props = new Props(scene, { farms: Math.round((qualityName === 'low' ? 14 : 26) * GROW), landmarks: landmarks.list, keepClear: [START, ...stationSites], obstacles });
   // Realistic look: scanned detail on landmark and prop surfaces (not town houses, cars or people).
   if (HD.on) detailScene(scene);
   stations = new Stations(scene, stationSites, { obstacles, low: qualityName === 'low' });
@@ -3169,7 +3169,7 @@ window.chasingGreen = {
   debugShadows(on) { renderer.shadowMap.enabled = on; scene.traverse((o) => { if (o.material) [].concat(o.material).forEach((m) => (m.needsUpdate = true)); }); },
   // Stand on the nearest road at a real-world latitude and longitude, eye height, looking along it.
   photo(lat, lon, turn = 0, pitch = -0.02) {
-    const x = (lon + 19) * 160, z = -(lat - 64.8) * 360;
+    const { x, z } = toWorld(lat, lon);
     const r = nearestRoadAnywhere(x, z);
     const hd = r.heading + turn;
     mode = 'photo';
@@ -3210,7 +3210,7 @@ window.chasingGreen = {
   look: (yaw, pitch) => { look.yaw = yaw; look.pitch = pitch; },
   // Park on the nearest road to a lat/lon, facing along it (flip turns around).
   placeAt(lat, lon, flip = false) {
-    const x = (lon + 19) * 160, z = -(lat - 64.8) * 360;
+    const { x, z } = toWorld(lat, lon);
     const r = nearestRoadAnywhere(x, z);
     jeep.place(r.x, r.z, r.heading + (flip ? Math.PI : 0));
     const h = jeep.heading;

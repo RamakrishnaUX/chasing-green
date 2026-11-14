@@ -515,12 +515,22 @@ export function barnafoss(kit) {
   const geos = [];
   const lips = [];
   const r = kit.rand;
-  for (let x = -span * 0.44; x < span * 0.44; x += 0.7 + r() * 1.8) {
-    const t = x / span + 0.5, zf = Math.sin(t * 5.3) * 2 - 2;
-    const y = 1.2 + r() * (H - 2.2), w = 0.2 + r() * r() * 1.1;
-    const lip = straightLip(w, y, zf + 0.1, 3).map((p) => ({ ...p, x: p.x + x }));
-    lips.push({ lip, y });
-    geos.push(sheetGeometry(lip, { drop: y + 0.4, v0: 0.6 + r() * 0.9, spread: 0.1, rows: 10, approach: 0.01 }));
+  // They come out in clusters where a porous layer of the lava meets the face: a tight run of
+  // rivulets at one level, some only a hand wide, some a broad white sheet, then a stretch of dry
+  // mossy rock before the next cluster (an even row of equal streams read as a fence).
+  for (let x0 = -span * 0.45; x0 < span * 0.44;) {
+    const n = 2 + Math.floor(r() * 7), level = 1.2 + r() * (H - 2.4), big = r() < 0.35;
+    let x = x0;
+    for (let k = 0; k < n && x < span * 0.45; k++) {
+      const t = x / span + 0.5, zf = Math.sin(t * 5.3) * 2 - 2;
+      const y = Math.min(H - 0.6, Math.max(0.9, level + (r() - 0.5) * 1.2));
+      const w = big && k === Math.floor(n / 2) ? 1.6 + r() * 2.2 : 0.12 + r() * r() * 0.9;
+      const lip = straightLip(w, y, zf + 0.1, 3).map((p) => ({ ...p, x: p.x + x }));
+      lips.push({ lip, y });
+      geos.push(sheetGeometry(lip, { drop: y + 0.4, v0: 0.4 + r() * 1.1, spread: 0.06 + r() * 0.12, rows: 10, approach: 0.01 }));
+      x += w * 0.6 + 0.25 + r() * 0.9;
+    }
+    x0 = x + 3 + r() * 9;
   }
   const springs = new THREE.Mesh(mergeGeometries(geos), sheetMaterial({ color: LIPCOL.turquoise, aerate: 1.3, gap: 0.2, opacity: 0.9, scale: 2.2 }));
   springs.renderOrder = 2; springs.userData.notGround = true;

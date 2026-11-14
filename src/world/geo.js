@@ -1,8 +1,11 @@
 // Stylised Iceland. Real latitude and longitude are squashed into game units.
 // One game unit is roughly 300 m, so the Ring Road loop is a few minutes of driving.
 
-// WS scales the whole island. 1.6 makes a lap of the Ring Road about 60% longer than the original.
-export const WS = 2.4;
+// WS scales the whole island. 3.36 is 3.36 times the original in both directions (a lap of the
+// Ring Road about 11,000 units). GROW is how much bigger it is than the 2.4 the elevation data was
+// baked at; anything still written in those older units (landmark nudges, town sizes) multiplies by it.
+export const WS = 3.36;
+export const GROW = WS / 2.4;
 export function toWorld(lat, lon) {
   return { x: (lon + 19) * 160 * WS, z: -(lat - 64.8) * 360 * WS };
 }
@@ -32,6 +35,7 @@ export const COAST = ll([
 // country 125 times smaller than life but builds its stadium at full size, so the island is drawn
 // larger than true and a little further out than its 63.43 N, to keep open water to the mainland.
 const map = (pts) => pts.map(([x, z]) => ({ x: x * WS, z: z * WS }));
+const gr = (v) => v * GROW;
 export const ISLES = [
   {
     name: 'Heimaey',
@@ -39,14 +43,14 @@ export const ISLES = [
     // cone: a volcano (crater: how deep its top is hollowed); mesa: sheer sides, a flat top;
     // ridge: a mesa drawn along a line. r and w are in world units, h in metres of game height.
     hills: [
-      { kind: 'mesa', ...map([[-167.5, 496.7]])[0], r: 24, h: 44 }, // Heimaklettur
-      { kind: 'cone', ...map([[-160, 519.2]])[0], r: 26, h: 26, crater: 8 }, // Eldfell
-      { kind: 'cone', ...map([[-168.3, 542.5]])[0], r: 30, h: 30, crater: 3 }, // Helgafell
-      { kind: 'ridge', a: map([[-259.2, 507.5]])[0], b: map([[-256.3, 538.3]])[0], w: 22, h: 34 }, // Dalfjall
-      { kind: 'cone', ...map([[-195, 570]])[0], r: 14, h: 14 }, // Stórhöfði
+      { kind: 'mesa', ...map([[-167.5, 496.7]])[0], r: gr(24), h: 44 }, // Heimaklettur
+      { kind: 'cone', ...map([[-160, 519.2]])[0], r: gr(26), h: 26, crater: 8 }, // Eldfell
+      { kind: 'cone', ...map([[-168.3, 542.5]])[0], r: gr(30), h: 30, crater: 3 }, // Helgafell
+      { kind: 'ridge', a: map([[-259.2, 507.5]])[0], b: map([[-256.3, 538.3]])[0], w: gr(22), h: 34 }, // Dalfjall
+      { kind: 'cone', ...map([[-195, 570]])[0], r: gr(14), h: 14 }, // Stórhöfði
     ],
     // Level ground for the football stadium (Hásteinsvöllur), r in world units, h its height.
-    flat: { ...map([[-210.4, 522.9]])[0], r: 92, h: 5 },
+    flat: { ...map([[-210.4, 522.9]])[0], r: gr(92), h: 5 },
   },
 ];
 

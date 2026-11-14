@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { roadPaths, heightAt, waterLevelAt, roadDistAt, coastAt } from './terrain.js';
-import { PLACES } from './geo.js';
+import { PLACES, GROW } from './geo.js';
 import { mulberry32 } from './noise.js';
 import { archMats, Batch, frame, addHouse, addBlock, addFarHouse, addFarBlock, WALLS, ROOFS } from './archkit.js';
 
@@ -29,8 +29,10 @@ export class Towns {
     const rand = mulberry32(4242);
     const houses = [], blocks = [];
     for (const place of PLACES) {
-      const cfg = SIZE[place.name];
-      if (!cfg) continue;
+      const base = SIZE[place.name];
+      if (!base) continue;
+      // Sizes were set on the island at WS 2.4: towns spread with it and keep their density along the road.
+      const cfg = { ...base, radius: base.radius * GROW, houses: Math.round(base.houses * GROW), blocks: Math.round((base.blocks || 0) * GROW) };
       const near = roadPaths.flatMap((p) => p.pts.map((q, i) => ({ q, p, i }))).filter(({ q }) => Math.hypot(q.x - place.x, q.z - place.z) < cfg.radius);
       if (!near.length) continue;
       const want = Math.round(cfg.houses * scale), wantBlocks = Math.round((cfg.blocks || 0) * scale);

@@ -1,11 +1,12 @@
 import * as THREE from 'three';
 import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { createWaterMaterial } from './materials.js';
-import { toWorld, LAKES, CANYONS, WS } from './geo.js';
+import { toWorld, LAKES, CANYONS, WS, GROW } from './geo.js';
 import { heightAt, nearestRoad, roadDistAt } from './terrain.js';
 import { mulberry32, clamp, createNoise2D } from './noise.js';
 import * as More from './landmarks_more.js';
 import * as Nature from './nature.js';
+import * as Real from './landmarks_real.js';
 import { EXTRA } from './landmarks_extra.js';
 import { waterLevelAt } from './terrain.js';
 import { rockMaterial } from './materials.js';
@@ -619,6 +620,47 @@ function makeKirkjufell() {
   return m;
 }
 
+// Even spacing. Sights set back from a road (`away`) are put beside the nearest point of it, so two
+// near the same stretch can land on top of each other (Vík and Víkurfjara, Dimmuborgir and
+// Grjótagjá). Slide those along their road, keeping their distance from it, until every pair is
+// at least as far apart as their reaches need. The rest are fixed by the land they belong to.
+const SPACE_MIN = 48;
+function spaceOut(P) {
+  const reach = (p) => p.def.reach || 34;
+  const movable = (p) => p.def.away > 0 && !p.def.offset && !p.def.pos;
+  for (let pass = 0; pass < 12; pass++) {
+    let moved = false;
+    for (let i = 0; i < P.length; i++) for (let j = i + 1; j < P.length; j++) {
+      const a = P[i], b = P[j], ma = movable(a), mb = movable(b);
+      if (!ma && !mb) continue;
+      const want = Math.max(SPACE_MIN, 0.75 * (reach(a) + reach(b)));
+      let dx = a.x - b.x, dz = a.z - b.z;
+      const d = Math.hypot(dx, dz);
+      if (d >= want - 0.5) continue;
+      if (d < 1e-3) { dx = 1; dz = 0; } else { dx /= d; dz /= d; }
+      const push = want - d + 0.5, sa = ma && mb ? 0.5 : ma ? 1 : 0;
+      if (ma) slideAlongRoad(a, dx * push * sa, dz * push * sa);
+      if (mb) slideAlongRoad(b, -dx * push * (1 - sa), -dz * push * (1 - sa));
+      moved = true;
+    }
+    if (!moved) break;
+  }
+}
+function slideAlongRoad(p, mx, mz) {
+  const r = nearestRoad(p.x, p.z, 300);
+  if (!r) { p.x += mx; p.z += mz; return; }
+  const dir = (q) => { const tx = q.seg.bx - q.seg.ax, tz = q.seg.bz - q.seg.az, L = Math.hypot(tx, tz) || 1; return [tx / L, tz / L]; };
+  const [ux, uz] = dir(r), m = Math.hypot(mx, mz);
+  let along = mx * ux + mz * uz;
+  // Pushed straight across the road: slide anyway, the way the push leans.
+  if (Math.abs(along) < 0.4 * m) along = (along < 0 ? -1 : 1) * m;
+  const side = (p.x - r.px) * -uz + (p.z - r.pz) * ux < 0 ? -1 : 1;
+  const r2 = nearestRoad(r.px + ux * along, r.pz + uz * along, 300) || r;
+  const [vx, vz] = dir(r2);
+  p.x = r2.px - vz * side * p.def.away;
+  p.z = r2.pz + vx * side * p.def.away;
+}
+
 export class Landmarks {
   constructor(scene, { quality = 'medium', beforeBuild = null, beforeBake = null, defer = false } = {}) {
     this.quality = quality;
@@ -637,11 +679,12 @@ export class Landmarks {
     // Rooms you can walk into (Harpa, Hallgrímskirkja): the walking camera stays inside them.
     this.rooms = [];
     const rand = mulberry32(99);
-    this.list = LANDMARKS.map((def) => {
+    const placed = LANDMARKS.map((def) => {
       const w = def.pos ? { x: def.pos[0] * WS, z: def.pos[1] * WS } : toWorld(def.ll[0], def.ll[1]);
-      let x = w.x, z = w.z, facing = 0;
+      let x = w.x, z = w.z;
       const road = nearestRoad(x, z, 300);
-      if (def.offset) { x += def.offset[0]; z += def.offset[1]; }
+      // Nudges are in the units of the island at WS 2.4: grown with it, so every gap between sights grows alike.
+      if (def.offset) { x += def.offset[0] * GROW; z += def.offset[1] * GROW; }
       else if (def.away && road) {
         let dx = x - road.px, dz = z - road.pz;
         let d = Math.hypot(dx, dz);
@@ -656,6 +699,11 @@ export class Landmarks {
         x = road.px + (dx / d) * def.away;
         z = road.pz + (dz / d) * def.away;
       }
+      return { def, x, z };
+    });
+    spaceOut(placed);
+    this.list = placed.map(({ def, x, z }) => {
+      let facing = 0;
       // Never build in the sea: step toward the road until the ground is dry.
       for (let k = 0; k < 30 && heightAt(x, z) < waterLevelAt(x, z) + 0.8 && def.kind !== 'headland' && def.kind !== 'beach'; k++) {
         const rr = nearestRoad(x, z, 300);
@@ -722,9 +770,10 @@ export class Landmarks {
     kit.clearGrass = (lx, lz, r) => (lm.grassClear ||= []).push({ x: lm.x + lx * cs + lz * sn, z: lm.z - lx * sn + lz * cs, r });
     const builders = {
       hallgrimskirkja: More.buildHallgrimskirkja, harpa: More.buildHarpa, sunvoyager: More.buildSunVoyager, perlan: More.buildPerlan,
-      bluelagoon: More.buildBlueLagoon, kerid: More.buildKerid, hverir: More.buildHverir, hveravellir: More.buildHveravellir,
+      bluelagoon: More.buildBlueLagoon, kerid: More.buildKerid, hverir: Real.buildHverir, hveravellir: More.buildHveravellir,
       strokkur: More.buildStrokkur, asbyrgi: More.buildAsbyrgi, dyrholaey: Nature.buildDyrholaey,
-      skaftafell: More.buildSkaftafell, diamondbeach: More.buildDiamondBeach, eldhraun: More.buildEldhraun,
+      skaftafell: More.buildSkaftafell, diamondbeach: More.buildDiamondBeach, eldhraun: Real.buildEldhraun,
+      grjotagja: Real.buildGrjotagja, silfra: Real.buildSilfra,
       ...FALL_BUILDERS,
       vik: (k) => More.buildChurch(k, { hill: 9 }), husavik: (k) => More.buildChurch(k, { hill: 0, style: 'husavik' }),
     };

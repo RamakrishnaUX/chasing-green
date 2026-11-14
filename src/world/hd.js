@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { TessellateModifier } from 'three/examples/jsm/modifiers/TessellateModifier.js';
+import { GROW } from './geo.js';
 
 export const HD = { on: false, terrain: null, road: null, rocks: null, surface: null, dem: null, textures: null };
 
@@ -189,7 +190,9 @@ async function loadDEM() {
     for (let y = 0; y < H; y++) { let s = 0; for (let x = -R; x <= R; x++) s += blur[y * W + Math.min(W - 1, Math.max(0, x))]; for (let x = 0; x < W; x++) { tmp[y * W + x] = s / (2 * R + 1); s += blur[y * W + Math.min(W - 1, x + R + 1)] - blur[y * W + Math.max(0, x - R)]; } }
     for (let x = 0; x < W; x++) { let s = 0; for (let y = -R; y <= R; y++) s += tmp[Math.min(H - 1, Math.max(0, y)) * W + x]; for (let y = 0; y < H; y++) { blur[y * W + x] = s / (2 * R + 1); s += tmp[Math.min(H - 1, y + R + 1) * W + x] - tmp[Math.max(0, y - R) * W + x]; } }
   }
-  HD.dem = { minX: meta.minX, minZ: meta.minZ, cols: meta.w, rows: meta.h, sx: (meta.maxX - meta.minX) / meta.w, sz: (meta.maxZ - meta.minZ) / meta.h, heights: h, blur };
+  // Baked on the island drawn at WS 2.4: stretch it to the island's size now (GROW).
+  const g = GROW;
+  HD.dem = { minX: meta.minX * g, minZ: meta.minZ * g, cols: meta.w, rows: meta.h, sx: ((meta.maxX - meta.minX) * g) / meta.w, sz: ((meta.maxZ - meta.minZ) * g) / meta.h, heights: h, blur };
 }
 
 // Only the elevation is waited for: the island is shaped from it while the textures (most of the

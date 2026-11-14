@@ -351,10 +351,18 @@ They sit on the Ring Road or a detour: Reykjanes (Blue Lagoon), the Reykjavík w
 - **Hengifoss** and **Háifoss**: very tall, thin free falls into deep gorges; Hengifoss's dark basalt is striped with thin red layers of old baked soil (drawn in the shader by height, so they stay crisp), and Háifoss's neighbour Granni falls beside it.
 - **Kvernufoss**: at the head of a small green gorge with a path behind the water (moved 60 m east, clear of Skógafoss and Sólheimajökull).
 - **Öxarárfoss**: the Öxará spilling in strands down the stepped dark lava wall of the rift.
-- **Hraunfossar and Barnafoss**: dozens of white rivulets pouring out from under a long mossy lava edge into the turquoise Hvítá (all one mesh, one draw call), and Barnafoss's rapids downstream.
+- **Hraunfossar and Barnafoss**: (springs come out in clusters at one porous layer of the lava, a tight run of rivulets from a hand wide to a broad sheet, then a stretch of dry mossy rock, never an even row) dozens of white rivulets pouring out from under a long mossy lava edge into the turquoise Hvítá (all one mesh, one draw call), and Barnafoss's rapids downstream.
 - **Kirkjufellsfoss** uses the same parts at a small size. **Dynjandi** keeps its own terraced build.
 
 **Kirkjufell** (`makeKirkjufell` in `landmarks.js`) climbs in steps like the real mountain: each layer of lava and sediment is a near-vertical band of dark basalt capped by a grassy ledge. The layers wander up and down around it and are eroded deeper on some sides, gullies spill grass down the cliffs, and it is painted in its own vertex colours rather than by the terrain shader (which patched it like camouflage). It is a ridge rather than a cone: long toward Kirkjufellsfoss and flattened across, so from the falls it shows the narrow, steep arrowhead of the photographs, and its grassy ledges come and go round the mountain instead of running as even rings.
+
+**Rebuilt with the room the bigger island gave** (`src/world/landmarks_real.js`, from photographs):
+
+- **Eldhraun**: a field about 120 by 90 m of knobbly hummocks a metre or two high (jittered cells, each a rounded mound, with the lava's dark cracks between), drawn with the terrain shader's lava-moss layer, so on the realistic look it carries the scanned moss: lime in summer, olive and rust in autumn. A trodden cinder trail runs in from the lay-by between low posts and a rope, and the odd spur of bare lava breaks through. The grass field is kept off it.
+- **Hverir**: bare clay stained cream, ochre, rust and sulphur yellow (hand-tinted vertex colours, so the grass scans cannot green it), white crust round the vents; six fumaroles roaring out of cairns of pale altered rock, yellow at the mouth, under tall plumes; five grey mud pots dished into the ground with domes that swell and burst; a rope-lined path and the warning sign.
+- **Grjótagjá**: a fissure ridge of black lava some 90 m long across the land, mossy along its broken lips, sheer bare basalt down into the crack, fallen blocks in it; partway along, a roof of lava bridges the widest part over a dark cave mouth, with glowing turquoise water and steam curling out (it glows faintly at night).
+- **Silfra**: a crack some 60 m long between dark lava walls, filled with very clear water that turns deep sapphire down the middle (the water shader's bowl depth), pale boulders on its bed, and the divers' timber platform and steel steps at its head.
+- All four are a few meshes each, built once; only the steam and the mud move.
 
 **The natural rock landmarks** (`src/world/nature.js`, built from shared pieces in `src/world/basalt.js`) are modelled on photographs of the real places:
 
@@ -562,6 +570,7 @@ src/
     falls.js         waterfall machinery: falling sheets, GPU spray and mist, rainbow, pool foam, layered cliffs
     waterfalls.js    every waterfall, shaped after the real one
     landmarks_more.js  models for the newer landmarks (churches, Harpa, geyser, canyons and more)
+    landmarks_real.js  Eldhraun, Hverir, Grjótagjá and Silfra, rebuilt from photographs when the island grew
     nature.js          the natural rock landmarks (Reynisfjara, Dyrhólaey, Stuðlagil, Hvítserkur, Arnarstapi, Almannagjá, Ásbyrgi, Dimmuborgir)
     basalt.js          their shared pieces: basalt material, massifs, sea stacks, arches, column fields, black sand
     towns.js         where houses and apartment blocks stand; one mesh per material per town
@@ -611,7 +620,9 @@ src/
 
 ## Scale
 
-The island is 2.4 times bigger than the original in both directions, so a lap of the Ring Road is about 7,900 units instead of 3,300, and every drive takes correspondingly longer. The scale lives in `WS` in `src/world/geo.js`; terrain resolution, lakes, ice caps, city glow, the minimap and the clouds all follow it.
+The island is 3.36 times bigger than the original in both directions (1.4 times the 2.4 it was before), so a lap of the Ring Road is about 11,000 units instead of 3,300, and every drive takes correspondingly longer. The scale lives in `WS` in `src/world/geo.js`; terrain resolution, lakes, ice caps, city glow, the minimap and the clouds all follow it. `GROW` (`WS / 2.4`) converts what was written for the island at 2.4: the real elevation (baked at 2.4, stretched to fit when it loads, `hd.js`), landmark `offset` nudges, the city glow, town sizes (radius and number of houses, so they keep their density along the road), the number of farms and Heimaey's hills. The realistic look's terrain mesh is finer by the square root of `GROW`, so the land keeps most of its detail per metre. Landmarks themselves stay life-size; only the land between them grew.
+
+**Even spacing.** Sights set back from a road (`away`) are put beside the nearest point of it, so two near the same stretch used to land on top of each other (Vík and Víkurfjara 11 m apart; Dimmuborgir, Grjótagjá and Hverir drawn through one another). `spaceOut` in `landmarks.js` slides those along their road, keeping their distance from it, until every pair is at least `max(48, 0.75 x (reach + reach))` apart; the others are fixed by the land they belong to. Every other gap grows by the same 1.4 as the island.
 
 The road from Egilsstaðir to Seyðisfjörður is a long hairpin climb over the Fjarðarheiði pass, as the real Route 93 is. The road has its own smooth height profile (`profile: 'pass'` and `summit` on the road in `src/world/geo.js`), so it rises to a summit at a drivable gradient and drops back to the fjord, while the mountains beside it (`PASSES`) climb past the snow line. The blue church and the rainbow street sit down by the water at the end.
 

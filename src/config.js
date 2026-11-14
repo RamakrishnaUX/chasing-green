@@ -1,4 +1,5 @@
 // Every number worth tuning lives here. Change a value, save, and Vite reloads the game.
+import { toWorld, WS } from './world/geo.js';
 
 export const CONFIG = {
   // ---------- Analytics ----------
@@ -90,8 +91,8 @@ export const CONFIG = {
 
   // ---------- City lights ----------
   cities: [
-    { name: 'Reykjavík', x: -1129, z: 562, radius: 435, strength: 1.0 },
-    { name: 'Akureyri', x: 349, z: -760, radius: 262, strength: 0.55 },
+    { name: 'Reykjavík', ...toWorld(64.15, -21.94), radius: 181 * WS, strength: 1.0 },
+    { name: 'Akureyri', ...toWorld(65.68, -18.09), radius: 109 * WS, strength: 0.55 },
   ],
 
   // ---------- Wind ----------
