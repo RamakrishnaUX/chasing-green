@@ -6,7 +6,7 @@ import { CONFIG } from './config.js';
 import { store } from './storage.js';
 import { createNoise2D, clamp, smoothstep, lerp } from './world/noise.js';
 import { START, PLACES, CANYONS, JUMPS, KERID, GROW, toWorld } from './world/geo.js';
-import { updateTerrainLod, buildTerrain, paintTerrain, iceAt, flattenPads, bridges, roadPaths, nearestRoad, heightAt, coastAt, nearestRoadAnywhere, exposureAt, waterLevelAt, postReflectorMat, lakeMat, snowAt, groundAt, roadDistAt, shoreDistAt, surfaceAt, deckAt, deckJointsCrossed } from './world/terrain.js';
+import { updateTerrainLod, buildTerrain, paintTerrain, iceAt, flattenPads, bridges, roadPaths, nearestRoad, heightAt, coastAt, nearestRoadAnywhere, exposureAt, waterLevelAt, postReflectorMat, lakeMat, snowAt, groundAt, roadDistAt, shoreDistAt, surfaceAt, deckAt, deckHeightOf, deckJointsCrossed } from './world/terrain.js';
 import { Scatter } from './world/scatter.js';
 import { Grass } from './world/grass.js';
 import { Post } from './world/post.js';
@@ -329,8 +329,14 @@ async function buildWorld(progress) {
   await stage('Scattering rocks', 0.88, 560);
   // The scanned rocks and ground textures have been downloading while the island took shape.
   if (HD.on) await HD.textures;
-  // Bridge railings are solid on both sides.
-  for (const B of bridges) for (const sx of [-1, 1]) obstacles.addBox(B.x - B.dz * sx * 4.65, B.z + B.dx * sx * 4.65, Math.atan2(B.dx, B.dz), 0.25, B.len / 2 + 2, 'wall');
+  // Bridge railings are solid on both sides, up at the deck; the piers and abutments stand in the
+  // valley under it. A car down in the valley drives beneath the railings and between the piers
+  // (obstacles.js filters by height), and one on the deck passes over the piers.
+  for (const B of bridges) {
+    const band = (x, z) => { const d = deckHeightOf(B, x, z); return [d - 0.6, d + 1.4]; };
+    for (const sx of [-1, 1]) obstacles.addBox(B.x - B.dz * sx * 4.65, B.z + B.dx * sx * 4.65, Math.atan2(B.dx, B.dz), 0.25, B.len / 2 + 2, 'wall').band = band;
+    for (const P of B.blocks || []) { const o = obstacles.addBox(P.x, P.z, P.rot, P.hx, P.hz, 'wall'); o.yLo = -Infinity; o.yHi = P.top; }
+  }
   // No rocks or grass field on streets, churchyards and city squares.
   const clear = landmarks.list.filter((l) => ['town', 'building', 'sculpture', 'stadium'].includes(l.kind)).map((l) => ({ x: l.x, z: l.z, r: l.kind === 'stadium' ? 78 : l.id === 'seydisfjordur' ? 58 : l.id === 'laugavegur' ? 36 : l.id === 'hallgrimskirkja' ? 46 : l.id === 'harpa' ? 30 : 22 }))
     .concat(stationSites.map((st) => ({ x: st.pad.x, z: st.pad.z, r: 30 })))
@@ -2830,7 +2836,7 @@ function frame(now) {
       fitGear(walkerBones, diver.pack, sitting ? null : diver.helmet);
       if (heliComing && !heli.auto) { heliComing = false; hud.toast(isTouch ? 'The helicopter has landed. Tap Get in when you are beside it.' : 'The helicopter has landed. Walk over and press E to get in.', { seconds: 3.5, priority: 2 }); }
     }
-    obstacles.resolve(walker.pos, riding.on ? 0.8 : 0.4, true);
+    obstacles.resolve(walker.pos, riding.on ? 0.8 : 0.4, true, walker.pos.y, riding.on ? 2.4 : 1.8);
     wildlife.pushOut(walker.pos, riding.on ? 0.5 : 0.3); // nor through the animals
     if (riding.on) { riding.a.x = walker.pos.x; riding.a.z = walker.pos.z; }
     // Swimming: a splash going in, and spray off his arms as he strokes.
@@ -3025,8 +3031,8 @@ function frame(now) {
   }
   // A bridge: the tyres sing on its concrete, and each expansion joint thumps under the front
   // axle and then the rear.
-  const onDeck = ride === 'car' && mode !== 'walk' && mode !== 'sky' && !jeep.air && deckAt(jeep.pos.x, jeep.pos.z) != null;
-  if (ride === 'car' && mode !== 'walk' && mode !== 'sky' && !jeep.air && jointPrev && Math.abs(jeep.speed) > 1.5 && deckJointsCrossed(jointPrev.x, jointPrev.z, jeep.pos.x, jeep.pos.z)) {
+  const onDeck = ride === 'car' && mode !== 'walk' && mode !== 'sky' && !jeep.air && deckAt(jeep.pos.x, jeep.pos.z, jeep.pos.y) != null;
+  if (onDeck && jointPrev && Math.abs(jeep.speed) > 1.5 && deckJointsCrossed(jointPrev.x, jointPrev.z, jeep.pos.x, jeep.pos.z)) {
     const sp = Math.abs(jeep.speed);
     audio.joint(sp); audio.joint(sp * 0.85, Math.min(0.4, 2.6 / sp));
   }

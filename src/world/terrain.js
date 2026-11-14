@@ -390,6 +390,12 @@ function braid(B, across, lat) {
   b = lerp(b, -1.05, Math.exp(-(((across - c) / 6.5) ** 2)));
   return b + smoothstep(RIV_FLOOR * 0.65, RIV_FLOOR, Math.abs(across)) * 0.35;
 }
+// How far the underside of each kind of deck hangs below the road (bridges.js builds them): the
+// concrete box girder, the one-lane bridge's steel girders, the truss's stringers.
+const SOFFIT = { concrete: -2.1, onelane: -1.48, truss: -1.08 };
+// Headroom kept under a deck between its river piers, so a car (the camper included) drives
+// through underneath, wading or afloat, rather than meeting the girders.
+const HEADROOM = 3.4;
 function bridgeShape(x, z, h) {
   for (const B of bridges) {
     const v = inValley(B, x, z);
@@ -398,7 +404,19 @@ function bridgeShape(x, z, h) {
     const w = (1 - smoothstep(B.len * 0.24, B.len * 0.5, a)) * (1 - smoothstep(B.valley * 0.65, B.valley, Math.abs(v.lat)));
     if (w <= 0) continue;
     if (!B.riv) { h -= B.depth * w; continue; }
-    const floor = Math.max(0.3, riverLevel(B, v.lat) + braid(B, v.across, v.lat));
+    const W = riverLevel(B, v.lat);
+    let floor = Math.max(0.3, W + braid(B, v.across, v.lat));
+    // Under the deck the gravel bars are scoured down (as round real piers): the bed stays low
+    // enough to leave HEADROOM beneath the girders, easing back over 16 m up and down the river,
+    // but never deeper than the river's own main channel.
+    const f = bridgeFrame(B, x, z);
+    const k = (1 - smoothstep(10, 26, Math.abs(f.lat))) * (1 - smoothstep(B.len / 2 - 14, B.len / 2 - 4, Math.abs(f.along)));
+    if (k > 0) {
+      if (B.ends == null) B.ends = [-1, 1].map((s) => nearestRoad(B.x + B.dx * s * (B.len / 2), B.z + B.dz * s * (B.len / 2), 20)?.h ?? 2);
+      const roof = lerp(B.ends[0], B.ends[1], clamp(f.along / B.len + 0.5, 0, 1)) + (SOFFIT[B.style] ?? SOFFIT.concrete);
+      const cap = Math.max(roof - HEADROOM, W - 1.05, 0.3);
+      if (floor > cap) floor = lerp(floor, cap, k);
+    }
     h = lerp(h, Math.min(h, floor), w);
   }
   return h;
@@ -439,21 +457,46 @@ function bridgeFrame(B, x, z) {
   const ox = x - B.x, oz = z - B.z;
   return { along: ox * B.dx + oz * B.dz, lat: -ox * B.dz + oz * B.dx };
 }
-// Deck height if (x, z) is on a bridge deck, else null.
-export function deckAt(x, z) {
+// Deck height if (x, z) is on a bridge deck, else null. y: the height of whatever is asking (a
+// car's or a walker's base). Something well below the deck is underneath it, in the valley, so
+// the deck is a roof over it rather than the ground under it.
+const UNDER = 0.6;
+export function deckAt(x, z, y = null) {
   for (const B of bridges) {
     if (B.h0 == null) continue;
     const f = bridgeFrame(B, x, z);
-    if (Math.abs(f.along) <= B.len / 2 && Math.abs(f.lat) <= roadHalfWidth('paved') + 1.4) return lerp(B.h0, B.h1, (f.along + B.len / 2) / B.len);
+    if (Math.abs(f.along) <= B.len / 2 && Math.abs(f.lat) <= roadHalfWidth('paved') + 1.4) {
+      const d = lerp(B.h0, B.h1, (f.along + B.len / 2) / B.len);
+      if (y != null && y < d - UNDER) continue;
+      return d;
+    }
   }
   return null;
 }
+// The underside of a bridge over (x, z), for something below its deck, else null: the girders'
+// soffit across the deck's full width (edge beams included). A car taller than the gap there
+// stops against it, as against a wall.
+export function deckRoofAt(x, z, y) {
+  for (const B of bridges) {
+    if (B.h0 == null) continue;
+    const f = bridgeFrame(B, x, z);
+    if (Math.abs(f.along) > B.len / 2 + 0.5 || Math.abs(f.lat) > roadHalfWidth('paved') + 2) continue;
+    const d = lerp(B.h0, B.h1, clamp((f.along + B.len / 2) / B.len, 0, 1));
+    if (y >= d - UNDER) continue;
+    return d + (B.soffit ?? -2.1);
+  }
+  return null;
+}
+// The deck height of bridge B at (x, z), along its length.
+export function deckHeightOf(B, x, z) { return lerp(B.h0 ?? 2, B.h1 ?? 2, clamp(bridgeFrame(B, x, z).along / B.len + 0.5, 0, 1)); }
 // Keeps a car that is on a bridge between the parapets. The parapet boxes alone can be skipped
 // at full speed (a fast car moves further in one frame than a wall is thick), so this works on
 // the lateral offset directly and cannot be tunnelled through. Returns the inward wall normal.
-export function bridgeGuard(prevX, prevZ, pos, r) {
+// y: the car's height; under the bridge (in the valley below the deck) there is nothing to hold.
+export function bridgeGuard(prevX, prevZ, pos, r, y = null) {
   const hw = roadHalfWidth('paved') + 1.4, lim = hw - 0.3 - r;
   for (const B of bridges) {
+    if (y != null && B.h0 != null && y < deckHeightOf(B, pos.x, pos.z) - UNDER) continue;
     const fp = bridgeFrame(B, prevX, prevZ);
     if (Math.abs(fp.along) > B.len / 2 + 6 || Math.abs(fp.lat) > hw + 0.5) continue;
     const f = bridgeFrame(B, pos.x, pos.z);
@@ -508,7 +551,7 @@ function nearBridge(x, z, pad = 0) {
 // What a wheel or a foot actually stands on: the bridge deck where there is one, else the land.
 // What wheels and boots stand on: the land, a bridge deck, or a landmark landform on top.
 // clear: the top of whatever is asking, so it can pass beneath an arch (see solidTopAt).
-export function groundAt(x, z, clear = null) { const d = deckAt(x, z); return Math.max(d ?? -Infinity, heightAt(x, z), solidTopAt(x, z, clear)); }
+export function groundAt(x, z, clear = null, y = null) { const d = deckAt(x, z, y); return Math.max(d ?? -Infinity, heightAt(x, z), solidTopAt(x, z, clear)); }
 // How far the drawn road sits above the ground under it, so wheels and feet stand on the tarmac
 // rather than in it: the ribbon's own lift (see buildRoadRibbons), 13 cm over the lanes, easing
 // to 8 cm across the shoulder, 17 cm on a junction patch, and nothing off the road.
@@ -521,7 +564,12 @@ export function roadLiftAt(x, z) {
   return r.dist <= hw ? 0.13 : r.dist <= W ? lerp(0.13, 0.08, (r.dist - hw) / (W - hw)) : 0.08;
 }
 // The ground a wheel or a boot stands on: the land or a bridge deck, plus the road drawn on it.
-export function surfaceHeightAt(x, z) { return Math.max(deckAt(x, z) ?? -Infinity, heightAt(x, z)) + roadLiftAt(x, z); }
+// y (optional): the asker's height, so the deck is ground only to something up at its level.
+export function surfaceHeightAt(x, z, y = null) {
+  const d = deckAt(x, z, y), h = heightAt(x, z);
+  // Under a bridge the road's lift belongs to the deck overhead, not to the valley floor.
+  return d == null && y != null && deckAt(x, z) != null ? h : Math.max(d ?? -Infinity, h) + roadLiftAt(x, z);
+}
 
 let keridBusy = false;
 function rawHeight(x, z, cd, noLakes = false, noBridge = false) {

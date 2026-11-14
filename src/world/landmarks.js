@@ -3,7 +3,7 @@ import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { createWaterMaterial } from './materials.js';
 import { toWorld, LAKES, CANYONS, WS, GROW } from './geo.js';
 import { heightAt, nearestRoad, roadDistAt } from './terrain.js';
-import { mulberry32, clamp, createNoise2D } from './noise.js';
+import { mulberry32, clamp, lerp, createNoise2D } from './noise.js';
 import * as More from './landmarks_more.js';
 import * as Nature from './nature.js';
 import * as Real from './landmarks_real.js';
@@ -17,7 +17,7 @@ import { FALL_BUILDERS, genericFall } from './waterfalls.js';
 // rest (the underside of an arch) are ceilings something can pass beneath.
 const solidFloor = (x, z) => Math.max(heightAt(x, z), waterLevelAt(x, z));
 import { bakeStatic } from './bake.js';
-import { addSolids } from './solids.js';
+import { addSolids, solidTopAt } from './solids.js';
 import { HD } from './hd.js';
 
 // Built places keep their walls; everything else is a landform you can climb onto, not into.
@@ -779,16 +779,6 @@ export class Landmarks {
     };
     if (builders[lm.id]) root.add(builders[lm.id](kit));
     else if (lm.model && EXTRA[lm.model]) root.add(EXTRA[lm.model](kit, lm.params || {}));
-    if (lm.id === 'skogafoss') {
-      // The stairway up the slope beside the falls.
-      const stepMat = new THREE.MeshStandardMaterial({ color: 0x6b5a45, roughness: 0.9 });
-      for (let i = 0; i < 34; i++) {
-        const st = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.35, 0.9), stepMat);
-        st.position.set(23 + i * 0.05, 0.2 + i * 0.68, 4 - i * 0.62);
-        st.castShadow = st.receiveShadow = true;
-        root.add(st);
-      }
-    }
     if (lm.id === 'reynisfjara') root.add(Nature.buildReynisfjara(kit));
     if (lm.id === 'kirkjufell') {
       root.add(makeKirkjufell());
@@ -819,6 +809,8 @@ export class Landmarks {
       root.updateMatrixWorld(true);
       root.traverse((m) => { if (m.userData.ground) addSolids(m, solidFloor); });
     }
+    // Skógafoss's stairway, laid once the cliff is solid ground so each step can sit on it.
+    if (lm.id === 'skogafoss') { const st = buildStairway(kit, root, { x0: 24, x1: 34, start: [24.5, 2.6], top: 23.6 }); this.collectColliders(st); }
     this.beforeBake?.(root, lm);
     bakeStatic(root);
   }
@@ -1033,4 +1025,111 @@ export class Landmarks {
     }
     return { lm: best, dist: bd };
   }
+}
+
+// A stone stairway up a steep slope, as at Skógafoss (527 steps up the flank beside the falls):
+// switchback flights crossing the slope, each turning on a landing that reaches across to where
+// the next flight starts, uphill of it. Every flight climbs at one even rise (no more than 23 cm,
+// treads 30 cm deep), worked out from the rock actually under it (terrain and the landform, read
+// once the cliff is solid) so that every tread and the landing stand clear of it; where the slope
+// falls away below, the stair stands on its own stone wall, down into the ground. A handrail runs
+// along the downhill edge. Every step is a box you can stand on (collide), so on foot each tread
+// is its own height and the walk puts each foot on its step.
+// x0, x1: the slope's strip (local x); start: the foot of the first flight (local x, z); top:
+// the height of the plateau at the top (local).
+function buildStairway(kit, root, { x0, x1, start, top: topY }) {
+  const g = new THREE.Group();
+  root.add(g);
+  const stone = new THREE.MeshStandardMaterial({ color: 0x48423b, roughness: 0.92 });
+  const rail = new THREE.MeshStandardMaterial({ color: 0x3b3f42, roughness: 0.45, metalness: 0.7 });
+  const y0 = kit.baseY, cs = kit.cs, sn = kit.sn;
+  const surf = (lx, lz) => { const x = kit.lmX + lx * cs + lz * sn, z = kit.lmZ - lx * sn + lz * cs; return Math.max(kit.ground(lx, lz), solidTopAt(x, z) - y0); };
+  const W = 1.2, R = 0.3, LAND = 1.3; // flight width, tread, landing length
+  // The rock under a box (centre, its axes u and n, half sizes), highest and lowest.
+  const under = (cx, cz, ux, uz, nx, nz, hu, hn) => {
+    let hi = -Infinity, lo = Infinity;
+    for (const a of [-0.95, -0.5, 0, 0.5, 0.95]) for (const b of [-0.95, -0.5, 0, 0.5, 0.95]) {
+      const h = surf(cx + ux * hu * a + nx * hn * b, cz + uz * hu * a + nz * hn * b);
+      hi = Math.max(hi, h); lo = Math.min(lo, h);
+    }
+    return { hi, lo };
+  };
+  const block = (cx, cz, yaw, w, d, y1, ylo) => {
+    const h = Math.max(0.3, y1 - ylo);
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), stone);
+    m.position.set(cx, y1 - h / 2, cz); m.rotation.y = yaw;
+    m.userData.collide = true; m.castShadow = m.receiveShadow = true;
+    g.add(m);
+  };
+  const posts = [];
+  // A railing from a to b (local, at tread heights ya and yb): posts and a top rail you see, and a
+  // hidden wall along it so no one walks off the edge.
+  const railing = (ax, az, ya, bx, bz, yb) => {
+    const len = Math.hypot(bx - ax, bz - az), n = Math.max(1, Math.round(len / 1.3));
+    for (let i = 0; i <= n; i++) posts.push({ x: lerp(ax, bx, i / n), z: lerp(az, bz, i / n), y: lerp(ya, yb, i / n), end: i === n });
+    const wall = new THREE.Mesh(new THREE.BoxGeometry(0.12, 3, len + 0.1));
+    wall.position.set((ax + bx) / 2, (ya + yb) / 2, (az + bz) / 2); wall.rotation.y = Math.atan2(bx - ax, bz - az);
+    wall.visible = false; wall.userData.collide = true; g.add(wall);
+  };
+  const TH = 70 * Math.PI / 180, UX = Math.sin(TH), UZ = -Math.cos(TH); // across the slope, 70 degrees off the fall line
+  let dir = 1, sx = start[0], sz = start[1], top = surf(sx, sz) + 0.04, steps = 0;
+  for (let flight = 0; flight < 10 && top < topY - 0.1; flight++) {
+    const ux = UX * dir, uz = UZ, yaw = Math.atan2(ux, uz);
+    // Across the flight, pointing uphill (the next flight's side), and downhill.
+    let nx = uz, nz = -ux; if (nz > 0) { nx = -nx; nz = -nz; }
+    const N = clamp(Math.floor((dir > 0 ? x1 - sx : sx - x0) / (R * UX)), 4, 48);
+    // The landing: on past the last tread, reaching across to the next flight's start.
+    const ex = sx + ux * R * N, ez = sz + uz * R * N;
+    const lcx = ex + ux * LAND / 2 + nx * (W / 2 + 0.05), lcz = ez + uz * LAND / 2 + nz * (W / 2 + 0.05);
+    // One even rise for the whole flight, enough that every tread and the landing clear the rock.
+    let rise = 0.13;
+    const need = [];
+    for (let i = 0; i < N; i++) {
+      const f = under(sx + ux * R * (i + 0.5), sz + uz * R * (i + 0.5), ux, uz, nx, nz, R / 2, W / 2);
+      need.push(f); rise = Math.max(rise, (f.hi + 0.03 - top) / (i + 1));
+    }
+    const fl = under(lcx, lcz, ux, uz, nx, nz, LAND / 2, W + 0.05);
+    rise = Math.min(0.23, Math.max(rise, (fl.hi + 0.03 - top) / (N + 1)));
+    for (let i = 0; i < N; i++) {
+      const y1 = top + rise * (i + 1), cx = sx + ux * R * (i + 0.5), cz = sz + uz * R * (i + 0.5);
+      block(cx, cz, yaw, W, R + 0.02, y1, need[i].lo - 0.6);
+    }
+    const ly = top + rise * (N + 1);
+    block(lcx, lcz, yaw, 2 * W + 0.1, LAND, ly, fl.lo - 0.6);
+    // Railings: both sides of the flight (the first flight's foot and the landing's way on stay
+    // open), then round the landing's far end and its uphill side.
+    const e = W / 2 - 0.06, y1 = top + rise, yN = top + rise * N;
+    // The landing also runs back alongside the flight's last treads, on the uphill side, so there
+    // is no gap between this flight and the next where it leaves the landing (and the uphill
+    // railing can stop short of the landing, leaving room to turn).
+    const bx = ex - ux * 0.55 + nx * (W / 2 + 0.05 + W / 2 + 0.07), bz = ez - uz * 0.55 + nz * (W / 2 + 0.05 + W / 2 + 0.07);
+    const fb = under(bx, bz, ux, uz, nx, nz, 0.55, W / 2);
+    block(bx, bz, yaw, W + 0.02, 1.1, ly, fb.lo - 0.6);
+    // A later flight's downhill railing starts past that, so the way on from the landing is open.
+    const d0 = flight > 0 ? 1.25 : 0.15, yd = top + rise * (flight > 0 ? 4 : 1);
+    railing(sx - nx * e + ux * d0, sz - nz * e + uz * d0, yd, ex - nx * e + ux * LAND - ux * 0.06, ez - nz * e + uz * LAND - uz * 0.06, ly);
+    railing(sx + nx * e + ux * 0.15, sz + nz * e + uz * 0.15, y1, ex + nx * e - ux * 0.5, ez + nz * e - uz * 0.5, yN - rise * 2);
+    const fx = ex + ux * (LAND - 0.06), fz = ez + uz * (LAND - 0.06), far = W * 1.5 + 0.05;
+    railing(fx - nx * e, fz - nz * e, ly, fx + nx * far, fz + nz * far, ly);
+    railing(fx + nx * far, fz + nz * far, ly, ex + nx * far + ux * 0.1, ez + nz * far + uz * 0.1, ly);
+    steps += N;
+    top = ly; dir = -dir;
+    sx = ex + nx * (W + 0.1); sz = ez + nz * (W + 0.1);
+  }
+  // The handrail: posts a metre high, a round rail joining each to the next.
+  const postGeo = new THREE.CylinderGeometry(0.03, 0.03, 1, 6);
+  let prev = null;
+  for (const p of posts) {
+    const m = new THREE.Mesh(postGeo, rail); m.position.set(p.x, p.y + 0.5, p.z); m.userData.notGround = true; g.add(m);
+    const tp = new THREE.Vector3(p.x, p.y + 1, p.z);
+    if (prev && prev.distanceTo(tp) < 2.6) {
+      const len = prev.distanceTo(tp), bar = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, len, 6), rail);
+      bar.position.copy(prev).add(tp).multiplyScalar(0.5);
+      bar.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), tp.clone().sub(prev).normalize());
+      bar.userData.notGround = true; g.add(bar);
+    }
+    prev = p.end ? null : tp;
+  }
+  g.userData.steps = steps;
+  return g;
 }

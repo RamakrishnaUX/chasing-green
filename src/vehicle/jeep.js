@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
-import { surfaceHeightAt, surfaceAt, iceAt, roadDistAt, shoreDistAt, exposureAt, waterLevelAt, bridgeGuard, isleAt, BOUNDS } from '../world/terrain.js';
+import { surfaceHeightAt, surfaceAt, iceAt, shoreDistAt, exposureAt, waterLevelAt, bridgeGuard, deckRoofAt, BOUNDS } from '../world/terrain.js';
 import { clamp, lerp } from '../world/noise.js';
 import { buildVehicleModel } from './models.js';
 import { surfaceUniforms } from '../world/materials.js';
@@ -32,8 +32,9 @@ const IMPACT = { rock: { e: 0.22, mu: 0.45 }, wall: { e: 0.16, mu: 0.35 }, tree:
 // bumper check stops it at anything steeper). Without this a wheel on the uphill side of a mound
 // read the land beneath it, and the car's nose dug into the grass.
 let clearTop = null, carBase = null;
+// A bridge deck is ground only to a car up at its level: in the valley underneath, it is a roof.
 function heightAt(x, z) {
-  const base = surfaceHeightAt(x, z), rock = solidTopAt(x, z, clearTop);
+  const base = surfaceHeightAt(x, z, carBase), rock = solidTopAt(x, z, clearTop);
   if (!(rock > base)) return base;
   if (clearTop == null || rock < clearTop - 1.2) return rock;
   return carBase != null && rock < carBase + 2.6 && !solidRoofAt(x, z) ? rock : base;
@@ -376,23 +377,36 @@ export class Jeep {
         warn = 'Too deep for the bike. Find a way round, or take a car.';
       }
     }
-    // How far you can roam. On land: 70 m from a road, but you can always head down to the sea or
-    // a lake and drive along its shore. On the water: 400 m out from the shore. Only moving further
-    // out is stopped, sliding along the limit, so you can always come back.
-    const limit = wet ? V.boatRange : V.offRoadLimit;
-    // Past the edge of the land map there is only open sea: count that distance as offshore too.
-    const outside = (x, z) => Math.max(0, BOUNDS.minX - x, x - BOUNDS.maxX, BOUNDS.minZ - z, z - BOUNDS.maxZ);
-    // An island is small enough to roam all over (its stadium fills much of it): no road limit.
-    const far = wet ? (x, z) => -shoreDistAt(x, z) + outside(x, z) : (x, z) => (isleAt(x, z) ? 0 : roadDistAt(x, z));
-    const dNew = far(this.pos.x, this.pos.z), dOld = far(prevX, prevZ);
-    const shore = wet ? 0 : shoreDistAt(this.pos.x, this.pos.z);
-    const toWater = !wet && (shore < V.shoreBand || shore <= shoreDistAt(prevX, prevZ));
-    if (dNew > limit && dNew > dOld && !toWater) {
-      const e = 2, gx = far(this.pos.x + e, this.pos.z) - far(this.pos.x - e, this.pos.z), gz = far(this.pos.x, this.pos.z + e) - far(this.pos.x, this.pos.z - e);
-      const gl = Math.hypot(gx, gz) || 1, over = dNew - Math.max(limit, dOld);
-      this.pos.x -= (gx / gl) * over; this.pos.z -= (gz / gl) * over;
-      this.vF *= 1 - Math.min(1, 3 * dt);
-      warn = wet ? 'That is far enough out. Turn back toward the shore.' : 'Head back toward the road, or down to the water.';
+    // Under a bridge: the deck overhead is a roof. A car that fits beneath its girders drives
+    // through between the piers; one too tall for the gap (where the banks rise toward the
+    // abutments) stops against it as against a wall.
+    {
+      const roof = deckRoofAt(this.pos.x, this.pos.z, carBase);
+      if (roof != null && carBase + this.kit.height > roof) {
+        const roofPrev = deckRoofAt(prevX, prevZ, carBase);
+        if (roofPrev == null || carBase + this.kit.height <= roofPrev + 0.02) {
+          const mx = this.pos.x - prevX, mz = this.pos.z - prevZ, ml = Math.hypot(mx, mz) || 1;
+          this.pos.x = prevX; this.pos.z = prevZ;
+          this.hitBox({ nx: -mx / ml, nz: -mz / ml, kind: 'wall' }, fx, fz);
+        }
+      }
+    }
+    // How far you can roam. On land: anywhere, off the road and across country as far as the
+    // ground lets the car climb. On the water: 400 m out from the shore. Only moving further out
+    // is stopped, sliding along the limit, so you can always come back.
+    if (wet) {
+      const limit = V.boatRange;
+      // Past the edge of the land map there is only open sea: count that distance as offshore too.
+      const outside = (x, z) => Math.max(0, BOUNDS.minX - x, x - BOUNDS.maxX, BOUNDS.minZ - z, z - BOUNDS.maxZ);
+      const far = (x, z) => -shoreDistAt(x, z) + outside(x, z);
+      const dNew = far(this.pos.x, this.pos.z), dOld = far(prevX, prevZ);
+      if (dNew > limit && dNew > dOld) {
+        const e = 2, gx = far(this.pos.x + e, this.pos.z) - far(this.pos.x - e, this.pos.z), gz = far(this.pos.x, this.pos.z + e) - far(this.pos.x, this.pos.z - e);
+        const gl = Math.hypot(gx, gz) || 1, over = dNew - Math.max(limit, dOld);
+        this.pos.x -= (gx / gl) * over; this.pos.z -= (gz / gl) * over;
+        this.vF *= 1 - Math.min(1, 3 * dt);
+        warn = 'That is far enough out. Turn back toward the shore.';
+      }
     }
 
     // Solid obstacles and bridge parapets: two circles (front and back) give a car-shaped footprint.
@@ -401,7 +415,7 @@ export class Jeep {
       const ax = fx * S.halfLength * 0.62 * k, az = fz * S.halfLength * 0.62 * k;
       const c = { x: this.pos.x + ax, z: this.pos.z + az };
       const ox = c.x, oz = c.z;
-      const hit = bridgeGuard(prevX + ax, prevZ + az, c, S.radius) || (this.obstacles && this.obstacles.resolve(c, S.radius));
+      const hit = bridgeGuard(prevX + ax, prevZ + az, c, S.radius, this.pos.y) || (this.obstacles && this.obstacles.resolve(c, S.radius, false, this.pos.y, this.kit.height));
       if (hit) {
         this.pos.x += c.x - ox; this.pos.z += c.z - oz;
         this.hitBox(hit, fx, fz);

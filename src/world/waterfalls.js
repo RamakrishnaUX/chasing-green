@@ -4,7 +4,7 @@
 // Local frame: +z faces the road (the viewer), y is up from the landmark's level pad.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { createRiverMaterial, riverGeometry, rockMaterial } from './materials.js';
+import { createRiverMaterial, riverGeometry, rockMaterial, createStreamBedMaterial } from './materials.js';
 import { HD } from './hd.js';
 import {
   straightLip, arcLip, sheetGeometry, sheetMaterial, makeSheet, makeSpray, makeRainbow, makePool,
@@ -12,18 +12,23 @@ import {
 } from './falls.js';
 
 const riverMats = new Map();
-function riverMat(kind) {
-  if (riverMats.has(kind)) return riverMats.get(kind);
+// Rivers and streams by kind. soft: a stream across open ground, with a ragged shoreline over
+// its stony bed instead of a straight edge (outflow). Clear water over dark stones reads dark,
+// with the sky in it, not bright blue.
+function riverMat(kind, soft = false) {
+  const key = kind + (soft ? '-soft' : '');
+  if (riverMats.has(key)) return riverMats.get(key);
   const k = {
-    clear: { shallow: [0.24, 0.48, 0.48], deep: [0.03, 0.12, 0.14], speed: 2.2 },
+    clear: { shallow: [0.17, 0.27, 0.26], deep: [0.03, 0.08, 0.09], speed: 2.2 },
     glacial: { shallow: [0.46, 0.5, 0.47], deep: [0.2, 0.22, 0.2], speed: 2.6 },
     silt: { shallow: [0.52, 0.48, 0.4], deep: [0.24, 0.21, 0.17], speed: 2.8 },
     turquoise: { shallow: [0.36, 0.66, 0.66], deep: [0.06, 0.26, 0.3], speed: 1.8 },
   }[kind];
-  const m = createRiverMaterial(k);
-  riverMats.set(kind, m);
+  const m = createRiverMaterial({ ...k, soft });
+  riverMats.set(key, m);
   return m;
 }
+let bedMat = null;
 const POOL = {
   clear: { color: 0x1d4a50 },
   glacial: { color: 0x4a5a58, tint: { shallow: [0.5, 0.56, 0.54], deep: [0.18, 0.22, 0.22] } },
@@ -33,10 +38,12 @@ const POOL = {
 // The river's own colour as it goes over the lip.
 const LIPCOL = { clear: 0x2e4f4c, glacial: 0x6c7672, silt: 0x7a705c, turquoise: 0x3b8486 };
 
+// A hidden wall keeping cars off a cliff. Only cars: on foot the cliff is rock to climb (and
+// Skógafoss's stairway runs up beside its falls).
 function blocker(g, x, y, z, w, h, d, ry = 0) {
   const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d));
   b.position.set(x, y, z); b.rotation.y = ry;
-  b.visible = false; b.userData.collide = true;
+  b.visible = false; b.userData.collide = true; b.userData.carOnly = true;
   g.add(b);
   return b;
 }
@@ -98,19 +105,78 @@ function pour(kit, g, lip, D, o = {}) {
   return { a, b, W, ly };
 }
 
-// A river strip that follows the ground: from (x0, z0) along a wandering line.
-function outflow(kit, g, pts, width, kind, lift = 0.16, start = 2.5) {
+// The stream out of a plunge pool, across the land: from (x0, z0) along a wandering line.
+// Real streams sit in their beds, so this is built as one: the line smoothed into a curve and
+// followed every 0.8 m; the water's surface a few centimetres over the lowest ground across it
+// (so where the land tilts across the stream, the higher bank rises out of the water and shapes
+// its shoreline), never running uphill; its width easing wider and narrower as it goes; a ragged
+// shoreline over a bed of wet stones that fades out into the grass or snow either side; and
+// stones along the banks and a few in the shallows.
+function outflow(kit, g, pts, width, kind, lift = 0.06, start = 2.5) {
   // Stop short of any road (the river goes under it in a culvert, out of sight).
   const keep = [];
   for (const q of pts) { if (kit.roadDist && kit.roadDist(q.x, q.z) < width / 2 + 4) break; keep.push(q); }
   if (keep.length < 2) return null;
-  const p = keep.map((q) => ({ x: q.x, z: q.z, y: q.y ?? (kit.ground(q.x, q.z) + lift) }));
-  // Never flow uphill.
+  const curve = new THREE.CatmullRomCurve3(keep.map((q) => new THREE.Vector3(q.x, 0, q.z)), false, 'centripetal');
+  const len = curve.getLength(), n = Math.max(4, Math.round(len / 0.8));
+  const seed = kit.rand() * 10;
+  const p = curve.getSpacedPoints(n).map((v, i) => {
+    const t = i / n, tan = curve.getTangentAt(Math.min(1, t)), nx = -tan.z, nz = tan.x;
+    // Wider and narrower along its length, and narrowing a little toward its end.
+    const w = width * (0.8 + 0.32 * (0.5 + 0.5 * Math.sin(t * len * 0.21 + seed)) * (0.6 + 0.4 * Math.sin(t * len * 0.07 + seed * 2))) * (1 - 0.25 * THREE.MathUtils.smoothstep(t, 0.7, 1));
+    let y = Infinity;
+    for (const a of [-0.45, -0.2, 0, 0.2, 0.45]) y = Math.min(y, kit.ground(v.x + nx * w * a, v.z + nz * w * a));
+    // Fading out over its last 4 m (into the ground, or where it goes under the road).
+    return { x: v.x, z: v.z, y: y + lift, w, nx, nz, fade: THREE.MathUtils.clamp((1 - t) * len / 4, 0, 1) };
+  });
+  // Given heights (a stream leaving a pool at its surface) are kept, then never flowing uphill.
+  if (keep[0].y != null) p[0].y = keep[0].y;
   for (let i = 1; i < p.length; i++) p[i].y = Math.min(p[i].y, p[i - 1].y);
-  const m = new THREE.Mesh(riverGeometry(p, width, start), riverMat(kind));
-  m.userData.notGround = true;
+  const m = new THREE.Mesh(riverGeometry(p, width, start), riverMat(kind, true));
+  m.userData.notGround = true; m.renderOrder = 2;
   g.add(m);
-  for (let i = 0; i < p.length; i += 2) kit.clearGrass?.(p[i].x, p[i].z, width * 0.6 + 1);
+  // The bed: wider than the water, laid on the land across its width, under the water where the
+  // water covers it.
+  const across = 9, pos = [], uv = [], bw = [], bf = [], idx = [];
+  let dist = -start;
+  p.forEach((q, i) => {
+    if (i > 0) dist += Math.hypot(q.x - p[i - 1].x, q.z - p[i - 1].z);
+    const B = q.w + 2.6;
+    for (let j = 0; j < across; j++) {
+      const a = j / (across - 1) - 0.5, x = q.x + q.nx * B * a, z = q.z + q.nz * B * a;
+      let y = kit.ground(x, z) + 0.05;
+      if (Math.abs(a) * B < q.w / 2) y = Math.min(y, q.y - 0.03);
+      pos.push(x, y, z); uv.push(j / (across - 1), dist); bw.push(B); bf.push(Math.min(1, q.fade * 1.5));
+    }
+    if (i < p.length - 1) for (let j = 0; j < across - 1; j++) { const k = i * across + j; idx.push(k, k + 1, k + across, k + 1, k + across + 1, k + across); }
+  });
+  const bg = new THREE.BufferGeometry();
+  bg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  bg.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  bg.setAttribute('aBedW', new THREE.Float32BufferAttribute(bw, 1));
+  bg.setAttribute('aBedFade', new THREE.Float32BufferAttribute(bf, 1));
+  bg.setIndex(idx); bg.computeVertexNormals();
+  bedMat ||= createStreamBedMaterial();
+  const bed = new THREE.Mesh(bg, bedMat);
+  bed.userData.notGround = true; bed.renderOrder = 1; bed.receiveShadow = true;
+  g.add(bed);
+  // Stones: along both banks, and now and then out in the shallows.
+  for (let i = 2; i < p.length; i++) {
+    const q = p[i];
+    for (const side of [-1, 1]) {
+      if (kit.rand() > 0.42) continue;
+      const s = 0.1 + kit.rand() * kit.rand() * 0.4, off = side * (q.w / 2 + (kit.rand() - 0.3) * 0.9);
+      const x = q.x + q.nx * off, z = q.z + q.nz * off, b = boulder(s, kit.rand);
+      b.position.set(x, kit.ground(x, z) - s * 0.3, z); b.rotation.y = kit.rand() * 6.3; b.userData.notGround = true;
+      g.add(b);
+    }
+    if (kit.rand() < 0.1) {
+      const s = 0.14 + kit.rand() * 0.24, off = (kit.rand() - 0.5) * q.w * 0.7, x = q.x + q.nx * off, z = q.z + q.nz * off, b = boulder(s, kit.rand);
+      b.position.set(x, q.y - s * 0.45, z); b.rotation.y = kit.rand() * 6.3; b.userData.notGround = true;
+      g.add(b);
+    }
+  }
+  for (let i = 0; i < p.length; i += 3) kit.clearGrass?.(p[i].x, p[i].z, p[i].w * 0.6 + 1.4);
   return m;
 }
 function wander(x0, z0, x1, z1, n, amp, phase = 0) {

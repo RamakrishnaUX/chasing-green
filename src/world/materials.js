@@ -705,21 +705,23 @@ vec2 cliffSeen(vec3 R){
 // pier (piers: up to 6 of [x, z, half length along the flow, half thickness]; flow: the downstream
 // direction [x, z]) the water piles up in a collar and trails a widening V of foam downstream.
 // width: the strip's width in metres. Without glacial the look is exactly as before.
-export function createRiverMaterial({ shallow = [0.16, 0.42, 0.44], deep = [0.02, 0.1, 0.12], speed = 2.2, glacial = false, piers = [], flow = [0, 1], width = 20 } = {}) {
+// soft: a stream with no hard edge. Its shoreline is ragged and fades into the wet stones of its
+// bed (streamBedMaterial) where it shallows out, rather than ending in a straight cut.
+export function createRiverMaterial({ shallow = [0.16, 0.42, 0.44], deep = [0.02, 0.1, 0.12], speed = 2.2, glacial = false, piers = [], flow = [0, 1], width = 20, soft = false } = {}) {
   if (glacial) return glacialRiver({ shallow, deep, speed, piers, flow, width });
   // Clear river water: deep and dark in the channel, shelving to the stony bed at the banks, which
   // shows through lit by the caustic web; chop and boils carried downstream at the current's speed,
   // the water clear and mirror-like where it runs smooth, broken white where it runs steep.
-  const mat = new THREE.MeshStandardMaterial({ roughness: 0.05, metalness: 0, side: THREE.DoubleSide });
+  const mat = new THREE.MeshStandardMaterial({ roughness: 0.05, metalness: 0, side: THREE.DoubleSide, transparent: soft });
   const f3 = (v) => v.map((c) => c.toFixed(3)).join(',');
-  mat.customProgramCacheKey = () => `river2-${f3(shallow)}-${f3(deep)}-${speed}`;
+  mat.customProgramCacheKey = () => `river2-${f3(shallow)}-${f3(deep)}-${speed}-${soft ? 's' : ''}`;
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, surfaceUniforms, waterTex);
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute float aSlope; attribute float aW;\nvarying vec2 vRiv;\nvarying float vSlope; varying float vW;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvRiv = uv;\nvSlope = aSlope; vW = aW;');
+      .replace('#include <common>', '#include <common>\nattribute float aSlope; attribute float aW; attribute float aFade;\nvarying vec2 vRiv;\nvarying float vSlope; varying float vW; varying float vFade;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvRiv = uv;\nvSlope = aSlope; vW = aW; vFade = aFade;');
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', `#include <common>\nuniform float uTime; uniform float uNight; uniform vec3 uSunDir;\nvarying vec2 vRiv;\nvarying float vSlope; varying float vW;\n${NOISE}\n${WATER_GLSL}\nfloat rFoam; vec2 rSlope;`)
+      .replace('#include <common>', `#include <common>\nuniform float uTime; uniform float uNight; uniform vec3 uSunDir;\nvarying vec2 vRiv;\nvarying float vSlope; varying float vW; varying float vFade;\n${NOISE}\n${WATER_GLSL}\nfloat rFoam; vec2 rSlope;`)
       .replace('#include <color_fragment>', `
         {
           float dist = length(vViewPosition);
@@ -745,13 +747,18 @@ export function createRiverMaterial({ shallow = [0.16, 0.42, 0.44], deep = [0.02
           // Foam: white water over the steep stretches, lines of it at the banks, flecks riding the current.
           float lace = foamLace(vec2(rc.x, rc.y * 0.6), 2.2, vec2(0.0, -tf * 0.6));
           float white = smoothstep(0.7 - rapids * 0.45, 0.88 - rapids * 0.3, lace + w1.b * 0.25) * (0.15 + rapids);
+          ${soft ? `// A small stream breaks white only in patches (over stones, at its steps), not all over.
+          white *= smoothstep(0.35, 0.75, texture(uFoamTex, vec2(rc.x * 0.3, (rc.y - tf * 0.15) * 0.09)).g) * 0.8;` : ''}
           float bank = smoothstep(0.86, 1.0, across) * smoothstep(0.4, 0.7, lace) * 0.7;
           float fleck = smoothstep(0.8, 0.95, texture(uFoamTex, vec2(rc.x * 0.4, (rc.y - tf) * 0.18)).r) * 0.35 * near;
           rFoam = clamp(max(max(white, bank), fleck), 0.0, 1.0) * (1.0 - smoothstep(200.0, 500.0, dist));
           col = mix(col, vec3(0.92, 0.95, 0.96), rFoam);
           diffuseColor.rgb = pow(col, vec3(2.2)) * mix(1.6, 2.0, rFoam);
+          ${soft ? `// A ragged shoreline: the water thins out over the stones at its edges.
+          float rag = texture(uFoamTex, vec2(rc.x * 0.11, rc.y * 0.07)).g * 0.6 + texture(uFoamTex, vec2(rc.x * 0.37 + 0.3, rc.y * 0.23)).g * 0.4;
+          diffuseColor.a = (1.0 - smoothstep(0.6, 0.98, across + (rag - 0.5) * 0.45)) * smoothstep(0.0, 1.5, vRiv.y) * vFade;` : ''}
         }`)
-      .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = mix(0.04 + 0.1 * smoothstep(20.0, 300.0, length(vViewPosition)), 0.85, rFoam);')
+      .replace('#include <roughnessmap_fragment>', `float roughnessFactor = mix(${soft ? '0.12' : '0.04'} + 0.1 * smoothstep(20.0, 300.0, length(vViewPosition)), 0.85, rFoam);`)
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
         normal = normalize((viewMatrix * vec4(normalize(vec3(-rSlope.x, 1.0, -rSlope.y)), 0.0)).xyz);`);
   };
@@ -836,7 +843,7 @@ function glacialRiver({ shallow, deep, speed, piers, flow, width }) {
 // Build a river strip along points [{x, y, z}], width w. Adds uv and slope for the shader.
 // start: metres at the head of the strip that are not drawn (a river leaving a pool begins inside it).
 export function riverGeometry(points, w, start = 0) {
-  const pos = [], uv = [], slope = [], idx = [];
+  const pos = [], uv = [], slope = [], idx = [], widths = [], fade = [];
   let dist = -start;
   for (let i = 0; i < points.length; i++) {
     const a = points[Math.max(0, i - 1)], b = points[Math.min(points.length - 1, i + 1)];
@@ -845,17 +852,51 @@ export function riverGeometry(points, w, start = 0) {
     if (i > 0) dist += Math.hypot(points[i].x - points[i - 1].x, points[i].z - points[i - 1].z);
     const drop = Math.max(0, (a.y - b.y) / L);
     const p = points[i];
-    pos.push(p.x + nx * w / 2, p.y, p.z + nz * w / 2, p.x - nx * w / 2, p.y, p.z - nz * w / 2);
+    const pw = p.w ?? w; // a point may carry its own width
+    pos.push(p.x + nx * pw / 2, p.y, p.z + nz * pw / 2, p.x - nx * pw / 2, p.y, p.z - nz * pw / 2);
     uv.push(0, dist, 1, dist);
-    slope.push(drop, drop);
+    slope.push(drop, drop); widths.push(pw, pw); fade.push(p.fade ?? 1, p.fade ?? 1);
     if (i < points.length - 1) { const k = i * 2; idx.push(k, k + 2, k + 1, k + 1, k + 2, k + 3); }
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   g.setAttribute('aSlope', new THREE.Float32BufferAttribute(slope, 1));
-  g.setAttribute('aW', new THREE.Float32BufferAttribute(new Float32Array(slope.length).fill(w), 1));
+  g.setAttribute('aW', new THREE.Float32BufferAttribute(widths, 1));
+  g.setAttribute('aFade', new THREE.Float32BufferAttribute(fade, 1)); // a point may fade the water out (soft rivers)
   g.setIndex(idx);
   g.computeVertexNormals();
   return g;
+}
+
+// The bed of a stream across the land: wet dark stones and gravel either side of the water and
+// under its thin edges, fading out at its own edges into the ground (a ribbon a little wider than
+// the water, laid on the land; see waterfalls.js). uv: x across (0 to 1), y metres along.
+export function createStreamBedMaterial() {
+  const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4, metalness: 0, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -8 });
+  mat.customProgramCacheKey = () => 'stream-bed';
+  mat.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, waterTex);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec2 vBed;\nattribute float aBedW; attribute float aBedFade;\nvarying float vBedW; varying float vBedFade;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvBed = uv; vBedW = aBedW; vBedFade = aBedFade;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform sampler2D uFoamTex;\nvarying vec2 vBed;\nvarying float vBedW; varying float vBedFade;')
+      .replace('#include <color_fragment>', `
+        {
+          float across = abs(vBed.x - 0.5) * 2.0;
+          vec2 m = vec2((vBed.x - 0.5) * vBedW, vBed.y);
+          float n1 = texture(uFoamTex, m * 0.19).g, n2 = texture(uFoamTex, m * 0.61 + 0.3).g, n3 = texture(uFoamTex, m * 1.7).r;
+          // Pebbles and stones, darker where wetter (nearer the water), a little moss on the drier ones.
+          float wet = 1.0 - smoothstep(0.25, 0.85, across + (n1 - 0.5) * 0.3);
+          vec3 stone = mix(vec3(0.16, 0.15, 0.13), vec3(0.3, 0.28, 0.25), smoothstep(0.3, 0.8, n2));
+          stone = mix(stone, vec3(0.2, 0.24, 0.14), smoothstep(0.62, 0.9, n1) * (1.0 - wet) * 0.6);
+          stone *= mix(1.0, 0.55, wet) * (0.8 + 0.4 * n3);
+          diffuseColor.rgb = pow(stone, vec3(2.2)) * 1.6;
+          // Fading out into the land at a ragged edge.
+          diffuseColor.a = (1.0 - smoothstep(0.62, 1.0, across + (n1 - 0.5) * 0.5 + (n3 - 0.5) * 0.12)) * smoothstep(-1.5, 1.0, vBed.y) * vBedFade;
+        }`)
+      .replace('#include <roughnessmap_fragment>', `float roughnessFactor = mix(0.85, 0.3, 1.0 - smoothstep(0.25, 0.85, abs(vBed.x - 0.5) * 2.0));`);
+  };
+  return mat;
 }

@@ -4,6 +4,11 @@
 // Rocks and cliffs can carry a height (climb): the car still hits them, but on foot they are
 // ground to climb, read with topAt, rather than walls. A box marked carOnly (the footprint of a
 // building you can walk into) stops vehicles but not someone on foot.
+//
+// A shape can also stand between two heights (band(x, z) -> [low, high], or fixed yLo/yHi): a
+// bridge's railings are up at its deck and its piers stand in the valley under it, so a car
+// down in the valley drives beneath the railings and between the piers, and a car on the deck
+// passes over the piers. Only a query that gives its own height (y, h) is filtered this way.
 
 const CELL = 32;
 const key = (cx, cz) => cx * 73856093 ^ cz * 19349663;
@@ -28,8 +33,9 @@ export class Obstacles {
     return o;
   }
   addBox(x, z, rot, hx, hz, kind = 'wall', climb = null) {
-    const e = Math.hypot(hx, hz);
-    this.insert({ x, z, rot, hx, hz, kind, ...climb }, x - e, x + e, z - e, z + e);
+    const e = Math.hypot(hx, hz), o = { x, z, rot, hx, hz, kind, ...climb };
+    this.insert(o, x - e, x + e, z - e, z + e);
+    return o;
   }
 
   // The highest climbable rock surface at (x, z), or -Infinity where there is none.
@@ -73,7 +79,7 @@ export class Obstacles {
 
   // Push a circle of radius r out of anything it overlaps. Returns the strongest contact
   // { nx, nz, depth, kind, circle, cx, cz } (cx, cz: the obstacle's centre) or null. A climber passes rock it can stand on (see topAt).
-  resolve(pos, r, climber = false) {
+  resolve(pos, r, climber = false, y = null, h = 1.8) {
     const cx = Math.floor(pos.x / CELL), cz = Math.floor(pos.z / CELL);
     let hit = null;
     const seen = new Set();
@@ -83,6 +89,10 @@ export class Obstacles {
       for (const c of list) {
         if (seen.has(c) || (climber && (c.top != null || c.carOnly))) continue;
         seen.add(c);
+        if (y != null && (c.band || c.yLo != null)) {
+          const [lo, hi] = c.band ? c.band(pos.x, pos.z) : [c.yLo, c.yHi];
+          if (y >= hi - 0.05 || y + h <= lo) continue;
+        }
         let nx = 0, nz = 0, depth = 0;
         if (c.circle) {
           const dx = pos.x - c.x, dz = pos.z - c.z, d = Math.hypot(dx, dz), min = c.r + r;

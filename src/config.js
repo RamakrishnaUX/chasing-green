@@ -114,7 +114,7 @@ export const CONFIG = {
     drag: { paved: 0.05, gravel: 0.45, moss: 0.75, sand: 0.9, ford: 2.2 },
     maxSpeedFactor: { paved: 1.0, gravel: 0.72, moss: 0.55, sand: 0.5, ford: 0.28 },
     windPush: 0.55, // how much wind nudges the car
-    offRoadLimit: 70, // how far from any road the jeep can roam
+    offRoadLimit: 70, // swapping from the helicopter, a car further than this from a road is set down on the road
     shoreBand: 200, // off-road you can always head for the water, and roam freely this close to it
     boatRange: 400, // how far out from the shore it can go as a boat
     walkSpeed: 4.2,

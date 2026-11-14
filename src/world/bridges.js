@@ -294,9 +294,14 @@ export function buildBridgeModels(scene, bridges, T) {
     const PL = style === 'onelane' ? 6.4 : style === 'truss' ? 12.6 : 7.2;
     const skew = Math.atan(0.18); // the river crosses at a slight angle (its line winds through here)
     const pierU = [];
+    // What stands in the valley under the deck, for collisions (main.js): each pier and abutment
+    // as a box { x, z, rot, hx, hz, top }, and the deck's underside below the road surface.
+    B.soffit = soffit; B.blocks = [];
+    const yaw = Math.atan2(B.dx, B.dz);
     for (const zz of piers) {
       const w = world(zz, 0), floor = heightAt(w.x, w.z) - 1.5, top = deckAtZ(zz) + soffit - 0.45;
       if (top - floor < 0.8) continue;
+      B.blocks.push({ x: w.x, z: w.z, rot: yaw + skew, hx: PL / 2 - PT * 0.2, hz: PT / 2, top: top + 0.45 });
       add(pierGeo(PL, PT, top - floor, PT * 0.9), concrete, 0, floor, zz, g, skew);
       // Pier cap with bearings.
       add(box(PL - PT * 1.2, 0.45, PT + 0.3), concrete, 0, top + 0.225, zz, g, skew);
@@ -317,6 +322,7 @@ export function buildBridgeModels(scene, bridges, T) {
       for (const lx of [-hw, 0, hw]) { const q = world(zz - s2 * 2, -lx); low = Math.min(low, heightAt(q.x, q.z)); }
       const top = deckAtZ(s2 * B.len / 2) - 0.05 - slabT, bot = Math.min(low - 1.5, top - 3);
       add(box(2 * hw + 0.9, top - bot, 1.2), concrete, 0, (top + bot) / 2, zz, g);
+      const wa = world(zz, 0); B.blocks.push({ x: wa.x, z: wa.z, rot: yaw, hx: hw + 0.45, hz: 0.6, top });
     }
     // Riprap on the banks either side of the river under the bridge, and boulders along both
     // waterlines up and down the valley, wet where the river laps them.
