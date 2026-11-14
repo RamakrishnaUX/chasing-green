@@ -16,6 +16,38 @@ const MAX = 512;
 const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
 const byKey = new Map(); // "url#image" -> THREE.Source, shared between loads of the same model
 
+// Once a phone has a picture on the game's graphics card, the shrunk copy in the page (a canvas or
+// bitmap, about a megabyte each) is let go: it is never read again, and on iPhone every one counts
+// toward the memory that gets a page closed. releasePictures(renderer) does it (main.js calls it
+// after Start and now and then when you are stopped), for each picture whose every texture the
+// game's renderer has uploaded. The cars and the helicopter keep theirs: the start screen and the
+// Garage draw them again in drawing contexts of their own. If a let-go picture were ever needed
+// again (the graphics card's memory was lost), a 1 x 1 stand-in is uploaded instead of an error.
+const users = new Map(); // THREE.Source -> Set of textures using it
+let blank = null;
+const freeable = (d) => d instanceof HTMLCanvasElement || (typeof ImageBitmap !== 'undefined' && d instanceof ImageBitmap) || d instanceof HTMLImageElement;
+function track(t) {
+  let set = users.get(t.source);
+  if (!set) users.set(t.source, (set = new Set()));
+  set.add(t);
+}
+export function releasePictures(renderer) {
+  let n = 0;
+  for (const [src, set] of users) {
+    if (![...set].every((t) => renderer.properties.get(t).__webglTexture)) continue;
+    const c = src.data;
+    users.delete(src);
+    if (!freeable(c)) continue;
+    blank ||= Object.assign(document.createElement('canvas'), { width: 1, height: 1 });
+    src.data = blank;
+    if (c instanceof HTMLCanvasElement) c.width = c.height = 0; // frees the canvas's memory at once
+    else c.close?.(); // an ImageBitmap; a plain image is simply dropped
+    for (const [k, v] of byKey) if (v === src) byKey.delete(k); // a later load decodes afresh
+    n++;
+  }
+  return n;
+}
+
 export function loadGLTF(url) {
   return loader.loadAsync(url).then((g) => { if (isTouch) shrinkPictures(g, url); return g; });
 }
@@ -51,7 +83,13 @@ function shrinkPictures(g, url) {
     done.set(img, t.source);
     if (key) byKey.set(key, t.source);
   };
+  const tracked = new Set();
   g.scene.traverse((o) => {
     for (const m of [].concat(o.material || [])) for (const k in m) if (m[k]?.isTexture) fit(m[k]);
+  });
+  // Every texture now points at its final picture: note it, to be let go once uploaded.
+  if (/car_|heli/.test(url)) return;
+  g.scene.traverse((o) => {
+    for (const m of [].concat(o.material || [])) for (const k in m) { const t = m[k]; if (t?.isTexture && !tracked.has(t) && freeable(t.source.data)) { tracked.add(t); track(t); } }
   });
 }

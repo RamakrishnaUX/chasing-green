@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { grid, heightAt, BOUNDS } from './terrain.js';
 import { surfaceUniforms, NOISE } from './materials.js';
 import { nightSky, NIGHT_SKY_GLSL } from './skyreflect.js';
+import { waterTex, WATER_GLSL } from './water.js';
 
 // Waves on the shore. Swell rolls in from the open sea every nine seconds or so, rises as the
 // water shallows, steepens and breaks where the sea gets too shallow to hold it (out on a gentle
@@ -104,9 +105,9 @@ void surfAt(vec2 p, float h, float d){
 
 function surfMaterial(uniforms, low) {
   const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.1, metalness: 0, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -6 });
-  mat.customProgramCacheKey = () => `surf-${low ? 'low' : 'full'}`;
+  mat.customProgramCacheKey = () => `surf2-${low ? 'low' : 'full'}`;
   mat.onBeforeCompile = (sh) => {
-    Object.assign(sh.uniforms, surfaceUniforms, nightSky, uniforms);
+    Object.assign(sh.uniforms, surfaceUniforms, nightSky, waterTex, uniforms);
     const head = `uniform sampler2D uHeightTex; uniform vec2 uGridMin; uniform vec2 uGridStep; uniform vec2 uGridN;
 float wFetch(ivec2 c){ c = clamp(c, ivec2(0), ivec2(uGridN) - 1); return texelFetch(uHeightTex, c, 0).r; }
 float groundAt(vec2 p){
@@ -145,7 +146,7 @@ float surfY(vec2 p, out float h, out float d){
         vWP = vec3(sp.x, y0, sp.y);`)
       .replace('#include <begin_vertex>', 'vec3 transformed = vWP;');
     sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', `#include <common>\n${head}\n${NOISE}\n${NIGHT_SKY_GLSL}\nfloat sfFoam; float sfWetSand;\nuniform float uTime;\nfloat sWv(vec2 p){ return g_n(p * 0.09 + vec2(uTime * 0.04, uTime * 0.025)) * 0.6 + g_n(p * 0.37 - vec2(uTime * 0.11, -uTime * 0.07)) * 0.3 + g_n(p * 1.3 + uTime * 0.2) * 0.1; }`)
+      .replace('#include <common>', `#include <common>\n${head}\n${NOISE}\n${NIGHT_SKY_GLSL}\nfloat sfFoam; float sfWetSand;\nuniform float uTime;\n${WATER_GLSL}`)
       .replace('#include <color_fragment>', `
         surfAt(vWP.xz, vH, vD);
         // Most of the patch is clear water or dry sand most of the time: stop there.
@@ -199,17 +200,9 @@ float surfY(vec2 p, out float h, out float d){
       .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = mix(mix(0.07, 0.55, sfWetSand), 0.9, sfFoam);')
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
         {
-          // The same ripples as the sea round it (materials.js), so the two meet without a seam.
-          float k = 0.55 * 2.2 * (1.0 - smoothstep(40.0, 700.0, dist)) + 0.15;
-          float e = 0.35;
-          #ifdef SURF_LOW
-          vec2 rp = vWP.xz * 0.37 - vec2(uTime * 0.11, -uTime * 0.07);
-          float h0 = g_n(rp), hx = g_n(rp + vec2(e * 0.37, 0.0)), hz = g_n(rp + vec2(0.0, e * 0.37));
-          k *= 0.5;
-          #else
-          float h0 = sWv(vWP.xz), hx = sWv(vWP.xz + vec2(e, 0.0)), hz = sWv(vWP.xz + vec2(0.0, e));
-          #endif
-          normal = normalize(normal + (viewMatrix * vec4(-(hx - h0) / e * k, 0.0, -(hz - h0) / e * k, 0.0)).xyz);
+          // The same waves as the sea round it (materials.js, water.js), so the two meet without a seam.
+          vec2 ss = seaSlope(vWP.xz, 90.0, 0.7, dist) * mix(0.35, 1.0, smoothstep(0.0, 1.5, max(0.0, -vH)));
+          normal = normalize(normal + (viewMatrix * vec4(-ss.x, 0.0, -ss.y, 0.0)).xyz);
         }`)
       .replace('#include <opaque_fragment>', 'outgoingLight += nightMirror(normal) * (1.0 - sfFoam) * diffuseColor.a;\n// Wet sand: darker, with a soft sheen rather than a mirror.\noutgoingLight *= 1.0 - 0.55 * sfWetSand;\n#include <opaque_fragment>');
   };

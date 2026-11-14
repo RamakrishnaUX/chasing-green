@@ -453,18 +453,39 @@ export class AnimalRigs {
       .catch((e) => console.warn('animal model', sp, e));
   }
 
+  // The far herd's baked poses and their own (instanced) shaders: built in the background (or
+  // while the island loads, by preload), drawn once ready. Resolves when they are.
+  prepFar(K, cap) {
+    K.bakeFar(this.scene, cap);
+    K.farReady = !this.warm;
+    return this.warm ? Promise.all(K.far.map((im) => this.warm(im))).finally(() => { K.farReady = true; }) : Promise.resolve();
+  }
+
+  // Everything an animal needs, made while the island loads instead of the first time one comes
+  // into view: each model fetched and its pictures decoded one at a time (several at once was a
+  // spike of memory, and iPhone closes a page that spikes), shaders built, far herds baked, the
+  // seals' and puffins' instances made. caps: { herd species: cap, seal, puffinStand, puffinFly }.
+  async preload(caps, onEach) {
+    const order = ['sheep', 'horse', 'reindeer', 'fox', 'seal', 'puffin', 'dolphin', 'humpback', 'orca'];
+    for (const sp of order) {
+      this.want(sp);
+      await this.loading[sp];
+      onEach?.(sp);
+    }
+    const jobs = [];
+    for (const sp of ['sheep', 'horse', 'reindeer', 'fox']) { const K = this.kinds[sp]; if (K && !K.far) jobs.push(this.prepFar(K, caps[sp])); }
+    if (this.kinds.seal && !this.seals) { this.seals = this.makeSeals(this.kinds.seal, caps.seal); if (this.warm) jobs.push(this.warm(this.seals)); }
+    if (this.kinds.puffin && !this.puffins) { this.puffins = this.makePuffins(this.kinds.puffin, caps.puffinStand, caps.puffinFly); if (this.warm) for (const m of Object.values(this.puffins)) if (m?.isObject3D) jobs.push(this.warm(m)); }
+    await Promise.all(jobs);
+  }
+
   // A herd species: the nearest as full rigs, the rest as baked instances.
   // list: animals sorted nearest first, each { x, y, z, heading, dist, state, moving, v, alert, hy, look, step }.
   drawHerd(sp, list, dt, cap) {
     this.want(sp);
     const K = this.kinds[sp];
     if (!K) return false;
-    if (!K.far) {
-      K.bakeFar(this.scene, cap);
-      // The far herd's own (instanced) shaders: built in the background, drawn once ready.
-      K.farReady = !this.warm;
-      if (this.warm) Promise.all(K.far.map((im) => this.warm(im))).finally(() => { K.farReady = true; });
-    }
+    if (!K.far) this.prepFar(K, cap);
     const nMax = Math.round(K.S.near * (this.low ? 0.45 : 1)), near = this.low ? 45 : NEAR;
     const want = new Set();
     for (const a of list) { if (want.size >= nMax || a.dist > near) break; want.add(a); }

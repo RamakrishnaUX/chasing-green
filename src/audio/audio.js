@@ -1,3 +1,4 @@
+import { offlineURL } from '../preload.js';
 // Sound is made on the fly with the Web Audio API. The one exception is the music on the car
 // stereo, streamed from files in public/music.
 import { CONFIG } from '../config.js';
@@ -179,10 +180,12 @@ export class AudioEngine {
       src.connect(bass).connect(treble).connect(doors).connect(gain).connect(this.bus.music);
       // Start on either track, then take turns.
       this.music = { el, doors, gain, i: Math.floor(Math.random() * M.tracks.length) };
-      el.addEventListener('ended', () => { this.music.i = (this.music.i + 1) % M.tracks.length; this.music.el.src = M.tracks[this.music.i]; this.music.el.play().catch(() => {}); });
-      el.src = M.tracks[this.music.i];
+      // The tracks were downloaded before Start (preload.js): play them from there, not the network.
+      const load = (i) => offlineURL(M.tracks[i]).then((u) => { if (this.music.el.src !== u) this.music.el.src = u; });
+      el.addEventListener('ended', () => { this.music.i = (this.music.i + 1) % M.tracks.length; load(this.music.i).then(() => this.music.el.play().catch(() => {})); });
+      this.music.loading = load(this.music.i);
     }
-    this.music.el.play().catch(() => {});
+    this.music.loading.then(() => this.music.el.play().catch(() => {}));
   }
 
   // Each vehicle has its own engine (its spec's engine.voice, from engines.js). The helicopter has

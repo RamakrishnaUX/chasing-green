@@ -173,6 +173,13 @@ export class Wildlife {
     return null;
   }
 
+  // Load and ready every animal now (while the island loads), so none arrives mid-drive.
+  preload(onEach) {
+    const caps = { seal: this.herd.seal.cap, puffinStand: this.puffinCap.stand, puffinFly: this.puffinCap.fly };
+    for (const sp of ['sheep', 'horse', 'reindeer', 'fox']) caps[sp] = this.herd[sp]?.cap ?? 60;
+    return this.rigs.preload(caps, onEach);
+  }
+
   ensureWhales(month, pos) {
     const key = month >= 3 && month <= 9 ? 'summer' : 'winter';
     if (this.whaleSeason === key) return;

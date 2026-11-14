@@ -13,9 +13,10 @@
 // - Cliffs are layered lava flows: ledges, overhangs, columns, wet dark rock beside the water and
 //   moss where the spray keeps it damp.
 import * as THREE from 'three';
-import { surfaceUniforms, rockMaterial, createTerrainMaterial, createWaterMaterial } from './materials.js';
+import { surfaceUniforms, rockMaterial, createTerrainMaterial, createPoolMaterial } from './materials.js';
 import { fogSun, HD } from './hd.js';
 import { mulberry32, createNoise2D, clamp } from './noise.js';
+import { waterTex } from './water.js';
 
 // Shared uniforms so every waterfall dims at night and picks up aurora light.
 export const waterUniforms = { uTime: { value: 0 }, uLight: { value: 1 }, uTint: { value: new THREE.Color(0x000000) } };
@@ -25,7 +26,7 @@ export const fallLight = {
   uWind: { value: new THREE.Vector3() }, uViewH: { value: 800 },
 };
 export function updateFalls(env) {
-  if (env.light) { fallLight.uSunCol.value.copy(env.light.sun); fallLight.uAmb.value.copy(env.light.amb); }
+  if (env.light) { fallLight.uSunCol.value.copy(env.light.sun); fallLight.uAmb.value.copy(env.light.amb); waterTex.uSunCol.value.copy(env.light.sun); waterTex.uAmbCol.value.copy(env.light.amb); }
   if (env.wind) fallLight.uWind.value.set(env.wind.x * 0.35, 0, env.wind.z * 0.35);
 }
 const G = 9.8;
@@ -365,39 +366,10 @@ export function makeRainbow(w, h, strength = 0.25) {
 }
 
 // ---------- The pool ----------
-// Foam that spreads out from the impact line in streaks, thinning with distance, over a pool
-// whose outline wanders. impact: [x0, z0, x1, z1] (local).
-const FOAM_FRAG_INJECT = `
-{
-  float dI = vPI.x, al = vPI.y;
-  vec4 N1 = texture2D(uNoise, vec2(al * 0.06, dI * 0.07 - uTime * 0.11));
-  vec4 N2 = texture2D(uNoise, vec2(al * 0.19 + 0.3, dI * 0.21 - uTime * 0.27));
-  vec4 N3 = texture2D(uNoise, vec2(al * 0.5 + 0.7, dI * 0.55 - uTime * 0.5));
-  float spreadK = exp(-dI / (uFoamReach * 0.75));
-  float lace = smoothstep(0.5, 0.68, N1.r * 0.55 + N2.g * 0.3 + N3.a * 0.15 + spreadK * 0.3 - 0.1);
-  float boil = smoothstep(uBoil, uBoil * 0.2, dI) * smoothstep(0.35, 0.65, N3.r * 0.6 + N2.r * 0.4 + 0.1);
-  float foam = clamp(max(boil, lace * (0.25 + 0.75 * spreadK)), 0.0, 1.0);
-  float rim = smoothstep(0.0, 1.2, vPI.z);
-  fFoam = foam;
-  diffuseColor.rgb = vec3(0.84, 0.88, 0.9) * (0.8 + 0.25 * N2.b);
-  diffuseColor.a *= foam * rim * 0.85;
-}`;
-let foamMat = null;
-function foamMaterial(reach, boilR) {
-  const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.55, transparent: true, depthWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
-  const u = { uNoise: { value: fallNoise() }, uFoamReach: { value: reach }, uBoil: { value: boilR } };
-  m.userData.localShading = true;
-  m.onBeforeCompile = (sh) => {
-    Object.assign(sh.uniforms, u, { uTime: waterUniforms.uTime });
-    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec3 aPI; varying vec3 vPI;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvPI = aPI;');
-    sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform sampler2D uNoise; uniform float uTime, uFoamReach, uBoil; varying vec3 vPI; float fFoam;')
-      .replace('#include <color_fragment>', '#include <color_fragment>\n' + FOAM_FRAG_INJECT);
-  };
-  m.customProgramCacheKey = () => 'fall-foam';
-  return m;
-}
+// The pool's water is one surface (createPoolMaterial in materials.js) that knows how far each
+// point is from where the falls hit it: boiling white there, rings and drifting lace spreading out,
+// clear and dark beyond. (It used to be a flat pool under a separate white sheet of foam, which from
+// most angles covered the whole pool like a disc of snow.)
 
 // An irregular pool outline round a centre: rx across, rz out from the falls.
 function poolOutline(cx, cz, rx, rz, seed, n = 48) {
@@ -411,32 +383,15 @@ function poolOutline(cx, cz, rx, rz, seed, n = 48) {
   return pts;
 }
 
-// Pool water plus its foam. Returns a group; y is the water level (local).
-const poolMats = new Map();
-export function makePool({ cx = 0, cz = 4, rx = 8, rz = 6, y = 0.15, impact, color = 0x1d4a50, reach = 4, boil = 2.2, seed = 3, tint } = {}) {
+// Pool water, foam and all. Returns a group; y is the water level (local).
+export function makePool({ cx = 0, cz = 4, rx = 8, rz = 6, y = 0.15, impact, color = 0x1d4a50, reach = 4, boil = 2.2, seed = 3, tint, lip = 10 } = {}) {
   const g = new THREE.Group();
   const outline = poolOutline(cx, cz, rx, rz, seed);
-  const shape = new THREE.Shape(outline.map((v) => new THREE.Vector2(v.x, -v.y)));
-  const geo = new THREE.ShapeGeometry(shape, 1);
-  geo.rotateX(-Math.PI / 2); // shape is in x/y (y = -z); lay it on x/z facing up
-  const key = color + '|' + (tint || '');
-  if (!poolMats.has(key)) {
-    const c = new THREE.Color(color);
-    poolMats.set(key, createWaterMaterial(color, {
-      roughness: 0.06, ripple: 1.6, bowl: 3,
-      shallow: tint?.shallow || [c.r * 2.2, c.g * 2.0, c.b * 1.9].map((v) => Math.min(v, 0.9)),
-      deep: tint?.deep || [c.r * 0.25, c.g * 0.35, c.b * 0.4], foam: 0.8,
-    }));
-  }
-  const water = new THREE.Mesh(geo, poolMats.get(key));
-  water.position.y = y;
-  water.userData.notGround = true;
-  g.add(water);
-  // Foam: the same outline, finely triangulated so each vertex carries its distance from the impact.
   const [x0, z0, x1, z1] = impact;
-  // A polar grid inside the outline, so the foam's varyings are smooth.
-  const RN = 14, AN = outline.length;
-  const fpos = [], fpi = [], fidx = [];
+  // A polar grid inside the outline: each vertex carries its distance from the impact line, along
+  // it, and in from the rim, so the shader's fields are smooth.
+  const RN = 16, AN = outline.length;
+  const pos = [], pi = [], idx = [];
   const segLen = Math.hypot(x1 - x0, z1 - z0) || 1;
   const distToImpact = (x, z) => {
     const t = clamp(((x - x0) * (x1 - x0) + (z - z0) * (z1 - z0)) / (segLen * segLen), 0, 1);
@@ -444,33 +399,41 @@ export function makePool({ cx = 0, cz = 4, rx = 8, rz = 6, y = 0.15, impact, col
     return [Math.hypot(x - px, z - pz), t * segLen];
   };
   for (let a = 0; a < AN; a++) {
-    const o = outline[a];
+    const o = outline[a], R = Math.hypot(o.x - cx, o.y - cz);
     for (let r = 0; r <= RN; r++) {
-      const k = r / RN;
+      // Rings bunched toward the rim, where the depth and the bank's foam change fastest.
+      const k = 1 - Math.pow(1 - r / RN, 1.6);
       const x = cx + (o.x - cx) * k, z = cz + (o.y - cz) * k;
       const [d, along] = distToImpact(x, z);
-      fpos.push(x, 0, z);
-      // z of aPI: distance in from the rim (foam fades at the very edge so it meets the bank softly)
-      fpi.push(d, along + (Math.atan2(z - cz, x - cx) * 0.0), (1 - k) * Math.hypot(o.x - cx, o.y - cz));
+      pos.push(x, 0, z);
+      pi.push(d, along, (1 - k) * R);
     }
   }
   for (let a = 0; a < AN; a++) {
     const b = (a + 1) % AN;
     for (let r = 0; r < RN; r++) {
       const i0 = a * (RN + 1) + r, i1 = b * (RN + 1) + r;
-      fidx.push(i0, i1, i0 + 1, i0 + 1, i1, i1 + 1);
+      idx.push(i0, i1, i0 + 1, i0 + 1, i1, i1 + 1);
     }
   }
-  const foamGeo = new THREE.BufferGeometry();
-  foamGeo.setAttribute('position', new THREE.Float32BufferAttribute(fpos, 3));
-  foamGeo.setAttribute('aPI', new THREE.Float32BufferAttribute(fpi, 3));
-  foamGeo.setAttribute('normal', new THREE.Float32BufferAttribute(new Float32Array(fpos.length).map((_, i) => (i % 3 === 1 ? 1 : 0)), 3));
-  foamGeo.setIndex(fidx);
-  const foam = new THREE.Mesh(foamGeo, foamMaterial(reach, boil));
-  foam.position.y = y + 0.04;
-  foam.renderOrder = 1;
-  foam.userData.notGround = true;
-  g.add(foam);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('aPI', new THREE.Float32BufferAttribute(pi, 3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(new Float32Array(pos.length).map((_, i) => (i % 3 === 1 ? 1 : 0)), 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array((pos.length / 3) * 2), 2));
+  geo.setIndex(idx);
+  geo.computeBoundingSphere(); geo.computeBoundingBox();
+  const c = new THREE.Color(color);
+  const shallow = tint?.shallow || [c.r * 2.2, c.g * 2.0, c.b * 1.9].map((v) => Math.min(v, 0.9));
+  const deep = tint?.deep || [c.r * 0.25, c.g * 0.35, c.b * 0.4];
+  // Glacial and silty water is thick with rock flour: you see only a little way into it.
+  const clarity = tint ? 1.4 : 0.55;
+  const depth = clamp(Math.min(rx, rz) * 0.3, 1.2, 4);
+  const water = new THREE.Mesh(geo, createPoolMaterial({ shallow, deep, reach, boil, depth, clarity, impact, lip }));
+  water.position.y = y;
+  water.receiveShadow = true;
+  water.userData.notGround = true;
+  g.add(water);
   return g;
 }
 

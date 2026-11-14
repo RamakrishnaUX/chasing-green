@@ -92,14 +92,14 @@ function pour(kit, g, lip, D, o = {}) {
     kit.clearGrass?.(cx, cz, Math.max(rx, rz) * 1.2 + 1);
     g.add(makePool({
       cx, cz, rx, rz, y: ly, impact: [a.x, a.z, b.x, b.z],
-      reach: P.reach ?? (2.5 + D * 0.1), boil: P.boil ?? (1.2 + Math.sqrt(D) * 0.35), seed: Math.round(D * 13 + W), ...POOL[P.water || water],
+      reach: P.reach ?? (2.5 + D * 0.1), boil: P.boil ?? (1.2 + Math.sqrt(D) * 0.35), seed: Math.round(D * 13 + W), lip: D, ...POOL[P.water || water],
     }));
   }
   return { a, b, W, ly };
 }
 
 // A river strip that follows the ground: from (x0, z0) along a wandering line.
-function outflow(kit, g, pts, width, kind, lift = 0.16) {
+function outflow(kit, g, pts, width, kind, lift = 0.16, start = 2.5) {
   // Stop short of any road (the river goes under it in a culvert, out of sight).
   const keep = [];
   for (const q of pts) { if (kit.roadDist && kit.roadDist(q.x, q.z) < width / 2 + 4) break; keep.push(q); }
@@ -107,7 +107,7 @@ function outflow(kit, g, pts, width, kind, lift = 0.16) {
   const p = keep.map((q) => ({ x: q.x, z: q.z, y: q.y ?? (kit.ground(q.x, q.z) + lift) }));
   // Never flow uphill.
   for (let i = 1; i < p.length; i++) p[i].y = Math.min(p[i].y, p[i - 1].y);
-  const m = new THREE.Mesh(riverGeometry(p, width), riverMat(kind));
+  const m = new THREE.Mesh(riverGeometry(p, width, start), riverMat(kind));
   m.userData.notGround = true;
   g.add(m);
   for (let i = 0; i < p.length; i += 2) kit.clearGrass?.(p[i].x, p[i].z, width * 0.6 + 1);
@@ -339,7 +339,7 @@ export function godafoss(kit) {
   pour(kit, g, arc(-1.6, -1.42, 4), H - 0.15, { ...opts, v0: 1.2, spray: 0.3, mist: 0.2, veil: false });
   pour(kit, g, arc(1.18, 1.32, 4), H - 0.15, { ...opts, v0: 1.2, spray: 0.3, mist: 0.2, veil: false });
   kit.clearGrass?.(0, 3, R * 1.1);
-  g.add(makePool({ cx: 0, cz: 3, rx: R * 0.95, rz: R * 0.7, y: 0.12, impact: [-8, -6, 8, -6], reach: 7, boil: 4.5, seed: 44, ...POOL.turquoise }));
+  g.add(makePool({ cx: 0, cz: 3, rx: R * 0.95, rz: R * 0.7, y: 0.12, impact: [-8, -6, 8, -6], reach: 7, boil: 4.5, seed: 44, lip: H, ...POOL.turquoise }));
   // The river on the shelf behind, running in from upstream.
   upperRiver(kit, g, 0, H - 0.25, -R + 1, 28, 34, 'turquoise');
   outflow(kit, g, wander(0, 12, 3, 44, 10, 3), 16, 'turquoise');
@@ -494,7 +494,7 @@ export function oxararfoss(kit) {
   pour(kit, g, straightLip(0.9, H - 0.25, lipAt(0) - 0.1, 4).map((p) => ({ ...p, x: p.x + 1.5 })), H - 0.4, { ...opts, veil: false });
   pour(kit, g, straightLip(0.6, H - 0.4, lipAt(0) - 0.15, 3).map((p) => ({ ...p, x: p.x - 2.2 })), H - 0.5, { ...opts, veil: false });
   kit.clearGrass?.(0, 3.5, 7.5);
-  g.add(makePool({ cx: 0, cz: 3.5, rx: 6, rz: 4, y: 0.12, impact: [-2.5, 1.2, 2, 1.2], reach: 2.5, boil: 1.2, seed: 104, ...POOL.clear }));
+  g.add(makePool({ cx: 0, cz: 3.5, rx: 6, rz: 4, y: 0.12, impact: [-2.5, 1.2, 2, 1.2], reach: 2.5, boil: 1.2, seed: 104, lip: H, ...POOL.clear }));
   upperRiver(kit, g, 0, H - 0.3, lipAt(0) - 2.5, 4, 20, 'clear');
   outflow(kit, g, wander(0, 7, 5, 34, 12, 2.5), 3.4, 'clear');
   scatterBoulders(kit, g, 22, (i, r) => ({ x: (r() - 0.5) * 16, z: 0.5 + r() * 9, s: 0.4 + r() * 1.3 }));

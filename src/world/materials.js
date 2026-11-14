@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { HD, HD_TERRAIN, HD_SUN_SHADOW, terrainUniforms, terrainShadowChunk } from './hd.js';
 import { nightSky, NIGHT_SKY_GLSL } from './skyreflect.js';
 import { NOISE_TABLE, NOISE_SIZE } from './noise.js';
+import { waterTex, WATER_GLSL, WAVE_SLOPE } from './water.js';
 
 // The value-noise table as a texture (half floats, filtered, tiling).
 function noiseTexture() {
@@ -473,70 +474,224 @@ float groundAt(vec2 p){
   return (t.x + t.y < 1.0) ? a + (b - a) * t.x + (cc - a) * t.y : d + (cc - d) * (1.0 - t.x) + (b - d) * (1.0 - t.y);
 }`;
 
-// Water that knows how deep it is: shallow turquoise over sand and rock, deep blue further out,
-// moving caustic light in the shallows, foam where it meets the shore, sky reflections on top.
+// Water that knows how deep it is. What you see on real water is mostly what it mirrors: the sky
+// and the sun, strongly at a low angle and hardly at all looking straight down (Fresnel), so the
+// surface's slopes, not its colour, make it read as water. Here:
+//
+// - The surface is wave trains with sharp crests and broad troughs (water.js), read at several
+//   sizes moving at their own speeds, long swell out at sea and short chop on lakes and ponds; it
+//   blurs to a calm mirror with distance and is roughened there, so the sun's path on the sea at
+//   sunset is as wide as it really is and never sparkles into noise.
+// - Under the mirror, the water's own colour: light is absorbed with depth, red first, so the
+//   shallows over sand and rock are clear turquoise with the caustic web of focused sunlight on
+//   the bed, darkening to deep blue-green further out.
+// - The sun shining through the thin top of a wave toward you glows green-blue.
+// - Foam: lace that washes in and drains back at the shoreline and round rocks, and on the open
+//   sea scattered whitecaps on the biggest crests.
 export function createWaterMaterial(color, {
   roughness = 0.08, ripple = 1, shallow = [0.2, 0.46, 0.45], deep = [0.012, 0.05, 0.075],
-  clarity = 0.55, foam = 1, depthAware = true, glow = 0, bowl = 0, surf = false,
+  clarity = 0.55, foam = 1, depthAware = true, glow = 0, bowl = 0, surf = false, waves,
 } = {}) {
   const mat = new THREE.MeshStandardMaterial({ color, roughness, metalness: 0, envMapIntensity: 1.0 });
   mat.userData.water = true; // found by waterSurfaces (main.js): rings, splashes and rotor wash on it
+  // How big the biggest waves are (metres across the largest tile) and how steep: the open sea has
+  // room for long swell; a lake's or a pond's wind raises only short chop.
+  const scale = waves ?? (surf ? 90 : bowl ? 7 : depthAware ? 24 : 10);
+  const amp = surf ? 0.7 : Math.max(0.08, Math.min(0.85, ripple * 0.62));
   // Each set of options writes a different shader, so each needs its own compiled program.
-  const key = `water-${[roughness, ripple, shallow, deep, clarity, foam, depthAware, glow, bowl, surf].join('|')}`;
+  const key = `water2-${[roughness, ripple, shallow, deep, clarity, foam, depthAware, glow, bowl, surf, scale].join('|')}`;
   mat.customProgramCacheKey = () => key;
+  const f3 = (v) => v.map((c) => c.toFixed(3)).join(',');
   mat.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, surfaceUniforms, nightSky);
+    Object.assign(shader.uniforms, surfaceUniforms, nightSky, waterTex);
     shader.vertexShader = shader.vertexShader
       .replace('#include <begin_vertex>', `#include <begin_vertex>\nvWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;${bowl ? '\nvBowl = length(uv - 0.5) * 2.0;' : ''}`)
       .replace('#include <common>', `#include <common>\nvarying vec3 vWPos;${bowl ? '\nvarying float vBowl;' : ''}`);
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', `#include <common>\nuniform float uTime; uniform float uNight;${surf ? ' uniform vec3 uSurfPatch;' : ''}\nvarying vec3 vWPos;${bowl ? '\nvarying float vBowl;' : ''}\n${NOISE}\n${GROUND}\n${NIGHT_SKY_GLSL}
-float wv(vec2 p){ return g_n(p * 0.09 + vec2(uTime * 0.04, uTime * 0.025)) * 0.6 + g_n(p * 0.37 - vec2(uTime * 0.11, -uTime * 0.07)) * 0.3 + g_n(p * 1.3 + uTime * 0.2) * 0.1; }
-float caustic(vec2 p){
-  vec2 q = p * 0.55 + vec2(uTime * 0.12, uTime * 0.08);
-  float a = abs(g_n(q) - 0.5) + abs(g_n(q * 1.7 + 3.1 - uTime * 0.07) - 0.5);
-  return pow(clamp(1.0 - a * 2.2, 0.0, 1.0), 4.0);
-}
-float wDepth; float wFoam;`)
+      .replace('#include <common>', `#include <common>\nuniform float uTime; uniform float uNight; uniform vec3 uSunDir;${surf ? ' uniform vec3 uSurfPatch;' : ''}\nvarying vec3 vWPos;${bowl ? '\nvarying float vBowl;' : ''}\n${NOISE}\n${GROUND}\n${NIGHT_SKY_GLSL}\n${WATER_GLSL}
+float wDepth; float wFoam; vec2 wSlope; float wRough;`)
       .replace('#include <color_fragment>', `
         {
           float dist = length(vViewPosition);
           // A pool laid on the ground (bowl, in metres) deepens from its rim to its middle, so it is
           // clear and dark in the middle with foam only round the edge, not white all over.
           ${bowl ? `wDepth = ${bowl.toFixed(2)} * pow(clamp(1.0 - vBowl, 0.0, 1.0), 0.6);` : depthAware ? 'wDepth = max(0.0, vWPos.y - groundAt(vWPos.xz));' : 'wDepth = 6.0;'}
-          vec3 shallowC = vec3(${shallow.map((v) => v.toFixed(3)).join(',')});
-          vec3 deepC = vec3(${deep.map((v) => v.toFixed(3)).join(',')});
-          // Light is absorbed with depth: red goes first, so deeper water turns blue.
+          // The surface. Very shallow water is held flatter by the bed.
+          wSlope = seaSlope(vWPos.xz, ${scale.toFixed(1)}, ${amp.toFixed(3)}, dist) * mix(0.35, 1.0, smoothstep(0.0, 1.5, wDepth));
+          vec3 shallowC = vec3(${f3(shallow)});
+          vec3 deepC = vec3(${f3(deep)});
+          // Light is absorbed with depth: red goes first, so deeper water turns blue-green.
           vec3 absorb = exp(-wDepth * vec3(0.9, 0.45, 0.32) * ${clarity.toFixed(3)});
-          vec3 bottom = shallowC * (1.0 + 1.4 * caustic(vWPos.xz) * exp(-wDepth * 0.9) * (1.0 - uNight));
+          // The bed seen through the water, lit by the caustic web, refracted a little by the waves.
+          vec2 bedP = vWPos.xz + wSlope * min(wDepth, 3.0) * 0.6;
+          float cau = caustics(bedP) * exp(-wDepth * 0.7) * (1.0 - uNight) * (1.0 - smoothstep(30.0, 140.0, dist));
+          vec3 bottom = shallowC * (0.82 + 1.5 * cau);
           vec3 col = mix(deepC, bottom, absorb);
-          // Foam: bands that wash in at the shoreline and around rocks, breaking up with noise.
-          float edge = 1.0 - smoothstep(0.0, 0.9, wDepth);
-          float bands = 0.5 + 0.5 * sin(wDepth * 9.0 - uTime * 1.6 + g_n(vWPos.xz * 0.3) * 6.0);
-          float brk = smoothstep(0.35, 0.75, g_n(vWPos.xz * 1.1 + uTime * 0.15));
-          wFoam = ${foam.toFixed(2)} * clamp(edge * (0.55 + 0.45 * bands) * mix(0.5, 1.0, brk) + edge * edge * 0.6, 0.0, 1.0);
-          wFoam *= 1.0 - smoothstep(150.0, 450.0, dist);${surf ? `
+          // Foam. At the shoreline and round rocks: lace that washes in and drains back with each
+          // wave, thick at the very edge, thinning to scattered threads a little way out.
+          float edge = 1.0 - smoothstep(0.0, 1.1, wDepth);
+          float wash = 0.5 + 0.5 * sin(wDepth * 5.5 - uTime * 1.25 + texture(uFoamTex, vWPos.xz * 0.013).g * 7.0);
+          float lace = foamLace(vWPos.xz, 7.0, vec2(uTime * 0.11, uTime * 0.07) + wSlope * 0.6);
+          wFoam = ${foam.toFixed(2)} * clamp(smoothstep(0.42 - 0.3 * edge * (0.45 + 0.55 * wash), 0.75, lace) * edge * 1.2 + edge * edge * edge * 0.55, 0.0, 1.0);${surf ? `
+          // Whitecaps: on the open sea the biggest crests break into short-lived patches of white.
+          float cap = smoothstep(0.83, 0.97, wH) * smoothstep(4.0, 12.0, wDepth);
+          wFoam = max(wFoam, cap * smoothstep(0.45, 0.8, foamLace(vWPos.xz, 11.0, vec2(uTime * 0.6, uTime * 0.2))) * 0.8);` : ''}
+          wFoam *= 1.0 - smoothstep(180.0, 520.0, dist);${surf ? `
           // Where the surf is drawn over the sea, its breaking waves take over from this foam.
           if (uSurfPatch.z > 0.0) { vec2 so = abs(vWPos.xz - uSurfPatch.xy); wFoam *= smoothstep(uSurfPatch.z * 0.55, uSurfPatch.z * 0.85, max(so.x, so.y)); }` : ''}
-          col = mix(col, vec3(0.92, 0.95, 0.96), wFoam);
+          col = mix(col, vec3(0.9, 0.94, 0.95), wFoam);
           col += vec3(${glow.toFixed(3)}) * shallowC;
-          diffuseColor.rgb = pow(col, vec3(2.2)) * 2.2;
+          diffuseColor.rgb = pow(col, vec3(2.2)) * 2.0;
           // At night water is dark: what shows on it is the sky it mirrors.
           diffuseColor.rgb *= 1.0 - 0.75 * uNightRefl * (1.0 - wFoam);
+          // Far off, the waves are smaller than a pixel: the blur of all their slopes is a rougher
+          // mirror, which spreads the sun into its long glittering path.
+          wRough = roughness * 0.55 + 0.17 * smoothstep(60.0, 1400.0, dist) + 0.05 * smoothstep(8.0, 60.0, dist);
         }`)
-      .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = mix(roughness, 0.9, wFoam);')
+      .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = mix(wRough, 0.85, wFoam);')
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
         {
           float dist = length(vViewPosition);
-          float k = ${ripple.toFixed(2)} * 2.2 * (1.0 - smoothstep(40.0, 700.0, dist)) + 0.15;
-          float e = 0.35;
-          float h0 = wv(vWPos.xz), hx = wv(vWPos.xz + vec2(e, 0.0)), hz = wv(vWPos.xz + vec2(0.0, e));
-          vec3 nw = normalize(vec3(-(hx - h0) / e * k, 1.0, -(hz - h0) / e * k));
+          vec3 nw = normalize(vec3(-wSlope.x, 1.0, -wSlope.y));
           if (uRain > 0.01) { vec2 rr = rainRings(vWPos.xz, uTime) * uRain * 0.5 * (1.0 - smoothstep(15.0, 45.0, dist)); nw = normalize(nw + vec3(-rr.x, 0.0, -rr.y)); }
           normal = normalize((viewMatrix * vec4(nw, 0.0)).xyz);
         }`);
-    // At night the sky (aurora, moon, stars) is mirrored in the water (skyreflect.js).
-    shader.fragmentShader = shader.fragmentShader.replace('#include <opaque_fragment>', 'outgoingLight += nightMirror(normal) * (1.0 - wFoam);\n#include <opaque_fragment>');
+    // At night the sky (aurora, moon, stars) is mirrored in the water (skyreflect.js). By day the sun
+    // glows through the thin tops of waves seen against the light.
+    shader.fragmentShader = shader.fragmentShader.replace('#include <opaque_fragment>', `outgoingLight += nightMirror(normal) * (1.0 - wFoam);
+      {
+        vec3 vw = normalize(cameraPosition - vWPos), nw = normalize(vec3(-wSlope.x, 1.0, -wSlope.y));
+        float gl = crestGlow(vw, uSunDir, nw, wH) * (1.0 - wFoam) * (1.0 - uNight);
+        outgoingLight += uSunCol * vec3(0.05, 0.2, 0.17) * gl * ${surf ? '0.55' : '0.25'} * smoothstep(1.0, 6.0, wDepth);
+      }
+      #include <opaque_fragment>`);
+  };
+  return mat;
+}
+
+// A waterfall's plunge pool. The falling water hits it along the impact line and everything about
+// the surface follows from that: right under the falls it boils, white and churned, aerated water
+// glowing pale green beneath; rings of chop race outward and calm as they spread; foam rides out on
+// the current in drifting lace that thins to scattered threads and gathers along the banks; and
+// beyond the turmoil the pool is clear, dark and deep, mirroring the cliffs' shadow and the sky.
+//
+// The geometry carries aPI = (distance from the impact line, distance along it, distance in from
+// the rim), all in metres (falls.js makePool). impact: [x0, z0, x1, z1] in the pool's own frame.
+export function createPoolMaterial({ shallow = [0.2, 0.5, 0.5], deep = [0.015, 0.07, 0.085], reach = 4, boil = 2.2, depth = 3, clarity = 0.6, impact = [-2, 0, 2, 0], lip = 10 } = {}) {
+  const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.05, metalness: 0, envMapIntensity: 1.0 });
+  mat.userData.water = true;
+  // Each pool has its own impact line and cliff height (uniforms), sharing one program per look.
+  const key = `pool2-${[shallow, deep, reach, boil, depth, clarity].join('|')}`;
+  mat.customProgramCacheKey = () => key;
+  const own = { uImpact: { value: new THREE.Vector4(...impact) }, uLipH: { value: lip } };
+  const f3 = (v) => v.map((c) => c.toFixed(3)).join(',');
+  mat.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, surfaceUniforms, nightSky, waterTex, own);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute vec3 aPI; varying vec3 vPI; varying vec3 vWPos; varying vec3 vLP; varying vec3 vCamL;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvPI = aPI; vWPos = (modelMatrix * vec4(transformed, 1.0)).xyz; vLP = transformed; vCamL = (inverse(modelMatrix) * vec4(cameraPosition, 1.0)).xyz;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>\nuniform float uTime; uniform float uNight; uniform vec3 uSunDir; uniform vec4 uImpact; uniform float uLipH;\nvarying vec3 vPI; varying vec3 vWPos; varying vec3 vLP; varying vec3 vCamL;\n${NOISE}\n${NIGHT_SKY_GLSL}\n${WATER_GLSL}
+float pFoam; vec2 pSlope; float pTurb; float pRough;
+// What a ray reflected off the pool sees of the cliff behind the falls: how much of it is cliff
+// (x), how much of that is the falling water (y). The cliff is a wall standing on the impact
+// line, as tall as the lip, running on a little to each side of the falls.
+vec2 cliffSeen(vec3 R){
+  if (R.y <= 0.0) return vec2(0.0);
+  vec2 A = uImpact.xy, d = uImpact.zw - A; float L = max(length(d), 0.5); d /= L;
+  vec2 nr = vec2(-d.y, d.x);
+  float dn = dot(R.xz, nr), t = dot(A - vLP.xz, nr) / (abs(dn) > 1e-4 ? dn : 1e-4);
+  if (t <= 0.0) return vec2(0.0);
+  float hy = R.y * t, s = dot(vLP.xz + R.xz * t - A, d) - L * 0.5;
+  float on = 1.0 - smoothstep(uLipH * 0.9, uLipH * 1.04, hy);
+  on *= 1.0 - smoothstep(L * 0.5 + uLipH * 0.5, L * 0.5 + uLipH * 1.3, abs(s));
+  float fall = 1.0 - smoothstep(L * 0.5 - 0.4, L * 0.5 + 0.8, abs(s));
+  // Streaks in the reflected falls, running down as the real ones do.
+  float st = texture(uFoamTex, vec2(s * 0.12, hy * 0.035 + uTime * 0.5)).a;
+  return vec2(on, fall * (0.55 + 0.6 * st));
+}`)
+      .replace('#include <color_fragment>', `
+        {
+          float dist = length(vViewPosition);
+          float dI = vPI.x, al = vPI.y, rim = vPI.z;
+          float R = ${reach.toFixed(2)}, B = ${boil.toFixed(2)};
+          // How violent the water is: churning in the boil under the falls, calming as it spreads.
+          pTurb = exp(-dI / (R * 0.55)) + 0.6 * (1.0 - smoothstep(0.0, B * 1.1, dI));
+          // Rings of chop racing outward from the impact (several trains, so they never look regular),
+          // plus the churn itself, read from the wave tile flowing outward.
+          float t = uTime;
+          float r1 = sin(dI * 3.1 - t * 6.2 + g_n(vec2(al * 0.35, dI * 0.2)) * 4.0);
+          float r2 = sin(dI * 5.3 - t * 8.1 + g_n(vec2(al * 0.6 + 4.0, dI * 0.4)) * 5.0);
+          float r3 = sin(dI * 9.7 - t * 11.0 + g_n(vec2(al * 1.1 + 9.0, dI * 0.8)) * 6.0);
+          float ringK = exp(-dI / (R * 1.2));
+          // The slope of the rings points away from the impact line: its direction across the pool
+          // is the gradient of dI, found from how dI changes across the screen.
+          vec2 gx = dFdx(vWPos.xz), gy = dFdy(vWPos.xz); float ddx = dFdx(dI), ddy = dFdy(dI);
+          float det = gx.x * gy.y - gx.y * gy.x;
+          vec2 outward = abs(det) > 1e-7 ? (vec2(ddx * gy.y - ddy * gx.y, gx.x * ddy - gy.x * ddx) / det) : vec2(0.0);
+          outward = length(outward) > 1e-4 ? normalize(outward) : vec2(0.0, 1.0);
+          float ringS = (cos(dI * 3.1 - t * 6.2) * 0.5 + cos(dI * 5.3 - t * 8.1) * 0.32 * 1.7 + cos(dI * 9.7 - t * 11.0) * 0.2 * 3.1) * ringK * 0.16;
+          // Churn: the wave tile at a small size, flowing outward along the current.
+          vec2 flowP = vWPos.xz - outward * t * mix(0.4, 1.6, pTurb);
+          vec2 churn = seaSlope(flowP, 5.5, 1.0, dist * 3.0);
+          vec2 calm = seaSlope(vWPos.xz, 12.0, 0.22, dist * 2.0);
+          // Far off, the churn is finer than a pixel: let it settle to its average, not sparkle.
+          float near = 1.0 - smoothstep(25.0, 90.0, dist);
+          pSlope = outward * ringS * near + churn * (0.05 + 0.5 * pTurb) * mix(0.45, 1.0, near) + calm * (1.0 - min(pTurb, 1.0));
+          pSlope *= mix(0.4, 1.0, smoothstep(0.0, 0.8, rim)); // held flat against the bank
+          // Depth: deep in the middle of the pool, shelving up to the rim.
+          float wDepth = ${depth.toFixed(2)} * smoothstep(0.0, 3.5, rim);
+          vec3 absorb = exp(-wDepth * vec3(0.9, 0.45, 0.32) * ${clarity.toFixed(3)});
+          vec2 bedP = vWPos.xz + pSlope * min(wDepth, 2.0) * 0.6;
+          float cau = caustics(bedP * 1.4) * exp(-wDepth * 0.8) * (1.0 - uNight) * (1.0 - smoothstep(25.0, 90.0, dist)) * (1.0 - min(pTurb, 1.0));
+          // The bed: dark wet gravel and stones at the edge, the water's own clear colour deeper in.
+          vec3 bed = mix(vec3(0.075, 0.07, 0.055) * (0.8 + 0.4 * texture(uFoamTex, vWPos.xz * 0.35).g), vec3(${f3(shallow)}), smoothstep(0.2, 2.5, rim));
+          vec3 col = mix(vec3(${f3(deep)}), bed * (0.8 + 1.4 * cau), absorb);
+          // Air churned into the water near the falls scatters light: pale green-white below the
+          // surface, fading out as the bubbles rise and the water clears.
+          float aer = clamp(pTurb * 0.8 + exp(-dI / (R * 1.6)) * 0.35, 0.0, 1.0);
+          col = mix(col, vec3(0.3, 0.46, 0.43), aer * 0.65);
+          // Foam: the white boil, then lace drifting outward on the current, breaking up and
+          // thinning, and a line of it collected along the banks.
+          vec2 drift = -outward * t * 0.9;
+          float lace = foamLace(vWPos.xz, 4.6, drift + vec2(al * 0.02, 0.0));
+          float lace2 = foamLace(vWPos.xz + 17.0, 1.4, drift * 1.3);
+          float bub = texture(uFoamTex, (vWPos.xz - outward * t * 0.6) / 0.9).b;
+          float spread = exp(-dI / R);
+          // The boil: heaped, churning white, ragged at its edge where it breaks into clumps.
+          float bn = texture(uFoamTex, (vWPos.xz - outward * t * 1.4) / 2.6).g * 0.6 + texture(uFoamTex, (vWPos.xz + outward * t * 0.7) / 1.1 + 0.5).g * 0.4;
+          float boilF = (1.0 - smoothstep(B * 0.25, B * 1.15, dI + (bn - 0.5) * B * 1.1)) * smoothstep(0.15, 0.5, lace2 * 0.5 + bn * 0.7);
+          // (Thin threads far off are under a pixel: they would only sparkle, so they need more foam to show.)
+          float far = smoothstep(10.0, 45.0, dist);
+          float drifting = smoothstep(0.62 - 0.32 * spread + far * 0.12, 0.85 - 0.15 * spread + far * 0.08, lace) * (0.2 + 0.8 * spread);
+          float bank = (1.0 - smoothstep(0.0, 0.9, rim)) * smoothstep(0.35, 0.7, lace2) * 0.8;
+          pFoam = clamp(max(max(boilF, drifting), bank) + bub * spread * 0.35 * (1.0 - smoothstep(6.0, 25.0, dist)), 0.0, 1.0);
+          pFoam *= 1.0 - smoothstep(160.0, 420.0, dist);
+          col = mix(col, vec3(0.92, 0.95, 0.96) * (0.78 + 0.22 * bn), pFoam);
+          diffuseColor.rgb = pow(col, vec3(2.2)) * mix(1.5, 2.0, pFoam);
+          diffuseColor.rgb *= 1.0 - 0.75 * uNightRefl * (1.0 - pFoam);
+          pRough = mix(0.035, 0.22, min(pTurb, 1.0)) + 0.08 * smoothstep(20.0, 200.0, dist);
+        }`)
+      .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = mix(pRough, 0.85, pFoam);')
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+        {
+          float dist = length(vViewPosition);
+          vec3 nw = normalize(vec3(-pSlope.x, 1.0, -pSlope.y));
+          if (uRain > 0.01) { vec2 rr = rainRings(vWPos.xz, uTime) * uRain * 0.5 * (1.0 - smoothstep(15.0, 45.0, dist)); nw = normalize(nw + vec3(-rr.x, 0.0, -rr.y)); }
+          normal = normalize((viewMatrix * vec4(nw, 0.0)).xyz);
+        }`)
+      // The cliff and the falls themselves, mirrored in the pool (the sky's light map knows only the
+      // sky, so without this the pool under a dark cliff mirrored bright sky and looked like ice).
+      .replace('#include <lights_fragment_maps>', `#include <lights_fragment_maps>
+        {
+          vec3 nl = normalize(vec3(-pSlope.x, 1.0, -pSlope.y));
+          vec3 R = reflect(normalize(vLP - vCamL), nl);
+          vec2 cs = cliffSeen(R);
+          vec3 rock = vec3(0.075, 0.08, 0.065) * (uAmbCol * 1.1 + uSunCol * 0.25);
+          vec3 fallC = vec3(0.85, 0.88, 0.88) * (uAmbCol * 1.0 + uSunCol * 0.3);
+          radiance = mix(radiance, mix(rock, fallC, cs.y), cs.x * (1.0 - pFoam) * (1.0 - uNight * 0.6));
+        }`)
+      .replace('#include <opaque_fragment>', 'outgoingLight += nightMirror(normal) * (1.0 - pFoam);\n#include <opaque_fragment>');
   };
   return mat;
 }
@@ -552,27 +707,53 @@ float wDepth; float wFoam;`)
 // width: the strip's width in metres. Without glacial the look is exactly as before.
 export function createRiverMaterial({ shallow = [0.16, 0.42, 0.44], deep = [0.02, 0.1, 0.12], speed = 2.2, glacial = false, piers = [], flow = [0, 1], width = 20 } = {}) {
   if (glacial) return glacialRiver({ shallow, deep, speed, piers, flow, width });
-  const mat = new THREE.MeshStandardMaterial({ roughness: 0.12, metalness: 0, side: THREE.DoubleSide });
+  // Clear river water: deep and dark in the channel, shelving to the stony bed at the banks, which
+  // shows through lit by the caustic web; chop and boils carried downstream at the current's speed,
+  // the water clear and mirror-like where it runs smooth, broken white where it runs steep.
+  const mat = new THREE.MeshStandardMaterial({ roughness: 0.05, metalness: 0, side: THREE.DoubleSide });
+  const f3 = (v) => v.map((c) => c.toFixed(3)).join(',');
+  mat.customProgramCacheKey = () => `river2-${f3(shallow)}-${f3(deep)}-${speed}`;
   mat.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, surfaceUniforms);
+    Object.assign(shader.uniforms, surfaceUniforms, waterTex);
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute float aSlope;\nvarying vec2 vRiv;\nvarying float vSlope;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvRiv = uv;\nvSlope = aSlope;');
+      .replace('#include <common>', '#include <common>\nattribute float aSlope; attribute float aW;\nvarying vec2 vRiv;\nvarying float vSlope; varying float vW;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvRiv = uv;\nvSlope = aSlope; vW = aW;');
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', `#include <common>\nuniform float uTime;\nvarying vec2 vRiv;\nvarying float vSlope;\n${NOISE}\nfloat rFoam;`)
+      .replace('#include <common>', `#include <common>\nuniform float uTime; uniform float uNight; uniform vec3 uSunDir;\nvarying vec2 vRiv;\nvarying float vSlope; varying float vW;\n${NOISE}\n${WATER_GLSL}\nfloat rFoam; vec2 rSlope;`)
       .replace('#include <color_fragment>', `
         {
-          float across = abs(vRiv.x - 0.5) * 2.0;
-          float spd = ${speed.toFixed(2)} * (1.0 + vSlope * 6.0);
-          vec2 q = vec2(vRiv.x * 6.0, vRiv.y * 0.35 - uTime * spd);
-          float streak = g_n(vec2(q.x * 2.0, q.y)) * 0.6 + g_n(vec2(q.x * 5.0, q.y * 2.5)) * 0.4;
-          vec3 col = mix(vec3(${deep.join(',')}), vec3(${shallow.join(',')}), across * 0.8 + streak * 0.25);
+          float dist = length(vViewPosition);
+          // A river leaving a pool starts under the pool's water (its first metres carry a negative
+          // distance along): drawn there, its square end showed on top of the pool.
+          if (vRiv.y < 0.0) discard;
+          float W = max(vW, 1.0), across = abs(vRiv.x - 0.5) * 2.0;
+          vec2 rc = vec2((vRiv.x - 0.5) * W, vRiv.y); // metres: across, along
+          float spd = ${speed.toFixed(2)} * (1.0 + vSlope * 6.0), tf = uTime * spd;
           float rapids = smoothstep(0.04, 0.18, vSlope);
-          rFoam = clamp(smoothstep(0.62 - rapids * 0.45, 0.85 - rapids * 0.3, streak) * (0.35 + rapids) + smoothstep(0.8, 1.0, across) * 0.5, 0.0, 1.0);
-          col = mix(col, vec3(0.93, 0.96, 0.97), rFoam);
-          diffuseColor.rgb = pow(col, vec3(2.2)) * 2.2;
+          // Chop carried downstream, drawn out a little along the current; boils welling up.
+          vec3 w1 = texture(uWaveTex, vec2(rc.x, (rc.y - tf) * 0.7) / 4.5).rgb;
+          vec3 w2 = texture(uWaveTex, vec2(rc.x * 1.2 + 0.37, (rc.y - tf * 1.12) * 0.8) / 1.6).rgb;
+          vec2 s1 = (w1.rg * 2.0 - 1.0) * ${WAVE_SLOPE.toFixed(2)}, s2 = (w2.rg * 2.0 - 1.0) * ${WAVE_SLOPE.toFixed(2)};
+          float near = 1.0 - smoothstep(30.0, 160.0, dist);
+          rSlope = (s1 * 0.16 + s2 * 0.12 * near) * (1.0 + rapids * 1.6) * mix(0.35, 1.0, smoothstep(0.98, 0.6, across));
+          // Depth across the channel, shallower where it runs steep.
+          float depth = (1.0 - across * across) * mix(1.4, 0.6, rapids);
+          vec3 absorb = exp(-depth * vec3(0.9, 0.45, 0.32) * 1.1);
+          float cau = caustics(rc + rSlope * 0.5) * exp(-depth * 0.8) * (1.0 - uNight) * near;
+          vec3 bed = mix(vec3(0.085, 0.078, 0.06) * (0.75 + 0.5 * texture(uFoamTex, rc * 0.3).g), vec3(${f3(shallow)}) * 0.8, smoothstep(0.95, 0.4, across));
+          vec3 col = mix(vec3(${f3(deep)}) * 0.85, bed * (0.8 + 1.3 * cau), absorb);
+          // Foam: white water over the steep stretches, lines of it at the banks, flecks riding the current.
+          float lace = foamLace(vec2(rc.x, rc.y * 0.6), 2.2, vec2(0.0, -tf * 0.6));
+          float white = smoothstep(0.7 - rapids * 0.45, 0.88 - rapids * 0.3, lace + w1.b * 0.25) * (0.15 + rapids);
+          float bank = smoothstep(0.86, 1.0, across) * smoothstep(0.4, 0.7, lace) * 0.7;
+          float fleck = smoothstep(0.8, 0.95, texture(uFoamTex, vec2(rc.x * 0.4, (rc.y - tf) * 0.18)).r) * 0.35 * near;
+          rFoam = clamp(max(max(white, bank), fleck), 0.0, 1.0) * (1.0 - smoothstep(200.0, 500.0, dist));
+          col = mix(col, vec3(0.92, 0.95, 0.96), rFoam);
+          diffuseColor.rgb = pow(col, vec3(2.2)) * mix(1.6, 2.0, rFoam);
         }`)
-      .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = mix(0.1, 0.85, rFoam);');
+      .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = mix(0.04 + 0.1 * smoothstep(20.0, 300.0, length(vViewPosition)), 0.85, rFoam);')
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+        normal = normalize((viewMatrix * vec4(normalize(vec3(-rSlope.x, 1.0, -rSlope.y)), 0.0)).xyz);`);
   };
   return mat;
 }
@@ -653,9 +834,10 @@ function glacialRiver({ shallow, deep, speed, piers, flow, width }) {
 }
 
 // Build a river strip along points [{x, y, z}], width w. Adds uv and slope for the shader.
-export function riverGeometry(points, w) {
+// start: metres at the head of the strip that are not drawn (a river leaving a pool begins inside it).
+export function riverGeometry(points, w, start = 0) {
   const pos = [], uv = [], slope = [], idx = [];
-  let dist = 0;
+  let dist = -start;
   for (let i = 0; i < points.length; i++) {
     const a = points[Math.max(0, i - 1)], b = points[Math.min(points.length - 1, i + 1)];
     const dx = b.x - a.x, dz = b.z - a.z, L = Math.hypot(dx, dz) || 1;
@@ -672,6 +854,7 @@ export function riverGeometry(points, w) {
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   g.setAttribute('aSlope', new THREE.Float32BufferAttribute(slope, 1));
+  g.setAttribute('aW', new THREE.Float32BufferAttribute(new Float32Array(slope.length).fill(w), 1));
   g.setIndex(idx);
   g.computeVertexNormals();
   return g;

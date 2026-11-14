@@ -1,3 +1,5 @@
+// First: wraps fetch and starts downloading every file the game uses (preload.js).
+import { allAssets, preloadProgress } from './preload.js';
 import './ui/style.css';
 import * as THREE from 'three';
 import { CONFIG } from './config.js';
@@ -38,6 +40,7 @@ import { updateInterior, turnWheel, trackTitle } from './vehicle/interiors.js';
 import { Walker } from './vehicle/walker.js';
 import { Heli } from './vehicle/heli.js';
 import { loadCarModels, modelReady, whenModel } from './vehicle/models.js';
+import { releasePictures } from './world/gltf.js';
 import { grime, updateGrime, setDirtColor } from './vehicle/grime.js';
 import { Mirrors } from './vehicle/mirrors.js';
 import { Driver } from './vehicle/driver.js';
@@ -102,7 +105,21 @@ const challenge = dailyChallenge();
 
 // ---------- Renderer ----------
 const canvas = $('game');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: qualityName !== 'low', powerPreference: isTouch ? 'default' : 'high-performance' });
+// With many tabs open the browser can refuse a new drawing context (each tab's graphics share the
+// one card and its memory). Try a lighter one before giving up, and say what to do if none comes.
+function makeRenderer() {
+  const tries = [
+    { antialias: qualityName !== 'low', powerPreference: isTouch ? 'default' : 'high-performance' },
+    { antialias: false, powerPreference: isTouch ? 'default' : 'high-performance' },
+    { antialias: false, powerPreference: 'default', precision: 'mediump' },
+  ];
+  for (const o of tries) { try { return new THREE.WebGLRenderer({ canvas, ...o }); } catch (e) { console.warn('WebGL context', o, e); } }
+  const msg = document.getElementById('loading');
+  if (msg) msg.textContent = 'Your browser could not start the 3D graphics. Close some other tabs (or turn on Memory Saver in Chrome\u2019s settings) and reload.';
+  document.querySelector('#start')?.classList.add('is-failed');
+  throw new Error('No WebGL context');
+}
+const renderer = makeRenderer();
 renderer.setPixelRatio(Math.min(devicePixelRatio, Q.pixelRatio));
 renderer.setSize(innerWidth, innerHeight, false);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -397,6 +414,21 @@ async function buildWorld(progress) {
   surfaceUniforms.uSnowLine.value = snowLineFor(clock.month);
   // Compile every shader now, in parallel where the browser allows, instead of freezing the
   // first frame doing it.
+  // Everything else the game will download or build, done now rather than mid-drive: every file
+  // (preload.js), every car model, the person and the helicopter, and every animal (fetched and
+  // decoded one at a time, shaders built, herds baked). Phones on a slow connection get up to
+  // three minutes; past that the game starts and anything missing arrives as before.
+  {
+    const done = (async () => {
+      await stage('Downloading the island', 0.965, 4000);
+      const tick = setInterval(() => { progress((0.965 + 0.015 * preloadProgress.value) * BUILD_SHARE, 300, `Downloading the island ${Math.round(preloadProgress.value * 100)}%`); }, 250);
+      await allAssets.finally(() => clearInterval(tick));
+      await stage('Waking the wildlife', 0.985, 3000);
+      await Promise.all([carsLoaded, driver.ready, walker.ready, diver.ready, heli.ready].map((p) => Promise.resolve(p).catch(() => {})));
+      await wildlife.preload();
+    })();
+    await Promise.race([done.catch((e) => console.warn('preload', e)), new Promise((r) => setTimeout(r, 180000))]);
+  }
   await stage('Mixing the colours', 1, 1200);
   // Things hidden at load (night lights, the aurora, the route beacon) are compiled too, shown just
   // for the call, so dusk or the first aurora never freezes the game while their shaders build.
@@ -424,6 +456,14 @@ async function buildWorld(progress) {
   if (post) renderer.setRenderTarget(post.composer.renderTarget1);
   try { compiled = eachLightSet(() => renderer.compileAsync(scene, camera)); } catch { renderer.compile(scene, camera); }
   renderer.setRenderTarget(was);
+  // Every picture onto the graphics card now too (the animals', the helicopter's, the walker's), so
+  // none is uploaded, a hitch, the first time its owner comes into view. On a phone each model
+  // picture's copy in the page is then let go (gltf.js).
+  {
+    const seen = new Set(), up = (root) => root?.traverse((o) => { for (const m of [].concat(o.material || [])) for (const k in m) { const t = m[k]; if (t?.isTexture && !t.isRenderTargetTexture && !seen.has(t) && t.image) { seen.add(t); try { renderer.initTexture(t); } catch { /* on first use */ } } } });
+    up(scene);
+    for (const K of Object.values(wildlife.rigs.kinds)) up(K.template);
+  }
   for (const o of hidden) o.visible = false;
   for (const g of extra) scene.remove(g);
   if (compiled) try { await Promise.race([compiled, new Promise((r) => setTimeout(r, 4000))]); } catch { /* compiles on first use */ }
@@ -1739,7 +1779,7 @@ document.fonts.ready.then(fitSplashTitle);
 addEventListener('resize', fitSplashTitle);
 $('splash').addEventListener('pointerdown', (e) => { e.preventDefault(); closeSplash(); });
 addEventListener('keydown', (e) => { if ($('intro').classList.contains('is-splash') && !e.metaKey && !e.ctrlKey) { e.preventDefault(); e.stopImmediatePropagation(); closeSplash(); } }, true);
-loadCarModels((kind) => {
+const carsLoaded = loadCarModels((kind) => {
   cover.refresh(kind);
   gg.cover?.refresh(kind);
   if (jeep && jeep.kind === kind && ride === 'car') jeep.setType(kind);
@@ -1776,6 +1816,8 @@ startBtn.addEventListener('click', () => {
   // The cover fades out over the island; then its two canvases let go of their GPU contexts.
   setTimeout(() => { $('intro').hidden = true; cover.stop(); introSky.stop(); }, 900);
   whenCalm(() => cover.dispose(), 2000);
+  // Phones: let go of the page's copies of model pictures already on the graphics card (gltf.js).
+  if (isTouch) { const rel = () => releasePictures(renderer); setTimeout(rel, 4000); setInterval(rel, 30000); }
   hud.show();
   syncTouch();
   playOpening();
@@ -3075,6 +3117,49 @@ function frame(now) {
   }
 }
 
+// ---------- When the browser takes the page away ----------
+// A phone can close a page that holds too much memory, or that sat in the background, and load it
+// again from the start; a computer's graphics can be reset (a driver hiccup, too many tabs). Two
+// guards:
+// - Where you are is noted every few seconds for this tab (sessionStorage, which survives the page
+//   being reloaded in the same tab). If the page comes back within half an hour, the island loads
+//   (fast, its files are kept on the device by preload.js) with the car where you left it, and
+//   Start reads "Continue your drive".
+// - If the drawing context is lost, the game holds still and says so, and carries on when the
+//   browser gives it back. On a phone the models' pictures were let go once uploaded (gltf.js),
+//   so the cars are rebuilt from their files (read from the device, not the network).
+const RESUME_KEY = 'chasing-green:resume';
+const resumeAt = (() => {
+  try {
+    const r = JSON.parse(sessionStorage.getItem(RESUME_KEY) || 'null');
+    return r && Date.now() - r.t < 30 * 60 * 1000 && Number.isFinite(r.x) && Number.isFinite(r.z) ? r : null;
+  } catch { return null; }
+})();
+function saveResume() {
+  if (!started || !jeep) return;
+  try {
+    const inCar = ride === 'car' && (mode === 'chase' || mode === 'lookup');
+    const p = inCar ? jeep.pos : mode === 'walk' ? walker.pos : jeep.pos;
+    sessionStorage.setItem(RESUME_KEY, JSON.stringify({ x: p.x, z: p.z, heading: jeep.heading, onRoad: inCar, hours: clock.gameHours, t: Date.now() }));
+  } catch { /* storage unavailable */ }
+}
+setInterval(saveResume, 5000);
+addEventListener('pagehide', saveResume);
+document.addEventListener('visibilitychange', () => { if (document.hidden) saveResume(); });
+let contextLost = false;
+canvas.addEventListener('webglcontextlost', (e) => {
+  e.preventDefault(); // ask for it back
+  contextLost = true;
+  track('graphics_context_lost', { started });
+  if (started) hud?.toast('Graphics paused by the browser. Picking up where you were\u2026', { seconds: 4 });
+});
+canvas.addEventListener('webglcontextrestored', () => {
+  contextLost = false;
+  track('graphics_context_restored', { started });
+  if (isTouch) loadCarModels((kind) => { if (jeep && jeep.kind === kind && ride === 'car') jeep.setType(kind); });
+  redrawUnderMenu?.();
+});
+
 // ---------- Boot ----------
 // The Start button is the loading bar: it fills with green as the island is built, shows what
 // is happening and how far along it is, then turns into the full Start driving button.
@@ -3100,7 +3185,16 @@ function countUp() {
 // A plain timer, not animation frames, so the number keeps up even when frames are scarce.
 const countTimer = setInterval(countUp, 50);
 const bootStart = performance.now();
-requestAnimationFrame(() => setTimeout(async () => {
+// (A page opened in a background tab gets no animation frames until it is looked at: start anyway.)
+const bootSoon = (fn) => (document.hidden ? setTimeout(fn, 30) : requestAnimationFrame(() => setTimeout(fn, 30)));
+// Loading slowly (a busy computer: many tabs, a video playing elsewhere)? Say what helps.
+const slowHint = setTimeout(() => {
+  const el = $('loading');
+  if (el && !el.textContent) el.textContent = isTouch
+    ? 'Still building the island. Closing other apps and browser tabs gives it more memory.'
+    : 'Taking a while? Other tabs share your computer\u2019s memory and graphics. Closing a few, or turning on Memory Saver in Chrome\u2019s settings (Performance), lets the island load faster.';
+}, isTouch ? 45000 : 30000);
+bootSoon(async () => {
   try {
     await buildWorld(startProgress);
     // Back in the helicopter if that is what you last flew.
@@ -3111,6 +3205,14 @@ requestAnimationFrame(() => setTimeout(async () => {
       startProgress(0.9, 4000, 'Parking your car');
       await Promise.race([whenModel(jeep.kind), new Promise((r) => setTimeout(r, 30000))]);
       if (ride === 'car' && modelReady(jeep.kind)) jeep.setType(jeep.kind);
+    }
+    // Back where you were if the phone closed the page mid-drive (see saveResume).
+    if (resumeAt && ride === 'car') {
+      try {
+        const r = resumeAt;
+        if (r.onRoad === false) { const n = nearestRoadAnywhere(r.x, r.z); jeep.place(n.x, n.z, n.heading); } else jeep.place(r.x, r.z, r.heading);
+        if (Number.isFinite(r.hours)) clock.gameHours = r.hours;
+      } catch (e) { console.warn('resume', e); }
     }
     // Park the camera behind the jeep for the intro view.
     camera.position.set(jeep.pos.x - Math.sin(jeep.heading) * 12, jeep.pos.y + 5, jeep.pos.z - Math.cos(jeep.heading) * 12);
@@ -3129,7 +3231,8 @@ requestAnimationFrame(() => setTimeout(async () => {
     startBtn.classList.remove('is-loading');
     startBtn.classList.add('is-ready');
     startBtn.removeAttribute('role'); startBtn.removeAttribute('aria-valuenow'); startBtn.removeAttribute('aria-label');
-    startLabel.textContent = 'Start driving';
+    clearTimeout(slowHint); if ($('loading').textContent.startsWith('Taking a while') || $('loading').textContent.startsWith('Still building')) $('loading').textContent = '';
+    startLabel.textContent = resumeAt ? 'Continue your drive' : 'Start driving';
     startBtn.disabled = false;
     haptics.play('success');
     const shared = readSharedSighting();
@@ -3139,9 +3242,11 @@ requestAnimationFrame(() => setTimeout(async () => {
     console.error(err);
     startBtn.classList.add('is-failed');
     startLabel.textContent = 'Could not build the island';
-    $('loading').textContent = 'Something went wrong while building the island. Try reloading, or lower the quality in Settings.';
+    $('loading').textContent = contextLost
+      ? 'The graphics were interrupted while the island was built (often too many tabs open). Close some tabs and reload.'
+      : 'Something went wrong while building the island. Try reloading, or lower the quality in Settings.';
   }
-}, 30));
+});
 
 // Handy for tuning from the browser console.
 window.chasingGreen = {
