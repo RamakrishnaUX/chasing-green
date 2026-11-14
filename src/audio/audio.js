@@ -390,6 +390,63 @@ export class AudioEngine {
     if (s > 0.4) this.burst(3200, 2, 0.12, 0.15 * s, 'bandpass'); // scrape
   }
 
+  // A crash, built from the sounds a real one is made of (speed: closing speed in m/s; kind: what
+  // was hit; glass: a window broke):
+  // - the thump of the body's mass stopping, felt more than heard;
+  // - the crunch of panels buckling: a burst of short crackles, each a grain of noise in its own
+  //   narrow band, densest at the start;
+  // - the clang of the shell ringing, a few out-of-tune partials (sheet metal is not a bell);
+  // - grit and stone breaking off what was hit;
+  // - glass bursting and then tinkling down, if a window went;
+  // - then the patter of bits landing round the car.
+  crash(speed, kind = 'wall', glass = false) {
+    if (!this.ready) return;
+    const ctx = this.ctx, t0 = ctx.currentTime, out = this.bus.car, s = Math.min(1, speed / 22);
+    const grain = (t, f, q, dur, gain, type = 'bandpass') => {
+      const src = ctx.createBufferSource(); src.buffer = this.white;
+      const bf = ctx.createBiquadFilter(); bf.type = type; bf.frequency.value = f; bf.Q.value = q;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(gain, t + 0.002); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      src.connect(bf).connect(g).connect(out);
+      src.start(t, Math.random() * 1.5, dur + 0.02);
+    };
+    this.thud(speed * 1.1);
+    // Crunch.
+    const nC = Math.round(8 + 46 * s), span = 0.08 + 0.32 * s;
+    for (let i = 0; i < nC; i++) {
+      const u = Math.pow(Math.random(), 2.2), f = 220 + Math.pow(Math.random(), 1.5) * 2800;
+      grain(t0 + u * span, f, 1.5 + Math.random() * 5, 0.008 + Math.random() * 0.03, (0.05 + 0.32 * s) * (1 - u * 0.6) * (0.5 + Math.random()));
+    }
+    // Clang.
+    if (speed > 5) {
+      const f0 = 160 + Math.random() * 260;
+      for (const [r, a, d] of [[1, 1, 0.55], [2.32, 0.6, 0.38], [3.87, 0.42, 0.26], [5.41, 0.3, 0.18], [7.13, 0.2, 0.12]]) {
+        const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = f0 * r * (0.98 + Math.random() * 0.04);
+        o.frequency.exponentialRampToValueAtTime(f0 * r * 0.97, t0 + d);
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.0001, t0); g.gain.linearRampToValueAtTime(0.05 * a * s, t0 + 0.004); g.gain.exponentialRampToValueAtTime(0.0001, t0 + d * (0.6 + s));
+        o.connect(g).connect(out); o.start(t0); o.stop(t0 + d * (0.6 + s) + 0.05);
+      }
+    }
+    // Stone or concrete breaking.
+    const nG = Math.round(4 + 16 * s);
+    for (let i = 0; i < nG; i++) grain(t0 + Math.random() * (0.05 + 0.2 * s), (kind === 'wall' ? 500 : 350) + Math.random() * 900, 0.8 + Math.random() * 2, 0.02 + Math.random() * 0.06, 0.06 + 0.14 * s, 'lowpass');
+    // Glass.
+    if (glass) {
+      grain(t0 + 0.005, 4200, 0.7, 0.18, 0.3, 'highpass');
+      for (let i = 0; i < 34; i++) {
+        const t = t0 + 0.02 + Math.pow(Math.random(), 1.6) * 1.1, o = ctx.createOscillator();
+        o.type = 'sine'; o.frequency.value = 2600 + Math.random() * 5200;
+        const g = ctx.createGain(), d = 0.03 + Math.random() * 0.09;
+        g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.03 + Math.random() * 0.05, t + 0.001); g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+        o.connect(g).connect(out); o.start(t); o.stop(t + d + 0.02);
+      }
+    }
+    // Bits landing.
+    const nP = Math.round(3 + 22 * s);
+    for (let i = 0; i < nP; i++) grain(t0 + 0.2 + Math.random() * (0.4 + 0.9 * s), 1500 + Math.random() * 3500, 2 + Math.random() * 4, 0.006 + Math.random() * 0.012, 0.02 + 0.07 * Math.random() * s);
+  }
+
   // Metal and stone grinding while the car slides along a wall or rock: a rough band of noise that
   // rises in pitch and level with the sliding speed (v, m/s; 0 when nothing is scraping).
   scrape(v) {
@@ -408,6 +465,14 @@ export class AudioEngine {
     this.scr.level = on > this.scr.level ? on : this.scr.level * 0.9;
     this.scr.g.gain.setTargetAtTime(this.scr.level * 0.22 * (0.8 + 0.4 * Math.random()), t, on ? 0.02 : 0.08);
     this.scr.bp.frequency.setTargetAtTime(900 + 2200 * this.scr.level + 400 * Math.random(), t, 0.03);
+    // The crackle of sparks and grit tearing off, over the grind.
+    if (on > 0.05 && Math.random() < 0.5 + on * 0.5) {
+      const src = ctx.createBufferSource(); src.buffer = this.white;
+      const bf = ctx.createBiquadFilter(); bf.type = 'bandpass'; bf.frequency.value = 1800 + Math.random() * 3500; bf.Q.value = 3 + Math.random() * 4;
+      const g = ctx.createGain(), d = 0.006 + Math.random() * 0.02;
+      g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.06 + 0.12 * on, t + 0.002); g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+      src.connect(bf).connect(g).connect(this.bus.car); src.start(t, Math.random() * 1.5, d + 0.02);
+    }
   }
 
   setMuted(m) {

@@ -441,7 +441,8 @@ On desktop (Medium and High) the game loads a realistic layer on top of the clas
 - **Waterfalls** break into ropes of water with gaps, and their spray is a cloud of fine, faint droplets.
 - **Cars** built in code (the stand-ins while the models load) pick up patchy road grime towards the wheels, which also turns the paint matte there. The Sketchfab cars keep their own textures, which carry their own wear.
 - **Eldhraun's moss** uses its intended deep grey-green (the classic look keeps its paler mounds).
-- **Grass** has its own shade per blade (dead straw among live olive), varied heights, a denser and wider field, and sun glowing through the tips when you look towards it.
+- **Grass** is a low, dense pasture like Iceland's grazing land: short fine blades with a few taller seed stalks (12 blades a clump, 12 to 32 cm, not the classic look's knee-high reeds). It has its own shade per blade (dead straw among live olive) and sun glowing through the tips when you look towards it.
+- **Grassland colour** (`hdNature`, also on the classic look): less lime and more olive, big patches of darker moss and of drier, yellowing grass, and the light and shade of tussocks close up.
 - **Rock and snow** lose the painted streaks up close (they swirled on weathered faces), dark rock breaks through snow on steep ground, mountains in the middle distance get rocky relief, and Landmannalaugar's rhyolite is muted.
 - **Camera look**: AgX tone mapping, which rolls off bright sky and snow like a camera instead of clipping.
 
@@ -449,7 +450,7 @@ On desktop (Medium and High) the game loads a realistic layer on top of the clas
 
   Elevation data: Copernicus DEM GLO-90, © DLR e.V. 2010–2014 and © Airbus Defence and Space GmbH 2014–2018, provided under COPERNICUS by the European Union and ESA; all rights reserved. The same credit is shown under Settings on desktop.
 - **Middle distance.** Past about 40 m the same scans are also laid at a large scale (30 to 60 m), so hills keep patches and grain where the fine detail has blurred away.
-- **Fords** on real terrain run at their own river level just under the banks (a patch of water of their own), so the track dips about a metre into the stream instead of down to sea level.
+- **Fords** on real terrain run at their own river level just under the banks (a patch of water of their own), so the track dips about a metre into the stream instead of down to sea level. The land beside a road is eased flat, which used to leave the river standing over the fields as a floating sheet, so `bankFords` cuts a channel across the road below the water and keeps the land round it just above, leaving a stretch of river between banks. On the classic look the river is the sea plane, and the grid is too coarse for a channel, so there the banks are raised and the water shows only where the road dips under it.
 - **Landmannalaugar's hut** has walls, a pitched green roof, a door and windows instead of a plain box.
 
 Cost: on the test machine the realistic look took about twice the classic frame time (the game's dynamic resolution absorbs part of it) and a few seconds more to build the world.
@@ -461,6 +462,8 @@ Cost: on the test machine the realistic look took about twice the classic frame 
 | Low | 9,000 clumps, 26 unit radius | Off | Off | Default on phones and tablets. Draw distance 1,500 |
 | Medium | 30,000 clumps, 44 unit radius | 2048 map | On | Default on desktop. Draw distance 2,300 |
 | High | 64,000 clumps, 62 unit radius | 4096 map, wider area | On, with ambient occlusion | For dedicated GPUs. Draw distance 3,200 |
+
+**Phones** draw 1.5 screen pixels for every CSS pixel each way (1 on the lighter Low for weak phones), not 1. A phone's screen has 2 or 3, so one a side looked soft. The governor sheds resolution if frames run long, down to about two thirds of that.
 
 **Rock density** (Few, Normal or Many) is in Settings and applies on the next load. Normal has about 73% fewer rocks than earlier versions; rocks gather in clusters near slopes, cliffs, the coast and lava, never on roads or shoulders.
 
@@ -619,6 +622,18 @@ Nothing should float. Before any built landmark (buildings, churches, pools, wat
 
 **Hitting things.** Every contact with a rock, wall, tree, building, parapet or a landmark's steep face is an impact on the car as a rigid body (`collide` in jeep.js). The contact is found with the car's two round footprint circles, then placed on the car's own box: a round obstacle touches it at its closest point, a flat face at the corner or edge leading into it. The push is worked out at that point, against the car's mass and its resistance to turning, with friction along the face: a square hit stops the car almost dead (it bounces back only a little, less the harder the hit, as a crumple zone takes it), a corner clipping a rock is held back and slews the car round toward it, and a glancing blow slides it along a wall, scraping, until it runs parallel. The tyres' side grip resists the turn while the hit lasts, so on the ground a knock turns the car about half as far as it would on ice or afloat. Any spin carries on afterwards while the car's momentum keeps its line, so the tyres slide (skids and squeal follow) and scrub it away, slowly on ice. The body rides the jolt on its springs: the nose dips into a frontal hit and the body leans away from a side one, then settles. A landmark's steep face is read from the rock's shape, so it is a wall at an angle, not an invisible stop. Sliding along a face plays a grinding scrape that rises with speed; hits thud and shake the camera as before.
 
+**Crashes** (`src/world/crashfx.js`, `src/vehicle/damage.js`, `crashEffects` in main.js), after the crash effects of Burnout Paradise, BeamNG and Forza Horizon:
+
+- **Sparks** fly wherever metal meets stone or steel. Each is a white-hot streak drawn along its own motion (a thin core in an orange glow), shaved off with the car's speed along the face. They cool through yellow and orange to dull red, fall and skip off the road. Grinding along a wall throws a steady stream.
+- **Debris** are real little solids that tumble, bounce, slide and settle, lie on the ground for several seconds, then sink away: chips of the rock or concrete that was hit, flakes of the car's own paint and black trim, and glass that glints when a window breaks.
+- **Dust** bursts out in soft billows that swell, drift with the wind and are lit from the sun's side.
+- **Dents.** The bodywork is pushed in where it was hit, most at the point and easing out, with a little crumple. Dents add up to a limit. A hard knock beside a window breaks it out. Any fuel station (and a tow or fast travel) puts the car right. The motorbike does not dent.
+- **Sound** is built from what a real crash is made of: the thump of the mass stopping, the crunch of panels buckling (a burst of short crackles), the out-of-tune clang of the shell, stone breaking, glass bursting and tinkling down, then bits pattering round the car. Grinding adds a crackle of sparks over the scrape.
+- **The jolt.** The camera rides a spring that the sudden stop kicks, so the view lurches on and settles back, with a quick rattle. A hard crash (over about 55 km/h) slows time to a quarter for a moment and eases back. A crash camera cranes up and swings a little toward the side that was hit (never into what was hit) to show the impact, then returns behind.
+- **Vibration.** On Android the phone gives one long jolt, a rebound and a rattle, longer and harder the faster the crash, and a pulsing rumble while scraping. iPhones have no vibration API: the game flips a hidden switch control, which gives a tick on iOS 17.4 to 26.4 but may give nothing on later versions outside a tap.
+
+Pools are fixed (about 520 sparks and 300 debris pieces on a computer, half that on a phone), so a crash allocates nothing.
+
 Nothing can be driven into, either. A mound or crater rim built as a landform is solid down to the land, so it is ground under a wheel however steep (up to what the bumper check lets the car climb); only a landform with open space beneath it (an arch) is treated as a roof. Kerið's detailed surface lies on the land outside its rim and faces up, so nothing drives beneath it. Landmark landforms (Kirkjufell, sea stacks, cliffs, lava pillars and hummocks, crater rims, ice) are traced into a height map when the world is built (`src/world/solids.js`), and the ground under wheels and boots is the land or the landform on top, whichever is higher. On a road it is the road itself, which is drawn 13 cm above the land (8 cm at the shoulders, 17 cm on junction patches), so tyres and shoes sit on the tarmac rather than in it. Slopes up to about 50 degrees are driven or walked up like any hill; anything steeper is a wall to the car and a climb on foot. Boulders and landmark rock (cliff blocks, basalt columns, the glacier tongue) carry their height in the obstacle set too, so on foot they are ground to climb rather than walls; hidden walls and hit boxes stay walls. A sample under the middle of the car keeps small lumps between the wheels from poking through the floor. Buildings, caves, pools, bridges and the plane wreck keep their walls instead, and no landform sits on a road.
 
 ## Performance
@@ -772,7 +787,7 @@ A few roads (round Snæfellsnes, into Siglufjörður, at the Bridge between Cont
 - Share links carry the sighting's details, not its screenshot. Opening a link re-renders that sky at that spot, so it will look similar to the original, not identical.
 - Clip export is WebM in Chrome, Edge and Firefox. Safari falls back to MP4 where MediaRecorder supports it, and older Safari versions can't record at all.
 - The Web Share API with image files works on most phones. On desktop the Share button usually falls back to downloading the image.
-- Collisions are rigid-body impacts in the ground plane (the car's footprint against circles and boxes), not full 3D physics. Cars slew, slide and rock on their springs but do not flip or crumple, and fences are not solid.
+- Collisions are rigid-body impacts in the ground plane (the car's footprint against circles and boxes), not full 3D physics. Cars slew, slide, rock on their springs and dent, but do not flip. Dents move the car's own vertices, so a model with few vertices in a panel dents coarsely there. On an iPhone, crash vibration depends on the iOS version (see Crashes).
 - Iceland is heavily simplified: the scale is compressed, the coastline is rough, and only nine stops are modelled.
 - The legend lines on the info cards are short retellings of well-known folklore and saga references. Facts and legends should get a proper check before any marketing use.
 - Fonts (Young Serif and Atkinson Hyperlegible) load from Google Fonts. Offline, the game falls back to system fonts.

@@ -70,6 +70,25 @@ vec2 rainRings(vec2 p, float t){
 // The ground and road shaders read their value noise from a table instead of hashing: the same
 // smoothstep-blended value noise, one filtered lookup (the blend weights moved into the texture
 // coordinate) in place of four hashes. Their CPU twins in terrain.js read the same table.
+const NATURE = /* glsl */`
+// Grassland as it is in Iceland, not a lawn: less lime, more olive; big patches of darker moss and
+// of drier, yellowing grass, and close up the light and shade of tussocks. Only where grass is
+// the ground (rock, earth, snow and lava keep their own colours).
+vec3 hdNature(vec3 c, vec3 p, float dist){
+  float g = clamp(1.0 - tRockW - tSnowW - tEarthW - tLavaW, 0.0, 1.0);
+  if (g <= 0.01) return c;
+  float l = dot(c, vec3(0.299, 0.587, 0.114));
+  vec3 cc = mix(vec3(l), c * vec3(1.05, 0.94, 0.8), 0.8);
+  // The terrain colour's own noise (tNL, tNM, tNF), so this costs no more lookups.
+  float a = tNL, b = tNM;
+  cc *= mix(0.82, 1.12, a);
+  cc = mix(cc, cc * vec3(1.16, 1.04, 0.72), smoothstep(0.55, 0.8, b) * 0.55);
+  cc = mix(cc, cc * vec3(0.7, 0.84, 0.68), smoothstep(0.55, 0.82, 1.0 - b) * 0.5);
+  float near = 1.0 - smoothstep(30.0, 140.0, dist);
+  cc *= mix(1.0, 0.84 + 0.32 * tNF, near);
+  return mix(c, cc, g);
+}
+`;
 const TABLE_NOISE = /* glsl */ `
 uniform sampler2D uNoiseTex;
 float g_nt(vec2 p){ vec2 i = floor(p), f = p - i; return textureLod(uNoiseTex, (i + f * f * (3.0 - 2.0 * f) + 0.5) * ${(1 / NOISE_SIZE).toFixed(8)}, 0.0).r; }
@@ -85,14 +104,48 @@ const TERRAIN_COLOR = /* glsl */ `
 float tBump; float tRough; float tSpark;
 // Layer weights, read by the realistic (desktop) shader to blend its scanned textures.
 float tEarthW; float tRockW; float tSnowW; float tLavaW;
+// Its noise, kept for the grassland colouring (NATURE).
+float tNL; float tNM; float tNF;
+// Noise laid on from all three sides, weighted by which way the ground faces, so steep slopes
+// get the same grain as flat ground instead of the top-down pattern smeared down them. Flat
+// ground pays for one sample only.
+#ifndef HD_ROCK
+vec3 tpW;
+float tpFbm(vec3 p, float s){
+  float v = tpW.y > 0.0 ? g_f(p.xz * s) * tpW.y : 0.0;
+  if (tpW.x > 0.0) v += g_f(p.zy * s + 5.1) * tpW.x;
+  if (tpW.z > 0.0) v += g_f(p.xy * s + 9.7) * tpW.z;
+  return v;
+}
+float tpFine(vec3 p){
+  float v = tpW.y > 0.0 ? (g_n(p.xz * 0.6) * 0.6 + g_n(p.xz * 2.1) * 0.4) * tpW.y : 0.0;
+  if (tpW.x > 0.0) v += (g_n(p.zy * 0.6 + 3.3) * 0.6 + g_n(p.zy * 2.1) * 0.4) * tpW.x;
+  if (tpW.z > 0.0) v += (g_n(p.xy * 0.6 + 7.7) * 0.6 + g_n(p.xy * 2.1) * 0.4) * tpW.z;
+  return v;
+}
+#endif
 vec3 terrainColor(vec3 masks, vec3 p, vec3 nrm, float dist){
   float slope = 1.0 - clamp(nrm.y, 0.0, 1.0);
+#ifndef HD_ROCK
+  vec3 aw = pow(abs(nrm), vec3(4.0)); aw /= aw.x + aw.y + aw.z;
+  tpW = aw * step(0.04, aw); tpW /= tpW.x + tpW.y + tpW.z;
+#endif
   float nL = g_f(p.xz * 0.006);
+#ifdef HD_ROCK
+  // (The realistic look's scans carry slopes' grain; sampling three ways cost it a sixth of a frame.)
   float nM = g_f(p.xz * 0.035);
+#else
+  float nM = tpFbm(p, 0.035);
+#endif
   float detail = 1.0 - smoothstep(20.0, 75.0, dist);
   // Fine noise fades out with distance so far slopes stay clean instead of shimmering.
   float lod = 1.0 - smoothstep(50.0, 220.0, dist);
+#ifdef HD_ROCK
   float nF = mix(0.5, g_n(p.xz * 0.6) * 0.6 + g_n(p.xz * 2.1) * 0.4, lod);
+#else
+  float nF = mix(0.5, lod > 0.0 ? tpFine(p) : 0.5, lod);
+#endif
+  tNL = nL; tNM = nM; tNF = nF;
   // Grass: pale gold, straw and rust in the cold months, with olive and moss mixed in.
   vec3 pale = vec3(0.84, 0.72, 0.48), straw = vec3(0.74, 0.6, 0.36), rust = vec3(0.7, 0.47, 0.25);
   vec3 olive = vec3(0.47, 0.44, 0.23), moss = vec3(0.40, 0.45, 0.22);
@@ -106,7 +159,11 @@ vec3 terrainColor(vec3 masks, vec3 p, vec3 nrm, float dist){
   float field = smoothstep(0.62, 0.66, g_f(p.xz * 0.0045 + 3.3)) * (1.0 - smoothstep(9.0, 16.0, p.y)) * (1.0 - smoothstep(0.06, 0.14, slope));
   col = mix(col, mix(vec3(0.36, 0.55, 0.18), vec3(0.45, 0.62, 0.22), nF), field * (0.55 + 0.4 * uSummer));
   // Streaky grass texture up close.
+#ifdef HD_ROCK
   float streak = mix(0.5, g_n(vec2(p.x * 1.6, p.z * 0.35) + nF) * 0.5 + g_n(vec2(p.x * 0.35, p.z * 1.6) - nF) * 0.5, detail);
+#else
+  float streak = detail > 0.0 && slope < 0.3 ? mix(0.5, g_n(vec2(p.x * 1.6, p.z * 0.35) + nF) * 0.5 + g_n(vec2(p.x * 0.35, p.z * 1.6) - nF) * 0.5, detail * (1.0 - smoothstep(0.15, 0.3, slope))) : 0.5;
+#endif
   col *= 0.8 + 0.34 * mix(0.5, streak, detail) + 0.12 * (nF - 0.5);
   tBump = streak * 0.08 * detail;
   tRough = 0.95;
@@ -253,10 +310,10 @@ export function createTerrainMaterial() {
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>\nuniform float uSnowLine; uniform float uSummer; uniform float uCloudCover; uniform vec2 uCloudOffset; uniform vec3 uSunDir; uniform float uSunUp; uniform vec3 uRhyolite;\nvarying vec3 vWPos;\nvarying vec3 vWNrm;\n${NOISE}\n${TABLE_NOISE}\n${TERRAIN_COLOR}\n${hd ? HD_TERRAIN + HD_SUN_SHADOW : ''}`)
       .replace('#include <lights_fragment_end>', hd ? terrainShadowChunk() : '#include <lights_fragment_end>')
-      .replace('#include <normal_pars_fragment>', `#include <normal_pars_fragment>\n${BUMP}`)
+      .replace('#include <normal_pars_fragment>', `#include <normal_pars_fragment>\n${BUMP}\n${NATURE}`)
       .replace('#include <color_fragment>', hd
-        ? 'vec3 tCol = terrainColor(vColor, vWPos, normalize(vWNrm), length(vViewPosition));\nhdDetail(vColor, vWPos, normalize(vWNrm), length(vViewPosition));\ndiffuseColor.rgb = tCol * hdA * cloudShade(vWPos);'
-        : 'diffuseColor.rgb = terrainColor(vColor, vWPos, normalize(vWNrm), length(vViewPosition)) * cloudShade(vWPos);')
+        ? 'vec3 tCol = terrainColor(vColor, vWPos, normalize(vWNrm), length(vViewPosition));\nhdDetail(vColor, vWPos, normalize(vWNrm), length(vViewPosition));\ndiffuseColor.rgb = hdNature(tCol, vWPos, length(vViewPosition)) * hdA * cloudShade(vWPos);'
+        : 'diffuseColor.rgb = hdNature(terrainColor(vColor, vWPos, normalize(vWNrm), length(vViewPosition)), vWPos, length(vViewPosition)) * cloudShade(vWPos);')
       .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vec3(0.9, 0.95, 1.0) * tSpark * uSunUp * 1.5;')
       .replace('#include <roughnessmap_fragment>', (hd ? 'float roughnessFactor = hdR;' : 'float roughnessFactor = tRough;') + '\n// Wet ground: darker and a little glossier.\nroughnessFactor = mix(roughnessFactor, 0.45, uWet * 0.5);\ndiffuseColor.rgb *= mix(1.0, 0.7, uWet);')
       .replace('#include <normal_fragment_maps>', hd

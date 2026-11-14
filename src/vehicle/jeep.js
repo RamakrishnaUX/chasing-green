@@ -345,7 +345,7 @@ export class Jeep {
     this.pos.z += (fz * this.vF + rz * this.vL) * dt;
 
     let warn = '';
-    this.impact = 0; this.scrape = 0;
+    this.impact = 0; this.scrape = 0; this.hit = null;
     // Landmark rock and ice: drive up a slope like any hill, but a face steeper than about 50
     // degrees is a wall. Checked under the car and at the bumper in the direction of travel. The
     // wall's face is read from the rock's shape there, so the car hits it as it would a wall: a
@@ -444,6 +444,7 @@ export class Jeep {
   collide(px, pz, nx, nz, kind) {
     const S = this.spec, h = this.heading, fx = Math.sin(h), fz = Math.cos(h), rx = fz, rz = -fx;
     let vx = fx * this.vF + rx * this.vL, vz = fz * this.vF + rz * this.vL, w = this.spinV || 0;
+    const vx0 = vx, vz0 = vz;
     // How the contact point moves: the car's motion plus its turning (heading h turns a point r at
     // w * (r.z, -r.x)).
     const cx = vx + w * pz, cz = vz - w * px, vn = cx * nx + cz * nz;
@@ -473,6 +474,12 @@ export class Jeep {
     this.impact = Math.max(this.impact, close);
     this.impactKind = kind;
     this.scrape = Math.max(this.scrape || 0, Math.abs(vt) * (jn > 0 ? 1 : 0));
+    // The hardest contact this frame, for the crash effects: where (world, and in the car's own
+    // frame), the face, the car's velocity before and the change, how hard and how fast it slid.
+    if (!this.hit || close > this.hit.speed) this.hit = {
+      x: this.pos.x + px, z: this.pos.z + pz, lx: px * rx + pz * rz, lz: px * fx + pz * fz, nx, nz, kind,
+      vx: vx0, vz: vz0, dvx: vx - vx0, dvz: vz - vz0, speed: close, slide: Math.abs(vt),
+    };
   }
 
   sync(dt) {

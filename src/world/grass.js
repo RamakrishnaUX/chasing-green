@@ -10,18 +10,23 @@ import { HD } from './hd.js';
 // terrain height and a "where grass grows" map, so blades sit on the ground and avoid roads,
 // sand, water and ice.
 
-function clumpGeometry(rand) {
+// fine: the realistic look's pasture, short fine blades packed close (Icelandic grazing land is a
+// low, dense sward, not a meadow of reeds); otherwise fewer, broader blades that read at a phone's
+// lower resolution.
+function clumpGeometry(rand, fine = false) {
   const pos = [], idx = [], bladeN = [], bladeR = [];
-  const blades = 10;
+  const blades = fine ? 12 : 10;
   for (let b = 0; b < blades; b++) {
     const a = rand() * Math.PI * 2;
-    const r = rand() * 0.32;
+    const r = Math.sqrt(rand()) * (fine ? 0.36 : 0.32);
     const ox = Math.cos(a) * r, oz = Math.sin(a) * r;
     const dir = rand() * Math.PI * 2; // direction the blade leans
     const lx = Math.cos(dir), lz = Math.sin(dir);
-    const h = 0.28 + rand() * 0.34;
-    const w = 0.018 + rand() * 0.012;
-    const lean = 0.08 + rand() * 0.22;
+    // A few long seed stalks stand out of the sward.
+    const tall = fine && rand() < 0.12;
+    const h = fine ? (tall ? 0.38 + rand() * 0.22 : 0.12 + rand() * 0.2) : 0.28 + rand() * 0.34;
+    const w = fine ? (tall ? 0.004 : 0.007 + rand() * 0.007) : 0.018 + rand() * 0.012;
+    const lean = fine ? 0.05 + rand() * 0.16 : 0.08 + rand() * 0.22;
     const px = -lz * w, pz = lx * w; // across the blade
     const base = pos.length / 3;
     // Two segments: base pair, middle pair, tip. The lean grows with height (a curve).
@@ -90,7 +95,7 @@ export class Grass {
   constructor(scene, { count, radius, clear = [] }) {
     this.radius = radius;
     const rand = mulberry32(777);
-    const geo = clumpGeometry(rand);
+    const geo = clumpGeometry(rand, HD.on);
     const off = new Float32Array(count * 2), rnd = new Float32Array(count * 4);
     // Jittered grid so the clumps spread evenly with no bare patches.
     const side = Math.ceil(Math.sqrt(count));
@@ -174,7 +179,11 @@ export class Grass {
           lp.y *= 0.7 + 0.6 * fract(aBlade * 3.7);
           #endif
           lp.xz = rot * lp.xz;
+          #ifdef HD_GRASS
+          float ty = clamp(lp.y / 0.34, 0.0, 1.0);
+          #else
           float ty = clamp(lp.y / 0.62, 0.0, 1.0);
+          #endif
           // Wind: slow rolling gusts across the field plus a quick flutter.
           float gust = g_n(base * 0.04 - uWindDir * uTime * 0.22);
           float flutter = sin(uTime * 2.4 + aRand.z * 6.28 + base.x * 0.7) * 0.04;

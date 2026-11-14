@@ -21,6 +21,8 @@ import { siteStations, Stations } from './world/stations.js';
 import { FuelTank, TANKS } from './vehicle/fuel.js';
 import { Sheet } from './ui/sheet.js';
 import { haptics } from './ui/haptics.js';
+import { CrashFX } from './world/crashfx.js';
+import { Damage } from './vehicle/damage.js';
 import { Learn } from './ui/learn.js';
 import { VEHICLES, VEHICLE_ORDER } from './vehicle/specs.js';
 import { surfaceUniforms } from './world/materials.js';
@@ -74,7 +76,11 @@ const LITE = { pixelRatio: 0.75, auroraSteps: 6, terrainRes: 480, grass: 3500, g
 // The realistic look's ground shader is costly per pixel (most of each frame is spent on it), so on
 // Medium it draws at one pixel per CSS pixel: about a third less work on a Retina screen.
 const qualityFor = (name) => {
-  const q = weakDevice && name === 'low' ? { ...CONFIG.quality.low, ...LITE } : CONFIG.quality[name];
+  let q = weakDevice && name === 'low' ? { ...CONFIG.quality.low, ...LITE } : CONFIG.quality[name];
+  // Phones draw more of the screen's own pixels than one per CSS pixel (a phone's screen has two
+  // or three a side): 1.5 a side, 1 on the lighter Low. The governor still sheds resolution if
+  // frames run long, down to about two thirds of that.
+  if (isTouch && name === 'low') q = { ...q, pixelRatio: weakDevice ? 1 : 1.5 };
   return wantHD && name === 'medium' ? { ...q, pixelRatio: Math.min(q.pixelRatio, 1) } : q;
 };
 // settings.autoQuality: where the game stepped itself down on this device, so a slow machine
@@ -137,6 +143,9 @@ const volumes = settings.volumes || (settings.volumes = { master: 1, music: sett
 audio.setLevels(volumes);
 
 let world = null, sky, aurora, landmarks, jeep, walker, heli, diver, scatter, grass, props, post = null, riding = null;
+let crashFx = null, damage = null, crashCool = 0, warpT = 0, lastWarpAt = -1e9;
+const camKick = new THREE.Vector3(), camKickV = new THREE.Vector3(), kickApplied = new THREE.Vector3();
+let rotShake = 0, shakePhase = 0, crashCam = null;
 let obstacles, puddles, spray, boatWater, waterFx, washDust, rain, windscreen, skids, trailDust, wetTracks, tyreWet = [0, 0, 0, 0], tyreLast = [], tyreIn = [], tyreSpray = [], wetness = 0, forceRain = null, forceSnow = null, roadSnow = 0, iceWarned = false, wildlife, dust, powder, powderCloud, mapUI, towns, snow, nav, stations, stationSites = [];
 let lastPostState = { aurora: 0, dark: 0 };
 let surfFx = null, surfWet = 0, sneakerSeen = false;
@@ -347,6 +356,8 @@ async function buildWorld(progress) {
   dust = new Particles(scene, { count: qualityName === 'low' ? 220 : 520, color: 0xb39a74, size: 1.3, opacity: 0.28, gravity: -0.4, drag: 1.4 });
   powder = new Particles(scene, { count: qualityName === 'low' ? 500 : 1100, color: 0xf6f9ff, size: 0.85, opacity: 0.95, gravity: 7, drag: 1.1 });
   powderCloud = new Particles(scene, { count: qualityName === 'low' ? 120 : 260, color: 0xdfe8f2, size: 2.6, opacity: 0.42, gravity: 0.6, drag: 2.2 });
+  // Sparks, flying debris and dust from crashes (crashfx.js).
+  crashFx = new CrashFX(scene, { ground: heightAt, small: isTouch || qualityName === 'low' });
   scatter.setSeason(clock.season);
   await stage('Parking your car', 0.93, 60);
   await fonts;
@@ -723,8 +734,33 @@ const _openLook = new THREE.Vector3(), openOff = new THREE.Vector3(), followCar 
 let followFrame = -1;
 const CHASE_FOV = 52, CHASE_TAN = Math.tan(THREE.MathUtils.degToRad(CHASE_FOV / 2));
 let camHold = false; // debug: the camera stays where it was put (chasingGreen.camHold)
+// The crash jolt on top of the chase and cockpit cameras: a spring the camera's place rides on
+// (kicked by the car's sudden stop, so the view lurches on and settles back), plus a quick
+// rattle of the view. Taken off again before the next frame's follow, so it never drifts.
 function updateCamera(dt) {
   if (camHold) return;
+  camera.position.sub(kickApplied); kickApplied.set(0, 0, 0);
+  updateCameraInner(dt);
+  if (mode === 'chase' && !photo?.on) applyKick(dt);
+}
+function applyKick(dt) {
+  const k = 110, c = 2 * Math.sqrt(k) * 0.42;
+  camKickV.addScaledVector(camKick, -k * dt).multiplyScalar(Math.max(0, 1 - c * dt));
+  camKick.addScaledVector(camKickV, dt);
+  if (camKick.length() > 0.9) camKick.setLength(0.9);
+  const inside = driveView !== 'chase';
+  kickApplied.copy(camKick).multiplyScalar(inside ? 0.2 : 1);
+  if (shake > 0.01 && !inside) { kickApplied.x += (Math.random() - 0.5) * shake; kickApplied.y += (Math.random() - 0.5) * shake; }
+  camera.position.add(kickApplied);
+  if (rotShake > 1e-4) {
+    shakePhase += dt;
+    const a = rotShake;
+    camera.rotateZ(a * (Math.sin(shakePhase * 31) * 0.6 + Math.sin(shakePhase * 17.3 + 1) * 0.4));
+    camera.rotateX(a * 0.6 * (Math.sin(shakePhase * 27 + 2) * 0.6 + Math.sin(shakePhase * 13.1) * 0.4));
+    rotShake *= Math.exp(-dt * 5);
+  }
+}
+function updateCameraInner(dt) {
   // The opening sweep is drawn as an offset on top of the follow camera. Take last frame's off
   // first, so the follow camera underneath carries on as if it had never been moved.
   if (openOff.lengthSq()) { camera.position.sub(openOff); openOff.set(0, 0, 0); }
@@ -745,11 +781,18 @@ function updateCamera(dt) {
     // The camera follows a smoothed heading, so turning does not whip the scenery around.
     const wrapA = (a) => Math.atan2(Math.sin(a), Math.cos(a));
     camHeading = camHeading == null ? jeep.heading : camHeading + wrapA(jeep.heading - camHeading) * Math.min(1, dt * 2.2);
-    const h = camHeading + look.orbit;
+    // The crash camera's share now (0 to 1), in real time so the slow motion does not hold it.
+    let cc = 0;
+    if (crashCam) {
+      const u = (performance.now() - crashCam.t0) / 1000;
+      cc = smoothstep(0, 0.2, u) * (1 - smoothstep(0.9, 2.3, u));
+      if (u > 2.3) crashCam = null;
+    }
+    const h = camHeading + look.orbit + (crashCam ? crashCam.a * cc : 0);
     // The view widens with speed and nitro; the camera comes in by as much, so the car keeps its
     // size on screen and only the world around it stretches. Speeding up adds a hint of pull-back.
     const zoomIn = CHASE_TAN / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
-    const cd = jeep.model.camDist * zoomIn + Math.min(1, jeep.speed / 40) * 0.5 + (jeep.boosting ? 1 : 0), ch = jeep.model.camHeight * zoomIn;
+    const cd = jeep.model.camDist * zoomIn + Math.min(1, jeep.speed / 40) * 0.5 + (jeep.boosting ? 1 : 0) + cc * 1.8, ch = jeep.model.camHeight * zoomIn + cc * 2.6;
     const desired = new THREE.Vector3(jeep.pos.x - Math.sin(h) * cd, jeep.pos.y + ch, jeep.pos.z - Math.cos(h) * cd);
     // Under a sea arch the camera follows the car through rather than jumping over the roof.
     desired.y = Math.max(desired.y, groundAt(desired.x, desired.z, jeep.pos.y + jeep.kit.height + 0.1) + 1.5);
@@ -766,6 +809,7 @@ function updateCamera(dt) {
     followCar.copy(jeep.pos); followFrame = frameN;
     if (jeep.speed < 0.3 && camera.position.distanceTo(desired) < 0.01) camera.position.copy(desired);
     camTarget.set(jeep.pos.x + Math.sin(h) * 14, jeep.pos.y + ch * 0.7, jeep.pos.z + Math.cos(h) * 14);
+    if (crashCam) camTarget.lerp(_openLook.set(crashCam.x, crashCam.y, crashCam.z), cc * 0.75);
     // The opening shot: from high over the land, off to one side, the camera sweeps round and
     // down onto the car. The sweep is how far it still is from the follow camera, shrinking to
     // nothing as it eases out, so it lands exactly where the follow camera is, already moving
@@ -783,8 +827,7 @@ function updateCamera(dt) {
       if (u >= 1) { openingCam = null; camera.position.sub(openOff); openOff.set(0, 0, 0); }
     }
     camera.lookAt(camTarget);
-    // Knocks from rocks and walls shake the camera briefly.
-    if (shake > 0.01) { camera.position.x += (Math.random() - 0.5) * shake; camera.position.y += (Math.random() - 0.5) * shake; }
+    // (Knocks shake it in applyKick.)
     // Wider view at speed and under nitro.
     const fov = CHASE_FOV + Math.min(1, jeep.speed / 60) * 6 + (jeep.boosting ? 8 : 0);
     if (Math.abs(camera.fov - fov) > 0.05) { camera.fov += (fov - camera.fov) * Math.min(1, dt * 3); camera.updateProjectionMatrix(); }
@@ -2091,6 +2134,8 @@ function fuelTick(dt) {
   // Pumping: stop if the car moves off, finish when the tank is full.
   const here = driving && fuel.on && Math.abs(jeep.vF) < 1.2 && !jeep.boatOn ? stations?.at(jeep.pos.x, jeep.pos.z) : null;
   if (fuel.filling && !here) fuel.filling = false;
+  // Stopped at a station: the dents are knocked out and any broken glass put back.
+  if (driving && damage?.total > 0 && Math.abs(jeep.vF) < 1.2 && stations?.at(jeep.pos.x, jeep.pos.z)) { damage.repair(); hud.toast('Good as new: the station fixed the dents.', { seconds: 3, priority: 2 }); haptics.play('success'); }
   if (fuel.filling && fuel.fill(dt, kind)) {
     fuel.filling = false;
     const added = fuel.litres(kind, 1 - fuelStart);
@@ -2370,6 +2415,74 @@ const carDirt = store.data.carDirt ||= { dirt: 0, color: [0.36, 0.3, 0.22] };
 carDirt.saved = carDirt.dirt;
 grime.uDirt.value = carDirt.dirt; setDirtColor(carDirt.color);
 
+// A crash: what flies off, the dent it leaves, the sound, the jolt you feel and see.
+const _paint = new THREE.Color();
+function carPaint() {
+  // The car's own colour: its body paint, else the biggest painted part.
+  if (jeep.body.userData.paint) return jeep.body.userData.paint;
+  let best = null, bestN = 0;
+  jeep.body.traverse((o) => {
+    if (!o.isMesh || !o.material?.color || o.material.transparent) return;
+    const n = o.geometry.attributes.position.count * (/body|paint/i.test(o.material.name) ? 4 : 1) * (o.material.metalness > 0.2 ? 2 : 1);
+    if (n > bestN) { bestN = n; best = o.material.color; }
+  });
+  return (jeep.body.userData.paint = (best || _paint.set(0x777777)).clone());
+}
+function crashEffects(dt) {
+  const H = jeep.hit; jeep.hit = null;
+  crashCool -= dt;
+  const grinding = H && ride === 'car' && mode !== 'walk' && H.slide > 1.5 && H.speed < 6;
+  haptics.rumble(grinding ? Math.min(1, H.slide / 16) : 0);
+  if (!H || ride !== 'car' || mode === 'walk' || !dt) return;
+  const bumper = clamp((jeep.kit?.height || 1.6) * 0.32, 0.35, 0.85);
+  const land = heightAt(H.x, H.z), floor = clamp(jeep.pos.y - land, 0, 0.4);
+  const e = { x: H.x, y: jeep.pos.y + bumper, z: H.z, nx: H.nx, nz: H.nz, vx: H.vx, vz: H.vz, speed: H.speed, slide: H.slide, kind: H.kind, floor, paint: carPaint(), glass: false };
+  if (H.speed > 2.5 && crashCool <= 0) {
+    crashCool = 0.15;
+    // The dent, in the car's own frame, pushed along the face's normal.
+    const h = jeep.heading, fx = Math.sin(h), fz = Math.cos(h), rx = fz, rz = -fx;
+    if (!damage || damage.root !== jeep.body) damage = new Damage(jeep.body, jeep.interior?.group);
+    if (!jeep.model.bike) e.glass = damage.dent(H.lx, bumper, H.lz, H.nx * rx + H.nz * rz, H.nx * fx + H.nz * fz, H.speed);
+    crashFx.hit(e);
+    audio.crash ? audio.crash(H.speed, H.kind, e.glass) : audio.thud(H.speed);
+    haptics.crash(H.speed, e.glass);
+    // The camera carries on a moment as the car stops dead, then catches up; and it rattles.
+    camKickV.x -= H.dvx * 0.075; camKickV.z -= H.dvz * 0.075; camKickV.y += Math.min(1.5, H.speed * 0.03);
+    rotShake = Math.min(0.06, rotShake + H.speed * 0.0028);
+    shake = Math.min(0.35, H.speed * 0.012);
+    // A hard crash: time slows for a heartbeat, as in the crash cameras of racing games.
+    if (H.speed > 15 && performance.now() - lastWarpAt > 6000) {
+      warpT = 1; lastWarpAt = performance.now();
+      // The crash camera: it cranes up and swings a little towards the side that was hit (but never
+      // round into what was hit), and looks at the spot, then eases back behind.
+      if (mode === 'chase' && driveView === 'chase') {
+        const nr = H.nx * rx + H.nz * rz, side = Math.abs(nr) > 0.3 ? -Math.sign(nr) : (H.lx > 0 ? -1 : 1);
+        crashCam = { t0: performance.now(), a: side * 0.55, x: H.x, y: e.y, z: H.z };
+      }
+    }
+    if (H.speed > 12 && !crashToldOnce) { crashToldOnce = true; hud.toast('That left a mark. Any fuel station will fix the dents.', { seconds: 3.5, priority: 1 }); }
+  }
+  if (H.slide > 1.5) crashFx.grind(e, dt);
+}
+let crashToldOnce = false;
+// The light on the crash dust: the sun's colour and the sky's.
+const _cl = { sun: new THREE.Color(), amb: new THREE.Color(), sunDir: new THREE.Vector3(0, 1, 0) };
+function crashLight() {
+  if (!sky?.sun) return null;
+  _cl.sun.copy(sky.sun.color).multiplyScalar(sky.sun.intensity * 0.75);
+  _cl.amb.copy(sky.hemi.color).multiplyScalar(sky.hemi.intensity * 1.15 + 0.08);
+  _cl.sunDir.copy(surfaceUniforms.uSunDir.value);
+  return _cl;
+}
+// How fast time runs (1: normal). A crash's slow motion: down to a quarter at once, held, then
+// easing back over most of a second. realDt: real seconds since the last frame.
+function timeWarp(realDt) {
+  if (warpT <= 0) return 1;
+  warpT = Math.max(0, warpT - realDt / 1.1);
+  const u = 1 - warpT; // 0 at the crash, 1 when done
+  return u < 0.3 ? 0.22 : 0.22 + 0.78 * smoothstep(0.3, 1, u);
+}
+
 function vehicleEffects(dt) {
   const fx = Math.sin(jeep.heading), fz = Math.cos(jeep.heading), rx = fz, rz = -fx;
   const sp = jeep.speed;
@@ -2482,12 +2595,7 @@ function vehicleEffects(dt) {
   }
   // Knocks.
   audio.scrape?.(ride === 'car' && mode !== 'walk' && dt ? jeep.scrape || 0 : 0);
-  if (jeep.impact > 2.5) {
-    audio.thud(jeep.impact);
-    haptics.impact(jeep.impact);
-    shake = Math.min(0.6, jeep.impact * 0.035);
-    if (jeep.impact > 12) hud.toast(jeep.impactKind === 'rock' ? 'Ouch. That rock did not move.' : 'Bump! Mind the scenery.', { seconds: 2, priority: 1 });
-  }
+  crashEffects(dt);
   shake *= Math.max(0, 1 - dt * 6);
   drivingHaptics(dt);
 }
@@ -2579,6 +2687,7 @@ function putCar(x, z, heading) {
   if (afterJump || mode === 'sky') endJump();
   if (mode === 'walk') { endRide(); walker.exit(); }
   jeep.place(x, z, heading);
+  damage?.repair();
   if (ride === 'heli') { heli.place(x, z, heading); mode = 'fly'; flyHeading = null; camOff.set(0, 0, 0); infoDismissed = null; return; }
   mode = 'chase';
   camHeading = heading;
@@ -2611,7 +2720,7 @@ function frame(now) {
   const moving = !world || mode === 'fly' || mode === 'sky' || (mode === 'walk' ? walker.speedSmooth > 0.1 : (ride === 'heli' ? heli.speed : jeep.speed) > 0.3);
   const gapMs = governor.gap({ menu: idle, photo: !!photo?.on, still: started && !moving && now - lastInput > 20000 });
   if (now - last < gapMs - 2) return;
-  const dt = Math.min(0.05, (now - last) / 1000);
+  const realDt = Math.min(0.05, (now - last) / 1000), dt = realDt * timeWarp(realDt);
   // (Not in the first seconds after Start, while the island settles in.) Calm: going slowly or
   // standing still, when the hitch of a sharper picture coming back goes unnoticed.
   const calm = !moving || (mode === 'walk' ? walker.speedSmooth < 2 : ride === 'heli' ? heli.speed < 3 : jeep.speed < 3);
@@ -2691,6 +2800,7 @@ function frame(now) {
   spray.update(dt);
   bathSteam?.update(dt);
   dust.update(dt);
+  if (crashFx) { crashFx.setViewHeight(renderer.domElement.height); crashFx.update(dt, camera, crashLight(), w); }
   washDust.update(dt);
   trailDust.update(dt);
   powder.update(dt);
@@ -2705,7 +2815,7 @@ function frame(now) {
   const a = forecast.evaluate({ x: p.x, z: p.z, clock, dt, guaranteeActive: g });
 
   lastSky = a;
-  if (!(started && dialogOpen)) updateCamera(dt); // the view holds still while a menu is open
+  if (!(started && dialogOpen)) updateCamera(crashCam ? realDt : dt); // the view holds still while a menu is open
   forecast.cloudOffset(clock.realSeconds, cloudOffset);
   auroraVisSmoothed = aurora.update(dt, t, camera, a);
   const { dark, sunDir } = sky.update({ camera, clock, cloud: a.cloud, cloudOffset, city: a.city, auroraVis: auroraVisSmoothed, auroraTint: aurora.tint, t, focus: p, hold: holdUnderMenu });
@@ -3013,7 +3123,7 @@ requestAnimationFrame(() => setTimeout(async () => {
 // Handy for tuning from the browser console.
 window.chasingGreen = {
   clock, forecast, CONFIG, store, linkFor, scene, renderer, camera, mirrors, driver, setVehicle, fastTravel, input, badges, hud, notebook, THREE, get jeep() { return jeep; },
-  get obstacles() { return obstacles; }, get scene() { return scene; }, Vec3: THREE.Vector3, get puddles() { return puddles; }, get mapUI() { return mapUI; }, get snow() { return snow; },
+  get obstacles() { return obstacles; }, get crashFx() { return crashFx; }, get damage() { return damage; }, get scene() { return scene; }, Vec3: THREE.Vector3, get puddles() { return puddles; }, get mapUI() { return mapUI; }, get snow() { return snow; },
   nearestRoad: (x, z, r) => nearestRoad(x, z, r), coastAt, roadDistAt, shoreDistAt, groundAt, solidTopAt, get wildlife() { return wildlife; },
   roadPaths: () => roadPaths, fuel, putCar, get stations() { return stations; }, stageTimes, get riding() { return riding; }, get walker() { return walker; },
   set camHold(v) { camHold = !!v; },

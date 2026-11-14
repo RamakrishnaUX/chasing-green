@@ -910,6 +910,7 @@ export async function buildTerrain(scene, res, season, onProgress) {
         }
       }
     }
+    bankFords(Hh);
     for (let i = 0; i < nx * nz; i++) pos[i * 3 + 1] = Hh[i];
   }
   const idx = new Uint32Array((nx - 1) * (nz - 1) * 6);
@@ -1360,6 +1361,41 @@ function buildPosts(scene, posts) {
 // to the land, the fade widening on a hillside up to the pad's own radius again. All the fades go first and all the level cores last,
 // so a neighbour's fade never tilts a landmark that is already level. Roads crossing a pad follow
 // the new ground: they are laid back on afterwards.
+// Fords on real terrain: the river gets banks. Beside the road the land is eased flat, often a
+// little under the river's level, which left the water standing over the fields as a flat sheet.
+// So a channel is cut across the road (along the river, square to the road) down below the
+// water, and the land round it is kept just above the water, so all that shows is a stretch of
+// river between banks, with the road dipping through it. Run again after anything re-blends the
+// land beside roads (flattenPads).
+function bankFords(Hh) {
+  const nx = grid.nx, nz = grid.nz;
+  // (In the classic look the river is the sea plane at 0, so its fords get banks the same way.)
+  for (const f of fordPools) {
+    if (!f || f.level == null) continue;
+    const nr = nearestRoad(f.x, f.z, 40);
+    if (!nr) continue;
+    let ux = nr.seg.bx - nr.seg.ax, uz = nr.seg.bz - nr.seg.az; const ul = Math.hypot(ux, uz) || 1; ux /= ul; uz /= ul; // along the road
+    // The classic look's road dips all the way to sea level, a long ramp each side, so its banks reach further.
+    const R = f.level > 0 ? 30 : 64, ix0 = Math.max(1, Math.floor((f.x - R - BOUNDS.minX) / grid.dx)), ix1 = Math.min(nx - 2, Math.ceil((f.x + R - BOUNDS.minX) / grid.dx));
+    const iz0 = Math.max(1, Math.floor((f.z - R - BOUNDS.minZ) / grid.dz)), iz1 = Math.min(nz - 2, Math.ceil((f.z + R - BOUNDS.minZ) / grid.dz));
+    for (let iz = iz0; iz <= iz1; iz++) for (let ix = ix0; ix <= ix1; ix++) {
+      const gx = BOUNDS.minX + ix * grid.dx - f.x, gz = BOUNDS.minZ + iz * grid.dz - f.z, dist = Math.hypot(gx, gz);
+      if (dist > R) continue;
+      const v = Math.abs(gx * ux + gz * uz), u = Math.abs(-gx * uz + gz * ux); // v: along the road, u: along the river
+      const i = iz * nx + ix, rd = roadDistAt(BOUNDS.minX + ix * grid.dx, BOUNDS.minZ + iz * grid.dz);
+      if (rd < 4.5) continue; // the road keeps its own profile through the crossing
+      // (No channel on the classic look's coarser grid, where it came out as a blocky flood: the
+      // water shows only where the road dips under it.)
+      const chan = f.level > 0 ? (1 - smoothstep(4, 8, v)) * (1 - smoothstep(f.r - 6, f.r - 1, u)) : 0;
+      const bank = (1 - smoothstep(R * 0.66, R, dist)) * smoothstep(4.5, 7.5, rd);
+      let h = Hh[i];
+      h = Math.max(h, lerp(h, f.level + (f.level > 0 ? 0.4 : 1.1), bank)); // banks above the water (higher on the coarser classic land)
+      h = lerp(h, Math.min(h, f.level - 0.75), chan); // the river bed
+      Hh[i] = h;
+    }
+  }
+}
+
 export function flattenPads(pads, mesh) {
   const H = grid.heights, nx = grid.nx, nz = grid.nz;
   const pos = mesh.geometry.attributes.position;
@@ -1463,6 +1499,7 @@ export function flattenPads(pads, mesh) {
       H[k] = roadBlendAt(x, z, H[k]);
     }
   }
+  bankFords(H);
   for (let k = 0; k < H.length; k++) pos.setY(k, H[k]);
   pos.needsUpdate = true;
   mesh.geometry.computeVertexNormals();
