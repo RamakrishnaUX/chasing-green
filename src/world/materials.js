@@ -147,11 +147,23 @@ vec3 terrainColor(vec3 masks, vec3 p, vec3 nrm, float dist){
 #endif
   tNL = nL; tNM = nM; tNF = nF;
   // Grass: pale gold, straw and rust in the cold months, with olive and moss mixed in.
+#ifdef HD_ROCK
+  // Realistic look: real vegetation is darker than paint (an albedo of about a fifth), and
+  // Iceland's cold-season grass is tawny and khaki with olive moss through it, not pale gold.
+  vec3 pale = vec3(0.66, 0.57, 0.38), straw = vec3(0.56, 0.46, 0.28), rust = vec3(0.54, 0.36, 0.2);
+  vec3 olive = vec3(0.38, 0.38, 0.2), moss = vec3(0.31, 0.37, 0.17);
+#else
   vec3 pale = vec3(0.84, 0.72, 0.48), straw = vec3(0.74, 0.6, 0.36), rust = vec3(0.7, 0.47, 0.25);
   vec3 olive = vec3(0.47, 0.44, 0.23), moss = vec3(0.40, 0.45, 0.22);
+#endif
   vec3 grassW = mix(straw, pale, smoothstep(0.35, 0.7, nM));
   grassW = mix(grassW, rust, smoothstep(0.6, 0.85, nL) * 0.4);
   grassW = mix(grassW, olive, smoothstep(0.6, 0.85, g_f(p.xz * 0.012 + 7.0)) * 0.6);
+#ifdef HD_ROCK
+  // Broad drifts of moss and olive through the dry grass, and darker damp hollows.
+  grassW = mix(grassW, mix(olive, moss, nF), smoothstep(0.4, 0.75, g_f(p.xz * 0.02 + 3.0)) * 0.55);
+  grassW *= 0.88 + 0.24 * smoothstep(0.25, 0.75, nL);
+#endif
   vec3 grassS = mix(vec3(0.33, 0.45, 0.17), vec3(0.47, 0.55, 0.24), smoothstep(0.3, 0.7, nM));
   grassS = mix(grassS, olive, smoothstep(0.6, 0.85, nL) * 0.5);
   vec3 col = mix(grassW, grassS, uSummer);
@@ -368,9 +380,9 @@ export function createRoadMaterial({ paved, halfWidth }) {
         float hdPaint = 0.0;
         ${paved ? `
         // Dark, coarse Icelandic asphalt: pale stones in black binder, worn smoother in the wheel tracks.
-        vec3 asphalt = mix(vec3(0.2, 0.2, 0.21), vec3(0.3, 0.3, 0.31), mix(0.5, grain, 0.35 + 0.65 * fine));
+        vec3 asphalt = mix(vec3(0.2, 0.2, 0.21), vec3(0.3, 0.3, 0.31), mix(0.5, grain, ${hd ? '0.12 + 0.25 * fine' : '0.35 + 0.65 * fine'}));
         float track = smoothstep(0.7, 0.0, abs(lat - hw * 0.5));
-        asphalt *= 0.92 + 0.1 * patchy - track * 0.05;
+        asphalt *= (0.92 + 0.1 * patchy - track * ${hd ? '0.12' : '0.05'})${hd ? ' * vec3(1.07, 1.03, 0.95)' : ''};
         // Thin edge lines and a dashed centre line.
         float edge = smoothstep(0.04, 0.0, abs(lat - (hw - 0.28)) - 0.06);
         float dash = step(fract(vRoad.y / 10.0), 0.38) * smoothstep(0.03, 0.0, lat - 0.08);
@@ -421,8 +433,11 @@ export function createRoadMaterial({ paved, halfWidth }) {
         float hdFade = 1.0 - smoothstep(120.0, 420.0, dist), lA, lG;
         vec3 ra = rdRatio(${paved ? 'rdAlb, rdMean, vRoad / 3.5, 0.0' : 'grAlb, grMean, vRoad / 4.0, 0.2'}, lA);
         vec3 rg = rdRatio(grAlb, grMean, vRoad / 4.0, 0.2, lG);
-        diffuseColor.rgb *= mix(vec3(1.0), mix(ra, rg, shoulder), (1.0 - hdPaint) * hdFade);
-        rBump += (mix(lA, lG, shoulder) - 1.0) * 0.035 * fine;` : ''}`)
+        diffuseColor.rgb *= mix(vec3(1.0), mix(ra, rg, shoulder), (1.0 - hdPaint) * hdFade * mix(0.7, 1.0, shoulder));
+        rBump += (mix(lA, lG, shoulder) - 1.0) * 0.035 * fine;
+        // Bump finer than a pixel flickers into sun-coloured speckle: fade it out as the
+        // texture's grain shrinks below a few pixels.
+        rBump *= 1.0 - smoothstep(0.0015, 0.006, length(fwidth(vRoad)));` : ''}`)
       .replace('#include <roughnessmap_fragment>', '// Wet tarmac: darker, and smooth enough to mirror lights and the sky (not the snow on it).\nfloat roughnessFactor = min(rRough, mix(rRough, 0.34, uWet * 0.85 * (1.0 - rSnow)));\ndiffuseColor.rgb *= mix(1.0, 0.42, uWet * (1.0 - rSnow));')
       // The verge follows every bump in the land, so low light (headlights above all) picked out
       // each little tilt as a bright or dark step: it is lit as if nearly flat instead. The skirts

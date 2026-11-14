@@ -466,7 +466,7 @@ function escarpment(cw, top, below, depth, water, seed = 1) {
 // Irregular ice: a subdivided sphere pushed in and out, flattened, with a sharp waterline.
 // Glacier ice: a faceted crystal. Starts from a subdivided sphere, then every face is pushed
 // in or out by its own amount and the mesh is split so each facet keeps a hard edge.
-function iceGeometry(size, rand) {
+function iceGeometry(size, rand, angular = false) {
   // Glacier ice washed up on black sand: rounded and polished by the waves, flattened, with a
   // few softer bulges, and coloured from frosty white on top to deep blue underneath.
   // The icosahedron comes with every triangle separate; weld it so the normals come out smooth.
@@ -479,18 +479,90 @@ function iceGeometry(size, rand) {
   const sx = 0.8 + rand() * 0.6, sy = 0.45 + rand() * 0.35, sz = 0.8 + rand() * 0.6;
   for (let i = 0; i < p.count; i++) {
     const x = p.getX(i) / size, y = p.getY(i) / size, z = p.getZ(i) / size;
-    const n = 1 + 0.2 * Math.sin(x * 2.1 + k[0]) * Math.sin(z * 1.7 + k[1]) + 0.1 * Math.sin(y * 3.3 + k[2])
+    let n = 1 + 0.2 * Math.sin(x * 2.1 + k[0]) * Math.sin(z * 1.7 + k[1]) + 0.1 * Math.sin(y * 3.3 + k[2])
       + 0.05 * Math.sin(x * 6.3 + z * 5.1 + k[3]) + 0.025 * Math.sin(x * 13 - y * 11 + z * 9);
+    // Floating bergs are freshly broken: sharp ridges and a pinnacle or two, not wave-polished.
+    if (angular) n += 0.22 * Math.pow(Math.abs(Math.sin(x * 3.1 + k[1]) * Math.cos(z * 2.7 + k[2])), 3) + 0.35 * Math.max(0, y) * Math.pow(Math.abs(Math.sin(x * 1.3 + z * 1.9 + k[3])), 6);
     p.setXYZ(i, x * n * sx * size, Math.max(y * n * sy * size, -size * 0.28), z * n * sz * size);
   }
   g.computeVertexNormals();
   g.computeBoundingBox();
   const y0 = g.boundingBox.min.y, y1 = g.boundingBox.max.y, col = new Float32Array(p.count * 3);
+  const ash = rand() < 0.4 ? (() => { const v = new THREE.Vector3(rand() - 0.5, 1.5, rand() - 0.5).normalize(); return [v.x, v.y, v.z, (rand() - 0.5) * 0.6]; })() : null;
   for (let i = 0; i < p.count; i++) {
     const t = (p.getY(i) - y0) / Math.max(y1 - y0, 1e-3), f = 0.85 + rand() * 0.15;
     col[i * 3] = (0.32 + 0.6 * t * t) * f; col[i * 3 + 1] = (0.6 + 0.37 * t) * f; col[i * 3 + 2] = (0.78 + 0.21 * t) * f;
+    // Some bergs carry a band of black volcanic ash, tilted as the berg rolled over.
+    if (ash && Math.abs(p.getX(i) * ash[0] + p.getY(i) * ash[1] + p.getZ(i) * ash[2] - ash[3] * size) < size * 0.07) { col[i * 3] *= 0.22; col[i * 3 + 1] *= 0.22; col[i * 3 + 2] *= 0.24; }
   }
   g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  if (angular) { const ng = g.toNonIndexed(); g.dispose(); ng.computeVertexNormals(); return ng; }
+  return g;
+}
+
+
+// A glacier's calving front, as at Jökulsárlón: a wall of seracs standing out of the water, blue
+// in its fresh-broken faces, streaked white where it has weathered and banded with black ash from
+// old eruptions, its top torn by crevasses and greyed with grit. One continuous, faceted mesh:
+// the first rows climb the cliff, the rest run back across the top. Footprint 46 x 16 (x across,
+// the front facing +z), the size of the hit box it replaces.
+function glacierFront(rand) {
+  const W = 46, D = 16, NU = 120, KC = 14, KT = 22;
+  const noise = createNoise2D(1 + Math.floor(rand() * 1e6));
+  const f = (x, y) => clamp(noise(x, y) * 0.5 + 0.5, 0, 1);
+  const pos = [], col = [], idx = [];
+  const rows = KC + KT + 1;
+  const edge = (x) => clamp(Math.min(x + W / 2, W / 2 - x) / 6, 0, 1); // taper into the moraine at the ends
+  for (let i = 0; i <= NU; i++) {
+    const x = (i / NU - 0.5) * W, e = edge(x), es = e * e * (3 - 2 * e);
+    // The wavy line of the front and the jagged skyline of seracs along it.
+    const fz = D / 2 - 1.2 + (f(x * 0.08, 1.3) - 0.5) * 2.4;
+    const top = (3.2 + 2.6 * f(x * 0.12, 4.1) + 2.4 * Math.pow(Math.abs(Math.sin(x * 0.55 + 3 * f(x * 0.2, 7))), 4)) * es - 0.6;
+    for (let k = 0; k < rows; k++) {
+      let px, py, pz, c;
+      if (k <= KC) {
+        // The cliff: water to the skyline, bulging and fluted by vertical fractures.
+        const t = k / KC;
+        py = -1.6 + (top + 1.6) * t;
+        const flute = (f(x * 1.6, py * 0.12) - 0.5) * 1.1 + Math.sin(x * 2.3 + py * 0.25) * 0.18;
+        pz = fz + flute * es + Math.sin(t * Math.PI) * 0.7 * es - t * 0.6;
+        px = x + (f(x * 0.7, py * 0.5 + 9) - 0.5) * 0.5;
+        // Fresh breaks are deep blue; weathered faces whiten, dirtier near the waterline.
+        const fresh = THREE.MathUtils.smoothstep(f(x * 0.35, py * 0.15 + 2), 0.3, 0.62);
+        const streak = f(x * 3.1, 0.5);
+        c = [0.14 + 0.62 * (1 - fresh) * streak, 0.42 + 0.46 * (1 - fresh) * streak, 0.66 + 0.3 * (1 - fresh) * streak];
+        const wl = clamp((py + 1.6) / 1.4, 0, 1);
+        c = c.map((v, j) => v * (0.55 + 0.45 * wl) + (j === 2 ? 0.0 : 0));
+      } else {
+        // The top: crevassed, rising gently inland, grey with grit.
+        const t = (k - KC) / KT;
+        pz = fz - 0.6 - t * (fz - 0.6 + D / 2);
+        px = x;
+        const crev = Math.pow(Math.abs(Math.sin(x * 0.9 + pz * 0.35 + 4 * f(x * 0.05, pz * 0.05))), 10);
+        py = (top + t * 2.4 * es + (f(x * 0.3, pz * 0.3) - 0.5) * 1.6 * es - crev * 1.4 * es) * (1 - 0.15 * t);
+        const grit = f(x * 0.25 + 5, pz * 0.6);
+        const v = 0.72 + 0.2 * f(x * 1.1, pz * 1.1) - 0.3 * grit * grit;
+        c = [v * 0.95, v * 0.98, v * 1.02];
+        if (crev > 0.4) c = [0.3, 0.55, 0.72];
+      }
+      // Bands of black ash laid down in the ice, tilted and folded by its flow.
+      const band = Math.sin(py * 1.9 + x * 0.12 + 3 * f(x * 0.04, 2.2));
+      if (band > 0.9) c = c.map((v) => v * 0.3);
+      pos.push(px, py, pz);
+      col.push(...c);
+    }
+  }
+  for (let i = 0; i < NU; i++) for (let k = 0; k < rows - 1; k++) {
+    const a = i * rows + k, b = (i + 1) * rows + k;
+    idx.push(a, b, a + 1, b, b + 1, a + 1);
+  }
+  let g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.setIndex(idx);
+  // Faceted: broken ice catches the light plane by plane.
+  g = g.toNonIndexed();
+  g.computeVertexNormals();
   return g;
 }
 
@@ -667,37 +739,63 @@ function makeColumns(rand, bed) {
 }
 
 function makeKirkjufell() {
-  // Witch-hat profile: a broad grassy skirt, steep layered flanks and a narrow summit.
+  // Witch-hat profile: a broad grassy skirt, steep flanks and a narrow summit. The real mountain
+  // is a stack of lava and sediment layers: each layer is a near-vertical band of dark basalt cliff
+  // capped by a grassy ledge, so the flanks climb in steps, green over black, all the way up.
   const prof = [[32, 0], [29, 2], [24, 5], [19.5, 10], [16, 15], [13, 20], [10.4, 25], [8, 29.5], [5.8, 33.5], [3.6, 37], [1.6, 39.5], [0, 40.5]];
+  const R = (y) => {
+    if (y <= 0) return prof[0][0];
+    for (let i = 0; i < prof.length - 1; i++) if (y <= prof[i + 1][1]) { const t = (y - prof[i][1]) / (prof[i + 1][1] - prof[i][1]); return prof[i][0] + (prof[i + 1][0] - prof[i][0]) * t; }
+    return 0;
+  };
+  const LH = 3.1, BASE = 6; // layer height; below BASE the skirt is plain grassy slope
+  const sstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+  const ledgeAt = (y) => (y < BASE ? 1 : sstep(0.58, 0.92, ((y - BASE) / LH) % 1));
+  // Terraced radius: within a layer it holds the radius of the layer's foot (the cliff), then
+  // steps in to the next layer's across the ledge.
+  const RT = (y) => {
+    if (y < BASE) return R(y);
+    const L = Math.floor((y - BASE) / LH), y0 = BASE + L * LH;
+    return R(y0) + (R(Math.min(y0 + LH, 40.5)) - R(y0)) * ledgeAt(y);
+  };
   const pts = [];
-  for (let i = 0; i < prof.length - 1; i++) {
-    for (let k = 0; k < 4; k++) {
-      const t = k / 4;
-      pts.push(new THREE.Vector2(prof[i][0] + (prof[i + 1][0] - prof[i][0]) * t, prof[i][1] + (prof[i + 1][1] - prof[i][1]) * t));
-    }
-  }
+  for (let y = 0; y < 40.4; y += 0.25) pts.push(new THREE.Vector2(R(y), y));
   pts.push(new THREE.Vector2(0, 40.5));
-  const geo = new THREE.LatheGeometry(pts, 40);
-  geo.translate(0, -2, 0);
+  const geo = new THREE.LatheGeometry(pts, 120);
   const pos = geo.attributes.position;
+  const col = new Float32Array(pos.count * 3);
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
     const r = Math.hypot(x, z);
-    if (r < 0.01) continue;
     const a = Math.atan2(z, x);
-    // Rock bands: flanks step in and out a little every couple of units of height.
-    const fr = (y / 2.4) % 1;
-    const band = (fr < 0.7 ? 0 : (fr - 0.7) / 0.3) * 0.7;
-    const gully = rockNoise(a * 3.2, y * 0.08) * 0.09 + rockNoise(a * 9, y * 0.25) * 0.04;
-    const k = 1 + gully + band / Math.max(r, 3);
+    // Gullies and buttresses down the flanks; layers that wander up and down around the mountain.
+    const gully = rockNoise(a * 3.2, y * 0.08) * 0.07 + rockNoise(a * 9, y * 0.1) * 0.035 + rockNoise(a * 26, y * 0.3) * 0.015;
+    // The layers wander up and down around the mountain and are eroded more on some sides, so
+    // the steps read as weathered strata, not a built pyramid.
+    const wob = rockNoise(a * 0.9 + 5, 1.7) * 1.1 + rockNoise(a * 2.2 + 2, 3.1) * 0.35;
+    const deep = 0.3 + 0.3 * (rockNoise(a * 1.6 + 9, y * 0.05) * 0.5 + 0.5);
+    const target = R(y) + (RT(y + wob) - R(y + wob)) * deep;
+    const k = r < 0.01 ? 1 : (target / Math.max(r, 1e-3)) * (1 + gully);
+    const ledge = ledgeAt(y + wob);
+    // Paint: olive and khaki grass on the ledges and skirt, dark basalt on the cliffs, with grass
+    // spilling down the gullies and pale streaks of scree.
+    const n = rockNoise(a * 30, y * 0.9) * 0.5 + 0.5, n2 = rockNoise(a * 4 + 3, y * 0.12) * 0.5 + 0.5;
+    const grass = [0.42 + 0.1 * n2, 0.42 + 0.06 * n2, 0.25 + 0.04 * n];
+    const rock = [0.19 + 0.08 * n2, 0.19 + 0.07 * n2, 0.19 + 0.06 * n2];
+    const spill = sstep(0.68, 0.85, rockNoise(a * 7 + 11, y * 0.05) * 0.5 + 0.5) * 0.45;
+    const g = clamp(Math.max(ledge, spill * (1 - sstep(30, 38, y))), 0, 1) * (1 - sstep(37.5, 40, y));
+    const scree = sstep(0.75, 0.9, rockNoise(a * 18, y * 0.03 + 4) * 0.5 + 0.5) * (1 - g) * 0.5;
+    for (let j = 0; j < 3; j++) col[i * 3 + j] = Math.pow(rock[j] + (grass[j] - rock[j]) * g + scree * 0.12, 2.2); // display colour to linear
     pos.setX(i, x * k + y * 0.1);
     pos.setZ(i, z * k);
   }
-  geo.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(pos.count * 3), 3));
+  geo.translate(0, -2, 0);
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
   geo.computeVertexNormals();
-  const m = new THREE.Mesh(geo, rockMaterial());
+  const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.93, metalness: 0 }));
   m.scale.set(1, 1, 0.75);
   m.userData.collideCircle = 25;
+  m.userData.keepShape = true; // its own layered shape; no weathering pass
   return m;
 }
 
@@ -1010,10 +1108,10 @@ export class Landmarks {
 
   buildLagoon(lm, rand) {
     // Glacier tongue on the north side of the lagoon.
-    const tongue = new THREE.Mesh(new THREE.BoxGeometry(46, 9, 16, 8, 2, 2), new THREE.MeshStandardMaterial({ roughness: 0.35, metalness: 0, color: 0xd6e6ee }));
-    const p = tongue.geometry.attributes.position;
-    for (let i = 0; i < p.count; i++) if (p.getY(i) > 0) p.setY(i, p.getY(i) + (rand() - 0.5) * 4);
-    tongue.geometry.computeVertexNormals();
+    const tongue = new THREE.Mesh(glacierFront(rand), new THREE.MeshPhysicalMaterial({
+      vertexColors: true, roughness: 0.42, metalness: 0, clearcoat: 0.35, clearcoatRoughness: 0.2,
+      // A faint blue glow from inside the ice, light scattered back out of it.
+      emissive: new THREE.Color(0x072638), emissiveIntensity: 0.35, side: THREE.DoubleSide }));
     tongue.position.set(lm.x, heightAt(lm.x, lm.z - 24) + 3, lm.z - 24);
     tongue.userData.collide = true;
     this.collectColliders(tongue);
@@ -1023,7 +1121,7 @@ export class Landmarks {
     const iceMats = [0xffffff, 0xe6f4fb, 0xd2ecf8, 0xf4fbff].map((c) => new THREE.MeshPhysicalMaterial({ roughness: 0.2, metalness: 0, color: c, vertexColors: true, emissive: 0x0d2a3c, emissiveIntensity: 0.45, clearcoat: 1, clearcoatRoughness: 0.04, sheen: 0.4, sheenColor: new THREE.Color(0xd8f0ff), sheenRoughness: 0.5 }));
     for (let i = 0; i < 42; i++) {
       const size = 0.6 + Math.pow(rand(), 2) * 3.2;
-      const geo = iceGeometry(size, rand);
+      const geo = iceGeometry(size, rand, true);
       geo.scale(1, 0.6 + rand() * 0.7, 1);
       const m = new THREE.Mesh(geo, iceMats[i % 4]);
       const a = rand() * Math.PI * 2, r = Math.sqrt(rand()) * 0.55;

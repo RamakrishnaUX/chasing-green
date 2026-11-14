@@ -6,6 +6,7 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { BokehPass } from 'three/examples/jsm/postprocessing/BokehPass.js';
+import { SunShaftsPass } from './look.js';
 
 // Removes bad pixels (NaN or infinity from very bright sun glints) before bloom can smear them
 // into black blocks, and caps extreme highlights so they bloom softly instead of overflowing.
@@ -36,12 +37,23 @@ const GradeShader = {
     uGrain: { value: 0.018 },
     uSharp: { value: 0 },
     uTexel: { value: new THREE.Vector2(1, 1) },
+    // The cinematic grade (realistic look): colour where it is missing, warm highlights over cool
+    // shadows, and a gentle film S-curve. All zero, the classic grade is unchanged.
+    uVibrance: { value: 0 },
+    uSplit: { value: 0 },
+    uShadowTint: { value: new THREE.Vector3(0.96, 1.0, 1.045) },
+    uHighTint: { value: new THREE.Vector3(1.035, 1.0, 0.95) },
+    uCurve: { value: 0 },
+    // Levels: the black and white points (0 and 1 leave the picture as it is).
+    uBlack: { value: 0 },
+    uWhite: { value: 1 },
   },
   vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
   fragmentShader: `
     uniform sampler2D tDiffuse; uniform float uVignette; uniform float uSat; uniform float uContrast;
     uniform vec3 uLift; uniform vec3 uGain; uniform float uTime; uniform float uGrain;
     uniform float uSharp; uniform vec2 uTexel;
+    uniform float uVibrance; uniform float uSplit; uniform vec3 uShadowTint; uniform vec3 uHighTint; uniform float uCurve; uniform float uBlack; uniform float uWhite;
     varying vec2 vUv;
     float h(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
     void main(){
@@ -62,6 +74,17 @@ const GradeShader = {
       c = mix(vec3(l), c, uSat);
       c = (c - 0.5) * uContrast + 0.5;
       c = c * uGain + uLift * (1.0 - c);
+      c = clamp((c - uBlack) / (uWhite - uBlack), 0.0, 1.0);
+      if (uVibrance > 0.0) {
+        float mx = max(c.r, max(c.g, c.b)), mn = min(c.r, min(c.g, c.b));
+        float L = dot(c, vec3(0.2126, 0.7152, 0.0722));
+        c = mix(vec3(L), c, 1.0 + uVibrance * (1.0 - (mx - mn)));
+      }
+      if (uSplit > 0.0) {
+        float L = dot(c, vec3(0.2126, 0.7152, 0.0722));
+        c *= mix(vec3(1.0), mix(uShadowTint, uHighTint, smoothstep(0.08, 0.7, L)), uSplit);
+      }
+      if (uCurve > 0.0) { c = clamp(c, 0.0, 1.0); c = mix(c, c * c * (3.0 - 2.0 * c), uCurve); }
       vec2 q = vUv - 0.5;
       c *= 1.0 - uVignette * smoothstep(0.25, 0.85, dot(q, q) * 2.2);
       c += (h(vUv * 1000.0 + fract(uTime) * 37.0) - 0.5) * uGrain;
@@ -70,7 +93,7 @@ const GradeShader = {
 };
 
 export class Post {
-  constructor(renderer, scene, camera, { samples = 4, ao = false, aoSamples = 12 } = {}) {
+  constructor(renderer, scene, camera, { samples = 4, ao = false, aoSamples = 12, shafts = false } = {}) {
     const size = renderer.getDrawingBufferSize(new THREE.Vector2());
     const rt = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, samples });
     this.composer = new EffectComposer(renderer, rt);
@@ -100,6 +123,8 @@ export class Post {
         for (const o of out) o.visible = true;
       };
     }
+    // Sun rays through the haze (realistic look).
+    if (shafts) { this.shafts = new SunShaftsPass(size.x, size.y); this.composer.addPass(this.shafts); }
     this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), 0.22, 0.55, 0.92);
     this.composer.addPass(this.bloom);
     // Depth of field, for photo mode only (off otherwise: it draws the scene a second time).
@@ -110,6 +135,9 @@ export class Post {
     this.grade = new ShaderPass(GradeShader);
     this.composer.addPass(this.grade);
     this.renderer = renderer;
+    this.camera = camera;
+    // Daytime glow on the brightest things (sun, glints, snow in sun): realistic look only.
+    this.dayBloom = 0;
   }
   setSize() {
     const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
@@ -123,11 +151,13 @@ export class Post {
     this.grade.uniforms.uTexel.value.set(1 / size.x, 1 / size.y);
     this.grade.uniforms.uSharp.value = this.renderer.getPixelRatio() < devicePixelRatio - 0.05 ? 0.6 : 0.3;
     // The aurora glows more at night; daytime bloom stays subtle.
-    this.bloom.strength = 0.12 + aurora * 0.55 * dark;
+    this.bloom.strength = 0.12 + aurora * 0.55 * dark + this.dayBloom * (1 - dark);
     this.bloom.threshold = dark > 0.5 ? 0.55 : 0.97;
+    this.bloom.radius = this.dayBloom > 0 && dark < 0.5 ? 0.75 : 0.55;
     // By day the bloom is barely visible but costs a stack of full-screen passes: skip it
-    // until dusk, when the lights and the aurora need the glow.
-    this.bloom.enabled = dark > 0.2 || aurora > 0.05;
+    // until dusk, when the lights and the aurora need the glow (the realistic look keeps a soft
+    // daytime glow on the sun and bright glints).
+    this.bloom.enabled = dark > 0.2 || aurora > 0.05 || this.dayBloom > 0;
     this.composer.render();
   }
 }

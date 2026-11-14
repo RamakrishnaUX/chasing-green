@@ -501,8 +501,13 @@ export class Sky {
     u.uOverlay.value = overlay;
     this.scatter.visible = overlay < 0.999;
     // Overcast skies are greyer and dimmer.
-    this.scatter.material.uniforms.turbidity.value = 3.2 + cloud * 6;
-    this.scatter.material.uniforms.uGain.value = 1 - cloud * 0.25;
+    // The realistic look: a clearer, deeper blue sky (less haze, a little more Rayleigh) drawn
+    // darker, so it reads blue through the film curve instead of white.
+    const hdSky = HD.on ? 1 : 0;
+    this.scatter.material.uniforms.turbidity.value = 3.2 - hdSky * 0.9 + cloud * 6;
+    this.scatter.material.uniforms.rayleigh.value = 1.35 + hdSky * 0.45 * (1 - cloud);
+    this.scatter.material.uniforms.mieCoefficient.value = 0.0035 - hdSky * 0.0013;
+    this.scatter.material.uniforms.uGain.value = (1 - cloud * 0.25) * (1 - hdSky * 0.4 * (1 - cloud * 0.6));
     this.updateEnvironment(elDeg, cloud, overlay);
 
     // Sun: warm and low most of the winter day, whiter when high.
@@ -536,6 +541,9 @@ export class Sky {
     // Fog takes the horizon colour, so far hills fade into blue haze.
     this.setRGB(this.fog.color, horizonColor(elDeg));
     this.fog.color.lerp(this.c2.setRGB(0.23, 0.17, 0.12), city.overhead * dark * 0.4);
+    // Realistic look: distance turns land blue, as air really does (aerial perspective), rather
+    // than the pale grey of a painted backdrop.
+    if (HD.on) { const day = 1 - wNight; this.fog.color.multiply(this.c2.setRGB(1 - 0.24 * day, 1 - 0.13 * day, 1)); }
     this.fog.density = 0.0004 + wNight * 0.0005 + cloud * 0.00045;
     return { sunDir, dark };
   }

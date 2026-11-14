@@ -218,13 +218,19 @@ export class Grass {
           col = mix(col, vec3(0.42, 0.6, 0.22), field * (0.55 + 0.4 * uSummer));
           col *= 0.85 + 0.3 * aRand.z;
           #ifdef HD_GRASS
-          vec3 dead = vec3(0.66, 0.56, 0.37), live = mix(vec3(0.4, 0.42, 0.2), vec3(0.3, 0.44, 0.16), uSummer);
-          col = mix(col, step(0.66 - uSummer * 0.45, aBlade) > 0.5 ? live : dead, 0.45);
+          // Realistic albedos: blades darker than paint, khaki and olive among the straw.
+          col *= vec3(0.78, 0.76, 0.72);
+          vec3 dead = vec3(0.6, 0.5, 0.31), live = mix(vec3(0.34, 0.38, 0.17), vec3(0.26, 0.4, 0.13), uSummer);
+          col = mix(col, step(0.55 - uSummer * 0.35, aBlade) > 0.5 ? live : dead, 0.5);
           col *= 0.78 + 0.44 * fract(aBlade * 7.31);
           #endif
           vTip = ty;
           // Dark at the root, sunlit at the tip.
+          #ifdef HD_GRASS
+          col *= mix(0.4, 1.1, ty * (2.0 - ty)); // deep in the tuft, little light reaches
+          #else
           col *= mix(0.62, 1.12, ty);
+          #endif
           if (uSunUp > 0.01 && uCloudCover > 0.05) {
             float cn = g_f((base + uCloudOffset - uSunDir.xz / max(uSunDir.y, 0.18) * 380.0) * 0.0045);
             col *= 1.0 - 0.42 * smoothstep(1.0 - uCloudCover - 0.1, 1.0 - uCloudCover + 0.25, cn) * uSunUp;

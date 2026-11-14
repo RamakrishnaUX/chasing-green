@@ -8,6 +8,7 @@ import { updateTerrainLod, buildTerrain, paintTerrain, iceAt, flattenPads, bridg
 import { Scatter } from './world/scatter.js';
 import { Grass } from './world/grass.js';
 import { Post } from './world/post.js';
+import { installLook } from './world/look.js';
 import { Props } from './world/props.js';
 import { Towns } from './world/towns.js';
 import { Obstacles } from './world/obstacles.js';
@@ -95,7 +96,7 @@ let qualityName = settings.quality || (autoQualityKept ? settings.autoQuality : 
 // The realistic look is desktop only (and not on Low): phones keep the classic look and never
 // download its textures. It is chosen at load, so a change applies on the next reload.
 const wantHD = !isTouch && qualityName !== 'low' && settings.look !== 'classic';
-if (wantHD) installAtmosphere();
+if (wantHD) { installAtmosphere(); installLook(); }
 let Q = qualityFor(qualityName);
 const challenge = dailyChallenge();
 
@@ -288,7 +289,7 @@ async function buildWorld(progress) {
   // The night sky (aurora, moon, stars) as the water mirrors it.
   skyRefl = new SkyReflection(renderer, qualityName === 'low' ? 64 : 128);
   skyRefl.faces = LEVELS[governor.level].sky; skyRefl.every = LEVELS[governor.level].skyEvery;
-  if (HD.on) sky.light = { env: 0.55, hemi: 0.5, sun: 1.3 };
+  if (HD.on) sky.light = { env: 0.62, hemi: 0.3, sun: 1.95 };
   aurora = new Aurora(scene, Q.auroraSteps);
   await stage('Placing landmarks', 0.67, 220);
   // Pads under built landmarks, by kind (radius in world units). Natural sites keep their shape.
@@ -321,9 +322,16 @@ async function buildWorld(progress) {
   // so this is most of the grass's cost: the same density over a smaller circle is far cheaper).
   if (Q.grass > 0) grass = new Grass(scene, { count: HD.on ? Math.max(Q.grass, 34000) : Q.grass, radius: HD.on ? Math.max(Q.grassRadius, 46) : Q.grassRadius, clear });
   // The realistic look always grounds things with ambient occlusion.
-  if (Q.post) post = new Post(renderer, scene, camera, { ao: !!Q.ao || HD.on, aoSamples: Q.ao ? 12 : 6, samples: Q.msaa ?? 4 });
+  if (Q.post) post = new Post(renderer, scene, camera, { ao: !!Q.ao || HD.on, aoSamples: Q.ao ? 12 : 6, samples: Q.msaa ?? 4, shafts: HD.on });
   // Realistic look: a little more contrast and a touch less saturation, like a photograph.
-  if (post && HD.on) { post.grade.uniforms.uContrast.value = 1.1; post.grade.uniforms.uSat.value = 1.18; }
+  // The cinematic grade: the tone curve already has the contrast (installLook), so this adds colour
+  // where it is missing, warm highlights over cool shadows, and a soft glow on the brightest things.
+  if (post && HD.on) {
+    const G = post.grade.uniforms;
+    G.uContrast.value = 1.0; G.uSat.value = 1.06; G.uVibrance.value = 0.16; G.uSplit.value = 1; G.uCurve.value = 0.18; G.uBlack.value = 0.1; G.uWhite.value = 0.93;
+    G.uLift.value.set(0.0, 0.004, 0.01); G.uGain.value.set(1.0, 0.99, 0.965); G.uVignette.value = 0.34; G.uGrain.value = 0.014;
+    post.dayBloom = 0;
+  }
   // AgX rolls highlights off like a camera does, instead of clipping bright sky and snow.
   if (HD.on) { renderer.toneMapping = THREE.AgXToneMapping; renderer.toneMappingExposure = (CONFIG.exposure ?? 0.95) * 1.2; }
   await stage('Building towns', 0.91, 80);
@@ -2824,6 +2832,8 @@ function frame(now) {
   surfaceUniforms.uCloudOffset.value.copy(cloudOffset);
   surfaceUniforms.uSunDir.value.copy(sunDir);
   if (HD.on) updateAtmosphere(sunDir, surfaceUniforms.uSunUp.value);
+  // Sun rays: strongest with the sun low and the sky clear, gone under overcast and at night.
+  if (post?.shafts) post.shafts.setSun(camera, sunDir, 0.4 * surfaceUniforms.uSunUp.value * (1 - a.cloud * 0.75) * (0.5 + 0.5 * smoothstep(40, 6, clock.sunElevation())), sky.sun.color);
   sunMap?.update(renderer, sunDir, surfaceUniforms.uSunUp.value);
   surfaceUniforms.uSunUp.value = smoothstep(-2, 8, clock.sunElevation()) * (1 - dark);
   surfaceUniforms.uTime.value = t;
