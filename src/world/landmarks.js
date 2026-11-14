@@ -5,9 +5,12 @@ import { toWorld, LAKES, CANYONS, WS } from './geo.js';
 import { heightAt, nearestRoad, roadDistAt } from './terrain.js';
 import { mulberry32, clamp, createNoise2D } from './noise.js';
 import * as More from './landmarks_more.js';
+import * as Nature from './nature.js';
 import { EXTRA } from './landmarks_extra.js';
 import { waterLevelAt } from './terrain.js';
 import { rockMaterial } from './materials.js';
+import { waterUniforms, updateFalls } from './falls.js';
+import { FALL_BUILDERS, genericFall } from './waterfalls.js';
 
 // Ground or water level under a landform: its faces looking down below this are buried, and the
 // rest (the underside of an arch) are ceilings something can pass beneath.
@@ -47,7 +50,7 @@ export const LANDMARKS = [
   },
   {
     id: 'reynisfjara', name: 'Reynisfjara', kind: 'beach', glyph: 'columns',
-    ll: [63.4044, -19.045], away: 0,
+    ll: [63.4044, -19.045], away: 0, clearGround: { at: [-20, 16], r: 34 }, // no grass field on the black sand
     legend: 'The sea stacks of Reynisdrangar are said to be trolls who tried to drag a ship ashore at night and turned to stone when the sun came up.',
     fact: 'The sand is black basalt. Sneaker waves can surge far up the beach without warning, so never turn your back on the sea.',
   },
@@ -212,7 +215,8 @@ export const LANDMARKS = [
   { id: 'haifoss', name: 'Háifoss', kind: 'waterfall', glyph: 'falls', ll: [64.21, -19.69], away: 30, reach: 46, model: 'falls', params: { width: 2.4, height: 48, cliffWidth: 34, canyon: true },
     desc: 'One of Iceland\u2019s tallest waterfalls, dropping into a deep canyon in the highlands.',
     fact: 'It falls about 122 metres. The name simply means High Falls.' },
-  { id: 'kvernufoss', name: 'Kvernufoss', kind: 'waterfall', glyph: 'falls', ll: [63.525, -19.44], away: 26, model: 'falls', params: { width: 2.6, height: 16, walkBehind: true, cliffWidth: 20 },
+  { id: 'kvernufoss', name: 'Kvernufoss', kind: 'waterfall', glyph: 'falls', ll: [63.525, -19.44], offset: [59, -3.5], // clear of Skógafoss and Sólheimajökull, 32 m off the road
+    model: 'falls', params: { width: 2.6, height: 16, walkBehind: true, cliffWidth: 20 },
     desc: 'Skógafoss\u2019s quiet neighbour, in a mossy gorge you can walk behind.',
     fact: 'It is a short walk from the Skógar museum, and far fewer people visit it than Skógafoss.' },
   { id: 'oxararfoss', name: 'Öxarárfoss', kind: 'waterfall', glyph: 'falls', ll: [64.267, -21.117], offset: [36, -52], model: 'falls', params: { width: 4, height: 9, cliffWidth: 22 },
@@ -287,10 +291,9 @@ export const LANDMARKS = [
     fact: 'The town sits on a gravel spit called Eyri, with mountains rising almost straight out of the sea around it.' },
 ];
 
-// Shared uniforms so every waterfall dims at night and picks up aurora light.
-export const waterUniforms = { uTime: { value: 0 }, uLight: { value: 1 }, uTint: { value: new THREE.Color(0x000000) } };
+// Shared uniforms so every waterfall dims at night and picks up aurora light (they live in falls.js).
+export { waterUniforms };
 
-const FALL_VERT = /* glsl */ `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
 const FALL_FRAG = /* glsl */ `
 uniform float uTime; uniform float uLight; uniform vec3 uTint; uniform vec3 uColor; uniform float uSpeed;
 varying vec2 vUv;
@@ -345,45 +348,12 @@ void main(){
   gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
 }`;
 
-// Churning white water where the falls hit the pool.
-const BOIL_FRAG = /* glsl */ `
-uniform float uTime; uniform float uLight; uniform vec3 uTint; varying vec2 vUv;
-float h(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-float n(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f); return mix(mix(h(i), h(i+vec2(1,0)), f.x), mix(h(i+vec2(0,1)), h(i+vec2(1,1)), f.x), f.y); }
-void main(){
-  vec2 q = vUv - 0.5; float r = length(q) * 2.0; float a = atan(q.y, q.x);
-  float churn = n(vec2(a * 3.0, r * 6.0 - uTime * 1.3)) * 0.6 + n(vec2(a * 7.0 + uTime * 0.3, r * 14.0 - uTime * 2.2)) * 0.4;
-  float alpha = smoothstep(1.0, 0.2, r) * smoothstep(0.25, 0.7, churn);
-  gl_FragColor = vec4(vec3(0.95, 0.97, 0.98) * uLight + uTint * 0.5, alpha * 0.85);
-}`;
-
 function fallMaterial(color = 0xdbe9f2, speed = 2.6, arc = 1.2) {
   return new THREE.ShaderMaterial({
     vertexShader: FALL_CURVE_VERT, fragmentShader: FALL_FRAG, transparent: true, depthWrite: false, side: THREE.DoubleSide,
     defines: HD.on ? { HD_FALL: '' } : {},
     uniforms: { ...waterUniforms, uColor: { value: new THREE.Color(color) }, uSpeed: { value: speed }, uArc: { value: arc } },
   });
-}
-const boilMaterial = () => new THREE.ShaderMaterial({ vertexShader: FALL_VERT, fragmentShader: BOIL_FRAG, transparent: true, depthWrite: false, uniforms: { ...waterUniforms } });
-const wetRock = new THREE.MeshStandardMaterial({ color: 0x15181a, roughness: 0.22, metalness: 0.05 });
-const mossMat = new THREE.MeshStandardMaterial({ color: 0x3f5a24, roughness: 0.98 });
-
-// Moss tufts: soft green lumps along the lip and sides of a fall.
-function mossTufts(g, width, height, count, rand, cliffW = width + 26) {
-  const geo = new THREE.IcosahedronGeometry(1, 1);
-  for (let i = 0; i < count; i++) {
-    const m = new THREE.Mesh(geo, mossMat);
-    const side = rand() < 0.5 ? -1 : 1;
-    const onLip = rand() < 0.75;
-    const reach = Math.max(0.5, Math.min(6, (cliffW - width) / 2 - 1));
-    const x = onLip ? (rand() - 0.5) * Math.min(width + 10, cliffW - 1) : side * (width / 2 + 0.6 + rand() * reach);
-    const y = onLip ? height + 0.4 : rand() * height;
-    m.position.set(x, y, 0.4 + rand() * 0.6);
-    const sc = 0.5 + rand() * 1.2;
-    m.scale.set(sc * 1.3, sc * 0.55, sc * 1.0);
-    m.rotation.set(rand(), rand() * 3, rand());
-    g.add(m);
-  }
 }
 
 const rockNoise = createNoise2D(808);
@@ -402,64 +372,6 @@ function rockBox(w, h, d, rough = 0.6) {
   }
   g.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(p.count * 3), 3));
   g.computeVertexNormals();
-  return new THREE.Mesh(g, rockMaterial());
-}
-
-// A taller, rougher rock step: its sides lean back as they rise (taper, 0 to 0.5) and its faces
-// carry the ledges of stacked lava flows, so it reads as a crag and not a block.
-function rockStep(w, h, d, taper = 0.25) {
-  const m = rockBox(w, h, d, 1.1), p = m.geometry.attributes.position;
-  for (let i = 0; i < p.count; i++) {
-    const x = p.getX(i), y = p.getY(i), z = p.getZ(i), k = (y + h / 2) / h;
-    const ledge = (Math.sin(y * 1.6 + rockNoise(x * 0.2, z * 0.2) * 2) * 0.5 + 0.5) * 0.45;
-    p.setXYZ(i, x * (1 - taper * k) + Math.sign(x) * ledge, y, z * (1 - taper * 0.6 * k) + Math.sign(z) * ledge);
-  }
-  m.geometry.computeVertexNormals();
-  return m;
-}
-
-// The rock a waterfall pours over: not a box standing on the plain, but the broken edge of a
-// lava plateau. The face curves round the pool (its ends come forward), is built of stacked
-// flows with ledges and columns and bulges, and keeps calm only where the water falls; the top
-// runs back level, then slopes down to the land, and both ends slope away to nothing.
-// cw: width of the full-height face; top: the lip's height; below: how far it runs into the
-// ground; water: the falls' width (the face stays smooth behind it).
-function escarpment(cw, top, below, depth, water, seed = 1) {
-  const NU = 72, NV = 36, W = cw / 2 + top * 1.6;
-  const pos = [], idx = [];
-  const n = (x, y) => rockNoise(x + seed * 13.1, y - seed * 7.3);
-  for (let i = 0; i <= NU; i++) {
-    const u = i / NU * 2 - 1, x = u * W, ax = Math.abs(x);
-    // Full height across the face, falling away over the ends.
-    const hu = 1 - THREE.MathUtils.smoothstep(ax, cw / 2 * 0.85, W);
-    const lip = -below + (top + below) * Math.pow(hu, 0.8) + n(x * 0.08, 3) * 1.2 * hu;
-    const zf = 5.5 * Math.pow(ax / W, 2); // the ends come forward round the pool
-    const calm = THREE.MathUtils.smoothstep(ax, water / 2 + 1, water / 2 + 6);
-    const back = depth * (0.7 + 0.25 * n(x * 0.05, 9)), fall = (lip + below) * 1.7 + 4;
-    for (let j = 0; j <= NV; j++) {
-      const v = j / NV;
-      let y, z;
-      if (v <= 0.55) { // the face, base to lip, leaning back a little
-        const t = v / 0.55; y = -below + (lip + below) * t; z = zf + 1.4 * (1 - t) * (1 - t) - 0.9 * t;
-        const yw = y + n(x * 0.1, 11) * 2;
-        const relief = Math.sin(yw * 1.3) * 0.45 + Math.abs(Math.sin(x * 0.9 + n(x * 0.05, y * 0.05) * 3)) * 0.7 + n(x * 0.12, y * 0.12) * 1.6;
-        z += relief * (0.2 + 0.8 * calm) * hu * Math.min(1, t * 6) * Math.min(1, (1 - t) * 8 + 0.3);
-      } else if (v <= 0.75) { // the top, running back
-        const t = (v - 0.55) / 0.2; y = lip + n(x * 0.07, t * 2) * 0.6 * hu; z = zf - 0.9 - back * t;
-      } else { // down the back to the land
-        const t = (v - 0.75) / 0.25; y = lip + (-below - lip) * t * t * (3 - 2 * t); z = zf - 0.9 - back - fall * t;
-      }
-      pos.push(x, y, z);
-    }
-  }
-  for (let i = 0; i < NU; i++) for (let j = 0; j < NV; j++) {
-    const a = i * (NV + 1) + j, b = a + NV + 1;
-    idx.push(a, b, a + 1, a + 1, b, b + 1);
-  }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  g.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(pos.length), 3));
-  g.setIndex(idx); g.computeVertexNormals();
   return new THREE.Mesh(g, rockMaterial());
 }
 
@@ -569,7 +481,6 @@ function glacierFront(rand) {
 const basalt = new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0,  color: 0x2b2f33, flatShading: true });
 const basaltLight = new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0,  color: 0x3c4247, flatShading: true });
 const moss = new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0,  color: 0x46553f, flatShading: true });
-const poolMat = createWaterMaterial(0x16424a, { roughness: 0.08, ripple: 1.4, bowl: 3, shallow: [0.16, 0.4, 0.4], deep: [0.015, 0.07, 0.085], foam: 0.7 });
 
 // Soft round sprite drawn on a canvas, so particles read as spray rather than squares.
 let softSprite = null;
@@ -639,105 +550,6 @@ function animateMist(pts, dt) {
   pts.geometry.attributes.position.needsUpdate = true;
 }
 
-// A cliff face with a waterfall pouring off its front edge. Local +z faces the viewer.
-// below: how far the cliff reaches under the foot of the falls, so it meets ground that drops away.
-function makeWaterfall({ width, height, walkBehind = false, color, cliffWidth, below = 3 }) {
-  const g = new THREE.Group();
-  const ch = height + 3 + below, cy = ch / 2 - below; // the cliff: from below the foot to above the lip
-  const cw = cliffWidth || width + 26;
-  const depth = 14;
-  if (walkBehind) {
-    const side = (cw - width - 8) / 2;
-    const l = rockBox(side, ch, depth);
-    l.position.set(-(width + 8) / 2 - side / 2, cy, -depth / 2);
-    const r = rockBox(side, ch, depth); r.position.copy(l.position); r.position.x *= -1;
-    const back = rockBox(width + 8, ch, depth - 6);
-    back.position.set(0, cy, -depth / 2 - 3);
-    const lip = rockBox(width + 8, 4, 6, 0.3);
-    lip.position.set(0, height + 1, -3);
-    lip.userData.notGround = true; // the path runs under it
-    [l, r, back].forEach((m) => (m.userData.collide = true));
-    g.add(l, r, back, lip);
-  } else {
-    // What you see is the plateau's broken edge; what stops you is the same block as before.
-    const face = escarpment(cw, height + 3, below, depth, width, width + height);
-    face.castShadow = face.receiveShadow = true;
-    g.add(face);
-    const c = rockBox(cw, ch, depth);
-    c.position.set(0, cy, -depth / 2);
-    c.userData.collide = true; c.visible = false;
-    g.add(c);
-  }
-  const rand = mulberry32(Math.round(width * 131 + height * 17));
-  // Wet, dark rock behind the water.
-  const wet = new THREE.Mesh(new THREE.PlaneGeometry(width + 3, height + 2), wetRock);
-  wet.position.set(0, height / 2, walkBehind ? -5.9 : 0.05);
-  g.add(wet);
-  // The water sheet, two layers for depth.
-  const arc = Math.min(2.4, 0.6 + height * 0.05);
-  const fall = new THREE.Mesh(new THREE.PlaneGeometry(width, height + 1, 6, 18), fallMaterial(color, 2.6, arc));
-  fall.position.set(0, height / 2, walkBehind ? 0.4 : 0.6);
-  g.add(fall);
-  const veil = new THREE.Mesh(new THREE.PlaneGeometry(width * 1.15, height + 1, 6, 18), fallMaterial(color, 3.4, arc * 1.15));
-  veil.material.uniforms.uColor.value.multiplyScalar(1.1);
-  veil.position.set(0, height / 2, (walkBehind ? 0.4 : 0.6) + 0.25);
-  veil.scale.set(1, 1, 1);
-  g.add(veil);
-  // Pool, foam boil at the impact, moss.
-  const pool = new THREE.Mesh(new THREE.CircleGeometry(width * 0.8 + 4, 28), poolMat);
-  pool.rotation.x = -Math.PI / 2;
-  pool.position.set(0, 0.12, 5);
-  g.add(pool);
-  const boil = new THREE.Mesh(new THREE.CircleGeometry(width * 0.75 + 2, 28), boilMaterial());
-  boil.rotation.x = -Math.PI / 2;
-  boil.position.set(0, 0.33, arc + 1.2);
-  g.add(boil);
-  mossTufts(g, width, height, Math.round(10 + width), rand, cw);
-  // Mist: soft, lit by the sky, drifting with the wind.
-  // The realistic look uses many fine, faint droplets instead of a few big puffs.
-  const mist = makeMist(Math.round((140 + width * 7) * (HD.on ? 3 : 1)), width + 8, height * 0.7);
-  mist.position.set(0, 0.5, arc + 1.5);
-  mist.material.size = (2.9 + width * 0.04) * (HD.on ? 0.3 : 1);
-  mist.material.opacity = HD.on ? 0.16 : 0.3;
-  g.add(mist);
-  return { group: g, mists: [mist] };
-}
-
-function makeColumns(rand, bed) {
-  const g = new THREE.Group();
-  const cols = new THREE.Group();
-  cols.userData.keepShape = true; // basalt columns really are this regular
-  cols.position.set(30, 0, 6);
-  cols.rotation.y = -0.5;
-  g.add(cols);
-  const geo = new THREE.CylinderGeometry(1, 1, 1, 6);
-  for (let i = 0; i < 70; i++) {
-    const row = Math.floor(i / 14), col = i % 14;
-    const h = 3 + Math.abs(Math.sin(col * 0.7)) * 10 + rand() * 3 + row * 1.6;
-    const m = new THREE.Mesh(geo, rand() > 0.5 ? basalt : basaltLight);
-    m.scale.set(0.95, h, 0.95);
-    m.position.set((col - 7) * 1.7 + (row % 2) * 0.85, h / 2 - 1, -row * 1.5 - 4);
-    m.userData.collideCircle = 0.9;
-    cols.add(m);
-  }
-  // Sea stacks offshore. They rise from the seabed: tops where they were, the taper carried on
-  // down under the water.
-  [[-14, 40, 20], [-4, 52, 26], [8, 46, 16]].forEach(([x, z, h]) => {
-    const top = h - 4, foot = Math.min(-4, bed(x, z) - 3), H = top - foot;
-    const rt = 1.2 + rand() * 1.2;
-    const sg = new THREE.CylinderGeometry(rt, rt + (4.4 - rt) * H / h, H, 7, 8);
-    const sp = sg.attributes.position;
-    for (let i = 0; i < sp.count; i++) { const k = 1 + rockNoise(sp.getY(i) * 0.4 + x, i * 0.3) * 0.18; sp.setX(i, sp.getX(i) * k); sp.setZ(i, sp.getZ(i) * k); }
-    sg.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(sp.count * 3), 3));
-    sg.computeVertexNormals();
-    const s = new THREE.Mesh(sg, rockMaterial());
-    s.position.set(x, foot + H / 2, z);
-    s.rotation.y = rand() * 3;
-    g.add(s);
-  });
-  return g;
-}
-
 function makeKirkjufell() {
   // Witch-hat profile: a broad grassy skirt, steep flanks and a narrow summit. The real mountain
   // is a stack of lava and sediment layers: each layer is a near-vertical band of dark basalt cliff
@@ -772,11 +584,12 @@ function makeKirkjufell() {
     const gully = rockNoise(a * 3.2, y * 0.08) * 0.07 + rockNoise(a * 9, y * 0.1) * 0.035 + rockNoise(a * 26, y * 0.3) * 0.015;
     // The layers wander up and down around the mountain and are eroded more on some sides, so
     // the steps read as weathered strata, not a built pyramid.
-    const wob = rockNoise(a * 0.9 + 5, 1.7) * 1.1 + rockNoise(a * 2.2 + 2, 3.1) * 0.35;
+    const wob = rockNoise(a * 0.9 + 5, 1.7) * 1.8 + rockNoise(a * 2.2 + 2, 3.1) * 0.6 + rockNoise(a * 5 + 1, y * 0.05) * 0.4;
     const deep = 0.3 + 0.3 * (rockNoise(a * 1.6 + 9, y * 0.05) * 0.5 + 0.5);
     const target = R(y) + (RT(y + wob) - R(y + wob)) * deep;
     const k = r < 0.01 ? 1 : (target / Math.max(r, 1e-3)) * (1 + gully);
-    const ledge = ledgeAt(y + wob);
+    // Ledges come and go round the mountain: in places one cliff band runs into the next.
+    const ledge = ledgeAt(y + wob) * (0.45 + 0.55 * sstep(-0.35, 0.25, rockNoise(a * 2.6 + 7, y * 0.09)));
     // Paint: olive and khaki grass on the ledges and skirt, dark basalt on the cliffs, with grass
     // spilling down the gullies and pale streaks of scree.
     const n = rockNoise(a * 30, y * 0.9) * 0.5 + 0.5, n2 = rockNoise(a * 4 + 3, y * 0.12) * 0.5 + 0.5;
@@ -789,37 +602,21 @@ function makeKirkjufell() {
     pos.setX(i, x * k + y * 0.1);
     pos.setZ(i, z * k);
   }
+  // It is a ridge, not a cone: long toward Kirkjufellsfoss (about local (23, 18)) and flattened
+  // across, so from the falls it shows the narrow, steep arrowhead of the photographs. Its foot
+  // stops about 27 m out along that line, short of the falls.
+  const fu = Math.atan2(16, 22), cu = Math.cos(fu), su = Math.sin(fu);
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), z = pos.getZ(i), u = (x * cu + z * su) * 0.84, v = (-x * su + z * cu) * 0.6; // the foot stays clear of the falls
+    pos.setX(i, u * cu - v * su); pos.setZ(i, u * su + v * cu);
+  }
   geo.translate(0, -2, 0);
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
   geo.computeVertexNormals();
   const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.93, metalness: 0 }));
-  m.scale.set(1, 1, 0.75);
-  m.userData.collideCircle = 25;
+  m.userData.collideCircle = 21; // between its narrow flanks (19) and its long axis (28)
   m.userData.keepShape = true; // its own layered shape; no weathering pass
   return m;
-}
-
-function makeRift() {
-  const g = new THREE.Group();
-  const wall = new THREE.BoxGeometry(5, 7, 90, 1, 2, 10);
-  const p = wall.attributes.position;
-  for (let i = 0; i < p.count; i++) p.setY(i, p.getY(i) + Math.sin(p.getZ(i) * 0.15) * 0.8 * (p.getY(i) > 0 ? 1 : 0));
-  wall.computeVertexNormals();
-  const a = rockBox(5, 7, 90, 0.9);
-  a.position.set(-6, 2.5, 0);
-  const b = rockBox(5, 7, 90, 0.9);
-  b.position.set(6, 1.5, 0);
-  b.scale.y = 0.8;
-  a.userData.collide = true;
-  b.userData.collide = true;
-  // A small flagpole marks the Law Rock.
-  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 7, 5), new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0,  color: 0xcfd5d9 }));
-  pole.position.set(-3.2, 9.5, -8);
-  const flag = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 1.6), new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0,  color: 0x2c5aa0, side: THREE.DoubleSide }));
-  flag.position.set(-2.0, 12.2, -8);
-  g.add(a, b, pole, flag);
-  g.rotation.y = Math.PI / 4;
-  return g;
 }
 
 export class Landmarks {
@@ -897,27 +694,7 @@ export class Landmarks {
     root.rotation.y = lm.facing;
     let g;
     switch (lm.id) {
-      case 'seljalandsfoss': g = makeWaterfall({ width: 4, height: 22, walkBehind: true }); break;
-      case 'skogafoss': g = makeWaterfall({ width: 13, height: 22 }); break;
-      case 'dettifoss': g = makeWaterfall({ width: 34, height: 14, color: 0xb8b2a2, cliffWidth: 60 }); break;
-      case 'gullfoss': {
-        const upper = makeWaterfall({ width: 22, height: 5, cliffWidth: 34 });
-        upper.group.position.set(0, 9, -10);
-        // The upper step stands on rock down to the ground: under its cliff, and a ledge in front
-        // that holds its pool, kept clear of the lower falls.
-        const base = rockStep(34, 12, 14, 0.18);
-        base.position.set(0, -6, -7);
-        const ledge = rockStep(24, 12, 11, 0.3);
-        ledge.position.set(0, -6.01, 5.5);
-        for (const m of [base, ledge]) { m.userData.collide = true; upper.group.add(m); }
-        for (const m of upper.group.children) if (m.geometry?.type === 'CircleGeometry') m.scale.set(0.26, 0.26, 1);
-        const lower = makeWaterfall({ width: 14, height: 10, cliffWidth: 26 });
-        lower.group.rotation.y = Math.PI / 2.4;
-        lower.group.position.set(-14, 0, 0);
-        g = { group: new THREE.Group(), mists: [...upper.mists, ...lower.mists] };
-        g.group.add(upper.group, lower.group);
-        break;
-      }
+      // Waterfalls are built in waterfalls.js (FALL_BUILDERS below).
       default: g = null;
     }
     if (g) { root.add(g.group); this.mists.push(...g.mists); }
@@ -925,7 +702,7 @@ export class Landmarks {
     // New landmarks, built in landmarks_more.js.
     const cs = Math.cos(lm.facing), sn = Math.sin(lm.facing);
     const kit = {
-      rand, quality: this.quality, baseY: y, waterUniforms, cs, sn, lmX: lm.x, lmZ: lm.z, iceGeometry, makeMist, makeWaterfall, fallMaterial, rockBox, rockMaterial,
+      rand, quality: this.quality, baseY: y, waterUniforms, cs, sn, lmX: lm.x, lmZ: lm.z, iceGeometry, makeMist, fallMaterial, rockBox, rockMaterial,
       ground: (lx, lz) => heightAt(lm.x + lx * cs + lz * sn, lm.z - lx * sn + lz * cs) - y,
       // The bottom something standing here must reach: the ground, or under water the seabed (never
       // above the sea surface). In local heights, like ground.
@@ -940,13 +717,16 @@ export class Landmarks {
       // A hot pool to bathe in: an ellipse at local (lx, lz), radii rx (across) and rz, water at local height ly.
       bath: (lx, lz, rx, rz, ly) => this.baths.push({ x: lm.x + lx * cs + lz * sn, z: lm.z - lx * sn + lz * cs, rx, rz, cs, sn, y: y + ly, lm }),
     };
+    kit.makeWaterfall = (o) => genericFall(kit, o);
+    // Keep the grass field out of a pool or riverbed here (local centre and radius).
+    kit.clearGrass = (lx, lz, r) => (lm.grassClear ||= []).push({ x: lm.x + lx * cs + lz * sn, z: lm.z - lx * sn + lz * cs, r });
     const builders = {
       hallgrimskirkja: More.buildHallgrimskirkja, harpa: More.buildHarpa, sunvoyager: More.buildSunVoyager, perlan: More.buildPerlan,
       bluelagoon: More.buildBlueLagoon, kerid: More.buildKerid, hverir: More.buildHverir, hveravellir: More.buildHveravellir,
-      strokkur: More.buildStrokkur, svartifoss: More.buildSvartifoss, godafoss: More.buildGodafoss, gljufrabui: More.buildGljufrabui,
-      hengifoss: More.buildHengifoss, asbyrgi: More.buildAsbyrgi, dyrholaey: More.buildDyrholaey,
+      strokkur: More.buildStrokkur, asbyrgi: More.buildAsbyrgi, dyrholaey: Nature.buildDyrholaey,
       skaftafell: More.buildSkaftafell, diamondbeach: More.buildDiamondBeach, eldhraun: More.buildEldhraun,
-      vik: (k) => More.buildChurch(k, { hill: 9 }), husavik: (k) => More.buildChurch(k, { hill: 0, roof: 0x8a2a24, scale: 1.2 }),
+      ...FALL_BUILDERS,
+      vik: (k) => More.buildChurch(k, { hill: 9 }), husavik: (k) => More.buildChurch(k, { hill: 0, style: 'husavik' }),
     };
     if (builders[lm.id]) root.add(builders[lm.id](kit));
     else if (lm.model && EXTRA[lm.model]) root.add(EXTRA[lm.model](kit, lm.params || {}));
@@ -960,27 +740,24 @@ export class Landmarks {
         root.add(st);
       }
     }
-    if (lm.id === 'reynisfjara') root.add(makeColumns(rand, kit.bed));
+    if (lm.id === 'reynisfjara') root.add(Nature.buildReynisfjara(kit));
     if (lm.id === 'kirkjufell') {
       root.add(makeKirkjufell());
-      // Kirkjufellsfoss: a small two-step falls between the road and the mountain.
-      // The ground falls away toward the sea here: each cliff reaches down to the lowest ground
-      // under it, so none hangs above the bank.
-      const reach = (x, y, z, ry, cw) => {
-        let lo = Infinity;
-        for (const a of [-cw / 2, 0, cw / 2]) for (const b of [0, -7, -14]) lo = Math.min(lo, kit.ground(x + a * Math.cos(ry) + b * Math.sin(ry), z - a * Math.sin(ry) + b * Math.cos(ry)));
-        return Math.max(3, y - lo + 1);
-      };
-      const upper = makeWaterfall({ width: 6, height: 3.2, cliffWidth: 13, below: reach(22, -1.5, 16, 0, 13) });
-      upper.group.position.set(22, -1.5, 16);
-      const lower = makeWaterfall({ width: 4, height: 2.4, cliffWidth: 9, below: reach(27, -2.4, 21, -0.4, 9) });
-      lower.group.position.set(27, -2.4, 21);
-      lower.group.rotation.y = -0.4;
+      // Kirkjufellsfoss: a small two-step falls where the river drops into the ravine it has cut
+      // down to the shore, between the road and the mountain. Each step is sized from the ground
+      // there: the upper one from the field to the ravine's lip, the lower one into the ravine.
+      const kfU = { x: 23, z: 15 }, kfL = { x: 23, z: 21 };
+      const yU = kit.ground(kfU.x, kfU.z + 3), yL = kit.ground(kfL.x, kfL.z + 3.5);
+      const hU = THREE.MathUtils.clamp(kit.ground(kfU.x, kfU.z - 4) - yU, 1.5, 3), hL = THREE.MathUtils.clamp(yU - yL, 2, 6);
+      const upper = genericFall(kit, { width: 5, height: hU, cliffWidth: 13, below: 3, at: { x: kfU.x, y: yU, z: kfU.z, ry: 0 } });
+      upper.group.position.set(kfU.x, yU, kfU.z);
+      const lower = genericFall(kit, { width: 3.6, height: hL, cliffWidth: 9, below: 3, at: { x: kfL.x, y: yL, z: kfL.z, ry: 0 } });
+      lower.group.position.set(kfL.x, yL, kfL.z);
       root.add(upper.group, lower.group);
       this.mists.push(...upper.mists, ...lower.mists);
     }
     if (lm.id === 'studlagil') this.buildCanyon(rand);
-    if (lm.id === 'thingvellir') root.add(makeRift());
+    if (lm.id === 'thingvellir') root.add(Nature.buildAlmannagja(kit));
     if (lm.id === 'jokulsarlon') this.buildLagoon(lm, rand);
     if (lm.id === 'myvatn') this.buildMyvatn(lm, root, rand);
     root.traverse((m) => { if (m.isMesh && !m.material.transparent) { m.castShadow = true; m.receiveShadow = true; } });
@@ -1141,51 +918,9 @@ export class Landmarks {
   }
 
   buildCanyon(rand) {
-    const c = CANYONS[0];
-    const dx = c.b.x - c.a.x, dz = c.b.z - c.a.z, L = Math.hypot(dx, dz);
-    const ux = dx / L, uz = dz / L, nx = -uz, nz = ux;
-    const geo = new THREE.CylinderGeometry(0.62, 0.62, 1, 6);
-    geo.translate(0, 0.5, 0);
-    const mat = new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0,  color: 0xffffff, flatShading: true });
-    const per = Math.floor(L * 0.86 / 1.05);
-    const ROWS = 6;
-    const mesh = new THREE.InstancedMesh(geo, mat, per * 2 * ROWS);
-    const tones = [0x44474a, 0x55575a, 0x5f5a54, 0x8a5c3c, 0x9a6a44, 0x3a3d40].map((h) => new THREE.Color(h));
-    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), v = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0);
-    let n = 0;
-    const floorAt = (t) => heightAt(c.a.x + dx * t, c.a.z + dz * t);
-    for (const sgn of [-1, 1]) {
-      for (let row = 0; row < ROWS; row++) {
-        for (let i = 0; i < per; i++) {
-          const t = 0.07 + (i / per) * 0.86;
-          const off = (c.w * 0.48 + row * 1.05 + (i % 2) * 0.5) * sgn;
-          const x = c.a.x + dx * t + nx * off, z = c.a.z + dz * t + nz * off;
-          const floor = floorAt(t) - 0.5;
-          const rim = heightAt(c.a.x + dx * t + nx * (c.w + 1.5) * sgn, c.a.z + dz * t + nz * (c.w + 1.5) * sgn);
-          const h = Math.max(2, rim - floor - 0.3 + rand() * 0.5);
-          q.setFromAxisAngle(up, rand() * 0.5);
-          m.compose(v.set(x, floor, z), q, sc.set(1, h, 1));
-          mesh.setMatrixAt(n, m);
-          // Rust streaks run in vertical bands, as in the real canyon.
-          const band = Math.sin(t * 40 + sgn) > 0.55 ? 3 + Math.floor(rand() * 2) : Math.floor(rand() * 3);
-          mesh.setColorAt(n, tones[band === 3 || band === 4 ? band : band === 2 ? 5 : band]);
-          n++;
-        }
-      }
-      // The column band is solid. You get into the canyon from either end, where it ramps down.
-      const band = ROWS * 1.05 + 0.6;
-      const wall = new THREE.Mesh(new THREE.BoxGeometry(band, 10, L * 0.86), new THREE.MeshBasicMaterial());
-      wall.visible = false;
-      const mid = c.w * 0.48 + band / 2 - 0.4;
-      wall.position.set((c.a.x + c.b.x) / 2 + nx * mid * sgn, 0, (c.a.z + c.b.z) / 2 + nz * mid * sgn);
-      wall.rotation.y = Math.atan2(ux, uz);
-      wall.userData.collide = true;
-      this.scene.add(wall);
-      this.collectColliders(wall);
-    }
-    mesh.count = n;
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
+    // Stuðlagil's walls of basalt columns (nature.js), with hidden walls along them.
+    const { mesh, walls } = Nature.buildStudlagilWalls(CANYONS[0], rand, heightAt);
+    for (const w of walls) { this.scene.add(w); this.collectColliders(w); }
     this.scene.add(mesh);
   }
 
@@ -1221,6 +956,7 @@ export class Landmarks {
 
   update(dt, t, env = {}) {
     waterUniforms.uTime.value = t;
+    updateFalls(env);
     if (env.wind) { mistWind.x = env.wind.x; mistWind.z = env.wind.z; }
     for (const fn of this.updaters) fn(dt, t, env);
     const dark = env.dark ?? 0;

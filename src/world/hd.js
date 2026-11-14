@@ -447,16 +447,22 @@ export function detailScene(root) {
       if (o.instanceColor && c.layer === 0) c = { layer: 3, scale: 3.5, k: 1 };
       // Real Icelandic moss is a deeper grey-green than the classic look's pale mounds.
       if (c.pale) mat.color.multiplyScalar(0.6);
-      const key = `hd-detail-${c.layer}-${c.scale}-${c.k}`;
+      // Things standing close to the land (basalt column fields) read the land's sun-shadow map,
+      // one lookup, instead of tracing it per pixel: a field of overlapping columns traced 16 steps
+      // a pixel over much of the screen.
+      const landShadow = !!mat.userData.landShadow;
+      const key = `hd-detail-${c.layer}-${c.scale}-${c.k}${landShadow ? '-ls' : ''}`;
       mat.customProgramCacheKey = () => key;
       mat.onBeforeCompile = (shader) => {
-        Object.assign(shader.uniforms, terrainUniforms(), sunUniforms());
+        Object.assign(shader.uniforms, terrainUniforms(), sunUniforms(), landShadow ? { uSunMap: HD.surface.uSunMap } : {});
         shader.vertexShader = shader.vertexShader
           .replace('#include <common>', '#include <common>\nvarying vec3 vHdW;')
           .replace('#include <begin_vertex>', '#include <begin_vertex>\nvec4 hdWP = vec4(transformed, 1.0);\n#ifdef USE_INSTANCING\nhdWP = instanceMatrix * hdWP;\n#endif\nvHdW = (modelMatrix * hdWP).xyz;');
         shader.fragmentShader = shader.fragmentShader
-          .replace('#include <common>', `#include <common>\nvarying vec3 vHdW;\nuniform vec3 uSunDir; uniform float uSunUp;\n${HD_COMMON}\n${HD_SUN_SHADOW}`)
-          .replace('#include <lights_fragment_end>', SHADE_DIRECT('vHdW', 'normalize((vec4(normal, 0.0) * viewMatrix).xyz)'))
+          .replace('#include <common>', `#include <common>\nvarying vec3 vHdW;\nuniform vec3 uSunDir; uniform float uSunUp;\n${landShadow ? 'uniform sampler2D uSunMap;' : ''}\n${HD_COMMON}\n${HD_SUN_SHADOW}`)
+          .replace('#include <lights_fragment_end>', landShadow
+            ? '#include <lights_fragment_end>\n{ float hdSh = uSunUp < 0.01 ? 1.0 : texture2D(uSunMap, ((vHdW.xz - uGridMin) / uGridStep + 0.5) / uGridN).r; reflectedLight.directDiffuse *= hdSh; reflectedLight.directSpecular *= hdSh; }'
+            : SHADE_DIRECT('vHdW', 'normalize((vec4(normal, 0.0) * viewMatrix).xyz)'))
           .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
           {
             float hdDist = length(vViewPosition), hdFade = 1.0 - smoothstep(220.0, 650.0, hdDist), hdNear = 1.0 - smoothstep(90.0, 170.0, hdDist);

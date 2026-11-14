@@ -4,6 +4,8 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { createWaterMaterial, createRiverMaterial, riverGeometry } from './materials.js';
 import { KERID, keridU, keridProfile, keridWob } from './geo.js';
 import { HD } from './hd.js';
+import { buildAsbyrgi as buildAsbyrgiRock } from './nature.js';
+import { townChurch, husavikChurch } from './archkit.js';
 
 // New landmarks. Every builder works in the landmark's local frame: +z faces the road
 // (or the sea for coastal ones), y = 0 is the ground at the landmark's centre.
@@ -623,120 +625,7 @@ export function buildStrokkur(kit) {
 }
 
 // ---------- Waterfalls ----------
-export function buildSvartifoss(kit) {
-  const g = new THREE.Group();
-  const fall = kit.makeWaterfall({ width: 2.4, height: 20, cliffWidth: 8 });
-  fall.group.position.z = -8;
-  g.add(fall.group); kit.mists(fall.mists);
-  // Amphitheatre of black basalt columns hanging from the rim.
-  const colGeo = new THREE.CylinderGeometry(0.72, 0.72, 1, 6);
-  const dark = std(0x1d1e20, 0.75), darker = std(0x141516, 0.7);
-  for (let a = -1.9; a <= 1.9; a += 0.085) {
-    if (Math.abs(a) < 0.16) continue;
-    const R = 9.5, x = Math.sin(a) * R, z = -8 - Math.cos(a) * R * 0.6 + 2;
-    const len = 6 + Math.abs(Math.sin(a * 7.3)) * 7 + kit.rand() * 2;
-    const col = M(colGeo, kit.rand() < 0.5 ? dark : darker, x, 22 - len / 2, z);
-    col.scale.set(1, len, 1);
-    g.add(col);
-    const wall = kit.rockBox(1.4, 22 - len + 1, 3);
-    wall.position.set(x * 1.04, (22 - len) / 2, z - 1.2);
-    wall.userData.collide = true;
-    g.add(wall);
-  }
-  return g;
-}
-
-export function buildGodafoss(kit) {
-  const g = new THREE.Group();
-  const R = 16, H = 10;
-  // Upper river on a rock shelf behind the horseshoe.
-  const shelf = kit.rockBox(70, H, 34);
-  shelf.position.set(0, H / 2 - 0.5, -R - 15);
-  shelf.userData.collide = true;
-  g.add(shelf);
-  const river = createRiverMaterial({ shallow: [0.24, 0.5, 0.52], deep: [0.04, 0.16, 0.2], speed: 1.8 });
-  const up = [];
-  for (let i = 0; i <= 12; i++) up.push({ x: Math.sin(i * 0.4) * 3, y: H + 0.2 - i * 0.02, z: -R - 32 + i * 2.3 });
-  g.add(M(riverGeometry(up, 22), river));
-  // The horseshoe: rock blocks around the arc, water pouring off most of them.
-  for (let i = 0; i <= 14; i++) {
-    const a = -1.6 + (i / 14) * 3.2;
-    const x = Math.sin(a) * R, z = -Math.cos(a) * R;
-    const block = kit.rockBox(4.4, H, 6);
-    block.position.set(x * 1.08, H / 2 - 0.5, z * 1.08);
-    block.rotation.y = -a;
-    block.userData.collide = true;
-    g.add(block);
-    if (i % 4 !== 3) {
-      const f = new THREE.Mesh(new THREE.PlaneGeometry(4.2, H + 0.5, 4, 10), kit.fallMaterial(0xe1eef4, 2.4 + kit.rand(), 1.0));
-      const rin = (R * 1.08 - 3.3) / R;
-      f.position.set(x * rin, H / 2, z * rin);
-      f.rotation.y = -a;
-      g.add(f);
-    }
-  }
-  const pool = M(new THREE.CircleGeometry(R * 0.95, 40), createWaterMaterial(0x1d4f58, { roughness: 0.08, ripple: 1.2, shallow: [0.2, 0.46, 0.48], deep: [0.03, 0.13, 0.17], foam: 0.8, bowl: 4 }), 0, 0.3, -2);
-  pool.rotation.x = -Math.PI / 2;
-  g.add(pool);
-  const mist = kit.makeMist(70, R * 1.4, 6);
-  mist.position.set(0, 0.4, -R * 0.5);
-  mist.material.size = 3;
-  mist.material.opacity = 0.22;
-  g.add(mist); kit.mists([mist]);
-  // River running out toward the road.
-  const out = [];
-  for (let i = 0; i <= 10; i++) out.push({ x: Math.sin(i * 0.5) * 2, y: 0.32 - i * 0.03, z: 2 + i * 2.2 });
-  g.add(M(riverGeometry(out, 10), river));
-  return g;
-}
-
-export function buildGljufrabui(kit) {
-  const g = new THREE.Group();
-  // A cliff split by a narrow gorge; the waterfall hides inside it.
-  for (const side of [-1, 1]) {
-    const b = kit.rockBox(14, 26, 18);
-    b.position.set(side * 8.8, 12.5, -9);
-    b.userData.collide = true;
-    g.add(b);
-  }
-  const back = kit.rockBox(6, 26, 8);
-  back.position.set(0, 12.5, -16);
-  g.add(back);
-  const lip = kit.rockBox(5, 6, 9);
-  lip.position.set(0, 24, -7);
-  g.add(lip);
-  const f = kit.makeWaterfall({ width: 1.8, height: 22, cliffWidth: 4 });
-  f.group.position.set(0, 0, -11.4);
-  g.add(f.group); kit.mists(f.mists);
-  const river = createRiverMaterial({ shallow: [0.22, 0.45, 0.45], deep: [0.04, 0.14, 0.16], speed: 2.4 });
-  const pts = [];
-  for (let i = 0; i <= 10; i++) pts.push({ x: Math.sin(i * 0.6) * 0.8, y: kit.ground(0, -6 + i * 2.6) + 0.25 - i * 0.03, z: -6 + i * 2.6 });
-  g.add(M(riverGeometry(pts, 2.6), river));
-  return g;
-}
-
-export function buildHengifoss(kit) {
-  const g = new THREE.Group();
-  // Basalt cliff striped with thin red clay layers.
-  const banded = std(0xffffff, 0.9, 0, { vertexColors: true });
-  const colourAt = (x, y, z, c) => {
-    const band = Math.sin(y * 0.55 + Math.sin(x * 0.1) * 0.6);
-    c.setRGB(0.17, 0.16, 0.16);
-    if (band > 0.72) c.setRGB(0.55, 0.22, 0.13);
-    else if (band > 0.55) c.setRGB(0.4, 0.2, 0.14);
-  };
-  for (let i = 0; i <= 10; i++) {
-    const a = -1.3 + (i / 10) * 2.6, R = 16;
-    const b = M(bandedBox(6.4, 48, 9, colourAt), banded, Math.sin(a) * R, 23.5, -Math.cos(a) * R - 6);
-    b.rotation.y = -a;
-    b.userData.solid = true;
-    g.add(b);
-  }
-  const f = kit.makeWaterfall({ width: 2.2, height: 44, cliffWidth: 6 });
-  f.group.position.set(0, 0, -16.5);
-  g.add(f.group); kit.mists(f.mists);
-  return g;
-}
+// (Svartifoss, Goðafoss, Gljúfrabúi and Hengifoss are built in waterfalls.js.)
 
 // ---------- Canyons and cliffs ----------
 // Two mossy walls along a winding path, with a river between them.
@@ -793,19 +682,14 @@ export function buildFjadrargljufur(kit) {
 export function buildAsbyrgi(kit) {
   const g = new THREE.Group();
   const R = 28;
-  for (let i = 0; i <= 22; i++) {
-    const a = -1.75 + (i / 22) * 3.5;
-    const b = kit.rockBox(10.5, 24 + Math.sin(i) * 2, 8);
-    b.position.set(Math.sin(a) * R, 11.5, -Math.cos(a) * R * 0.85 - 24);
-    b.rotation.y = -a;
-    b.userData.collide = true;
-    g.add(b);
-  }
+  // The horseshoe's cliffs and the island Eyjan (nature.js).
+  g.add(buildAsbyrgiRock(kit));
   // Birch woods on the canyon floor.
   const trunk = std(0xd9d3c6, 0.9), crowns = [0x9c8a2e, 0xb58f35, 0x6f7a32, 0x8d6a2a].map((c) => std(c, 0.9));
   for (let i = 0; i < 70; i++) {
     const a = (kit.rand() - 0.5) * 3.6, r = kit.rand() * R * 0.8;
     const x = Math.sin(a) * r, z = -Math.cos(a) * r * 0.85 - 24;
+    if (Math.abs(x) < 4.8 && z > -24 && z < 4) continue; // not on Eyjan
     const y = kit.ground(x, z), h = 3 + kit.rand() * 3;
     const t = M(new THREE.CylinderGeometry(0.08, 0.13, h, 5), trunk, x, y + h / 2, z);
     t.userData.solidCircle = 0.4;
@@ -820,39 +704,7 @@ export function buildAsbyrgi(kit) {
   return g;
 }
 
-export function buildDyrholaey(kit) {
-  const g = new THREE.Group();
-  // The headland with its sea arch, standing in the sea south of the road. It reaches well down
-  // under the sea, so the water runs clear through the arch and a boat can pass beneath.
-  const yb = Math.min(-6, -kit.baseY - 9);
-  const s = new THREE.Shape();
-  s.moveTo(-34, yb); s.lineTo(34, yb); s.lineTo(32, 18); s.quadraticCurveTo(10, 26, -30, 22); s.lineTo(-34, yb);
-  const hole = new THREE.Path();
-  hole.moveTo(4, yb); hole.lineTo(4, 6); hole.quadraticCurveTo(12, 17, 20, 6); hole.lineTo(20, yb); hole.lineTo(4, yb);
-  s.holes.push(hole);
-  const geo = new THREE.ExtrudeGeometry(s, { depth: 18, bevelEnabled: true, bevelSize: 1.2, bevelThickness: 1.2, bevelSegments: 2 });
-  geo.translate(-12, 0, -9);
-  const rock = kit.rockMaterial();
-  const arch = M(geo, rock, 0, 0, 72);
-  g.add(arch);
-  const cap = M(new THREE.BoxGeometry(62, 1.2, 18), std(0x4c5d2c, 0.95), -12, 23.4, 72);
-  g.add(cap);
-  // Lighthouse on top.
-  const white = std(0xf1efe8, 0.7), red = std(0xb3261e, 0.5, 0.2);
-  g.add(M(new THREE.BoxGeometry(5, 8, 5), white, -30, 28, 72));
-  g.add(M(new THREE.BoxGeometry(2.4, 2.2, 2.4), white, -30, 33.2, 72));
-  const lamp = std(0x332200, 0.3, 0, { emissive: 0xfff0b0, emissiveIntensity: 0 });
-  kit.nightLit(lamp, 3);
-  g.add(M(new THREE.CylinderGeometry(1, 1, 1.6, 12), lamp, -30, 35, 72));
-  g.add(M(new THREE.ConeGeometry(1.4, 1.4, 12), red, -30, 36.4, 72));
-  // Two stacks off the point. They rise from the seabed: tops where they were, and the same taper
-  // carried on down under the water, so none hangs above the sea.
-  for (const [x, z, h] of [[24, 92, 14], [34, 98, 9]]) {
-    const top = h - 3, foot = Math.min(-3, kit.bed(x, z) - 3), H = top - foot;
-    g.add(M(new THREE.CylinderGeometry(1.4, 1.4 + 2.2 * H / h, H, 6, 3), rock, x, foot + H / 2, z));
-  }
-  return g;
-}
+// Dyrhólaey is built in nature.js.
 
 export function buildSkaftafell(kit) {
   const g = new THREE.Group();
@@ -949,25 +801,16 @@ export function buildEldhraun(kit) {
 }
 
 // ---------- Churches ----------
-export function buildChurch(kit, { hill = 8, roof = 0xa3281e, scale = 1, walls = 0xf2f0ea } = {}) {
+// Built in archkit.js: Vík's (and Ísafjörður's) white church with lancet windows, a red roof and a
+// front tower under a four-sided spire; Húsavík's cross-shaped chalet-style timber church.
+export function buildChurch(kit, { hill = 8, roof = 0xa3281e, scale = 1, walls = 0xf2f0ea, style = 'town' } = {}) {
   const g = new THREE.Group();
   if (hill > 0) g.add(knoll(kit, { top: hill, topR: 7, R: 20, color: 0x5b6a3a }).mesh);
   const c = new THREE.Group();
   c.position.y = hill;
   c.scale.setScalar(scale);
-  const white = std(walls, 0.75), r = std(roof, 0.5, 0.3);
-  const glow = std(0x332200, 0.4, 0, { emissive: 0xffc76a, emissiveIntensity: 0 });
-  kit.nightLit(glow, 1.4);
-  const nave = M(new THREE.BoxGeometry(6, 4.2, 10), white, 0, 2.1, -1);
-  nave.userData.solid = true;
-  c.add(nave);
-  c.add(M(gable(6, 10, 2.8), r, 0, 4.2, -1));
-  c.add(M(new THREE.BoxGeometry(2.6, 7.5, 2.6), white, 0, 3.75, 5));
-  const spire = M(new THREE.ConeGeometry(1.95, 4.5, 4), r, 0, 9.75, 5);
-  spire.rotation.y = Math.PI / 4;
-  c.add(spire);
-  for (const x of [-3.01, 3.01]) for (const z of [-4, -1, 2]) c.add(M(new THREE.BoxGeometry(0.05, 1.3, 0.8), glow, x, 2.4, z));
-  c.add(M(new THREE.BoxGeometry(1.2, 2.2, 0.05), glow, 0, 1.1, 6.32));
+  if (style === 'husavik') husavikChurch(kit, c);
+  else townChurch(kit, c, { roof, walls });
   g.add(c);
   return g;
 }

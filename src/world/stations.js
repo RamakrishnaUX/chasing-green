@@ -3,6 +3,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { toWorld } from './geo.js';
 import { WashBrushes } from './washbrush.js';
 import { roadPaths, heightAt, waterLevelAt, coastAt, roadDistAt, bridges } from './terrain.js';
+import { archMats, Batch, frame as aframe, SKIP } from './archkit.js';
 
 // Fuel stations on the Ring Road, one by each of six towns, so a full tank always reaches the next.
 // Each is a forecourt beside the road: a lit roof over two pump islands, a small shop behind and a
@@ -127,6 +128,8 @@ export class Stations {
     const cyl = new THREE.CylinderGeometry(0.5, 0.5, 1, 12); cyl.translate(0, 0.5, 0);
     const plane = new THREE.PlaneGeometry(1, 1);
     const down = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2);
+    // Small detail on every station, in the shared building materials (archkit.js).
+    const AM = archMats(), AB = new Batch();
     const back = new THREE.Quaternion().setFromAxisAngle(up, Math.PI);
     for (const s of sites) {
       const y0 = heightAt(s.x, s.z);
@@ -177,6 +180,29 @@ export class Stations {
       put(parts.washSign, plane, WASH.u, WASH.w - WASH.len / 2 + 0.03, 3.45, 3.2, 0.4, 1, back);
       put(parts.washSign, plane, WASH.u, WASH.w + WASH.len / 2 - 0.03, 3.45, 3.2, 0.4, 1);
       box(parts.dark, WASH.u, WASH.w + 1.2, 2.75, WASH.gap * 2 - 0.4, 0.08, 0.08); // the spray bar
+      // Detail: shop-front mullions and a door frame, a metal coping and units on the shop roof,
+      // bollards along the glass, bins by the door, an air and water post, downlights in the canopy.
+      {
+        const F = aframe(null, s.x, y0, s.z, s.heading), L = (u) => u * s.side, ry = s.side > 0 ? -Math.PI / 2 : Math.PI / 2;
+        const B = AB, dark = 0x2a2d30, steelC = 0xb9bdc0;
+        for (let w = -5.5; w <= 3.51; w += 1.5) B.box(AM.paint, F, L(8.4), 1.6, w, 0.1, 2.55, 0.09, dark, { skip: SKIP.ny });
+        B.box(AM.paint, F, L(8.4), 2.2, -1, 0.1, 0.07, 9, dark);
+        B.box(AM.paint, F, L(8.4), 0.38, -1, 0.12, 0.08, 9, dark);
+        for (const w of [3.75, 5.45]) B.box(AM.paint, F, L(8.4), 1.2, w, 0.12, 2.4, 0.1, dark, { skip: SKIP.ny });
+        B.box(AM.paint, F, L(8.4), 2.36, 4.6, 0.14, 0.12, 1.8, dark);
+        B.box(AM.paint, F, L(8.38), 1.1, 4.6, 0.04, 0.06, 1.5, steelC); // push bar
+        B.box(AM.paint, F, L(12.5), 3.99, 0, 8.7, 0.07, 14.7, 0x8d9296);
+        B.box(AM.paint, F, L(13.5), 4.35, 3, 1.4, 0.6, 1.0, steelC, { skip: SKIP.ny });
+        B.box(AM.paint, F, L(13.5), 4.3, -2.5, 0.9, 0.5, 0.9, 0x9aa0a4, { skip: SKIP.ny });
+        for (let w = -5; w <= 3.01; w += 2) B.box(AM.paint, F, L(7.4), 0.45, w, 0.2, 0.9, 0.2, 0xd8b22a, { skip: SKIP.ny });
+        for (const w of [6.3, 6.9]) B.box(AM.paint, F, L(7.8), 0.5, w, 0.5, 1.0, 0.5, w > 6.5 ? 0x2f6d4a : 0x3a3d42, { skip: SKIP.ny });
+        B.box(AM.paint, F, L(-10), 0.7, 9, 0.35, 1.4, 0.3, 0x16594f, { skip: SKIP.ny });
+        B.box(AM.paint, F, L(-10), 1.25, 9.16, 0.25, 0.3, 0.03, 0xe8e6e0);
+        for (const u of [-6.5, -2, 2.5]) for (const w of [-6, -2, 2, 6]) B.box(AM.paint, F, L(u), 4.71, w, 0.5, 0.04, 0.5, 0xfff6e6);
+        // A kerb round the shop and a strip of planting at its side.
+        B.box(AM.concrete, F, L(12.5), 0.06, 0, 8.6, 0.16, 14.6, 0xa9a7a2, { skip: SKIP.ny });
+        void ry;
+      }
       // Warm light on the ground under the roof at night.
       put(parts.pool, plane, R.u, R.w, 0.08, R.du + 9, R.dw + 9, 1, new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2));
       // Solid parts.
@@ -212,6 +238,7 @@ export class Stations {
       if (k === 'pool') mesh.renderOrder = 2;
       scene.add(mesh);
     }
+    AB.flush(scene);
     // The brushes: strips on spinning shafts (washbrush.js), one set moved to the wash in sight.
     this.brushes = new WashBrushes(scene, { low });
     this.washMat = mats.washSign;

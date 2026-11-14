@@ -4,7 +4,7 @@ import { CONFIG } from './config.js';
 import { store } from './storage.js';
 import { createNoise2D, clamp, smoothstep, lerp } from './world/noise.js';
 import { START, PLACES, CANYONS, JUMPS, KERID } from './world/geo.js';
-import { updateTerrainLod, buildTerrain, paintTerrain, iceAt, flattenPads, bridges, roadPaths, nearestRoad, heightAt, coastAt, nearestRoadAnywhere, exposureAt, waterLevelAt, postReflectorMat, lakeMat, snowAt, groundAt, roadDistAt, shoreDistAt, surfaceAt } from './world/terrain.js';
+import { updateTerrainLod, buildTerrain, paintTerrain, iceAt, flattenPads, bridges, roadPaths, nearestRoad, heightAt, coastAt, nearestRoadAnywhere, exposureAt, waterLevelAt, postReflectorMat, lakeMat, snowAt, groundAt, roadDistAt, shoreDistAt, surfaceAt, deckAt, deckJointsCrossed } from './world/terrain.js';
 import { Scatter } from './world/scatter.js';
 import { Grass } from './world/grass.js';
 import { Post } from './world/post.js';
@@ -316,7 +316,11 @@ async function buildWorld(progress) {
   for (const B of bridges) for (const sx of [-1, 1]) obstacles.addBox(B.x - B.dz * sx * 4.65, B.z + B.dx * sx * 4.65, Math.atan2(B.dx, B.dz), 0.25, B.len / 2 + 2, 'wall');
   // No rocks or grass field on streets, churchyards and city squares.
   const clear = landmarks.list.filter((l) => ['town', 'building', 'sculpture', 'stadium'].includes(l.kind)).map((l) => ({ x: l.x, z: l.z, r: l.kind === 'stadium' ? 78 : l.id === 'seydisfjordur' ? 58 : l.id === 'laugavegur' ? 36 : l.id === 'hallgrimskirkja' ? 46 : l.id === 'harpa' ? 30 : 22 }))
-    .concat(stationSites.map((st) => ({ x: st.pad.x, z: st.pad.z, r: 30 })));
+    .concat(stationSites.map((st) => ({ x: st.pad.x, z: st.pad.z, r: 30 })))
+    // Natural sites that ask for bare ground (Reynisfjara's black sand), at a local offset.
+    .concat(landmarks.list.filter((l) => l.clearGround).map((l) => { const [a, b] = l.clearGround.at, c = Math.cos(l.facing), s = Math.sin(l.facing); return { x: l.x + a * c + b * s, z: l.z - a * s + b * c, r: l.clearGround.r }; }))
+    // Plunge pools and the rivers out of them (waterfalls.js).
+    .concat(landmarks.list.flatMap((l) => l.grassClear || []));
   scatter = new Scatter(scene, { grass: 0, rocks: Math.round(Q.rocks * (CONFIG.rockDensity[settings.rocks || 'normal'] || 1)), obstacles, clear });
   // The realistic look grows the field thicker and a little further out (each tuft is ten blades,
   // so this is most of the grass's cost: the same density over a smaller circle is far cheaper).
@@ -473,6 +477,7 @@ function warmShaders(obj) {
 // big lakes the land knows about (waterLevelAt). Every mesh in a water material is found here,
 // so wheels ring and splash in them and the rotor wash ruffles them like the sea.
 let poolSurfaces = [], poolScanAt = -1e9;
+let jointPrev = null; // where the car was last frame, for the bridge joints
 function scanPools() {
   poolSurfaces = [];
   const box = new THREE.Box3(), c = new THREE.Vector3(), sz = new THREE.Vector3();
@@ -2847,7 +2852,7 @@ function frame(now) {
   { const tb = $('t-beam'); if (tb) tb.hidden = !(ride === 'car' && dark > 0.35 && mode === 'chase'); }
   if (lakeMat) lakeMat.emissive.copy(aurora.tint).multiplyScalar(auroraVisSmoothed * 0.03 * dark); // the real reflection does the rest (skyreflect.js)
 
-  landmarks.update(dt, t, { wind: w, dark, auroraTint: aurora.tint, auroraVis: auroraVisSmoothed, player: p });
+  landmarks.update(dt, t, { wind: w, dark, auroraTint: aurora.tint, auroraVis: auroraVisSmoothed, player: p, light: crashLight() });
   // Wildlife, and a word about each species the first time you see it.
   const wildEvents = wildlife.update(paused ? 0 : dt, { pos: p, car: ride === 'heli' ? null : jeep, camera, clock, dark, highBeam: !!jeep.highBeam, walking: mode === 'walk', walkSpeed: walker.speedSmooth });
   if (riding.on) riding.pose(paused ? 0 : dt); // the rider in the saddle, now the horse has moved
@@ -2976,7 +2981,15 @@ function frame(now) {
       if (nearest < 60 && Math.random() < 0.6) audio.bleat(nearest, inCar);
     }
   }
-  audio.update(dt, { heli: ride === 'heli' ? { rpm: heli.rpm, load: heli.thrust / 9.81, inside: mode === 'fly' && driveView === 'cockpit', near: mode === 'walk' ? Math.hypot(walker.pos.x - heli.pos.x, walker.pos.z - heli.pos.z) : mode === 'sky' ? Math.max(1, diver.pos.distanceTo(heli.pos)) : 0 } : null, speed: mode === 'walk' ? 0 : mode === 'sky' ? diver.speed : ride === 'heli' ? heli.speed * 0.5 : jeep.speed, wind: w.strength, exposure: exposureAt(p.x, p.z), waterProx, iceProx, inCar: mode !== 'walk' && mode !== 'sky' && started, wade: mode === 'walk' || mode === 'sky' ? 0 : jeep.wadeLevel || 0, nitro: mode !== 'walk' && mode !== 'sky' && jeep.boosting, throttle: mode === 'chase' ? input.throttle : 0, voice: ride === 'car' ? jeep.spec.engine?.voice : null, surface: jeep.surface, grounded: !jeep.air, gear: ride === 'car' ? jeep.gear || 0 : 0, shifting: ride === 'car' && !!jeep.shifting, rain: Math.max(rain?.intensity || 0, washing ? 0.85 : 0), slip: ride === 'car' && mode === 'chase' ? jeep.slip || 0 : 0, boat: ride === 'car' && mode !== 'walk' && mode !== 'sky' ? Math.max(0, Math.min(1, (jeep.boat - 0.4) / 0.4)) : 0 });
+  // A bridge: the tyres sing on its concrete, and each expansion joint thumps under the front
+  // axle and then the rear.
+  const onDeck = ride === 'car' && mode !== 'walk' && mode !== 'sky' && !jeep.air && deckAt(jeep.pos.x, jeep.pos.z) != null;
+  if (ride === 'car' && mode !== 'walk' && mode !== 'sky' && !jeep.air && jointPrev && Math.abs(jeep.speed) > 1.5 && deckJointsCrossed(jointPrev.x, jointPrev.z, jeep.pos.x, jeep.pos.z)) {
+    const sp = Math.abs(jeep.speed);
+    audio.joint(sp); audio.joint(sp * 0.85, Math.min(0.4, 2.6 / sp));
+  }
+  jointPrev = { x: jeep.pos.x, z: jeep.pos.z };
+  audio.update(dt, { deck: onDeck, heli: ride === 'heli' ? { rpm: heli.rpm, load: heli.thrust / 9.81, inside: mode === 'fly' && driveView === 'cockpit', near: mode === 'walk' ? Math.hypot(walker.pos.x - heli.pos.x, walker.pos.z - heli.pos.z) : mode === 'sky' ? Math.max(1, diver.pos.distanceTo(heli.pos)) : 0 } : null, speed: mode === 'walk' ? 0 : mode === 'sky' ? diver.speed : ride === 'heli' ? heli.speed * 0.5 : jeep.speed, wind: w.strength, exposure: exposureAt(p.x, p.z), waterProx, iceProx, inCar: mode !== 'walk' && mode !== 'sky' && started, wade: mode === 'walk' || mode === 'sky' ? 0 : jeep.wadeLevel || 0, nitro: mode !== 'walk' && mode !== 'sky' && jeep.boosting, throttle: mode === 'chase' ? input.throttle : 0, voice: ride === 'car' ? jeep.spec.engine?.voice : null, surface: jeep.surface, grounded: !jeep.air, gear: ride === 'car' ? jeep.gear || 0 : 0, shifting: ride === 'car' && !!jeep.shifting, rain: Math.max(rain?.intensity || 0, washing ? 0.85 : 0), slip: ride === 'car' && mode === 'chase' ? jeep.slip || 0 : 0, boat: ride === 'car' && mode !== 'walk' && mode !== 'sky' ? Math.max(0, Math.min(1, (jeep.boat - 0.4) / 0.4)) : 0 });
 
   if (started) {
     if (jeep.warning && mode !== 'walk' && mode !== 'sky') hud.toast(jeep.warning, { seconds: 2.5, priority: 1 });

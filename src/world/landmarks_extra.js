@@ -1,8 +1,11 @@
 import * as THREE from 'three';
+import { makeSpray, makeRainbow } from './falls.js';
 import { createWaterMaterial, createRiverMaterial, riverGeometry } from './materials.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { buildChurch, buildSkaftafell } from './landmarks_more.js';
 import { HD } from './hd.js';
+import { buildHvitserkur, buildGatklettur, buildDimmuborgir } from './nature.js';
+import { archMats, Batch, frame as aframe, addRoof, addGables, addWindow, budirChurch, streetHouse, lmGlass, SKIP } from './archkit.js';
 
 // Generic builders, chosen by a landmark's `model` field, with `params` for the details.
 const std = (color, rough = 0.85, metal = 0, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: metal, ...extra });
@@ -194,12 +197,12 @@ function rainbowStrip(kit, x0, z0, x1, z1, w = 5) {
 
 // ---------- Detailed wooden churches ----------
 const glowMat = (kit) => { const m = std(0x2a2416, 0.4, 0, { emissive: 0xffc46b, emissiveIntensity: 0 }); kit.nightLit(m, 1.3); return m; };
-// Vertical corrugated siding: thin grooves merged into one mesh per wall colour.
-function siding(w, h, d, color, step = 0.18) {
-  const parts = [];
-  for (let x = -w / 2 + step / 2; x < w / 2; x += step) { const b = new THREE.BoxGeometry(step * 0.5, h, 0.03); b.translate(x, h / 2, d / 2 + 0.015); parts.push(b); const b2 = b.clone(); b2.translate(0, 0, -d - 0.03); parts.push(b2); }
-  for (let z = -d / 2 + step / 2; z < d / 2; z += step) { const b = new THREE.BoxGeometry(0.03, h, step * 0.5); b.translate(w / 2 + 0.015, h / 2, z); parts.push(b); const b2 = b.clone(); b2.translate(-w - 0.03, 0, 0); parts.push(b2); }
-  return M(mergeGeometries(parts), std(color, 0.75));
+// Painted lap-board cladding over a w x h x d box (the shared timber material, archkit.js).
+function siding(w, h, d, color) {
+  const g = new THREE.Group(), B = new Batch();
+  B.box(archMats().board, new THREE.Matrix4(), 0, h / 2, 0, w + 0.03, h, d + 0.03, color, { skip: SKIP.ny | SKIP.py });
+  B.flush(g);
+  return g;
 }
 // Arched window: white frame, dark glass that glows at night.
 function archWindow(kit, w, h, frame, glass) {
@@ -225,8 +228,14 @@ function buildSeydisChurch(kit) {
   // Roof with white eaves.
   const s = new THREE.Shape(); s.moveTo(-W / 2 - 0.35, 0); s.lineTo(W / 2 + 0.35, 0); s.lineTo(0, 2.6); s.closePath();
   const r = new THREE.ExtrudeGeometry(s, { depth: D + 0.6, bevelEnabled: false }); r.translate(0, 0, -(D + 0.6) / 2);
-  g.add(M(r, roofM, 0, H, -2));
-  g.add(M(new THREE.BoxGeometry(W + 0.8, 0.22, 0.3), trimW, 0, H + 0.02, 4.1));
+  void r; void roofM;
+  {
+    // Corrugated roof with white fascia, barge boards and gutters, and board gables.
+    const B = new Batch(), F = aframe(null, 0, 0, -2), Ma = archMats();
+    addGables(B, Ma.board, F, W + 0.03, D + 0.03, H, 2.6, blue);
+    addRoof(B, Ma, F, { w: W, d: D, y0: H, r: 2.6, ov: 0.35, gov: 0.3, roof: 0x7f93a6, trim: 0xf4f7fa, gutter: 0xf4f7fa });
+    B.flush(g);
+  }
   // Side annex, as in the photos.
   const annex = M(new THREE.BoxGeometry(2.6, 3.6, 7), std(blue, 0.8), -W / 2 - 1.3, 1.8, -3); annex.userData.solid = true; g.add(annex);
   g.add(M(new THREE.BoxGeometry(2.9, 0.2, 7.3), std(0x9fb4c6, 0.45, 0.4), -W / 2 - 1.3, 3.65, -3));
@@ -263,32 +272,15 @@ function buildSeydisChurch(kit) {
 
 function buildBudaChurch(kit) {
   const g = new THREE.Group();
-  const black = 0x15161a, trimW = std(0xf2f2ee, 0.6), roofM = std(0x111214, 0.4, 0.3), glass = glowMat(kit);
-  const W = 5.6, D = 9.5, H = 4.2;
-  const nave = M(new THREE.BoxGeometry(W, H, D), std(black, 0.85), 0, H / 2, -1); nave.userData.solid = true; g.add(nave);
-  const sid = siding(W, H, D, black, 0.22); sid.position.set(0, 0, -1); g.add(sid);
-  const s = new THREE.Shape(); s.moveTo(-W / 2 - 0.3, 0); s.lineTo(W / 2 + 0.3, 0); s.lineTo(0, 2.2); s.closePath();
-  const r = new THREE.ExtrudeGeometry(s, { depth: D + 0.5, bevelEnabled: false }); r.translate(0, 0, -(D + 0.5) / 2);
-  g.add(M(r, roofM, 0, H, -1));
-  // Light grey foundation line.
-  g.add(M(new THREE.BoxGeometry(W + 0.2, 0.25, D + 0.2), std(0xb9bcc0, 0.8), 0, 0.12, -1));
-  // White classical door surround: pilasters, lintel and a little pediment.
-  const dz = D / 2 - 1 + 0.02;
-  g.add(M(new THREE.BoxGeometry(1.1, 2.3, 0.1), std(0xf6f6f2, 0.5), 0, 1.15, dz + 0.05));
-  for (const sx of [-1, 1]) g.add(M(new THREE.BoxGeometry(0.22, 2.7, 0.16), trimW, sx * 0.78, 1.35, dz + 0.08));
-  g.add(M(new THREE.BoxGeometry(1.9, 0.22, 0.2), trimW, 0, 2.8, dz + 0.1));
-  const ped = new THREE.Shape(); ped.moveTo(-1.05, 0); ped.lineTo(1.05, 0); ped.lineTo(0, 0.55); ped.closePath();
-  g.add(M(new THREE.ExtrudeGeometry(ped, { depth: 0.2, bevelEnabled: false }), trimW, 0, 2.92, dz));
-  // Three white-framed windows on each side.
-  for (const sx of [-1, 1]) for (const z of [-4, -1.5, 1]) {
-    g.add(M(new THREE.BoxGeometry(0.08, 1.3, 0.8), trimW, sx * (W / 2 + 0.03), 2.0, z));
-    g.add(M(new THREE.BoxGeometry(0.06, 1.1, 0.62), glass, sx * (W / 2 + 0.06), 2.0, z));
+  const trimW = std(0xf2f2ee, 0.6), stoneM = std(0x3a3b3d, 0.8);
+  budirChurch(kit, g);
+  // White grave crosses and a few dark headstones in the churchyard.
+  for (let i = 0; i < 9; i++) {
+    const x = -10.5 + (i % 3) * 2.0 + kit.rand() * 0.5, z = -7 + Math.floor(i / 3) * 2.6 + kit.rand() * 0.5, y = kit.ground(x, z);
+    if (i % 3 === 1) { g.add(M(new THREE.BoxGeometry(0.5, 0.7, 0.12), stoneM, x, y + 0.3, z)); continue; }
+    g.add(M(new THREE.BoxGeometry(0.07, 0.9, 0.07), trimW, x, y + 0.4, z));
+    g.add(M(new THREE.BoxGeometry(0.45, 0.07, 0.07), trimW, x, y + 0.65, z));
   }
-  // Small black steeple with a pyramid cap and a cross.
-  const tower = M(new THREE.BoxGeometry(1.5, 2.6, 1.5), std(black, 0.85), 0, H + 1.9, dz - 1.4); g.add(tower);
-  g.add(M(new THREE.BoxGeometry(1.7, 0.12, 1.7), trimW, 0, H + 3.2, dz - 1.4));
-  const cap = M(new THREE.ConeGeometry(1.15, 1.6, 4), roofM, 0, H + 4.0, dz - 1.4); cap.rotation.y = Math.PI / 4; g.add(cap);
-  g.add(M(new THREE.BoxGeometry(0.06, 0.9, 0.06), trimW, 0, H + 5.2, dz - 1.4)); g.add(M(new THREE.BoxGeometry(0.5, 0.06, 0.06), trimW, 0, H + 5.4, dz - 1.4));
   // Lava-rock wall around the graveyard, with a little white gate.
   const lava = std(0x242426, 0.95);
   const R = 12;
@@ -340,24 +332,10 @@ function lamp(kit, x, z) {
   g.add(M(new THREE.SphereGeometry(0.16, 10, 8), bulb, x + 1.25, y + 5.0, z));
   return g;
 }
-function timberHouse(kit, x, z, { w = 7, d = 8, h = 6, wall = 0x1e1f22, roof = 0x8a8f94, trim = 0xf2f2ee, windows = 6 } = {}) {
-  const g = new THREE.Group();
-  const y = kit.ground(x, z);
-  const body = M(new THREE.BoxGeometry(w, h, d), std(wall, 0.8), x, y + h / 2, z); body.userData.solid = true; g.add(body);
-  g.add(M(new THREE.BoxGeometry(w + 0.3, 2.2, d + 0.3), std(0x55585c, 0.95), x, y - 0.8, z));
-  const s = new THREE.Shape(); s.moveTo(-w / 2 - 0.3, 0); s.lineTo(w / 2 + 0.3, 0); s.lineTo(0, w * 0.4); s.closePath();
-  const r = new THREE.ExtrudeGeometry(s, { depth: d + 0.5, bevelEnabled: false }); r.translate(0, 0, -(d + 0.5) / 2);
-  g.add(M(r, std(roof, 0.5, 0.35), x, y + h, z));
-  const frame = std(trim, 0.6), glass = glowMat(kit);
-  const perFloor = Math.round(windows / 2);
-  for (let f = 0; f < 2; f++) for (let k = 0; k < perFloor; k++) for (const sx of [-1, 1]) {
-    const wz = z - d / 2 + (k + 0.5) * (d / perFloor);
-    g.add(M(new THREE.BoxGeometry(0.08, 1.2, 0.9), frame, x + sx * (w / 2 + 0.03), y + 1.5 + f * 2.6, wz));
-    g.add(M(new THREE.BoxGeometry(0.06, 1.0, 0.7), glass, x + sx * (w / 2 + 0.06), y + 1.5 + f * 2.6, wz));
-  }
-  return g;
+function timberHouse(kit, x, z, { w = 7, d = 8, h = 6, wall = 0x1e1f22, roof = 0x8a8f94 } = {}) {
+  // A real house now (archkit.js): cladding, roof, windows, door and steps facing the street.
+  return streetHouse(kit, x, z, { w, d, h, wall, roof, face: x < 0 ? 1 : -1 });
 }
-
 export const EXTRA = {
   // Seyðisfjarðarkirkja: pale blue church, rainbow street leading to its door.
   rainbowChurch(kit) {
@@ -392,11 +370,9 @@ export const EXTRA = {
   rainbowStreet(kit) {
     const g = new THREE.Group();
     g.add(rainbowStrip(kit, 0, 34, 0, -6, 4.5));
-    for (const [x, z, c] of [[-11, 26, 0xe9d8a6], [11, 22, 0xb8d8e6], [-11, 14, 0xd98c8c], [11, 10, 0xe8e2d3], [-11, 2, 0x8fb9a8]]) {
-      const h = M(new THREE.BoxGeometry(5, 4.2, 6), std(c, 0.8), x, kit.ground(x, z) + 2.1, z);
-      h.userData.solid = true; g.add(h);
-      g.add(M(new THREE.BoxGeometry(5.4, 0.4, 6.4), std(0x3a3d42, 0.5, 0.3), x, kit.ground(x, z) + 4.4, z));
-      g.add(M(new THREE.BoxGeometry(3.6, 1.6, 0.1), std(0x1a2229, 0.2, 0.5), x + (x < 0 ? 2.56 : -2.56), kit.ground(x, z) + 1.3, z));
+    // Shops along the street: two-storey corrugated-iron houses with shop fronts and sign boards.
+    for (const [x, z, c, r] of [[-11, 26, 0xe9d8a6, 0xa3281e], [11, 22, 0xb8d8e6, 0x3b3f44], [-11, 14, 0xd98c8c, 0x3b3f44], [11, 10, 0xe8e2d3, 0x2f6d4a], [-11, 2, 0x8fb9a8, 0xa3281e]]) {
+      g.add(streetHouse(kit, x, z, { w: 5, d: 6, h: 5.6, wall: c, roof: r, face: x < 0 ? 1 : -1, shop: true }));
     }
     return g;
   },
@@ -567,20 +543,19 @@ export const EXTRA = {
     pool.rotation.x = -Math.PI / 2; pool.castShadow = false; g.add(pool);
     const boil = M(new THREE.PlaneGeometry(wBot + 4, 5), kit.fallMaterial(0xf2f6f8, 3.6, 0), 0, py + 0.2, zFoot + 1.5);
     boil.rotation.x = -Math.PI / 2; boil.castShadow = false; g.add(boil);
-    const mists = [];
-    for (const [my, mz, spread, h, n] of [[base + 0.5, zFoot + 3, wBot + 10, H * 0.45, 260], [base + (H - base) * 0.45, (zTop + zFoot) / 2 + 2, wTop + 12, H * 0.3, 120]]) {
-      const m = kit.makeMist(Math.round(n * (HD.on ? 2.5 : 1)), spread, h);
-      m.position.set(0, my, mz); m.material.size = HD.on ? 2.2 : 6; m.material.opacity = HD.on ? 0.09 : 0.12;
-      g.add(m); mists.push(m);
-    }
-    kit.mists(mists);
+    // Spray off the foot and off the ledges, and mist drifting up the veil: animated on the GPU.
+    const fx = HD.on && kit.quality !== 'low' ? 1 : 0.45;
+    g.add(makeSpray('spray', { a: [-wBot / 2, py + 0.2, zFoot + 1], b: [wBot / 2, py + 0.2, zFoot + 1], count: 380 * fx, life: 1.4, speed: 3, rise: 1.3, size: 0.28, opacity: 0.5 }));
+    g.add(makeSpray('mist', { a: [-wBot / 2, py + 0.4, zFoot + 1.5], b: [wBot / 2, py + 0.4, zFoot + 1.5], count: 90 * fx, life: 7, speed: 1.3, rise: 1.6, size: 3.2, opacity: 0.09 }));
+    const mz = (zTop + zFoot) / 2 + 2, my = base + (H - base) * 0.45;
+    g.add(makeSpray('mist', { a: [-wTop / 2 - 4, my, mz], b: [wTop / 2 + 4, my, mz], out: [0, 0.3, 1], count: 50 * fx, life: 6, speed: 0.8, rise: 1.2, size: 2.6, opacity: 0.07 }));
+    { const rb = makeRainbow(wBot + 16, 22, 0.22); rb.position.set(0, py + 9, zFoot + 4); g.add(rb); }
     return g;
   },
 
   beach(kit) {
     const g = new THREE.Group();
-    const rock = kit.rockMaterial();
-    for (const [x, z, h] of [[-20, 70, 22], [-8, 78, 30], [6, 74, 18]]) g.add(M(new THREE.CylinderGeometry(1.6 + h * 0.06, 4.6, h, 6, 3), rock, x, h / 2 - 5, z));
+    // Reynisdrangar, seen from here off the end of Reynisfjall, are built with Reynisfjara.
     const wood = std(0x6b5137, 0.85);
     for (let i = 0; i < 5; i++) { const d = M(new THREE.CylinderGeometry(0.18, 0.25, 4 + kit.rand() * 3, 7), wood, -16 + i * 8, kit.ground(-16 + i * 8, 12) + 0.2, 12 + kit.rand() * 6); d.rotation.z = Math.PI / 2; d.rotation.y = kit.rand() * 3; g.add(d); }
     return g;
@@ -602,8 +577,19 @@ export const EXTRA = {
     }
     g.add(M(new THREE.BoxGeometry(2, 0.25, 14), deck, r + 3, kit.ground(r + 3, 2) + 0.5, 2));
     if (p.hut) {
-      const hut = M(new THREE.BoxGeometry(9, 3.4, 6), std(0x2b2e32, 0.7), -r - 6, kit.ground(-r - 6, -10) + 1.7, -10); hut.userData.solid = true; g.add(hut);
-      g.add(M(new THREE.BoxGeometry(9.6, 0.5, 6.6), std(0x4f6233, 0.95), -r - 6, kit.ground(-r - 6, -10) + 3.6, -10));
+      // The changing house: dark vertical boards on a concrete base, a row of windows towards the
+      // pool, a door, a turf roof on a timber fascia, and a deck along the front.
+      const hx = -r - 6, hz = -10, gy = kit.ground(hx, hz), Ma = archMats(), B = new Batch(), F = aframe(null, hx, gy, hz), glass = lmGlass(kit);
+      const hut = M(new THREE.BoxGeometry(9, 3.4, 6), Ma.hidden, hx, gy + 1.7, hz); hut.userData.solid = true; g.add(hut);
+      B.box(Ma.concrete, F, 0, -0.4, 0, 9.1, 1.0, 6.1, 0x9a9893, { skip: SKIP.ny });
+      B.box(Ma.board, F, 0, 1.75, 0, 9, 3.3, 6, 0x2b2e32, { uv: 's', skip: SKIP.ny | SKIP.py });
+      B.box(Ma.paint, F, 0, 3.5, 0, 9.5, 0.3, 6.5, 0x3a2f26);
+      for (let k = 0; k < 4; k++) addWindow(B, Ma, F, -3.2 + k * 2.1, 1.0, 3.005, 0, 1.4, 1.4, { frame: 0x2a2c2f, style: 'p', glassMat: glass });
+      for (const sx of [-1, 1]) addWindow(B, Ma, F, sx * 4.505, 1.2, 1, sx * Math.PI / 2, 1.0, 1.1, { frame: 0x2a2c2f, style: 'p', glassMat: glass });
+      B.box(Ma.paint, F, 4.51, 1.05, -1.4, 0.06, 2.1, 1.0, 0x6a3d24);
+      B.box(Ma.paint, F, 0, 0.12, 4.0, 9, 0.12, 2, 0x6b5137);
+      B.flush(g);
+      g.add(M(new THREE.BoxGeometry(9.4, 0.35, 6.4), std(0x4f6233, 0.95), hx, gy + 3.75, hz));
     }
     return g;
   },
@@ -621,6 +607,24 @@ export const EXTRA = {
       g.add(M(r, glass, x, y + 4, -12));
       g.add(M(new THREE.BoxGeometry(0.2, 4.2, 26.2), frame, x - 4, y + 2.1, -12));
       g.add(M(new THREE.BoxGeometry(0.2, 4.2, 26.2), frame, x + 4, y + 2.1, -12));
+      {
+        // Aluminium glazing frame: posts along the walls, rafters and bars up the roof, a ridge and
+        // eave beams, a concrete knee wall and gutters, as on real Venlo glasshouses.
+        const Ma = archMats(), B = new Batch(), F = aframe(null, x, y, -12), al = 0xd9dde0, a = Math.atan2(1.6, 4.1), L = Math.hypot(4.1, 1.6);
+        B.box(Ma.concrete, F, 0, 0.1, 0, 8.2, 0.7, 26.2, 0xb4b1ab, { skip: SKIP.ny });
+        for (let z = -13; z <= 13.01; z += 1.3) {
+          for (const sx of [-1, 1]) {
+            B.box(Ma.paint, F, sx * 4.02, 2.2, z, 0.07, 3.6, 0.07, al);
+            B.box(Ma.paint, F, sx * 2.05, 4 + 0.8 + 0.03, z, L, 0.05, 0.06, al, { rz: -sx * a });
+          }
+        }
+        for (const sx of [-1, 1]) { B.box(Ma.paint, F, sx * 4.05, 4.0, 0, 0.18, 0.14, 26.3, al); B.box(Ma.paint, F, sx * 4.05, 1.4, 0, 0.06, 0.06, 26.2, al); }
+        B.box(Ma.paint, F, 0, 5.62, 0, 0.14, 0.1, 26.3, al);
+        for (const sz of [-1, 1]) for (const xx of [-2.7, -1.35, 0, 1.35, 2.7]) B.box(Ma.paint, F, xx, 2.4 + (xx === 0 ? 0.8 : 0), sz * 13.02, 0.07, 4.0 + (xx === 0 ? 1.6 : 0), 0.07, al);
+        // Grow lamps hung under the roof (lit through the glass at night).
+        for (let z = -11; z <= 11; z += 2.2) B.box(Ma.paint, F, 0, 3.6, z, 6.4, 0.06, 0.12, 0x2a2c2f);
+        B.flush(g);
+      }
       for (let k = 0; k < 6; k++) {
         g.add(M(new THREE.BoxGeometry(0.6, 2.6, 3.2), vine, x - 1.6 + (k % 2) * 3.2, y + 1.3, -24 + k * 4));
         g.add(M(new THREE.SphereGeometry(0.22, 8, 6), tomato, x - 1.6 + (k % 2) * 3.2 + 0.4, y + 1.5, -24 + k * 4));
@@ -780,24 +784,8 @@ export const EXTRA = {
 
   church(kit, p = {}) { return p.black ? buildBudaChurch(kit) : buildChurch(kit, { hill: p.hill ?? 0, roof: p.roof ?? 0xa3281e, walls: p.walls ?? 0xf2f0ea, scale: p.scale ?? 1.1 }); },
 
-  arch(kit, p = {}) {
-    const g = new THREE.Group();
-    const rock = kit.rockMaterial();
-    // Down under the sea, so the water runs clear through the arch and a boat can pass beneath.
-    const yb = Math.min(-4, -kit.baseY - 9);
-    const s = new THREE.Shape(); s.moveTo(-12, yb); s.lineTo(12, yb); s.lineTo(11, 9); s.quadraticCurveTo(0, 12, -11, 9); s.lineTo(-12, yb);
-    const hole = new THREE.Path(); hole.moveTo(-4, yb); hole.lineTo(-4, 1); hole.quadraticCurveTo(0, 7, 4, 1); hole.lineTo(4, yb); hole.lineTo(-4, yb);
-    s.holes.push(hole);
-    const geo = new THREE.ExtrudeGeometry(s, { depth: 7, bevelEnabled: true, bevelSize: 0.6, bevelThickness: 0.6, bevelSegments: 2 }); geo.translate(0, 0, -3.5);
-    const a = M(geo, rock, 0, 0, 26); g.add(a);
-    g.add(M(new THREE.BoxGeometry(22, 0.8, 7), std(0x5a6a33, 0.95), 0, 9.6, 26));
-    // Two boulders off the arch, standing on the seabed with their tops where they were.
-    for (const [x, z] of [[-18, 34], [16, 38]]) {
-      const foot = Math.min(...[[-5, -5], [5, -5], [-5, 5], [5, 5], [0, 0]].map(([a, b]) => kit.bed(x + a, z + b))) - 3, H = 7 - foot;
-      const c = kit.rockBox(10, H, 10); c.position.set(x, foot + H / 2, z); g.add(c);
-    }
-    return g;
-  },
+  // Gatklettur at Arnarstapi, built in nature.js.
+  arch(kit, p = {}) { return buildGatklettur(kit, p); },
 
   // Hásteinsvöllur, the football ground on Heimaey. Local +z runs east along the pitch, +x is
   // north. A grass pitch of 105 by 68 m inside its run-off, the concrete south stand with the
@@ -981,93 +969,11 @@ export const EXTRA = {
   // Hvítserkur: a basalt stack standing in the sea off a black beach, shaped like a drinking
   // beast, with a narrow trunk on one side and two arches at its feet. It rises from the
   // seabed, so its base runs well below the water and it stands on a low shelf at the waterline.
-  stack(kit) {
-    const g = new THREE.Group();
-    // Heights from kit.ground are relative to this landmark; kit.baseY is its world height.
-    const W0 = -kit.baseY;          // local height of the sea surface (world y = 0)
-    // Walk out from the beach until the seabed is properly under water, and stand it there, with
-    // open water through its arches.
-    let zs = 40;
-    for (let z = 6; z < 220; z += 2) { if (kit.ground(0, z) + kit.baseY < -2.5) { zs = z + 18; break; } }
-    const bed = W0 - 7;             // well below the water
+  // Hvítserkur, built in nature.js.
+  stack(kit) { return buildHvitserkur(kit); },
 
-    // Silhouette, in metres above sea level (x across, y up).
-    const outer = [[-11, -7], [-11, 0.5], [-10.6, 6], [-10.1, 10.5], [-9.3, 13.4], [-8.5, 12.2], [-8.1, 8.5], [-7.1, 9.4], [-6.9, 14.8], [-5.2, 17.4], [-3.4, 17.1], [-2.2, 18.6], [0.4, 18.2], [1.6, 17.4], [3.4, 17.9], [5.6, 17.1], [7.6, 15.6], [9.3, 12.4], [10.4, 6.5], [10.9, 1.2], [11, -7]];
-    const inPoly = (x, y) => { let c = false; for (let i = 0, j = outer.length - 1; i < outer.length; j = i++) { const [xi, yi] = outer[i], [xj, yj] = outer[j]; if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) c = !c; } return c; };
-    // Arches go all the way down to the seabed, so open water runs through them.
-    // Both are wide and high enough for any of the cars, afloat, to pass through: the narrow one
-    // beside the trunk and the big one under the body.
-    const arches = [{ cx: -7.4, hw: 2.2, top: 5.6 }, { cx: 1.2, hw: 4.4, top: 5.8 }];
-    const inArch = (x, y) => arches.some((A) => { const dx = (x - A.cx) / A.hw; if (Math.abs(dx) >= 1) return false; const r = Math.min(A.hw, A.top * 0.6); const knee = A.top - r; return y < knee || dx * dx + ((y - knee) / r) ** 2 < 1; });
-    const solid = (x, y) => inPoly(x, y) && !inArch(x, y);
-
-    // Fill the silhouette with jittered basalt blocks: columnar jointing, craggy front and back.
-    const parts = [];
-    const col = new THREE.Color();
-    const cw = 0.72, ch = 0.9;
-    const hash = (k) => { const v = Math.sin(k * 12.9898 + 4.1) * 43758.5453; return v - Math.floor(v); };
-    for (let y = -7; y < 19; y += ch) {
-      for (let x = -11; x < 11; x += cw) {
-        const mx = x + cw / 2, my = y + ch / 2;
-        if (!solid(mx, my)) continue;
-        const thick = mx < -7.6 ? 3.2 : 6.4 - Math.max(0, my - 12) * 0.25;
-        const w = cw * (0.92 + kit.rand() * 0.18), h = ch * (1.0 + kit.rand() * 0.55), d = thick * (0.82 + kit.rand() * 0.22);
-        const box = new THREE.BoxGeometry(w, h, d);
-        box.rotateZ((kit.rand() - 0.5) * 0.08);
-        box.rotateY((kit.rand() - 0.5) * 0.12);
-        box.translate(mx + (kit.rand() - 0.5) * 0.15, W0 + my, zs + (kit.rand() - 0.5) * 0.9);
-        // Colour: near-black basalt; bird guano streaks down the upper faces; a little lichen
-        // near the top; darker and wet at the waterline.
-        // A few columns carry a guano streak from partway up the face to the top.
-        const ci = Math.round(mx / cw);
-        const streakFrom = 7 + hash(ci + 31) * 7;
-        const streak = hash(ci) > 0.78 && my > streakFrom;
-        const guano = (streak ? 0.35 + hash(ci + 7) * 0.3 : 0) + (my > 9 && kit.rand() < 0.035 ? 0.55 : 0);
-        const v = 0.07 + kit.rand() * 0.05;
-        col.setRGB(v * 0.95, v, v * 1.08);
-        if (guano > 0) col.lerp(new THREE.Color(0.86, 0.85, 0.8), Math.min(0.85, guano * (0.6 + kit.rand() * 0.4)));
-        if (my > 14 && kit.rand() < 0.06) col.lerp(new THREE.Color(0.55, 0.4, 0.24), 0.5);
-        if (my < 1.2) col.multiplyScalar(0.7).lerp(new THREE.Color(0.09, 0.11, 0.08), my < 0.6 ? 0.4 : 0.15);
-        col.convertSRGBToLinear(); // vertex colours are read as linear light
-        const n = box.attributes.position.count, c = new Float32Array(n * 3);
-        for (let i = 0; i < n; i++) c.set([col.r, col.g, col.b], i * 3);
-        box.setAttribute('color', new THREE.BufferAttribute(c, 3));
-        parts.push(box.index ? box.toNonIndexed() : box);
-      }
-    }
-    // Low rock shelf at the waterline that the legs stand on (not under the arches).
-    for (let i = 0; i < 9; i++) {
-      const x = -10 + i * 2.5, sh = lump(1.6 + kit.rand() * 0.8, kit.rand, 0.25);
-      if (arches.some((A) => Math.abs(x - A.cx) < A.hw + 1.5)) continue; // keep the arches open to boats
-      sh.translate(x, W0 + 0.1, zs + (kit.rand() - 0.5) * 3);
-      const n = sh.attributes.position.count, c = new Float32Array(n * 3); for (let k = 0; k < n; k++) c.set([0.008, 0.01, 0.009], k * 3);
-      sh.setAttribute('color', new THREE.BufferAttribute(c, 3));
-      parts.push(sh.index ? sh.toNonIndexed() : sh);
-    }
-    const geo = mergeGeometries(parts);
-    geo.computeVertexNormals();
-    const rock = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0, flatShading: true });
-    const m = new THREE.Mesh(geo, rock);
-    m.castShadow = true; m.receiveShadow = true;
-    m.rotation.y = 0.25;
-    g.add(m);
-    return g;
-  },
-
-  pillars(kit) {
-    const g = new THREE.Group();
-    const dark = std(0x262628, 0.92), moss = std(0x5d6b3f, 0.95);
-    for (let i = 0; i < 46; i++) {
-      const a = kit.rand() * Math.PI * 2, r = 4 + Math.sqrt(kit.rand()) * 24;
-      const x = Math.cos(a) * r, z = Math.sin(a) * r - 14, h = 3 + kit.rand() * 9;
-      const p = M(new THREE.CylinderGeometry(0.8 + kit.rand() * 1.2, 1.4 + kit.rand() * 1.6, h, 7, 2), dark, x, kit.ground(x, z) + h / 2 - 0.5, z);
-      p.userData.solidCircle = 1.2;
-      g.add(p);
-      if (kit.rand() < 0.3) g.add(M(new THREE.SphereGeometry(0.9, 8, 6), moss, x, kit.ground(x, z) + h - 0.3, z));
-    }
-    for (let i = 0; i < 4; i++) { const a = M(new THREE.TorusGeometry(3, 1, 8, 16, Math.PI), dark, -12 + i * 8, kit.ground(-12 + i * 8, -20) + 0.5, -20); g.add(a); }
-    return g;
-  },
+  // Dimmuborgir, built in nature.js.
+  pillars(kit) { return buildDimmuborgir(kit); },
 
   cave(kit) {
     const g = new THREE.Group();
@@ -1087,26 +993,9 @@ export const EXTRA = {
     const pts = []; for (let i = 0; i <= 30; i++) { const x = -10 + i, z = -6 + Math.sin(i / 3) * 3; pts.push({ x, y: kit.ground(x, z) + 0.3, z }); }
     g.add(M(riverGeometry(pts, 3), createRiverMaterial({ shallow: [0.34, 0.6, 0.62], deep: [0.1, 0.3, 0.34], speed: 0.6 })));
     const s = kit.makeMist(50, 10, 6); s.material = s.material.clone(); s.material.opacity = 0.18; s.material.size = 4; s.position.set(0, kit.ground(0, -6) + 0.5, -6); g.add(s); kit.steam(s);
-    // The walls reach down to the lowest corner, so the hut never hangs over a slope.
-    const top = kit.ground(14, 4) + 3, low = Math.min(...[[10, 1.5], [18, 1.5], [10, 6.5], [18, 6.5]].map(([x, z]) => kit.ground(x, z))) - 0.3;
-    const hut = M(new THREE.BoxGeometry(8, top - low, 5), std(HD.on ? 0xd8d4cb : 0x3f5a2f, 0.85), 14, (top + low) / 2, 4); hut.userData.solid = true; g.add(hut);
-    if (HD.on) {
-      // Realistic look: the box becomes a mountain hut, pale walls under a pitched green roof.
-      const y = kit.ground(14, 4) + 3;
-      const roofMat = std(0x2f4a33, 0.6, 0.3);
-      for (const s of [-1, 1]) {
-        const slab = M(new THREE.BoxGeometry(8.8, 0.16, 3.25), roofMat, 14, y + 0.82, 4 + s * 1.38);
-        slab.rotation.x = s * 0.55;
-        g.add(slab);
-      }
-      // Gable ends under the roof.
-      const tri = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, -2.5), new THREE.Vector3(0, 0, 2.5), new THREE.Vector3(0, 1.7, 0)]);
-      tri.computeVertexNormals();
-      for (const dx of [-3.98, 3.98]) g.add(M(tri, std(0xd8d4cb, 0.85, 0, { side: THREE.DoubleSide }), 14 + dx, y, 4));
-      const dark = std(0x23262a, 0.4, 0.1);
-      g.add(M(new THREE.BoxGeometry(1.1, 2, 0.08), std(0x5a3b26, 0.8), 14, y - 2, 6.55));
-      for (const dx of [-2.6, 2.4]) g.add(M(new THREE.BoxGeometry(1.2, 0.9, 0.08), dark, 14 + dx, y - 1.2, 6.55));
-    }
+    // The mountain hut: pale timber walls on a concrete base, a green corrugated roof, white
+    // windows and a door with steps towards the trail (archkit.js). Same 8 x 5 footprint as before.
+    g.add(streetHouse(kit, 14, 4, { w: 5, d: 8, h: 3, wall: 0xd8d4cb, roof: 0x2f4a33, face: 1, rot: Math.PI / 2 }));
     return g;
   },
 

@@ -206,6 +206,16 @@ export const PASSES = [];
 // Bridges on the Ring Road over real river crossings: Þjórsá, Markarfljót, Gígjukvísl on
 // Skeiðarársandur, Jökulsá á Fjöllum and Hvítá. A valley is carved under each, with a river.
 export const BRIDGES = [[63.86, -20.65], [63.7, -20.22], [63.93, -17.35], [65.5, -15.8], [64.72, -21.63]].map(([a, b]) => toWorld(a, b));
+// What each crossing is built as (same order as BRIDGES): the newer concrete box-girder bridges at
+// Þjórsá, Markarfljót and Hvítá; the one-lane steel-girder bridge (einbreið brú) of the sandur at
+// Gígjukvísl, short spans on many piers; and the steel truss over Jökulsá á Fjöllum at Grímsstaðir.
+export const BRIDGE_INFO = [
+  { name: 'Þjórsá', style: 'concrete' },
+  { name: 'Markarfljót', style: 'concrete' },
+  { name: 'Gígjukvísl', style: 'onelane' },
+  { name: 'Jökulsá á Fjöllum', style: 'truss' },
+  { name: 'Hvítá', style: 'concrete' },
+];
 
 // Jump crests on long, straight stretches (a sign warns you before each one).
 export const JUMPS = [[63.539, -18.55], [64.95, -19.65], [65.66, -17.25], [65.57, -19.05]].map(([a, b]) => toWorld(a, b));

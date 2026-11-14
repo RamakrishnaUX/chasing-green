@@ -1,9 +1,10 @@
 import * as THREE from 'three';
 import { createNoise2D, fbm, clamp, lerp, smoothstep, tableNoise } from './noise.js';
-import { COAST, ISLES, ROADS, FORDS, LAKES, GLACIERS, LAVA, SANDS, PITS, CANYONS, PASSES, FLATS, JUMPS, BRIDGES, KERID, keridU, keridProfile, WS } from './geo.js';
+import { COAST, ISLES, ROADS, FORDS, LAKES, GLACIERS, LAVA, SANDS, PITS, CANYONS, PASSES, FLATS, JUMPS, BRIDGES, BRIDGE_INFO, KERID, keridU, keridProfile, WS } from './geo.js';
 import { solidTopAt } from './solids.js';
 import { bakeStatic } from './bake.js';
 import { HD } from './hd.js';
+import { buildBridgeModels } from './bridges.js';
 import { createTerrainMaterial, createRoadMaterial, createWaterMaterial, createRiverMaterial, riverGeometry, surfaceUniforms } from './materials.js';
 
 export const BOUNDS = { minX: -900 * WS, maxX: 930 * WS, minZ: -690 * WS, maxZ: 580 * WS };
@@ -301,7 +302,7 @@ export function waterLevelAt(x, z) {
     if (Math.hypot((x - k.x) / s, z - k.z) < k.r * 1.1) return lakeLevel(k);
   }
   for (const f of fordPools) if (f.level > 0 && Math.hypot(x - f.x, z - f.z) < f.r) return f.level;
-  return 0;
+  return riverAt(x, z) ?? 0;
 }
 // Where each ford's river runs: { x, z, r, level }.
 const fordPools = [];
@@ -315,24 +316,128 @@ function prepareBridges() {
     ring.pts.forEach((q, i) => { const d = Math.hypot(q.x - B.x, q.z - B.z); if (d < bd) { bd = d; bi = i; } });
     const a = ring.pts[Math.max(0, bi - 3)], b = ring.pts[Math.min(ring.pts.length - 1, bi + 3)];
     const L = Math.hypot(b.x - a.x, b.z - a.z) || 1;
-    bridges.push({ x: ring.pts[bi].x, z: ring.pts[bi].z, dx: (b.x - a.x) / L, dz: (b.z - a.z) / L, len: 84, depth: 15, valley: 320 });
+    const info = BRIDGE_INFO[bridges.length] || { name: '', style: 'concrete' };
+    // Expansion joints (along the deck from its middle): at both ends, and on the one-lane bridge
+    // over every pier (its short spans each rest on their own bearings), over the truss's middle pier.
+    const len = 84, joints = info.style === 'onelane' ? [-42, -28, -14, 0, 14, 28, 42] : info.style === 'truss' ? [-42, 0, 42] : [-42, 42];
+    bridges.push({ x: ring.pts[bi].x, z: ring.pts[bi].z, dx: (b.x - a.x) / L, dz: (b.z - a.z) / L, len, depth: 15, valley: 320, ...info, joints, seed: bridges.length * 7.31 + 1.7 });
   }
+}
+// The river under each bridge: a glacial river, braided across a flat of black gravel, flowing
+// steadily downhill along the valley. Its surface (W, sampled every 8 m along the valley) sits
+// some 4.6 m under the lower end of the deck, always under the natural banks either side and above
+// the sea, and never rises downstream. The valley floor is cut to it: channels about a metre deep,
+// gravel bars just breaking the surface. Worked out once the roads have their heights (the deck
+// heights come from them); before that the valley is the old plain carve.
+const RIV_STEP = 8, RIV_FLOOR = 20;
+function prepareRivers() {
+  for (const B of bridges) {
+    const ends = [-1, 1].map((s) => nearestRoad(B.x + B.dx * s * (B.len / 2), B.z + B.dz * s * (B.len / 2), 20)?.h ?? 2);
+    const deck = Math.min(...ends);
+    const n = Math.round((2 * B.valley) / RIV_STEP) + 1, lat = (i) => -B.valley + i * RIV_STEP;
+    const bank = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const L = lat(i), wander = Math.sin(L * 0.018) * 10;
+      let m = Infinity;
+      for (const ac of [-30, 0, 30]) {
+        const al = wander + ac;
+        m = Math.min(m, rawHeight(B.x + B.dx * al - B.dz * L, B.z + B.dz * al + B.dx * L, undefined, false, true));
+      }
+      bank[i] = m;
+    }
+    // Downstream is towards the lower end of the valley.
+    let lo = 0, hi = 0;
+    for (let i = 0; i < n; i++) { if (lat(i) < 0) lo += bank[i]; else hi += bank[i]; }
+    const dir = lo < hi ? -1 : 1;
+    const W0 = deck - 4.6, W = new Float32Array(n);
+    for (let i = 0; i < n; i++) W[i] = Math.min(W0 - 0.004 * lat(i) * dir, bank[i] - 1.3);
+    const order = [...Array(n).keys()];
+    if (dir < 0) order.reverse(); // from upstream to downstream
+    for (let k = 1; k < n; k++) W[order[k]] = Math.min(W[order[k]], W[order[k - 1]] - 0.02);
+    // Never down to the sea: its channels are cut a metre under the surface and must stay dry
+    // land to the sea plane. Where the valley opens onto land lower than that (the coast), the
+    // river ends and the sea takes over (riverHere).
+    for (let i = 0; i < n; i++) W[i] = Math.max(W[i], 1.25);
+    B.riv = { W, n, dir, bank };
+  }
+}
+// The river's surface level at a distance lat along the valley from the bridge.
+export function riverLevel(B, lat) {
+  const R = B.riv, f = clamp((lat + B.valley) / RIV_STEP, 0, R.n - 1.001), i = Math.floor(f);
+  return lerp(R.W[i], R.W[i + 1], f - i);
+}
+// The river's level there, or null where the land either side is too low to hold it.
+export function riverHere(B, lat) {
+  const R = B.riv, i = Math.round(clamp((lat + B.valley) / RIV_STEP, 0, R.n - 1));
+  const W = riverLevel(B, lat);
+  return R.bank[i] > W + 0.3 ? W : null;
+}
+// Where a point sits in a bridge's valley: across the river (from the river's winding line) and
+// along it, or null outside the valley.
+function inValley(B, x, z) {
+  const f = bridgeFrame(B, x, z);
+  if (Math.abs(f.lat) > B.valley) return null;
+  const across = f.along - Math.sin(f.lat * 0.018) * 10;
+  if (Math.abs(across) > B.len * 0.5) return null;
+  return { across, lat: f.lat };
+}
+// The braided bed: gravel bars a little above the water, channels about a metre below, and one
+// main channel winding down the middle (in metres from the water surface).
+function braid(B, across, lat) {
+  const n = nB(across * 0.06 + B.seed, lat * 0.012 - B.seed);
+  let b = lerp(-0.9, 0.32, smoothstep(-0.25, 0.3, n));
+  const c = Math.sin(lat * 0.021 + B.seed) * 8;
+  b = lerp(b, -1.05, Math.exp(-(((across - c) / 6.5) ** 2)));
+  return b + smoothstep(RIV_FLOOR * 0.65, RIV_FLOOR, Math.abs(across)) * 0.35;
+}
+function bridgeShape(x, z, h) {
+  for (const B of bridges) {
+    const v = inValley(B, x, z);
+    if (!v) continue;
+    const a = Math.abs(v.across);
+    const w = (1 - smoothstep(B.len * 0.24, B.len * 0.5, a)) * (1 - smoothstep(B.valley * 0.65, B.valley, Math.abs(v.lat)));
+    if (w <= 0) continue;
+    if (!B.riv) { h -= B.depth * w; continue; }
+    const floor = Math.max(0.3, riverLevel(B, v.lat) + braid(B, v.across, v.lat));
+    h = lerp(h, Math.min(h, floor), w);
+  }
+  return h;
+}
+// The river flats (gravel bars and the bed) show as black gravel, not grass.
+function riverFlat(x, z, h) {
+  let m = 0;
+  for (const B of bridges) {
+    if (!B.riv) continue;
+    const v = inValley(B, x, z);
+    if (!v) continue;
+    const W = riverLevel(B, v.lat);
+    m = Math.max(m, (1 - smoothstep(RIV_FLOOR + 1, RIV_FLOOR + 7, Math.abs(v.across))) * (1 - smoothstep(W + 0.8, W + 2.2, h)) * (1 - smoothstep(B.valley * 0.6, B.valley * 0.85, Math.abs(v.lat))));
+  }
+  return m;
+}
+// The river's surface under a bridge, or null away from it.
+function riverAt(x, z) {
+  for (const B of bridges) {
+    if (!B.riv) continue;
+    const v = inValley(B, x, z);
+    if (v && Math.abs(v.across) < RIV_FLOOR + 6 && Math.abs(v.lat) < B.valley * 0.9) return riverHere(B, v.lat);
+  }
+  return null;
+}
+// Expansion joints crossed moving from (x0, z0) to (x1, z1) on a deck: how many (for the thump).
+export function deckJointsCrossed(x0, z0, x1, z1) {
+  let n = 0;
+  for (const B of bridges) {
+    const f0 = bridgeFrame(B, x0, z0), f1 = bridgeFrame(B, x1, z1);
+    if (Math.abs(f1.lat) > roadHalfWidth('paved') + 1 || Math.abs(f1.along) > B.len / 2 + 2) continue;
+    for (const j of B.joints) if ((f0.along - j) * (f1.along - j) < 0) n++;
+  }
+  return n;
 }
 // Position relative to a bridge: along the road (across the river) and along the river.
 function bridgeFrame(B, x, z) {
   const ox = x - B.x, oz = z - B.z;
   return { along: ox * B.dx + oz * B.dz, lat: -ox * B.dz + oz * B.dx };
-}
-function bridgeCarve(x, z) {
-  let c = 0;
-  for (const B of bridges) {
-    const f = bridgeFrame(B, x, z);
-    const wander = Math.sin(f.lat * 0.018) * 10;
-    const across = Math.abs(f.along - wander);
-    if (across > B.len * 0.5 || Math.abs(f.lat) > B.valley) continue;
-    c = Math.max(c, B.depth * (1 - smoothstep(B.len * 0.24, B.len * 0.5, across)) * (1 - smoothstep(B.valley * 0.65, B.valley, Math.abs(f.lat))));
-  }
-  return c;
 }
 // Deck height if (x, z) is on a bridge deck, else null.
 export function deckAt(x, z) {
@@ -426,7 +531,6 @@ function rawHeight(x, z, cd, noLakes = false, noBridge = false) {
   // real ones run on a thin strip of shore: keep low land under them so they never cross open sea.
   if (d < 8 && roadField.d && rd < 26) d = Math.max(d, 8 * (1 - smoothstep(10, 26, rd)));
   if (d < 0) return Math.max(-16, -1.4 + d * 0.06);
-  const bc = noBridge ? 0 : bridgeCarve(x, z);
   const ramp = smoothstep(0, 40, d);
   // Lowland: broad golden plains that roll gently and rise toward the interior plateau.
   const nP = fbm(nA, x * 0.0024, z * 0.0024, 3) * 0.5 + 0.5;
@@ -536,7 +640,7 @@ function rawHeight(x, z, cd, noLakes = false, noBridge = false) {
       h = lerp(target, h, smoothstep(1.05, 1.9, ku));
     }
   }
-  h -= bc;
+  if (!noBridge) h = bridgeShape(x, z, h);
   if (noLakes) return h;
   for (const k of LAKES) {
     const s = k.stretch || 1;
@@ -556,7 +660,7 @@ export function lavaMask(x, z) {
 export function sandMask(x, z, h = heightAt(x, z)) {
   let m = 0;
   for (const s of SANDS) m = Math.max(m, (1 - smoothstep(0.6, 1, Math.hypot(x - s.x, z - s.z) / s.r)) * (1 - smoothstep(s.top * 0.7, s.top, h)));
-  return m;
+  return Math.max(m, riverFlat(x, z, h));
 }
 export function glacierMask(x, z) {
   let m = 0;
@@ -865,6 +969,7 @@ export async function buildTerrain(scene, res, season, onProgress) {
   prepareBridges();
   computeRoadHeights();
   insertSegments();
+  prepareRivers();
 
   const nx = res + 1;
   const aspect = (BOUNDS.maxZ - BOUNDS.minZ) / (BOUNDS.maxX - BOUNDS.minX);
@@ -1507,68 +1612,15 @@ export function flattenPads(pads, mesh) {
   refitRoads();
 }
 
+// The bridges themselves (bridges.js): each deck meets the road at its own ends. Read 2 m further
+// out, on a sloping road it started a lip of 10 cm or more above the tarmac, a knock at every crossing.
 function buildBridges(scene) {
-  const concrete = new THREE.MeshStandardMaterial({ color: 0x9a9c9e, roughness: 0.85 });
-  const steel = new THREE.MeshStandardMaterial({ color: 0xb8bcc0, roughness: 0.4, metalness: 0.7 });
-  const riverMat = createRiverMaterial({ shallow: [0.36, 0.52, 0.5], deep: [0.1, 0.2, 0.22], speed: 1.8 });
-  const hw = roadHalfWidth('paved') + 1.4;
   for (const B of bridges) {
-    // The deck meets the road at its own ends: read 2 m further out, on a sloping road it started
-    // a lip of 10 cm or more above the tarmac, a knock at every crossing.
     const end = (s) => nearestRoad(B.x + B.dx * s * (B.len / 2), B.z + B.dz * s * (B.len / 2), 20);
     const e0 = end(-1), e1 = end(1);
     B.h0 = (e0 ? e0.h : 2); B.h1 = (e1 ? e1.h : 2);
-    const deckY = (B.h0 + B.h1) / 2;
-    const g = new THREE.Group();
-    g.position.set(B.x, 0, B.z);
-    g.rotation.y = Math.atan2(B.dx, B.dz);
-    const add = (geo, mat, x, y, z, parent = g) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = m.receiveShadow = true; parent.add(m); return m; };
-    // The deck tilts with the road, which climbs from one bank's height to the other's, so the
-    // asphalt ribbon (lane lines and all) lies just on top of it from end to end. Heights in
-    // here are relative to the deck surface at the middle of the bridge.
-    const deck = new THREE.Group();
-    deck.position.y = deckY;
-    deck.rotation.x = -Math.atan2(B.h1 - B.h0, B.len);
-    g.add(deck);
-    add(new THREE.BoxGeometry(hw * 2, 0.9, B.len + 2), concrete, 0, -0.5, 0, deck);
-    for (const sx of [-1, 1]) add(new THREE.BoxGeometry(0.5, 0.6, B.len + 2), concrete, sx * hw, 0.05, 0, deck);
-    // Parapets: a closed concrete wall each side with a steel rail on top, so the edge reads as
-    // solid and nothing can slip through. They run just past the ends of the deck.
-    for (const sx of [-1, 1]) {
-      add(new THREE.BoxGeometry(0.5, 1.05, B.len + 4), concrete, sx * (hw - 0.05), 0.5, 0, deck);
-      for (let zz = -B.len / 2 - 1.5; zz <= B.len / 2 + 1.5; zz += 3) add(new THREE.BoxGeometry(0.1, 0.4, 0.1), steel, sx * (hw - 0.05), 1.2, zz, deck);
-      add(new THREE.BoxGeometry(0.16, 0.1, B.len + 3.6), steel, sx * (hw - 0.05), 1.42, 0, deck);
-    }
-    // Piers down to the river bed, and abutments at both ends. Each sits under the deck where it
-    // stands: the deck slopes from one bank's height to the other's, so an abutment set at the
-    // middle height would stand up out of the road at the lower end.
-    const deckAtZ = (zz) => lerp(B.h0, B.h1, zz / B.len + 0.5);
-    for (const zz of [-B.len / 4, 0, B.len / 4]) {
-      const wx = B.x + B.dx * zz, wz = B.z + B.dz * zz, floor = heightAt(wx, wz) - 1;
-      const h = deckAtZ(zz) - 0.8 - floor;
-      if (h > 0.5) for (const sx of [-0.5, 0.5]) add(new THREE.CylinderGeometry(0.75, 0.95, h, 14), concrete, sx * hw, floor + h / 2, zz);
-    }
-    for (const s2 of [-1, 1]) add(new THREE.BoxGeometry(hw * 2 + 1, 4, 3), concrete, 0, deckAtZ(s2 * B.len / 2) - 2.4, s2 * (B.len / 2 + 0.5));
-    scene.add(g);
-    bakeStatic(g); // some 75 parts, one mesh per material
-    // The river along the valley floor, flowing downhill.
-    const pts = [];
-    for (let t = -B.valley * 0.85; t <= B.valley * 0.85; t += 8) {
-      const wander = Math.sin(t * 0.018) * 10;
-      const x = B.x - B.dz * t + B.dx * wander, z = B.z + B.dx * t + B.dz * wander;
-      pts.push({ x, y: heightAt(x, z) + 0.6, z });
-    }
-    // Only where the valley is still deep; the river does not climb the valley's far ends.
-    const floorMid = heightAt(B.x, B.z);
-    const keep = pts.filter((q) => q.y < floorMid + 4);
-    pts.length = 0; pts.push(...keep);
-    if (pts.length < 3) continue;
-    if (pts[0].y < pts[pts.length - 1].y) pts.reverse();
-    for (let i = 1; i < pts.length; i++) pts[i].y = Math.min(pts[i].y, pts[i - 1].y);
-    const river = new THREE.Mesh(riverGeometry(pts, 20), riverMat);
-    river.receiveShadow = true;
-    scene.add(river);
   }
+  buildBridgeModels(scene, bridges, { heightAt, nearestRoad, roadHalfWidth, riverLevel, riverHere, hd: HD.on });
 }
 
 // Nearest point on any road, searching the whole network (used for spawning and recovery).

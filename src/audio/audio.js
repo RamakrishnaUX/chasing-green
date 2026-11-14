@@ -376,6 +376,23 @@ export class AudioEngine {
     src.connect(g).connect(this.bus.car); src.start(t);
   }
 
+  // A tyre rolling over a bridge's expansion joint: a short deep thump through the body and the
+  // clack of the steel edges, the front axle then the rear (delay: seconds until this axle).
+  joint(speed, delay = 0) {
+    if (!this.ready) return;
+    const ctx = this.ctx, t = ctx.currentTime + delay, out = this.bus.car, s = Math.min(1, speed / 25);
+    const o = ctx.createOscillator(); o.type = 'sine';
+    o.frequency.setValueAtTime(82, t); o.frequency.exponentialRampToValueAtTime(42, t + 0.12);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.06 + 0.2 * s, t + 0.004); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+    o.connect(g).connect(out); o.start(t); o.stop(t + 0.2);
+    const n = ctx.createBufferSource(); n.buffer = this.white;
+    const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1300 + Math.random() * 500; f.Q.value = 2.5;
+    const gn = ctx.createGain();
+    gn.gain.setValueAtTime(0.0001, t); gn.gain.linearRampToValueAtTime(0.03 + 0.07 * s, t + 0.002); gn.gain.exponentialRampToValueAtTime(0.0001, t + 0.045);
+    n.connect(f).connect(gn).connect(out); n.start(t, Math.random() * 1.5, 0.08);
+  }
+
   // Thump of hitting a rock or wall. strength in speed units.
   thud(strength) {
     if (!this.ready) return;
@@ -658,7 +675,7 @@ export class AudioEngine {
     W.s.playbackRate.setTargetAtTime(swimming ? 0.85 + 0.25 * p : 0.8, t, 0.4);
   }
 
-  update(dt, { speed, wind, exposure, waterProx, iceProx, inCar, wade = 0, nitro = false, heli = null, throttle = 0, voice = null, surface = 'paved', grounded = true, boat = 0, gear = 0, shifting = false, rain = 0, slip = 0 }) {
+  update(dt, { speed, wind, exposure, waterProx, iceProx, inCar, wade = 0, nitro = false, heli = null, throttle = 0, voice = null, surface = 'paved', grounded = true, boat = 0, gear = 0, shifting = false, rain = 0, slip = 0, deck = false }) {
     if (!this.ready) return;
     const t = this.ctx.currentTime;
     // The helicopter replaces the car engine: rotor, turbines and fan, louder under load and
@@ -692,8 +709,10 @@ export class AudioEngine {
     // Tyres: only rolling on the ground, not in the air or on the water.
     const roll = inCar && !heli && grounded && wade < 0.3 && surface !== 'ford' ? Math.min(1, speed / 35) : 0;
     const rough = surface === 'paved' ? 0 : surface === 'gravel' ? 1 : 0.6;
-    this.tyreGain.gain.setTargetAtTime(roll * (0.07 + rough * 0.05), t, 0.15);
-    this.tyreLP.frequency.setTargetAtTime(300 + roll * 250 + rough * 200, t, 0.3);
+    // On a bridge the tyres sing on the concrete and it rings hollow underneath: a touch louder and brighter.
+    const dk = deck && surface === 'paved' ? 1 : 0;
+    this.tyreGain.gain.setTargetAtTime(roll * (0.07 + rough * 0.05) * (1 + 0.3 * dk), t, 0.15);
+    this.tyreLP.frequency.setTargetAtTime(300 + roll * 250 + rough * 200 + dk * roll * 260, t, 0.3);
     this.gritGain.gain.setTargetAtTime(roll * rough * 0.035 * (0.5 + Math.random()), t, 0.03);
     this.wadeGain.gain.setTargetAtTime(0.32 * Math.min(1, wade) * (1 - this.afloat), t, 0.15);
     this.nitroGain.gain.setTargetAtTime(nitro ? 0.12 : 0, t, nitro ? 0.08 : 0.3);

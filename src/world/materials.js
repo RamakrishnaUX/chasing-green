@@ -543,7 +543,15 @@ float wDepth; float wFoam;`)
 
 // Flowing river: geometry carries uv = (across 0..1, metres along) and aSlope (drop per metre).
 // Streaks scroll downstream, and steep stretches churn into white rapids.
-export function createRiverMaterial({ shallow = [0.16, 0.42, 0.44], deep = [0.02, 0.1, 0.12], speed = 2.2 } = {}) {
+//
+// glacial: a milky glacial river braided over black gravel (the bridges, bridges.js). It knows
+// how deep it is from the land's height map, so the gravel shows through at the edges of the bars
+// and foam lines their waterlines; riffles over the shallows stand in fixed waves; and round each
+// pier (piers: up to 6 of [x, z, half length along the flow, half thickness]; flow: the downstream
+// direction [x, z]) the water piles up in a collar and trails a widening V of foam downstream.
+// width: the strip's width in metres. Without glacial the look is exactly as before.
+export function createRiverMaterial({ shallow = [0.16, 0.42, 0.44], deep = [0.02, 0.1, 0.12], speed = 2.2, glacial = false, piers = [], flow = [0, 1], width = 20 } = {}) {
+  if (glacial) return glacialRiver({ shallow, deep, speed, piers, flow, width });
   const mat = new THREE.MeshStandardMaterial({ roughness: 0.12, metalness: 0, side: THREE.DoubleSide });
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, surfaceUniforms);
@@ -565,6 +573,81 @@ export function createRiverMaterial({ shallow = [0.16, 0.42, 0.44], deep = [0.02
           diffuseColor.rgb = pow(col, vec3(2.2)) * 2.2;
         }`)
       .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = mix(0.1, 0.85, rFoam);');
+  };
+  return mat;
+}
+
+function glacialRiver({ shallow, deep, speed, piers, flow, width }) {
+  const mat = new THREE.MeshStandardMaterial({ roughness: 0.08, metalness: 0, side: THREE.DoubleSide });
+  const P = Array.from({ length: 6 }, (_, i) => new THREE.Vector4(...(piers[i] || [0, 0, 0, 0])));
+  const uniforms = { uPier: { value: P }, uFlow: { value: new THREE.Vector2(flow[0], flow[1]).normalize() } };
+  const f = (v) => v.map((c) => c.toFixed(3)).join(',');
+  // Colours, width and speed are written into the shader; the piers and flow are uniforms, so the
+  // bridges share one program between rivers of the same look.
+  // (The classic look is lit brighter and has no haze to soften it, so its water is a shade darker.)
+  const key = `river-glacial-${HD.on ? 'hd' : 'classic'}-${f(shallow)}-${f(deep)}-${speed}-${width}`;
+  mat.customProgramCacheKey = () => key;
+  mat.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, surfaceUniforms, uniforms);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec2 vRiv;\nvarying vec3 vWPos;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvRiv = uv;\nvWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>\nuniform float uTime; uniform vec4 uPier[6]; uniform vec2 uFlow;\nvarying vec2 vRiv;\nvarying vec3 vWPos;\n${NOISE}\n${GROUND}\nfloat rFoam; float rH;`)
+      .replace('#include <normal_pars_fragment>', `#include <normal_pars_fragment>\n${BUMP}`)
+      .replace('#include <color_fragment>', `
+        {
+          float dist = length(vViewPosition);
+          float depth = max(0.0, vWPos.y - groundAt(vWPos.xz));
+          float ac = (vRiv.x - 0.5) * ${width.toFixed(1)}, al = vRiv.y, tf = uTime * ${speed.toFixed(2)};
+          // Slow boils and swirls of silt, and finer streaks drawn out along the current.
+          float sw = g_n(vec2(ac * 0.16, (al - tf * 0.8) * 0.05)) * 0.6 + g_n(vec2(ac * 0.43 + 3.1, (al - tf) * 0.13)) * 0.4;
+          float st = g_n(vec2(ac * 0.9, (al - tf) * 0.16)) * 0.55 + g_n(vec2(ac * 2.6, (al - tf * 1.15) * 0.42)) * 0.45;
+          // Milky with rock flour: brighter and browner where it runs shallow, greyer turquoise in the channels.
+          vec3 col = mix(vec3(${f(shallow)}), vec3(${f(deep)}), smoothstep(0.12, 0.95, depth));
+          col *= 0.88 + 0.22 * sw + 0.06 * st;
+          // The black gravel shows through the last few centimetres at a bar's edge, darkened by the wet.
+          col = mix(vec3(0.055, 0.055, 0.06), col, smoothstep(0.0, 0.2, depth));
+          // Foam: a broken line at the waterline, white caps on the riffles over the shallows, and round the piers.
+          float edge = (1.0 - smoothstep(0.02, 0.16, depth)) * smoothstep(0.3, 0.7, g_n(vec2(ac * 1.4, (al - tf) * 0.55)));
+          float rif = smoothstep(0.06, 0.22, depth) * (1.0 - smoothstep(0.32, 0.6, depth));
+          float riffle = rif * smoothstep(0.58, 0.8, st);
+          vec2 pp = vec2(-uFlow.y, uFlow.x);
+          float pf = 0.0, ph = 0.0;
+          for (int i = 0; i < 6; i++) {
+            vec4 P = uPier[i];
+            if (P.w <= 0.0) continue;
+            vec2 d = vWPos.xz - P.xy;
+            float a = dot(d, uFlow), r = dot(d, pp);
+            if (abs(r) > 14.0 || a < -6.0 || a > 40.0) continue;
+            float dc = length(vec2(max(abs(a) - P.z, 0.0), r)) - P.w;
+            // The water banks up white against the upstream nose and hugs the sides.
+            float collar = 1.0 - smoothstep(0.0, a < 0.0 ? 1.5 : 0.6, dc);
+            // Behind it: the two arms of a narrow V spreading downstream, and a churned trail of
+            // eddies straight behind, both drawn out in streaks by the current and dying away.
+            float x = max(a - P.z, 0.0), on = step(P.z, a);
+            float arms = exp(-pow((abs(r) - P.w - 0.24 * x) / (0.22 + 0.035 * x), 2.0)) * exp(-x / 16.0) * on;
+            float trail = (1.0 - smoothstep(P.w * 0.5, P.w * 1.4 + 0.12 * x, abs(r))) * exp(-x / 10.0) * on;
+            float brk = g_n(vec2(r * 2.2, (a - tf) * 0.45)) * 0.6 + g_n(vec2(r * 5.0 + 3.0, (a - tf * 1.1) * 1.3)) * 0.4;
+            float fo = max(collar, max(arms * (0.55 + 0.6 * brk), trail * smoothstep(0.3, 0.7, brk) * 1.3));
+            pf = max(pf, smoothstep(0.25, 0.6, fo));
+            ph += collar * 0.18 + arms * 0.06 + trail * 0.05 * brk;
+          }
+          pf *= smoothstep(0.04, 0.2, depth);
+          // Flecks of foam riding the current, drawn out into streaks: which way it flows at a glance.
+          float fleck = smoothstep(0.76, 0.88, g_n(vec2(ac * 3.6, (al - tf * 1.05) * 0.45)) * 0.65 + g_n(vec2(ac * 11.0, (al - tf * 1.05) * 1.6)) * 0.35) * smoothstep(0.15, 0.4, depth) * 0.45;
+          rFoam = clamp(max(max(edge * 0.75, riffle * 0.65), max(pf, fleck)), 0.0, 1.0) * (1.0 - smoothstep(250.0, 600.0, dist));
+          col = mix(col, vec3(0.86, 0.88, 0.87), rFoam);
+          // Relief for the normal (metres): ripples running downstream, waves that stand still
+          // over the riffles, and the swell round each pier.
+          float stand = sin(al * 2.3 + g_n(vec2(ac * 0.35, al * 0.08)) * 6.0) * 0.5 + 0.5;
+          // Boils welling up from the bed and churning chop: the river never lies flat like a lake.
+          float boil = g_n(vec2(ac * 0.3 + 7.0, (al - tf * 0.7) * 0.3 + uTime * 0.05));
+          rH = st * 0.05 + sw * 0.08 + boil * 0.07 + stand * rif * 0.11 + ph + g_n(vec2(ac * 4.0, (al - tf * 1.3) * 2.2)) * 0.018 + g_n(vec2(ac * 9.0, (al - tf * 1.4) * 5.0)) * 0.006;
+          diffuseColor.rgb = pow(col, vec3(2.2)) * mix(${HD.on ? '1.0' : '0.6'}, 1.6, rFoam);
+        }`)
+      .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = mix(0.13, 0.8, rFoam);')
+      .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\nnormal = bumpNormal(normal, rH * (1.0 - smoothstep(40.0, 260.0, length(vViewPosition))), 1.0);');
   };
   return mat;
 }
