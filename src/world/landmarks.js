@@ -41,6 +41,38 @@ function solidRock(root) {
   });
 }
 
+// A waterfall cliff reaches into the land wherever it stands. It is built from the ground at its
+// foot line, so where the land fell away behind it or along it (a cliff on a slope, a gorge wall
+// running down toward the road) the foot of its face and the bottom of its back slope hung in the
+// air: rock with a flat underside over the grass, hollow when seen from below or from the end.
+// Its foot row and its back slope are now carried down to a metre and a half under the land at
+// each point (never raised), the back slope keeping its shape.
+function groundCliff(m) {
+  const g = m.geometry, rows = g.userData.cliffRows, NU = g.userData.cliffNU, NV = g.userData.cliffNV;
+  if (!rows) return;
+  m.updateMatrixWorld(true);
+  const P = g.attributes.position, W = m.matrixWorld, inv = W.clone().invert(), v = new THREE.Vector3();
+  const under = (k) => { v.fromBufferAttribute(P, k).applyMatrix4(W); v.y = heightAt(v.x, v.z) - 1.5; return v.applyMatrix4(inv).y; };
+  const jb = Math.ceil(NV * 0.8);
+  for (let i = 0; i < NU; i++) {
+    const k0 = i * rows;
+    P.setY(k0, Math.min(P.getY(k0), under(k0)));
+    const yTop = P.getY(k0 + jb), bottom = Math.min(P.getY(k0 + NV), under(k0 + NV));
+    for (let j = jb + 1; j <= NV; j++) {
+      const t = (j - jb) / (NV - jb), s = t * t * (3 - 2 * t);
+      P.setY(k0 + j, Math.min(P.getY(k0 + j), yTop + (bottom - yTop) * s, j === NV ? bottom : Infinity));
+    }
+  }
+  // The end caps' middles follow their cross-sections down.
+  for (const [n, i] of [[0, 0], [1, NU - 1]]) {
+    let y = 0; for (let j = 0; j < rows; j++) y += P.getY(i * rows + j);
+    P.setY(NU * rows + n, y / rows);
+  }
+  P.needsUpdate = true;
+  g.computeVertexNormals();
+  g.computeBoundingSphere(); g.computeBoundingBox();
+}
+
 const DESC = {
   seljalandsfoss: 'A tall waterfall you can walk all the way behind.',
   skogafoss: 'A wide, thundering waterfall with a stairway up the cliff beside it.',
@@ -820,6 +852,7 @@ export class Landmarks {
     root.traverse((m) => { if (m.isMesh && !m.material.transparent) { m.castShadow = true; m.receiveShadow = true; } });
     this.scene.add(root);
     lm.root = root;
+    this.collectCliffs(root);
     this.collectColliders(root);
     if (!NOT_GROUND.includes(lm.kind)) addSolids(root, solidFloor);
     else {
@@ -830,7 +863,6 @@ export class Landmarks {
     // Skógafoss's stairway, laid once the cliff is solid ground so each step can sit on it.
     if (lm.id === 'skogafoss') { const st = buildStairway(kit, root, { x0: 24, x1: 34, start: [24.5, 2.6], top: 23.6 }); this.collectColliders(st); }
     this.beforeBake?.(root, lm);
-    this.collectCliffs(root);
     bakeStatic(root);
     if (!BUILT.includes(lm.kind)) solidRock(root);
   }
@@ -844,6 +876,7 @@ export class Landmarks {
     root.traverse((m) => {
       const C = m.userData.cliff;
       if (!C) return;
+      groundCliff(m);
       const P = C.path, pts = [];
       P.forEach((p, i) => {
         const a = P[Math.max(0, i - 1)], b = P[Math.min(P.length - 1, i + 1)];

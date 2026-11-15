@@ -521,11 +521,21 @@ export function cliffGeometry(path, { below = 4, back = 16, bands = 2.2, columns
     const a = i * rows + j, b = a + rows;
     idx.push(a, b, a + 1, a + 1, b, b + 1);
   }
+  // Close both ends: each is the cliff's cross-section (foot, face, top, back), filled from its
+  // middle. Left open, the end of a cliff standing on falling ground showed the hollow inside.
+  for (const i of [0, NU - 1]) {
+    let cx = 0, cy = 0, cz = 0;
+    for (let j = 0; j < rows; j++) { const k = (i * rows + j) * 3; cx += pos[k]; cy += pos[k + 1]; cz += pos[k + 2]; }
+    const c = pos.length / 3;
+    pos.push(cx / rows, cy / rows, cz / rows); col.push(0, 0, 0);
+    for (let j = 0; j < rows; j++) { const a = i * rows + j, b = i * rows + ((j + 1) % rows); idx.push(c, a, b); }
+  }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
   g.setIndex(idx);
   g.computeVertexNormals();
+  g.userData.cliffRows = rows; g.userData.cliffNU = NU; g.userData.cliffNV = NV;
   return g;
 }
 

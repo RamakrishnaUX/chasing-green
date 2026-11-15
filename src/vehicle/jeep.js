@@ -353,8 +353,14 @@ export class Jeep {
     // glancing blow slides it along the face, a square one stops it.
     const moved = Math.hypot(this.pos.x - prevX, this.pos.z - prevZ);
     const reach = (S.halfLength || 2.4) * (Math.sign(this.vF) || 1);
-    const blockedAt = () => solidStep(this.pos.x, this.pos.z, this.pos.y, 0.6 + moved * 1.2, clearTop) ? 0
-      : solidStep(this.pos.x + fx * reach, this.pos.z + fz * reach, this.pos.y, 0.6 + (Math.abs(reach) + moved) * 1.2, clearTop) ? 1 : -1;
+    // A move only counts as into a wall if it goes deeper into the rock than the car already is.
+    // Wedged in it (between lava pillars, nosed into a stack), every way out used to count as a
+    // wall too, so the car could neither drive on nor back out.
+    // Only when it was already in the rock before this move; otherwise walls are walls as before.
+    const was = (x, z) => solidTopAt(x, z, clearTop), wasC = was(prevX, prevZ), wasB = was(prevX + fx * reach, prevZ + fz * reach);
+    const inC = wasC > this.pos.y + 0.6, inB = wasB > this.pos.y + 0.6 + Math.abs(reach) * 1.2;
+    const blockedAt = () => solidStep(this.pos.x, this.pos.z, this.pos.y, 0.6 + moved * 1.2, clearTop) && (!inC || was(this.pos.x, this.pos.z) > wasC + 0.02) ? 0
+      : solidStep(this.pos.x + fx * reach, this.pos.z + fz * reach, this.pos.y, 0.6 + (Math.abs(reach) + moved) * 1.2, clearTop) && (!inB || was(this.pos.x + fx * reach, this.pos.z + fz * reach) > wasB + 0.02) ? 1 : -1;
     const b = blockedAt();
     if (b >= 0) {
       const ox = fx * reach * b, oz = fz * reach * b, bx = this.pos.x + ox, bz = this.pos.z + oz;

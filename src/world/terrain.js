@@ -1679,6 +1679,16 @@ export function raiseLand(plateaus, mesh, keep = []) {
   let touched = false;
   for (const pl of plateaus) {
     const P = pl.pts, reach = pl.back + 25 + PLATEAU_FADE_MAX + 10;
+    // How squarely each stretch of cliff faces its nearest road: the land rises behind a cliff you
+    // look at from the road (Skógafoss, the head of a gorge), not beside the walls of a gorge that
+    // runs toward the road (Svartifoss), where it rose as banks over the road.
+    for (const p of P) {
+      p.rd ??= roadDistAt(p.x, p.z);
+      if (p.facing == null) {
+        const r = nearestRoad(p.x, p.z, 400), dx = r ? r.px - p.x : 0, dz = r ? r.pz - p.z : 0, L = Math.hypot(dx, dz);
+        p.facing = !r || L < 1 ? 1 : smoothstep(0.25, 0.65, (dx * p.ox + dz * p.oz) / L);
+      }
+    }
     let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
     for (const p of P) { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); z0 = Math.min(z0, p.z); z1 = Math.max(z1, p.z); }
     const i0 = Math.max(0, Math.floor((x0 - reach - BOUNDS.minX) / grid.dx)), i1 = Math.min(nx - 1, Math.ceil((x1 + reach - BOUNDS.minX) / grid.dx));
@@ -1704,9 +1714,18 @@ export function raiseLand(plateaus, mesh, keep = []) {
       // The higher the lip stands over the land, the longer the high ground takes to come down
       // (about 1 in 4.5), so a tall cliff is the edge of a wide upland, not a mound.
       const fade = clamp((target - H[k]) * 4.5, PLATEAU_FADE, PLATEAU_FADE_MAX);
-      const w = (1 - smoothstep(pl.back + 25, pl.back + 25 + fade, behind)) * (1 - smoothstep(0, PLATEAU_SIDE + fade * 0.3, past)) * smoothstep(12, 26, roadDistAt(x, z));
+      const w = (1 - smoothstep(pl.back + 25, pl.back + 25 + fade, behind)) * (1 - smoothstep(0, PLATEAU_SIDE + fade * 0.3, past));
       if (w <= 0.001 || keep.some((pd) => pd.lm !== pl.lm && Math.hypot(x - pd.x, z - pd.z) < (pd.core ?? pd.r))) continue;
-      H[k] = lerp(H[k], target, w);
+      // Up from a road no steeper than about 1 in 2.2 (it rose as a wall beside the road where a
+      // gorge's walls run down to it), and not at all within 9 m of its middle.
+      const rd = roadDistAt(x, z), cap = rd < 9 ? 0 : (rd - 9) * 0.45;
+      // Only on the far side of the cliff from the road: land between a road and a cliff, or
+      // beside a gorge's walls where they run down to the road, stays as it was (raised there it
+      // stood as a bare bank over the road).
+      const footRd = q('rd');
+      if (rd < footRd + 4) continue;
+      const side = smoothstep(footRd + 4, footRd + 30, rd);
+      H[k] = Math.min(lerp(H[k], target, w * side * q('facing')), H[k] + cap);
       touched = true;
     }
   }

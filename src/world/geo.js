@@ -161,21 +161,21 @@ export const ROADS = [
 // its end) just outside the sight's rocks, walls and water. from: the junction on the main road;
 // to: the car park. Worked out by tools/access-roads.js from where the landmarks stand; run it
 // again if a landmark or a main road moves. (Kerið has none: its crater crowns a hill whose
-// grassy flank starts at the road, so a turn-off would cut into it.)
+// grassy flank starts at the road, so a turn-off would cut into it. Skaftafell has none: its car
+// park landed against Svartifoss's cliff. Each car park, the whole strip, is clear of rock and walls.)
 export const ACCESS = [
-  { id: 'thingvellir', type: 'paved', from: [64.25503, -21.13002], to: [64.28065, -21.13002] },
+  { id: 'thingvellir', type: 'paved', from: [64.25503, -21.13002], to: [64.27238, -21.13002] },
   { id: 'kirkjufell', type: 'paved', from: [64.925, -23.25], to: [64.9284, -23.30715] },
   { id: 'studlagil', type: 'gravel', from: [65.175, -15.23996], to: [65.16987, -15.30176] },
   { id: 'dettifoss', type: 'gravel', from: [65.8148, -16.38821], to: [65.82533, -16.28639] },
   { id: 'hallgrimskirkja', type: 'paved', from: [64.238, -21.88672], to: [64.23353, -21.82315] },
   { id: 'perlan', type: 'paved', from: [64.07885, -21.66574], to: [64.02141, -21.72301] },
-  { id: 'skaftafell', type: 'paved', from: [64.01602, -16.96503], to: [64.03013, -16.93363] },
   { id: 'asbyrgi', type: 'paved', from: [66.05438, -16.69699], to: [66.01349, -16.71054] },
-  { id: 'oxararfoss', type: 'paved', from: [64.25188, -21.06771], to: [64.28627, -21.04744] },
-  { id: 'hasteinsvollur', type: 'paved', from: [63.3277, -20.11979], to: [63.33726, -20.21409] },
+  { id: 'oxararfoss', type: 'paved', from: [64.25188, -21.06771], to: [64.28467, -21.04838] },
+  { id: 'hasteinsvollur', type: 'paved', from: [63.3277, -20.11979], to: [63.33652, -20.20684] },
   { id: 'geosea', type: 'paved', from: [66.02908, -17.34133], to: [66.05241, -17.41078] },
   { id: 'silfra', type: 'paved', from: [64.25106, -21.20201], to: [64.28027, -21.21485] },
-  { id: 'laugavegur', type: 'paved', from: [64.30785, -21.85584], to: [64.30359, -21.78206] },
+  { id: 'laugavegur', type: 'paved', from: [64.30785, -21.85584], to: [64.30508, -21.80788] },
 ].map((A) => {
   const [a, b] = ll([A.from, A.to]), len = Math.hypot(b.x - a.x, b.z - a.z);
   return { ...A, a, b, len, ux: (b.x - a.x) / len, uz: (b.z - a.z) / len };
