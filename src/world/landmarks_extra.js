@@ -404,7 +404,7 @@ export const EXTRA = {
     }
     return g;
   },
-  glacier(kit) { const g = buildSkaftafell(kit); g.scale.set(0.7, 0.7, 0.7); return g; },
+  glacier(kit) { return buildSkaftafell(kit, 0.7); },
 
   // Dynjandi: not a sheer drop but a broad hillside of basalt ledges, one lava flow laid on the
   // next, and the river spreading down it like a bridal veil: about 30 m wide at the lip and 60 m

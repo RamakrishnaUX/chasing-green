@@ -6,7 +6,7 @@ import { CONFIG } from './config.js';
 import { store } from './storage.js';
 import { createNoise2D, clamp, smoothstep, lerp } from './world/noise.js';
 import { START, PLACES, CANYONS, JUMPS, KERID, GROW, toWorld, ACCESS, CAR_PARK } from './world/geo.js';
-import { updateTerrainLod, buildTerrain, paintTerrain, iceAt, flattenPads, bridges, roadPaths, nearestRoad, heightAt, coastAt, nearestRoadAnywhere, exposureAt, waterLevelAt, postReflectorMat, lakeMat, snowAt, groundAt, roadDistAt, shoreDistAt, surfaceAt, deckAt, deckHeightOf, deckJointsCrossed } from './world/terrain.js';
+import { updateTerrainLod, buildTerrain, paintTerrain, iceAt, flattenPads, raiseLand, bridges, roadPaths, nearestRoad, heightAt, coastAt, nearestRoadAnywhere, exposureAt, waterLevelAt, postReflectorMat, lakeMat, snowAt, groundAt, roadDistAt, shoreDistAt, surfaceAt, deckAt, deckHeightOf, deckJointsCrossed } from './world/terrain.js';
 import { Scatter } from './world/scatter.js';
 import { Grass } from './world/grass.js';
 import { Post } from './world/post.js';
@@ -311,15 +311,19 @@ async function buildWorld(progress) {
   await stage('Placing landmarks', 0.67, 220);
   // Pads under built landmarks, by kind (radius in world units). Natural sites keep their shape.
   const PAD = { building: 32, town: 30, sculpture: 12, pool: 26, geothermal: 24, cave: 16, bridge: 18, waterfall: 34, geyser: 18, wreck: 18, stadium: 80 };
+  let landPads = []; // level ground under landmarks, stations and car parks (kept clear by raiseLand)
   landmarks = new Landmarks(scene, { quality: qualityName, defer: true, beforeBake: (root, lm) => naturalize(root, lm.kind), beforeBuild: (list) => {
-    const pads = list.filter((l) => PAD[l.kind] && l.id !== 'seydisfjordur').map((l) => ({ x: l.x, z: l.z, r: l.id === 'hallgrimskirkja' ? 58 : PAD[l.kind], cap: l.id === 'hallgrimskirkja' || l.id === 'laugavegur' ? 2.5 : null }));
+    const pads = list.filter((l) => PAD[l.kind] && l.id !== 'seydisfjordur').map((l) => ({ lm: l.id, x: l.x, z: l.z, r: l.id === 'hallgrimskirkja' ? 58 : PAD[l.kind], cap: l.id === 'hallgrimskirkja' || l.id === 'laugavegur' ? 2.5 : null }));
     // Fuel stations beside the Ring Road get level forecourts too.
     stationSites = siteStations(list);
     // Car parks at the end of the turn-offs to sights (geo.js ACCESS) stand on level ground too.
     const parks = ACCESS.map((A) => ({ x: A.b.x, z: A.b.z, r: CAR_PARK.r, cap: null }));
-    flattenPads(pads.concat(stationSites.map((s) => s.pad), parks), world.mesh);
+    landPads = pads.concat(stationSites.map((s) => s.pad), parks);
+    flattenPads(landPads, world.mesh);
   } });
   await landmarks.buildAll(() => new Promise((r) => setTimeout(r, 0)));
+  // High ground behind every waterfall cliff, so each is the edge of the land (terrain.js raiseLand).
+  raiseLand(landmarks.plateaus, world.mesh, landPads);
   landmarks.onEvent = (type, lm) => {
     const pp = activePos(), d = Math.hypot(pp.x - lm.x, pp.z - lm.z);
     if (d > 160 || !started) return;

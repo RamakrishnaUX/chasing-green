@@ -1664,6 +1664,71 @@ export function flattenPads(pads, mesh) {
   refitRoads();
 }
 
+// High ground behind waterfall cliffs. A cliff was a block standing in a field: 25 m of rock with a
+// thin strip of grass on top, a slope down its back and cut-off ends, so it read as a thing set
+// down on the land rather than the edge of it, and from the side or behind it looked hollow.
+// Behind each cliff (landmarks.js collectCliffs) the land now rises to just under its lip and runs
+// back level, then eases down to the land as it was over 80 to 230 m (longer the taller the cliff stands), and fades out past the
+// cliff's ends (where its lip already comes down to the ground). The rise starts well behind the
+// top of the face, so it is under the cliff's own top and never pokes out of the face; it stays
+// clear of roads and of other landmarks' level ground, and only ever raises the land.
+const PLATEAU_FADE = 80, PLATEAU_FADE_MAX = 230, PLATEAU_SIDE = 30;
+export function raiseLand(plateaus, mesh, keep = []) {
+  if (!plateaus?.length) return;
+  const H = grid.heights, nx = grid.nx, nz = grid.nz, cell = Math.max(grid.dx, grid.dz);
+  let touched = false;
+  for (const pl of plateaus) {
+    const P = pl.pts, reach = pl.back + 25 + PLATEAU_FADE_MAX + 10;
+    let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+    for (const p of P) { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); z0 = Math.min(z0, p.z); z1 = Math.max(z1, p.z); }
+    const i0 = Math.max(0, Math.floor((x0 - reach - BOUNDS.minX) / grid.dx)), i1 = Math.min(nx - 1, Math.ceil((x1 + reach - BOUNDS.minX) / grid.dx));
+    const j0 = Math.max(0, Math.floor((z0 - reach - BOUNDS.minZ) / grid.dz)), j1 = Math.min(nz - 1, Math.ceil((z1 + reach - BOUNDS.minZ) / grid.dz));
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+      const x = BOUNDS.minX + i * grid.dx, z = BOUNDS.minZ + j * grid.dz;
+      // The nearest point on the cliff's line, and how far past either end of it.
+      let best = Infinity, bk = 0, bt = 0, past = 0;
+      for (let k = 0; k < P.length - 1; k++) {
+        const a = P[k], b = P[k + 1], ux = b.x - a.x, uz = b.z - a.z, L2 = ux * ux + uz * uz || 1;
+        const t = ((x - a.x) * ux + (z - a.z) * uz) / L2, tc = clamp(t, 0, 1);
+        const d = Math.hypot(x - a.x - ux * tc, z - a.z - uz * tc);
+        if (d < best) { best = d; bk = k; bt = tc; past = (k === 0 && t < 0 ? -t : k === P.length - 2 && t > 1 ? t - 1 : 0) * Math.sqrt(L2); }
+      }
+      const a = P[bk], b = P[bk + 1], q = (f) => a[f] + (b[f] - a[f]) * bt;
+      const ox = q('ox'), oz = q('oz'), ol = Math.hypot(ox, oz) || 1;
+      const behind = -((x - q('x')) * ox + (z - q('z')) * oz) / ol;
+      const d0 = q('d0') + 1.6 * cell;
+      if (behind < d0 || behind > reach) continue;
+      const k = H.length && j * nx + i;
+      const target = q('top') - 0.45;
+      if (target <= H[k]) continue;
+      // The higher the lip stands over the land, the longer the high ground takes to come down
+      // (about 1 in 4.5), so a tall cliff is the edge of a wide upland, not a mound.
+      const fade = clamp((target - H[k]) * 4.5, PLATEAU_FADE, PLATEAU_FADE_MAX);
+      const w = (1 - smoothstep(pl.back + 25, pl.back + 25 + fade, behind)) * (1 - smoothstep(0, PLATEAU_SIDE + fade * 0.3, past)) * smoothstep(12, 26, roadDistAt(x, z));
+      if (w <= 0.001 || keep.some((pd) => pd.lm !== pl.lm && Math.hypot(x - pd.x, z - pd.z) < (pd.core ?? pd.r))) continue;
+      H[k] = lerp(H[k], target, w);
+      touched = true;
+    }
+  }
+  if (!touched) return;
+  const pos = mesh.geometry.attributes.position;
+  for (let k = 0; k < H.length; k++) pos.setY(k, H[k]);
+  pos.needsUpdate = true;
+  mesh.geometry.computeVertexNormals();
+  if (surfaceUniforms.uHeightTex.value) surfaceUniforms.uHeightTex.value.needsUpdate = true;
+  // The tiles' bounds, so a raised tile is not culled while in view.
+  const Pa = pos.array;
+  for (const T of terrainTiles) {
+    const b = T.box;
+    let y0 = Infinity, y1 = -Infinity;
+    const ia = Math.round((b.min.x - BOUNDS.minX) / grid.dx), ib = Math.round((b.max.x - BOUNDS.minX) / grid.dx);
+    const ja = Math.round((b.min.z - BOUNDS.minZ) / grid.dz), jb = Math.round((b.max.z - BOUNDS.minZ) / grid.dz);
+    for (let jz = ja; jz <= jb; jz++) for (let ix = ia; ix <= ib; ix++) { const y = Pa[(jz * nx + ix) * 3 + 1]; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+    b.min.y = y0 - 40; b.max.y = y1 + 40;
+    T.g.boundingSphere = b.getBoundingSphere(new THREE.Sphere());
+  }
+}
+
 // The bridges themselves (bridges.js): each deck meets the road at its own ends. Read 2 m further
 // out, on a sloping road it started a lip of 10 cm or more above the tarmac, a knock at every crossing.
 function buildBridges(scene) {

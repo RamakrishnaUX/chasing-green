@@ -579,60 +579,7 @@ export function buildHveravellir(kit) {
 }
 
 // ---------- Geyser ----------
-const PLUME_FRAG = /* glsl */ `
-uniform float uTime; uniform float uAmt; uniform float uLight; varying vec2 vUv;
-float h(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-float n(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f); return mix(mix(h(i), h(i+vec2(1,0)), f.x), mix(h(i+vec2(0,1)), h(i+vec2(1,1)), f.x), f.y); }
-void main(){
-  float body = n(vec2(vUv.x * 9.0, vUv.y * 5.0 - uTime * 3.0)) * 0.6 + n(vec2(vUv.x * 21.0, vUv.y * 11.0 - uTime * 5.0)) * 0.4;
-  float a = smoothstep(0.25, 0.7, body) * smoothstep(1.0, 0.7, vUv.y) * uAmt;
-  gl_FragColor = vec4(vec3(0.96, 0.97, 0.98) * (0.45 + uLight * 0.6), a);
-}`;
-export function buildStrokkur(kit) {
-  const g = new THREE.Group();
-  const prof = [[10, -0.2], [7, 0.3], [3.4, 0.8], [2.0, 0.65], [1.7, 0.25]].map(([r, y]) => new THREE.Vector2(r, y));
-  g.add(M(new THREE.LatheGeometry(prof, 48), std(0xd9d3c3, 0.7)));
-  const pool = M(new THREE.CircleGeometry(1.75, 32), createWaterMaterial(0x2a9fc4, { roughness: 0.05, ripple: 0.6, shallow: [0.25, 0.7, 0.85], deep: [0.02, 0.25, 0.45], depthAware: false, foam: 0, glow: 0.15 }), 0, 0.3, 0);
-  pool.rotation.x = -Math.PI / 2;
-  g.add(pool);
-  const domeMat = new THREE.MeshPhysicalMaterial({ color: 0x5cc6e8, roughness: 0.05, transparent: true, opacity: 0.75, clearcoat: 1, emissive: 0x0d4f6b, emissiveIntensity: 0.6 });
-  const dome = M(new THREE.SphereGeometry(1.75, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2), domeMat, 0, 0.3, 0);
-  dome.scale.y = 0.01;
-  dome.userData.dynamic = true;
-  g.add(dome);
-  const plumeMat = new THREE.ShaderMaterial({
-    vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-    fragmentShader: PLUME_FRAG, transparent: true, depthWrite: false, side: THREE.DoubleSide,
-    uniforms: { uTime: kit.waterUniforms.uTime, uLight: kit.waterUniforms.uLight, uAmt: { value: 0 } },
-  });
-  const plume = new THREE.Mesh(new THREE.CylinderGeometry(2.6, 1.4, 1, 24, 8, true), plumeMat);
-  plume.geometry.translate(0, 0.5, 0);
-  plume.position.y = 0.3;
-  plume.scale.y = 0.01;
-  plume.userData.dynamic = true;
-  g.add(plume);
-  const steam = kit.makeMist(60, 3, 8);
-  steam.material = steam.material.clone(); steam.material.opacity = 0.22; steam.material.size = 4;
-  steam.position.y = 0.4;
-  g.add(steam); kit.steam(steam, 0.7);
-  // Cycle: wait, warning bulge, eruption, settle.
-  let phase = 'wait', timer = 25 + kit.rand() * 30;
-  kit.update((dt) => {
-    timer -= dt;
-    if (phase === 'wait' && timer <= 0) { phase = 'warn'; timer = 2.6; kit.emit('geyser-warning'); }
-    else if (phase === 'warn') {
-      dome.scale.y = 0.2 + (1 - timer / 2.6) * 1.1;
-      if (timer <= 0) { phase = 'erupt'; timer = 4.5; dome.scale.y = 0.01; kit.emit('geyser-erupt'); }
-    } else if (phase === 'erupt') {
-      const k = 1 - timer / 4.5;
-      const rise = Math.min(1, k * 5);
-      plume.scale.set(1 + k * 1.5, 0.5 + rise * 22 * (1 - Math.max(0, k - 0.55) * 0.9), 1 + k * 1.5);
-      plumeMat.uniforms.uAmt.value = Math.min(1, rise) * (1 - Math.max(0, (k - 0.6) / 0.4));
-      if (timer <= 0) { phase = 'wait'; timer = 60 + kit.rand() * 80; plumeMat.uniforms.uAmt.value = 0; plume.scale.y = 0.01; }
-    }
-  });
-  return g;
-}
+// Strokkur is built in geyser.js.
 
 // ---------- Waterfalls ----------
 // (Svartifoss, Goðafoss, Gljúfrabúi and Hengifoss are built in waterfalls.js.)
@@ -716,30 +663,58 @@ export function buildAsbyrgi(kit) {
 
 // Dyrhólaey is built in nature.js.
 
-export function buildSkaftafell(kit) {
-  const g = new THREE.Group();
-  // Glacier tongue sliding down toward the valley, with blue crevasses and ash bands.
-  const geo = new THREE.BoxGeometry(34, 16, 80, 16, 4, 32);
-  const p = geo.attributes.position, col = new Float32Array(p.count * 3), c = new THREE.Color();
-  for (let i = 0; i < p.count; i++) {
-    let x = p.getX(i), y = p.getY(i), z = p.getZ(i);
-    const t = (z + 40) / 80; // 0 at the snout, 1 at the back
-    x *= 0.55 + t * 0.6;
-    y = y > 0 ? y * (0.25 + t * 1.2) + Math.sin(x * 0.8 + z * 0.3) * 0.5 : y;
-    p.setXYZ(i, x, y, z);
-    const crev = Math.abs(Math.sin(z * 0.9 + Math.sin(x * 0.2) * 2));
-    c.setRGB(0.88, 0.93, 0.97).lerp(new THREE.Color(0.45, 0.66, 0.82), crev < 0.15 ? 0.8 : 0);
-    if (Math.sin(z * 0.35 + x * 0.05) > 0.9) c.lerp(new THREE.Color(0.35, 0.35, 0.36), 0.5);
-    col.set([c.r, c.g, c.b], i * 3);
+// A glacier tongue: a lobe of ice laid on the land, lens-shaped across (thickest down its middle,
+// thinning to nothing at its margins, which run down into the ground under grey moraine grit),
+// thickening up the valley from a steep, rounded snout, its surface crossed by blue crevasses and
+// folded bands of black ash, dirtiest near the snout and the edges. It was a stretched box: a white
+// block with flat sides standing on the field. s: its scale (Sólheimajökull is a smaller tongue).
+function glacierTongue(kit, s = 1) {
+  const W = 42 * s, L = 140 * s, HMAX = 26 * s, z0 = -8 * s; // half-widths come from W; z runs back from the snout at z0
+  const NX = 32, NZ = 72, pos = [], col = [], idx = [], c = new THREE.Color();
+  const nz = (x, z) => Math.sin(x * 0.21 + Math.sin(z * 0.13) * 2) * Math.sin(z * 0.17 - x * 0.07) * 0.5 + 0.5;
+  for (let j = 0; j <= NZ; j++) {
+    const v = j / NZ, z = z0 - v * L;
+    // Width: narrow at the snout, opening up the valley. Thickness: a steep rounded front, then a
+    // long rise, easing off toward the back (where it runs on up into the ice cap, out of sight).
+    const half = (W / 2) * (0.62 + 0.55 * Math.pow(v, 0.7));
+    const thick = HMAX * (1 - Math.exp(-v * 9)) * (0.35 + 0.65 * v) * (1 - THREE.MathUtils.smoothstep(v, 0.86, 1.0) * 0.9);
+    for (let i = 0; i <= NX; i++) {
+      const u = (i / NX) * 2 - 1, x = u * half + Math.sin(v * 5) * 3 * s;
+      const across = Math.sqrt(Math.max(0, 1 - u * u)), body = Math.pow(across, 0.7);
+      // Crevasses in fields where the ice is stretched, not evenly across the whole tongue.
+      const crev = Math.pow(Math.abs(Math.sin(z * 0.55 / s + Math.sin(x * 0.18 / s) * 2.2 + u * 1.5 + nz(x * 0.4, z * 0.3) * 4)), 14) * THREE.MathUtils.smoothstep(nz(x * 0.13 / s + 7, z * 0.09 / s), 0.5, 0.8);
+      const g0 = kit.ground(x, z);
+      let y = g0 - 1.2 * s + (thick + 1.2 * s) * body - crev * 0.9 * s * body + (nz(x, z) - 0.5) * 0.8 * s * body;
+      if (i === 0 || i === NX || j === NZ) y = g0 - 1.5 * s; // margins and back edge under the land
+      pos.push(x, y, z);
+      // Clean white ice up the middle, blue in the crevasses, grey grit to the margins and snout.
+      const dirt = THREE.MathUtils.clamp((1 - across) * 1.6 + (1 - THREE.MathUtils.smoothstep(v, 0, 0.18)) * 0.7, 0, 1);
+      c.setRGB(0.86, 0.91, 0.96).lerp(new THREE.Color(0.4, 0.4, 0.41), dirt * 0.85);
+      if (crev > 0.35) c.lerp(new THREE.Color(0.36, 0.6, 0.76), 0.55 * (1 - dirt));
+      // Faint bands of old ash, folded by the flow, here and there.
+      const ash = THREE.MathUtils.smoothstep(Math.sin(z * 0.11 / s + x * 0.03 / s + nz(x * 0.2, z * 0.15) * 5), 0.93, 0.99) * THREE.MathUtils.smoothstep(nz(x * 0.05 + 3, z * 0.04), 0.45, 0.7);
+      c.multiplyScalar(1 - 0.4 * ash);
+      c.convertSRGBToLinear();
+      col.push(c.r, c.g, c.b);
+    }
   }
-  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  for (let j = 0; j < NZ; j++) for (let i = 0; i < NX; i++) { const a = j * (NX + 1) + i, b = a + NX + 1; idx.push(a, b, a + 1, a + 1, b, b + 1); }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  geo.setIndex(idx);
   geo.computeVertexNormals();
-  const ice = M(geo, std(0xffffff, 0.45, 0, { vertexColors: true }), 0, 4, -52);
-  ice.userData.solid = true;
-  g.add(ice);
+  const ice = M(geo, std(0xffffff, 0.38, 0, { vertexColors: true }));
+  ice.userData.keepShape = true;
+  return ice;
+}
+
+export function buildSkaftafell(kit, s = 1) {
+  const g = new THREE.Group();
+  g.add(glacierTongue(kit, s));
   // Dark moraine in front, and a signpost.
   const moraine = std(0x3b3a38, 0.95);
-  for (let i = 0; i < 16; i++) g.add(M(lump(1.5 + kit.rand() * 2, kit.rand, 0.5), moraine, -14 + i * 1.9, kit.ground(-14 + i * 1.9, -10), -10 - kit.rand() * 3));
+  for (let i = 0; i < 16; i++) { const x = (-14 + i * 1.9) * s, z = (-4 - kit.rand() * 3) * s; g.add(M(lump((1.5 + kit.rand() * 2) * s, kit.rand, 0.5), moraine, x, kit.ground(x, z), z)); }
   const wood = std(0x6b4e32, 0.85);
   g.add(M(new THREE.BoxGeometry(0.25, 2.6, 0.25), wood, 6, kit.ground(6, 8) + 1.3, 8));
   g.add(M(new THREE.BoxGeometry(2.6, 0.9, 0.12), wood, 6, kit.ground(6, 8) + 2.4, 8));

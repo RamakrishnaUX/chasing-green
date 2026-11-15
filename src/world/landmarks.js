@@ -17,6 +17,7 @@ import { FALL_BUILDERS, genericFall } from './waterfalls.js';
 // rest (the underside of an arch) are ceilings something can pass beneath.
 const solidFloor = (x, z) => Math.max(heightAt(x, z), waterLevelAt(x, z));
 import { bakeStatic } from './bake.js';
+import { buildGeyser } from './geyser.js';
 import { addSolids, solidTopAt } from './solids.js';
 import { HD } from './hd.js';
 
@@ -788,7 +789,7 @@ export class Landmarks {
     const builders = {
       hallgrimskirkja: More.buildHallgrimskirkja, harpa: More.buildHarpa, sunvoyager: More.buildSunVoyager, perlan: More.buildPerlan,
       bluelagoon: More.buildBlueLagoon, kerid: More.buildKerid, hverir: Real.buildHverir, hveravellir: More.buildHveravellir,
-      strokkur: More.buildStrokkur, asbyrgi: More.buildAsbyrgi, dyrholaey: Nature.buildDyrholaey,
+      strokkur: buildGeyser, asbyrgi: More.buildAsbyrgi, dyrholaey: Nature.buildDyrholaey,
       skaftafell: More.buildSkaftafell, diamondbeach: More.buildDiamondBeach, eldhraun: Real.buildEldhraun,
       grjotagja: Real.buildGrjotagja, silfra: Real.buildSilfra,
       ...FALL_BUILDERS,
@@ -829,8 +830,32 @@ export class Landmarks {
     // Skógafoss's stairway, laid once the cliff is solid ground so each step can sit on it.
     if (lm.id === 'skogafoss') { const st = buildStairway(kit, root, { x0: 24, x1: 34, start: [24.5, 2.6], top: 23.6 }); this.collectColliders(st); }
     this.beforeBake?.(root, lm);
+    this.collectCliffs(root);
     bakeStatic(root);
     if (!BUILT.includes(lm.kind)) solidRock(root);
+  }
+
+  // Every waterfall cliff's line in the world, with its lip height, which way it faces, and how far
+  // behind its foot the land may start to rise (behind the top of the face, past a stair slope or a
+  // cave at its foot). main.js raises the land behind them once every landmark is built.
+  collectCliffs(root) {
+    root.updateMatrixWorld(true);
+    const v = new THREE.Vector3(), w = new THREE.Vector3();
+    root.traverse((m) => {
+      const C = m.userData.cliff;
+      if (!C) return;
+      const P = C.path, pts = [];
+      P.forEach((p, i) => {
+        const a = P[Math.max(0, i - 1)], b = P[Math.min(P.length - 1, i + 1)];
+        let tx = b.x - a.x, tz = b.z - a.z; const tl = Math.hypot(tx, tz) || 1; tx /= tl; tz /= tl;
+        v.set(p.x, p.top, p.z).applyMatrix4(m.matrixWorld);
+        w.set(p.x - tz, p.top, p.z + tx).applyMatrix4(m.matrixWorld).sub(v);
+        const ol = Math.hypot(w.x, w.z) || 1;
+        pts.push({ x: v.x, z: v.z, top: v.y, ox: w.x / ol, oz: w.z / ol, d0: 2.3 + (p.lean || 0) + (p.cave || 0) - Math.min(1, p.overhang || 0) });
+      });
+      if (pts.length > 1) (this.plateaus ||= []).push({ pts, back: C.back, lm: root.userData.lmId });
+      delete m.userData.cliff;
+    });
   }
 
   collectColliders(obj) {

@@ -533,6 +533,9 @@ export function makeCliff(path, opts = {}) {
   const m = new THREE.Mesh(cliffGeometry(path, opts), opts.material || rockMaterial());
   m.castShadow = m.receiveShadow = true;
   m.userData.keepShape = true; // already shaped; the realistic look's weathering would only blur it
+  // The cliff's line and its lip, for the land behind it to rise to (landmarks.js, raiseLand in
+  // terrain.js): a cliff is the edge of high ground, not a block standing in a field.
+  m.userData.cliff = { path, back: opts.back ?? 16 };
   return m;
 }
 
