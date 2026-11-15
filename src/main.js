@@ -49,6 +49,7 @@ import { grime, updateGrime, setDirtColor } from './vehicle/grime.js';
 import { RainFall, CarRain } from './world/rain.js';
 import { Mirrors } from './vehicle/mirrors.js';
 import { Driver } from './vehicle/driver.js';
+import { setPerson, personId } from './vehicle/person.js';
 import { Skydiver, MIN_JUMP, fitGear, bonesOf } from './vehicle/skydiver.js';
 import { HorseRide } from './vehicle/horseride.js';
 import { solidTopAt } from './world/solids.js';
@@ -79,6 +80,8 @@ const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in win
 
 store.load();
 const settings = store.data.settings;
+// Who you travel as (person.js): picked on the splash, remembered; set before anyone loads them.
+setPerson(settings.person);
 // Phones that run hot get a lighter Low: small or low-memory Android phones and any phone with
 // few cores render fewer pixels, less grass and simpler aurora. Phones also cap at 30 fps,
 // which this slow-paced game does not need more than and which keeps them cool.
@@ -1871,7 +1874,27 @@ Promise.race([Promise.all(['400 100px Michroma', '500 20px Saira'].map((f) => do
   .catch(() => {}).then(() => { fitSplashTitle(); $('splash').classList.add('is-set'); });
 addEventListener('resize', fitSplashTitle);
 $('splash').addEventListener('pointerdown', (e) => { e.preventDefault(); closeSplash(); });
-addEventListener('keydown', (e) => { if ($('intro').classList.contains('is-splash') && !e.metaKey && !e.ctrlKey) { e.preventDefault(); e.stopImmediatePropagation(); closeSplash(); } }, true);
+// Who you travel as: a portrait on the splash picks them (it does not begin), as do the left and
+// right arrow keys; anywhere else, or any other key, begins. The walker, driver and skydiver swap
+// to whoever is picked (person.js), and the choice is remembered.
+const whoBtns = [...document.querySelectorAll('.sp-person')];
+const showWho = () => { for (const b of whoBtns) b.setAttribute('aria-checked', String(b.dataset.person === personId())); };
+function pickWho(id) {
+  if (setPerson(id)) { settings.person = id; store.save(); haptics.play('light', 0); track('person_pick', { person: id }); }
+  showWho();
+}
+showWho();
+document.querySelector('.sp-who').addEventListener('pointerdown', (e) => e.stopPropagation());
+for (const b of whoBtns) b.addEventListener('click', () => pickWho(b.dataset.person));
+addEventListener('keydown', (e) => {
+  if (!$('intro').classList.contains('is-splash') || e.metaKey || e.ctrlKey || e.key === 'Tab' || e.key === 'Shift' || e.key === 'Alt') return;
+  e.preventDefault(); e.stopImmediatePropagation();
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+    const i = whoBtns.findIndex((b) => b.dataset.person === personId());
+    const next = whoBtns[(i + (e.key === 'ArrowRight' ? 1 : whoBtns.length - 1)) % whoBtns.length];
+    pickWho(next.dataset.person); next.focus({ preventScroll: true });
+  } else closeSplash();
+}, true);
 const carsLoaded = loadCarModels((kind) => {
   cover.refresh(kind);
   // Behind the splash, the vehicle that will roll in is built and drawn once now, so the tap
@@ -1907,7 +1930,7 @@ startBtn.addEventListener('click', () => {
   started = true; startedAt = performance.now();
   store.data.trips++; store.save();
   setTimeout(() => together?.greet(), 1800);
-  track('game_start', { month: clock.m.name, vehicle: settings.vehicle || 'jeep', graphics: qualityName, input: isTouch ? 'touch' : 'keyboard', trip_number: store.data.trips });
+  track('game_start', { month: clock.m.name, vehicle: settings.vehicle || 'jeep', person: personId(), graphics: qualityName, input: isTouch ? 'touch' : 'keyboard', trip_number: store.data.trips });
   $('intro').classList.add('is-leaving');
   document.body.classList.remove('pre-start');
   // The cover fades out over the island; then its two canvases let go of their GPU contexts.

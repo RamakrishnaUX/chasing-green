@@ -28,6 +28,12 @@ function toStandard(m) {
     // itself, cut out by its alpha), else its grey.
     let hasA = false; for (let i = 3; i < A.length && !hasA; i += 4) hasA = A[i] < 250;
     for (let i = 0; i < A.length; i += 4) d.data[i + 3] = hasA ? A[i + 3] : A[i];
+    // Under the cut-away parts the picture is often white, which the filtering between texels
+    // bleeds into the edge of every strand (a white fringe along Jody's hairline): there, the
+    // average colour of the solid parts instead.
+    let r = 0, g = 0, b = 0, n = 0;
+    for (let i = 0; i < A.length; i += 4) if (d.data[i + 3] > 200) { r += d.data[i]; g += d.data[i + 1]; b += d.data[i + 2]; n++; }
+    if (n) for (let i = 0; i < A.length; i += 4) if (d.data[i + 3] < 128) { d.data[i] = r / n; d.data[i + 1] = g / n; d.data[i + 2] = b / n; }
     x.putImageData(d, 0, 0);
     map = new THREE.CanvasTexture(c); map.colorSpace = THREE.SRGBColorSpace; map.flipY = m.map.flipY;
     map.wrapS = m.map.wrapS; map.wrapT = m.map.wrapT;

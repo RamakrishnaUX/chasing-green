@@ -1,12 +1,13 @@
 import * as THREE from 'three';
-import { loadGLTF } from '../world/gltf.js';
+import { person, personId, loadPerson, onPerson } from './person.js';
 import { CONFIG } from '../config.js';
 import { groundAt as heightAt, surfaceHeightAt, waterLevelAt } from '../world/terrain.js';
 import { clamp, lerp, smoothstep } from '../world/noise.js';
 import { Body, CYCLE, climbRise } from './walkik.js';
 
-// The person on foot: David, a Mixamo character in a fitted hoodie, joggers and trainers, moved by
-// Mixamo clips captured on his own skeleton (see tools/person): a breathing idle, walk, a walk
+// The person on foot: David (a fitted hoodie, joggers and trainers) or Jody (a zip-up track top,
+// leggings and trainers), whoever you chose on the splash (person.js): Mixamo characters moved by
+// Mixamo clips captured on their own skeletons (see tools/person): a breathing idle, walk, a walk
 // backwards, run, a standing jump, a fall, kneeling, a front crawl and treading water.
 //
 // Forward walks; held on, he breaks into a run, and pressed again quickly (tapping it) he picks
@@ -25,10 +26,9 @@ const RANGE = 2500; // metres he may walk from the car: far enough to hike up a 
 const GRAVITY = 18;
 // Close to the clips' own paces, so the legs are sped up only a little.
 const RUN = 4.2, WALK = 1.3, BACK = 1.0; // metres a second
-// The clips' own paces, measured off the planted foot, where the feet do not slide; and where in
-// each the left foot is furthest forward (a share of the clip), so walk and run keep step.
-const RUN_PACE = 5.0, WALK_PACE = 1.55, BACK_PACE = 1.0;
-const STEP_AT = { walk: 0.225, run: 0.217 };
+// The clips' own paces, measured off the planted foot, where the feet do not slide, and where in
+// each the left foot is furthest forward (a share of the clip), so walk and run keep step: each
+// person's own (person.js, this.who).
 // Forward held this long is a walk; then he speeds up to a run over the next RUN_BUILD seconds.
 // Pressed again within TAP of letting go, the hold carries on and counts TAP_BOOST more.
 const RUN_AFTER = 0.7, RUN_BUILD = 0.8, TAP = 0.4, TAP_BOOST = 0.45;
@@ -73,9 +73,21 @@ export class Walker {
     // his holds are drawn that much further on (faceGap, along his heading), onto the rock itself.
     this.faceRay = null; this.faceGap = 0; this.gapWant = 0; this.gapAt = 0;
     this.shift = new THREE.Vector3();
-    this.ready = loadGLTF(`${import.meta.env.BASE_URL}models/person.glb`).then((g) => {
+    this.who = person();
+    this.load();
+    onPerson(() => this.load());
+  }
+
+  // The chosen person's model and clips, swapped in for whoever was there (a choice made while
+  // the last one was still loading wins).
+  load() {
+    const id = personId();
+    this.ready = loadPerson(id).then((g) => {
+      if (id !== personId()) return;
       const man = g.scene;
       man.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false; } });
+      if (this.man) { this.mixer?.stopAllAction(); this.root.remove(this.man); }
+      this.who = person(id);
       this.root.add(man);
       this.man = man; man.visible = !this.sitting;
       this.mixer = new THREE.AnimationMixer(man);
@@ -375,11 +387,11 @@ export class Walker {
       // Walk and run share one stride, as far along as the ground covered, so their feet agree
       // while they blend and never slide.
       const wd = A.walk.getClip().duration, rd = A.run.getClip().duration;
-      if (dir > 0) this.stride = (this.stride + v * dt / lerp(WALK_PACE * wd, RUN_PACE * rd, want.run)) % 1;
+      if (dir > 0) this.stride = (this.stride + v * dt / lerp(this.who.pace.walk * wd, this.who.pace.run * rd, want.run)) % 1;
       A.walk.timeScale = 0; A.run.timeScale = 0;
-      A.walk.time = ((this.stride + STEP_AT.walk) % 1) * wd;
-      A.run.time = ((this.stride + STEP_AT.run) % 1) * rd;
-      if (A.back) A.back.timeScale = v / BACK_PACE;
+      A.walk.time = ((this.stride + this.who.step.walk) % 1) * wd;
+      A.run.time = ((this.stride + this.who.step.run) % 1) * rd;
+      if (A.back) A.back.timeScale = v / this.who.pace.back;
     }
     const k = Math.min(1, dt * (this.jumpT >= 0 ? 14 : 8));
     for (const name of CLIPS) {

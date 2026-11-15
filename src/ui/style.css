@@ -1658,7 +1658,29 @@ body.has-touch .gx-menu svg { width: 20px; height: 20px; }
 #intro:not(.is-splash) .splash { opacity: 0; transform: scale(1.04); pointer-events: none; }
 #intro.is-garage-in > :not(.splash):not(#intro-sky):not(.cv-shade):not(#intro-hero) { animation: gx-up 0.8s cubic-bezier(0.2, 0.7, 0.2, 1) 0.25s both; }
 @keyframes gx-up { from { opacity: 0; } }
-@media (prefers-reduced-motion: reduce) { .sp-a, .sp-line, .sp-go, .sp-load { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .sp-a, .sp-line, .sp-go, .sp-load, .sp-who { animation: none; } }
+/* Who you travel as: two portraits, the chosen one lit with a green ring, the other dimmed. */
+.sp-who { display: flex; gap: 28px; margin: 40px 0 0; animation: sp-in 1.1s cubic-bezier(0.2, 0.7, 0.2, 1) 1.65s both; }
+.sp-who + .sp-go { margin-top: 40px; }
+.sp-person { display: grid; justify-items: center; gap: 10px; padding: 0; border: 0; background: none; color: var(--ink-2); cursor: pointer; font: 600 11px var(--sans); letter-spacing: 0.26em; text-transform: uppercase; -webkit-tap-highlight-color: transparent; }
+.sp-person img { width: 76px; height: 76px; border-radius: 50%; object-fit: cover; background: radial-gradient(circle at 50% 35%, rgba(102,223,176,0.16), rgba(4,20,16,0.6) 70%);
+  box-shadow: 0 0 0 1.5px rgba(236,243,247,0.22); opacity: 0.62; filter: saturate(0.7) brightness(1.15); transform: scale(0.9);
+  transition: opacity 0.35s ease, filter 0.35s ease, transform 0.45s cubic-bezier(0.2, 0.8, 0.2, 1.2), box-shadow 0.35s ease; }
+.sp-person span { padding-left: 0.26em; transition: color 0.35s ease; }
+.sp-person[aria-checked="true"] { color: var(--green-hi); }
+.sp-person[aria-checked="true"] img { opacity: 1; filter: none; transform: scale(1); box-shadow: 0 0 0 2px var(--green), 0 0 22px rgba(102,223,176,0.4); }
+@media (hover: hover) { .sp-person[aria-checked="false"]:hover img { opacity: 0.8; filter: saturate(0.85); } }
+.sp-person:active img { transform: scale(0.94); }
+.sp-person:focus-visible { outline: none; } .sp-person:focus-visible img { outline: 2px solid var(--green-hi); outline-offset: 4px; }
+/* Short screens (a phone on its side): everything a little closer together. */
+@media (max-height: 500px) {
+  .sp-line { margin-top: 16px; }
+  .sp-who { gap: 22px; margin-top: 18px; }
+  .sp-who + .sp-go { margin-top: 18px; }
+  .sp-person { gap: 6px; font-size: 10px; }
+  .sp-person img { width: 56px; height: 56px; }
+  .sp-load { margin-top: 14px; }
+}
 
 /* ---------- The speed cluster as one ribbon (after a scooter dash) ---------- */
 @media (min-width: 1000px) and (min-height: 600px) {

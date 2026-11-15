@@ -22,6 +22,7 @@
 //   second he cannot pass through the ground or a roof.
 import * as THREE from 'three';
 import { loadGLTF } from '../world/gltf.js';
+import { personId, loadPerson, onPerson } from './person.js';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { groundAt, heightAt, waterLevelAt, BOUNDS } from '../world/terrain.js';
 import { clamp, lerp } from '../world/noise.js';
@@ -193,22 +194,34 @@ export class Skydiver {
     this.pack = buildPack(); this.pack.visible = false; scene.add(this.pack);
     this.helmet = new THREE.Group(); this.helmet.visible = false; this.helmet.userData.dynamic = true; scene.add(this.helmet);
     this.obstacles = null;
-    this.ready = Promise.all([
-      loadGLTF(`${import.meta.env.BASE_URL}models/person.glb`).then((g) => {
+    this.helmetReady = loadGLTF(`${import.meta.env.BASE_URL}models/helmet.glb`).then((g) => {
+      g.scene.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+      this.helmet.add(g.scene);
+    });
+    this.loaded = false;
+    this.load();
+    onPerson(() => this.load());
+  }
+
+  // The chosen person (person.js), swapped in for whoever jumped before.
+  load() {
+    const id = personId();
+    const ready = this.ready = Promise.all([
+      loadPerson(id).then((g) => {
+        if (id !== personId()) return;
         const man = g.scene;
         man.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false; } });
+        if (this.man) this.root.remove(this.man);
+        this.man = man;
         this.root.add(man);
         this.bone = bonesOf(man);
         this.rest = new Map(Object.values(this.bone).map((o) => [o, o.quaternion.clone()]));
         man.updateMatrixWorld(true);
         this.hipsLocal = this.root.worldToLocal(wpos(this.bone.Hips));
       }),
-      loadGLTF(`${import.meta.env.BASE_URL}models/helmet.glb`).then((g) => {
-        g.scene.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-        this.helmet.add(g.scene);
-      }),
+      this.helmetReady,
     ]).then(() => true).catch((e) => { console.warn('Skydiver did not load:', e); return false; });
-    this.loaded = false; this.ready.then((ok) => { this.loaded = ok; });
+    ready.then((ok) => { if (this.ready === ready) this.loaded = ok; });
   }
 
   get active() { return this.state !== 'off'; }

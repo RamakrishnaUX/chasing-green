@@ -9,20 +9,21 @@ import { buildInterior, turnWheel } from '../vehicle/interiors.js';
 import { buildBoatKit, stages } from '../vehicle/boat.js';
 import { Driver } from '../vehicle/driver.js';
 import { Heli } from '../vehicle/heli.js';
-import { loadGLTF } from '../world/gltf.js';
+import { person as personOf, loadPerson } from '../vehicle/person.js';
 
 const DELAY = 0.15; // seconds behind the newest state: one and a half sends, so there is nearly always a next one
 const STALE = 12; // seconds without a word before a player is taken off the island
-// The walker's clips and his pace (walker.js), so feet keep to the ground here too.
+// The walker's clips (walker.js), played at the pace of the person they chose (person.js), so feet
+// keep to the ground here too.
 const CLIPS = ['idle', 'walk', 'run', 'fall', 'kneel', 'swim', 'tread'];
-const RUN_PACE = 5.0, WALK_PACE = 1.55, STEP_AT = { walk: 0.225, run: 0.217 };
 // Person states as sent (main.js personState).
 export const P = { walk: 0, swim: 1, fall: 2, climb: 3, sit: 4, ride: 5, sky: 6 };
 // Name tag and map colours, one per player in the order they arrive.
 export const COLORS = ['#ffb547', '#ff6fa8', '#b58cff', '#5fd3ff', '#9be15d', '#ff8a5c', '#f2e86d'];
 
-let personFile = null;
-const person = () => (personFile ||= loadGLTF(`${import.meta.env.BASE_URL}models/person.glb`));
+// Each person's file once (David or Jody, whoever each player chose); every player is a copy.
+const personFiles = new Map();
+const personFile = (id) => personFiles.get(id) || personFiles.set(id, loadPerson(id)).get(id);
 
 const lerpAngle = (a, b, t) => a + (((b - a + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI) * t;
 function mix(a, b, t, angles) {
@@ -77,7 +78,14 @@ class Remote {
     set.tags.append(this.tag);
     this.rename();
   }
-  rename() { this.tag.firstChild.textContent = this.peer.name; }
+  rename() {
+    this.tag.firstChild.textContent = this.peer.name;
+    // Chose someone else: drawn as them from the next frame.
+    if (this.manFor && this.manFor !== this.who().id) this.dropMan();
+    if (this.driver && this.driver.fixed !== this.who().id) { this.driver.group.parent?.remove(this.driver.group); this.driver.helmet.parent?.remove(this.driver.helmet); this.driver = null; }
+  }
+  who() { return personOf(this.peer.person); }
+  dropMan() { if (this.man) this.man.root.parent?.remove(this.man.root); this.man = null; this.manLoading = false; this.manFor = null; }
   push(s, now) {
     this.snaps.push({ t: now, s });
     while (this.snaps.length > 12) this.snaps.shift();
@@ -110,7 +118,7 @@ class Remote {
       if (model.bike) { lamps[1].visible = false; tails[1].visible = false; }
       this.car = { model, body: model.group, interior, root, kit, wheels: model.wheels, lamps, tails, hx: size.x / 2, hz: size.z / 2, cz: (box.min.z + box.max.z) / 2 };
       this.carKind = kind;
-      this.driver ||= new Driver();
+      this.driver ||= new Driver({ person: this.who().id });
     });
   }
   dropCar() {
@@ -128,8 +136,9 @@ class Remote {
   ensureMan() {
     if (this.man || this.manLoading) return;
     this.manLoading = true;
-    person().then((g) => {
-      if (this.gone) return;
+    const id = this.who().id;
+    personFile(id).then((g) => {
+      if (this.gone || id !== this.who().id) { this.manLoading = false; return; }
       const man = cloneSkinned(g.scene);
       man.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false; } });
       const mixer = new THREE.AnimationMixer(man), actions = {}, weights = {};
@@ -140,7 +149,7 @@ class Remote {
         actions[name] = a; weights[name] = name === 'idle' ? 1 : 0;
       }
       const holder = new THREE.Group(); holder.add(man); this.root.add(holder);
-      this.man = { root: holder, mixer, actions, weights };
+      this.man = { root: holder, mixer, actions, weights }; this.manFor = id; this.manLoading = false;
     });
   }
 
@@ -239,10 +248,11 @@ class Remote {
       want.idle = 1 - want.walk - want.run;
       if (A.walk && A.run) {
         const wd = A.walk.getClip().duration, rd = A.run.getClip().duration;
-        this.stride = (this.stride + v * dt / (WALK_PACE * wd + (RUN_PACE * rd - WALK_PACE * wd) * want.run)) % 1;
+        const { pace, step } = this.who();
+        this.stride = (this.stride + v * dt / (pace.walk * wd + (pace.run * rd - pace.walk * wd) * want.run)) % 1;
         A.walk.timeScale = 0; A.run.timeScale = 0;
-        A.walk.time = ((this.stride + STEP_AT.walk) % 1) * wd;
-        A.run.time = ((this.stride + STEP_AT.run) % 1) * rd;
+        A.walk.time = ((this.stride + step.walk) % 1) * wd;
+        A.run.time = ((this.stride + step.run) % 1) * rd;
       }
     }
     const k = Math.min(1, dt * 8);

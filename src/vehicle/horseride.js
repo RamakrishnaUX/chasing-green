@@ -249,7 +249,8 @@ export class HorseRide {
     A.root.updateMatrixWorld(true);
     // His own idle underneath (breathing, the head moving a little); legs and arms are placed below.
     if (w.actions) { for (const [n, act] of Object.entries(w.actions)) act.setEffectiveWeight(n === 'idle' ? 1 : 0); w.mixer.update(dt); }
-    const B = (this.bones ||= bonesOf(w.man));
+    if (this.bonesOf !== w.man) { this.bonesOf = w.man; this.bones = bonesOf(w.man); this.rest = null; } // a new person (person.js) has bones of their own
+    const B = this.bones;
     w.man.rotation.set(0, 0, 0); w.man.position.set(0, 0, 0);
     w.root.position.set(a.x, a.y, a.z); w.root.rotation.set(0, a.heading, 0);
     // Leaning forward into the canter and gallop, from the hips.

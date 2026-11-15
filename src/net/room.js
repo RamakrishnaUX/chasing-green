@@ -10,12 +10,14 @@
 //
 // Each player simulates only themselves and sends where they are about ten times a second
 // (remotes.js draws the others). Messages:
-//   hello  {v, name, age, clock}           to each player who joins, and to all on a name change
+//   hello  {v, name, person, age, clock}   to each player who joins, and to all on a name change
 //   s      {m, r, k, c?, h?, p?, ck?}       state, ten times a second (see Room.state below)
 //   ev     {type: 'month' | 'speed', ...}   a shared setting changed
 //
 // ?net=local swaps the network for a BroadcastChannel, so two tabs of the same browser can play
 // together offline (used by the tests).
+
+import { PEOPLE, personId } from '../vehicle/person.js';
 
 const APP_ID = 'chasing-green-together-v1';
 export const MAX_PLAYERS = 8;
@@ -129,7 +131,7 @@ export class Room {
       // A room holds eight: a ninth player is told, and nobody draws them.
       const since = Date.now() - Math.max(0, Number(d.age) || 0);
       if (first && this.count >= MAX_PLAYERS) { if (since > this.since) t.send('full', {}, id); return; }
-      p.name = cleanName(d.name); p.since = since; p.hello = true; p.last = performance.now();
+      p.name = cleanName(d.name); p.person = PEOPLE[d.person] ? d.person : 'david'; p.since = since; p.hello = true; p.last = performance.now();
       if (first) this.hooks.onPeer?.(p);
       else this.hooks.onRename?.(p);
       // The one who has been here longest keeps the time; take it from them the moment they say hello.
@@ -148,7 +150,7 @@ export class Room {
     return true;
   }
   // How long we have been in, not when we came: two computers' clocks can disagree by minutes.
-  hello() { return { v: 1, name: this.name, age: Date.now() - this.since, clock: this.getClock?.() }; }
+  hello() { return { v: 1, name: this.name, person: personId(), age: Date.now() - this.since, clock: this.getClock?.() }; }
   // The longest in the room keeps the time (ties go to the lower id), among those playing now: a
   // page in the background stops (its clock with it), so it hands the time on, and on coming back
   // (away, for a moment) takes the time from the others before it keeps it again.

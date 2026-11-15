@@ -94,7 +94,8 @@ line ranges, never whole.
 - **Aurora:** `src/aurora/`. **UI:** `src/ui/` (HUD, menus as `sheet.js`, `photomode.js`,
   `minimap.js`). **Audio:** `src/audio/`.
 - **Asset pipelines** (run from inside the project; they need its `node_modules`):
-  - `tools/person/convert.mjs` then `process.mjs` build `public/models/person.glb` from David and his Mixamo clips (no retargeting), run
+  - `tools/person/convert.mjs` then `process.mjs` build `public/models/person.glb` from David and his Mixamo clips (no retargeting);
+    `PERSON=jody` with `IN`/`OUT` builds `person-jody.glb` from `downloads/jody`; `portrait.mjs` renders the splash portraits. Run
     in place.
   - `tools/animals/`, `tools/cars/`, `tools/heli/`: the animals, cars and helicopter.
   - Source files live in `downloads/`.
@@ -102,7 +103,11 @@ line ranges, never whole.
 ## Hard-won gotchas
 
 - **Person model:**
-  - David from Mixamo, his clips downloaded on him; Mixamo rig, T-pose bind facing +Z, Y up, one shared 65-bone skeleton.
+  - David or Jody from Mixamo (picked on the splash; `src/vehicle/person.js` holds each one's file and clip paces), each with the
+    same 14 clips downloaded on them; Mixamo rig, T-pose bind facing +Z, Y up, one shared 65-bone skeleton. Load the person with
+    `loadPerson()` and follow `onPerson()`, never a hard-coded `person.glb`.
+  - Mixamo exports: the API's `details.duration` is unreliable; match clips to David's by the FBX's own length. Script-started
+    downloads land late in `~/Downloads` (often as `.com.brave.Browser.*`); pace exports or Mixamo answers 429.
   - Bone names look like `mixamorigLeftArm` (GLTFLoader may add `_1` and the like); `bonesOf()` (in `skydiver.js`) strips the
     prefix and the numeric suffix.
   - Pose limbs outright from rest frames (see `horseride.js`), not by nudging the idle clip, or

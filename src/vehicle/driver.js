@@ -20,6 +20,7 @@
 // head up to look down the road, in an open leather helmet with goggles.
 import * as THREE from 'three';
 import { loadGLTF } from '../world/gltf.js';
+import { personId, loadPerson, onPerson } from './person.js';
 
 const GRIP = 0.25; // a little above quarter to three: radians above the horizontal on the rim
 const SLIDE = 1.2; // how far (radians) the hands go round with the wheel before sliding
@@ -93,13 +94,34 @@ function twistAbout(q, axis) {
 }
 
 export class Driver {
-  constructor() {
+  // person: always this one (another player's, remotes.js); else whoever you chose, swapped as you do.
+  constructor({ person } = {}) {
     this.group = new THREE.Group();
     this.group.userData.dynamic = true;
     this.group.visible = false;
-    this.ready = loadGLTF(`${import.meta.env.BASE_URL}models/person.glb`).then((g) => {
+    this.fixed = person || null;
+    this.load();
+    if (!this.fixed) onPerson(() => this.load());
+    // His helmet for the bike ("moto helmet" by sayedgamal655, CC BY 4.0; tools/cars/bike.mjs):
+    // centred on its shell, facing +z.
+    this.helmet = new THREE.Group();
+    this.helmet.userData.dynamic = true;
+    this.helmet.visible = false;
+    loadGLTF(`${import.meta.env.BASE_URL}models/helmet.glb`).then((g) => {
+      g.scene.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+      this.helmet.add(g.scene);
+    }).catch((e) => console.warn('Helmet did not load:', e));
+  }
+
+  // The chosen person (person.js), swapped in for whoever sat here before.
+  load() {
+    const who = () => this.fixed || personId(), id = who();
+    this.ready = loadPerson(id).then((g) => {
+      if (id !== who()) return;
       const man = g.scene;
       man.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false; } });
+      if (this.man) this.group.remove(this.man);
+      this.man = man; this.wheelFor = null;
       this.group.add(man);
       const bone = {};
       man.traverse((o) => { if (o.isBone) bone[o.name.replace(/_\d+$/, '').replace(/^mixamorig:?/, '')] = o; });
@@ -116,17 +138,9 @@ export class Driver {
         p.addScaledVector(f, -p.dot(f)).normalize();
         this.handFrame[s] = { f, p };
       }
-      this.armLen = wpos(bone.LeftArm).distanceTo(wpos(bone.LeftForeArm)) + wpos(bone.LeftForeArm).distanceTo(wpos(bone.LeftHand));
+      // In his own units (a person swapped in later may already be sitting in a scaled-up car).
+      this.armLen = (wpos(bone.LeftArm).distanceTo(wpos(bone.LeftForeArm)) + wpos(bone.LeftForeArm).distanceTo(wpos(bone.LeftHand))) / man.getWorldScale(new THREE.Vector3()).x;
     }).catch((e) => console.warn('Driver did not load:', e));
-    // His helmet for the bike ("moto helmet" by sayedgamal655, CC BY 4.0; tools/cars/bike.mjs):
-    // centred on its shell, facing +z.
-    this.helmet = new THREE.Group();
-    this.helmet.userData.dynamic = true;
-    this.helmet.visible = false;
-    loadGLTF(`${import.meta.env.BASE_URL}models/helmet.glb`).then((g) => {
-      g.scene.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-      this.helmet.add(g.scene);
-    }).catch((e) => console.warn('Helmet did not load:', e));
   }
 
   // Where he sits in this car (in the car's frame): found once per car by casting rays from

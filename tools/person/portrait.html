@@ -1,0 +1,47 @@
+<!doctype html>
+<!-- Head-and-shoulders portraits of each person for the splash's picker, rendered from the game's
+     own models (public/models) by portrait.mjs through the Vite dev server. -->
+<meta charset="utf-8">
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+
+const SIZE = 320;
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+renderer.setSize(SIZE, SIZE); renderer.setPixelRatio(1);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.0;
+document.body.appendChild(renderer.domElement);
+const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
+
+window.portrait = async (url) => {
+  const g = await loader.loadAsync(url);
+  const scene = new THREE.Scene();
+  scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
+  scene.environmentIntensity = 0.35;
+  const man = g.scene; scene.add(man);
+  // Standing in the breathing idle, a moment in.
+  const mixer = new THREE.AnimationMixer(man);
+  mixer.clipAction(g.animations.find((c) => c.name === 'idle')).play();
+  mixer.setTime(1.2);
+  man.updateMatrixWorld(true);
+  const bone = (n) => { let r; man.traverse((o) => { if (!r && o.isBone && o.name.replace(/_\d+$/, '') === 'mixamorig' + n) r = o; }); return r; };
+  const head = bone('Head').getWorldPosition(new THREE.Vector3()), neck = bone('Neck').getWorldPosition(new THREE.Vector3());
+  // A soft key from the front left, a cool fill, and a green rim from behind (the aurora).
+  const key = new THREE.DirectionalLight(0xfff4e8, 2.6); key.position.set(1.2, 2.4, 2.2); scene.add(key);
+  const fill = new THREE.DirectionalLight(0xb8c8ff, 0.7); fill.position.set(-2, 1.4, 1.5); scene.add(fill);
+  const rim = new THREE.DirectionalLight(0x6fffc0, 2.4); rim.position.set(-0.6, 2.2, -2.5); scene.add(rim);
+  const rim2 = new THREE.DirectionalLight(0x6fffc0, 1.4); rim2.position.set(1.4, 1.8, -2.2); scene.add(rim2);
+  // Framed on the face, the shoulders just in, from a little to the side.
+  const at = head.clone().lerp(neck, 0.2).add(new THREE.Vector3(0, 0.03, 0));
+  const cam = new THREE.PerspectiveCamera(22, 1, 0.05, 20);
+  cam.position.copy(at).add(new THREE.Vector3(0.28, 0.06, 1.0).normalize().multiplyScalar(1.3));
+  cam.lookAt(at);
+  renderer.setClearColor(0x000000, 0);
+  renderer.render(scene, cam);
+  return renderer.domElement.toDataURL('image/png');
+};
+window.ready = true;
+</script>
