@@ -103,6 +103,10 @@
   </div>
 
   <!-- HUD -->
+  <!-- Challenge rounds (ui/rounds.js): the timer, the countdown and the results -->
+  <div class="round-hud" id="round-hud" hidden aria-live="polite"></div>
+  <div class="round-count" id="round-count" hidden aria-live="assertive"></div>
+  <section class="round-results glass" id="round-results" hidden role="dialog" aria-label="Round results"></section>
   <div id="hud" hidden>
     <!-- The driving display on computers: compass tape, place, time and the speed cluster. -->
     <div class="hx" aria-hidden="true">
@@ -376,6 +380,20 @@
           <ul class="tg-people" id="tg-people" aria-label="In the room"></ul>
         </div>
         <p class="tg-status" id="tg-status" aria-live="polite"></p>
+        <div class="rounds" id="rounds" hidden>
+          <p class="jr-k">Challenge rounds</p>
+          <div class="rd-kinds" id="rd-kinds" role="group" aria-label="Challenge">
+            <button type="button" data-kind="race" aria-pressed="true"><b>Race</b><span>First to a place</span></button>
+            <button type="button" data-kind="aurora" aria-pressed="false"><b>Aurora hunt</b><span>First sighting</span></button>
+            <button type="button" data-kind="hunt" aria-pressed="false"><b>Team hunt</b><span>Five places together</span></button>
+          </div>
+          <label class="rd-target" id="rd-target-row" for="rd-target"><span>Destination</span><select id="rd-target"><option value="auto">Surprise me</option></select></label>
+          <p class="rd-note" id="rd-note"></p>
+          <div class="panel-actions rd-actions">
+            <button class="btn btn-primary" id="rd-start">Start round</button>
+            <button class="btn btn-danger" id="rd-end" hidden>End round</button>
+          </div>
+        </div>
         <div class="panel-actions tg-actions">
           <button class="btn btn-primary" id="tg-start">Start a room</button>
           <button class="btn btn-primary" id="tg-copy" hidden>Copy invite link</button>

@@ -71,6 +71,7 @@ import { dailyChallenge } from './challenges.js';
 import { track, tickPlay, countSighting, countStamp } from './analytics.js';
 import { roomLink } from './net/room.js';
 import { Together, DOING } from './ui/together.js';
+import { Rounds } from './ui/rounds.js';
 import { P as PERSON } from './net/remotes.js';
 
 const $ = (id) => document.getElementById(id);
@@ -1238,6 +1239,7 @@ function logSighting(a, { manual = false } = {}) {
     x: Math.round(p.x), z: Math.round(p.z), date: new Date().toISOString(),
   };
   if (a.active) { loggedThisWindow = true; lastLoggedType = a.type; }
+  rounds?.sighting({ ...s, active: !!a.active });
   lastLogReal = clock.realSeconds;
   lastLogPos = { x: p.x, z: p.z };
   lastShot = performance.now();
@@ -3029,7 +3031,7 @@ function frame(now) {
   // Under a menu: hold the picture once it has been drawn (a postcard still gets its frame).
   const holdUnderMenu = started && dialogOpen && menuDraws <= 0 && !captureRequest;
   if (started && dialogOpen && menuDraws > 0) menuDraws--;
-  input.enabled = !paused;
+  input.enabled = !paused && !roundHold; // (held still through a round's countdown)
   const t = now / 1000;
 
   // In a room the clock runs behind a menu too: the others' time does not stop for yours.
@@ -3106,7 +3108,7 @@ function frame(now) {
   trailDust.update(dt);
   powder.update(dt);
   powderCloud.update(dt);
-  if (together?.on) togetherTick(dt, paused);
+  if (together?.on) { togetherTick(dt, paused); rounds.tick(); }
 
   const p = activePos();
   const g = started ? guaranteeLevel() : 0;
@@ -3568,7 +3570,7 @@ function describeState(s) {
 let bumpAt = 0;
 function togetherTick(dt, paused) {
   together.tick(dt, { started, camera, dark: lastSkyDark, w: innerWidth, h: innerHeight, hideTags: !!photo?.on || dialogOpen || document.body.classList.contains('is-looking') }, packState);
-  if (!started || paused) return;
+  if (!started || paused || roundHold) return; // (lined up for a round: nobody is pushed)
   const R = together.remotes;
   if (mode === 'chase' && ride === 'car') {
     const fx = Math.sin(jeep.heading), fz = Math.cos(jeep.heading), bike = !!jeep.model.bike;
@@ -3605,6 +3607,7 @@ together = new Together({
   describe: describeState,
   myPos: () => (world ? activePos() : { x: 0, z: 0 }),
   onEvent: (peer, ev) => {
+    if (['round', 'finish', 'claim', 'endround'].includes(ev.type)) { rounds.onEvent(peer, ev); return; }
     if (ev.type === 'month' && Number.isInteger(ev.m) && ev.m >= 0 && ev.m < 12 && ev.m !== clock.month) {
       setMonth(ev.m, false);
       hud.toast(`${peer.name} changed the month to ${clock.m.name}.`, { seconds: 3.5, priority: 2 });
@@ -3614,6 +3617,46 @@ together = new Together({
     }
   },
 });
+// Challenge rounds (ui/rounds.js): everyone lined up on the road behind the start, two abreast, the
+// race in cars; held still through the countdown; the aurora hunt at the darkest hour.
+let roundHold = false;
+function placeForRound(start, slot, carsOnly) {
+  abortRefuel();
+  if (carsOnly && ride === 'heli') setVehicle(settings.car || 'jeep', false);
+  const r0 = nearestRoadAnywhere(start.x, start.z), h = r0.heading;
+  const gap = ride === 'heli' ? 16 : 11, back = Math.floor(slot / 2) * gap;
+  const b = nearestRoadAnywhere(r0.x - Math.sin(h) * back, r0.z - Math.cos(h) * back) || r0;
+  const side = (slot % 2 ? 1 : -1) * (ride === 'heli' ? 7 : 2.1), rx = Math.cos(b.heading), rz = -Math.sin(b.heading);
+  putCar(b.x + rx * side, b.z + rz * side, b.heading);
+  jeep.vF = 0; jeep.vL = 0;
+}
+function darkestHours() {
+  let best = 0, bd = -1;
+  for (let h = 0; h < 24; h += 0.25) { const d = clock.darkness(h); if (d > bd + 1e-3) { bd = d; best = h; } }
+  // The coming darkest hour, or a little before it so the night has room to run.
+  let t = Math.floor(clock.gameHours / 24) * 24 + best - 0.5;
+  if (t < clock.gameHours) t += 24;
+  return t;
+}
+const rounds = new Rounds({
+  together, hud, haptics, track,
+  landmarks: () => landmarks?.list || [],
+  pos: () => { const p = world ? activePos() : { x: 0, z: 0 }; return { x: p.x, z: p.z, heading: world ? activeHeading() : 0 }; },
+  place: placeForRound,
+  hold: (on) => { roundHold = on; if (on) { jeep.vF = 0; jeep.vL = 0; } },
+  navTo: (lm) => nav.start({ x: lm.x, z: lm.z, label: lm.name }, activePos()),
+  navStop: () => nav.stop(false),
+  nightHours: darkestHours,
+  night: (hours) => { clock.gameHours = hours; redrawUnderMenu(); },
+  auroraFloor: (on) => { forecast.kpFloor = on ? 4.8 : 0; },
+  canAurora: () => !clock.midnightSun,
+  closeMenu: () => { const d = $('sheet'); if (d.open) d.close(); },
+  openTogether: () => sheet.go('together'),
+});
+together.onRender = () => rounds.render();
+together.onPeerLeft = (id) => rounds.peerLeft(id);
+rounds.render();
+
 // Back from the background, take the time from the others before keeping it again.
 document.addEventListener('visibilitychange', () => {
   const r = together?.room; if (!r || document.hidden) return;
@@ -3622,7 +3665,7 @@ document.addEventListener('visibilitychange', () => {
 
 // Handy for tuning from the browser console.
 window.chasingGreen = {
-  get together() { return together; },
+  get together() { return together; }, rounds, get roundHold() { return roundHold; },
   clock, forecast, CONFIG, store, linkFor, scene, renderer, camera, mirrors, driver, setVehicle, fastTravel, input, badges, hud, notebook, THREE, get jeep() { return jeep; },
   get obstacles() { return obstacles; }, get crashFx() { return crashFx; }, get damage() { return damage; }, refuel, condition, get scene() { return scene; }, Vec3: THREE.Vector3, get puddles() { return puddles; }, get mapUI() { return mapUI; }, get snow() { return snow; },
   nearestRoad: (x, z, r) => nearestRoad(x, z, r), coastAt, roadDistAt, shoreDistAt, groundAt, solidTopAt, get wildlife() { return wildlife; },

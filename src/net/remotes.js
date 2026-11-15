@@ -27,6 +27,8 @@ const person = () => (personFile ||= loadGLTF(`${import.meta.env.BASE_URL}models
 const lerpAngle = (a, b, t) => a + (((b - a + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI) * t;
 function mix(a, b, t, angles) {
   if (!a || !b) return b || a;
+  // A jump (a round's line-up, a fast travel) is shown as one: never slid across the land between.
+  if (Math.hypot(b[0] - a[0], b[2] - a[2]) > 25) return t < 0.5 ? a : b;
   const out = new Array(b.length);
   for (let i = 0; i < b.length; i++) out[i] = angles.includes(i) ? lerpAngle(a[i], b[i], t) : a[i] + (b[i] - a[i]) * t;
   return out;

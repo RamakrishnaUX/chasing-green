@@ -47,7 +47,7 @@ export class Together {
           this.render();
         },
         onRename: (p) => { this.remotes.list.get(p.id)?.rename(); this.render(); },
-        onLeave: (p) => { this.remotes.remove(p.id); g.hud.toast(`${p.name} left.`, { seconds: 3, priority: 2 }); this.render(); },
+        onLeave: (p) => { this.remotes.remove(p.id); this.onPeerLeft?.(p.id); g.hud.toast(`${p.name} left.`, { seconds: 3, priority: 2 }); this.render(); },
         onState: (p, s) => this.remotes.state(p, s),
         onEvent: (p, ev) => g.onEvent(p, ev),
         onClock: (ck, snap) => g.setClock(ck, snap),
@@ -147,6 +147,7 @@ export class Together {
     if (tab) { tab.textContent = on && r.count > 1 ? String(r.count) : ''; tab.hidden = !(on && r.count > 1); }
     $('tg-status').textContent = !on ? '' : r.status === 'connecting' ? 'Opening the room…' : r.count > 1 ? `${r.count} of ${MAX_PLAYERS} here` : 'Waiting for friends. Send them the link.';
     this.renderPeople();
+    this.onRender?.();
   }
   renderPeople() {
     const ul = $('tg-people');

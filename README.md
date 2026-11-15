@@ -637,6 +637,7 @@ src/
     remotes.js       the other players drawn in their car, helicopter or on foot, their name tags and bumping
   ui/
     together.js      the Together page: start a room, invite, who is here, leave
+    rounds.js        challenge rounds in a room: race, aurora hunt, team hunt; countdown, timer, results
     cover.js         the start screen's hero shot: one vehicle at a time on wet ground
     auroraSky.js     the start screen's looping aurora sky, one shader on its own canvas
     hud.js           radio, compass, readouts, toasts, look-up meter
@@ -880,6 +881,25 @@ link like `/?room=k7f3q2x9ab&seed=1234567&m=10`; whoever opens it joins. Up to e
 Not yet shared: the animals (each player has their own), the horse (a rider shows on foot), the
 canopy under a skydiver, and postcards. Players behind strict networks (some offices and mobile
 carriers) may not connect without a TURN server; `turnConfig` in `room.js` is where one would go.
+
+### Challenge rounds
+
+In a room, the Together page has **Challenge rounds** (`src/ui/rounds.js`). Anyone picks one and
+presses Start round: everyone is lined up on the road behind the starter, two abreast, held still
+through a 3, 2, 1, Go on every screen; a timer card sits at the top middle; a results card closes it.
+
+- **Race:** first to a place (pick one, nearest first, or Surprise me: one 0.7 to 2.4 km off).
+  Cars only (a helicopter is swapped for your car); everyone gets the route. Within 100 m counts.
+- **Aurora hunt:** the clock jumps to just before the night's darkest hour for everyone and the
+  lights are out (`forecast.kpFloor`), but the clouds stay: first to find a clear, dark sky and
+  log a sighting wins. Not offered under the midnight sun.
+- **Team hunt:** the five landmarks nearest the start (beyond 150 m); reach them between you
+  (within 110 m) before the time runs out. Nobody is ranked: it fits the no-leaderboard rule.
+
+Each player times themselves from their own Go and checks their own goal, then tells the room
+(`finish`, `claim`); a round ends when everyone still in the room is done, the team has every
+place, someone ends it, or time runs out (15 minutes; 10 for the aurora hunt). A player who joins
+mid-round sits it out.
 
 ## Analytics
 

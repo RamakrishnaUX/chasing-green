@@ -2410,3 +2410,63 @@ body.pre-start .peer-tags, body.photo-on .peer-tags { display: none; }
 .peer-tag span { font-weight: 600; color: var(--ink-2); }
 .peer-tag span:empty { display: none; }
 .peer-tag[hidden] { display: none; }
+
+/* ---------- Challenge rounds (ui/rounds.js) ---------- */
+.rounds { padding: 18px 22px; background: rgba(6,16,14,0.62); display: grid; gap: 12px; }
+.rd-kinds { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.rd-kinds button { display: grid; gap: 3px; padding: 12px 14px; border: 1px solid var(--hair-2); border-radius: 10px; background: rgba(244,248,246,0.05); color: var(--ink-2); text-align: left; cursor: pointer; }
+.rd-kinds button b { font: 700 15px var(--sans); color: var(--ink); }
+.rd-kinds button span { font: 500 12px var(--sans); }
+.rd-kinds button:hover { background: rgba(244,248,246,0.09); }
+.rd-kinds button.is-on { border-color: var(--green); background: rgba(102,223,176,0.12); box-shadow: inset 0 0 0 1px var(--green); }
+.rd-target { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.rd-target[hidden] { display: none; }
+.rd-target span { font: 600 15px var(--sans); color: var(--ink); }
+.rd-target select { width: min(320px, 60%); height: 40px; padding: 0 12px; border: 1px solid var(--hair-2); border-radius: 8px; background: rgba(244,248,246,0.07); color: var(--ink); font: 600 15px var(--sans); }
+.rd-note { margin: 0; font: 500 14px/1.5 var(--sans); color: var(--ink-2); }
+.rd-actions { padding-top: 0; }
+body.has-touch .rounds { padding: 14px 16px; }
+body.has-touch .rd-kinds button { padding: 10px; min-height: 56px; }
+body.has-touch .rd-kinds button span { font-size: 11px; }
+
+/* The timer: a small glass card at the top middle, out of the way of the driving display. */
+.round-hud { position: fixed; top: 74px; left: 50%; transform: translateX(-50%); z-index: 5; min-width: 200px; max-width: min(320px, 42vw); padding: 10px 16px 12px; border-radius: 14px; text-align: center; pointer-events: none;
+  background: rgba(8,16,14,0.58); -webkit-backdrop-filter: blur(16px) saturate(150%); backdrop-filter: blur(16px) saturate(150%);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.09), 0 10px 28px rgba(0,0,0,0.3); color: var(--ink); }
+.round-hud[hidden] { display: none; }
+.rh-k { margin: 0; font: 600 10px var(--sans); font-stretch: 125%; letter-spacing: 0.24em; text-transform: uppercase; color: var(--green); }
+.rh-t { margin: 2px 0 0; font: 700 28px/1.1 var(--sans); font-variant-numeric: tabular-nums; }
+.rh-g { margin: 2px 0 0; font: 600 13px/1.35 var(--sans); color: var(--ink-2); }
+.rh-list { list-style: none; margin: 8px 0 0; padding: 8px 0 0; border-top: 1px solid var(--hair-2); text-align: left; display: grid; gap: 3px; font: 600 12.5px var(--sans); }
+.rh-list li { display: flex; justify-content: space-between; gap: 10px; color: var(--ink); }
+.rh-list li::before { content: ''; flex: none; width: 9px; height: 9px; margin-top: 3px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--ink-3); }
+.rh-list li { justify-content: flex-start; } .rh-list li span { margin-left: auto; color: var(--ink-3); }
+.rh-list li.is-got { color: var(--ink-3); text-decoration: line-through; }
+.rh-list li.is-got::before { background: var(--green); box-shadow: none; }
+body.has-touch .round-hud { top: 8px; padding: 6px 12px 8px; min-width: 150px; }
+body.has-touch .rh-t { font-size: 20px; }
+body.has-touch .rh-list { font-size: 11px; }
+body.photo-on .round-hud { display: none; }
+
+/* 3, 2, 1, Go: big, in the middle, each beat landing and fading. */
+.round-count { position: fixed; inset: 0; display: grid; place-items: center; z-index: 6; pointer-events: none; font: 800 min(26vh, 200px)/1 var(--sans); color: #fff; text-shadow: 0 6px 40px rgba(0,0,0,0.45); }
+.round-count[hidden] { display: none; }
+.round-count.is-on { animation: round-beat 1s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+@keyframes round-beat { 0% { opacity: 0; transform: scale(1.35); } 18% { opacity: 1; transform: scale(1); } 75% { opacity: 1; } 100% { opacity: 0; transform: scale(0.94); } }
+@media (prefers-reduced-motion: reduce) { .round-count.is-on { animation: none; } }
+
+/* The results card. */
+.round-results { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 7; width: min(440px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; padding: 22px 24px; border-radius: 18px; }
+.round-results[hidden] { display: none; }
+.rr-k { margin: 0; font: 600 11px var(--sans); font-stretch: 125%; letter-spacing: 0.24em; text-transform: uppercase; color: var(--ink-2); }
+.rr-h { margin: 8px 0 0; font: 400 28px/1.2 var(--serif); }
+.rr-why { margin: 6px 0 0; font: 500 14px var(--sans); color: var(--ink-2); }
+.rr-list { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 2px; }
+.rr-list li { display: flex; align-items: baseline; gap: 12px; padding: 9px 0; border-top: 1px solid var(--hair-2); font: 500 14px var(--sans); color: var(--ink-2); }
+.rr-list li i { font: 800 15px var(--sans); font-style: normal; color: var(--green); min-width: 14px; }
+.rr-list li b { font: 700 15px var(--sans); color: var(--ink); }
+.rr-list li span { margin-left: auto; font-variant-numeric: tabular-nums; }
+.rr-list li.is-miss { opacity: 0.55; }
+.rr-actions { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+body.has-touch .round-results { padding: 16px 18px; }
+body.has-touch .rr-h { font-size: 22px; }

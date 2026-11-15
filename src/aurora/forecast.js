@@ -151,6 +151,8 @@ export class Forecast {
     // Console overrides for testing: chasingGreen.forecast.debugKp = 6, debugCloud = 0.
     if (this.debugKp != null) kp = this.debugKp;
     if (this.debugCloud != null) cloud = this.debugCloud;
+    // A challenge round's aurora hunt (ui/rounds.js): the lights are out, the clouds left as they are.
+    if (this.kpFloor) kp = Math.max(kp, this.kpFloor);
     if (guaranteeActive > 0) {
       kp = Math.max(kp, lerp(kp, A.guarantee.kpFloor, guaranteeActive));
       cloud = lerp(cloud, Math.min(cloud, 0.18), guaranteeActive);
