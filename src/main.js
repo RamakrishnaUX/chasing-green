@@ -27,6 +27,8 @@ import { Sheet } from './ui/sheet.js';
 import { haptics } from './ui/haptics.js';
 import { CrashFX } from './world/crashfx.js';
 import { Damage } from './vehicle/damage.js';
+import { Condition } from './vehicle/condition.js';
+import { RefuelScene } from './vehicle/refuel.js';
 import { Learn } from './ui/learn.js';
 import { VEHICLES, VEHICLE_ORDER } from './vehicle/specs.js';
 import { surfaceUniforms } from './world/materials.js';
@@ -884,6 +886,7 @@ function updateCameraInner(dt) {
   if (mode === 'photo') return; // camera placed by hand from the console
   if (mode === 'fly') { flyCamera(dt, l); return; }
   if (mode === 'sky') { skyCamera(dt, l); return; }
+  if (refuel.active && mode === 'walk') { refuelCamera(dt); return; }
   if (camera.far !== (Q.far || 3000)) { camera.far = Q.far || 3000; camera.updateProjectionMatrix(); }
   // Inside the car things are centimetres from the eye, so the near clip comes in close.
   const inside = mode === 'chase' && driveView !== 'chase';
@@ -923,7 +926,10 @@ function updateCameraInner(dt) {
     camera.position.y += (desired.y - camera.position.y) * k;
     followCar.copy(jeep.pos); followFrame = frameN;
     if (jeep.speed < 0.3 && camera.position.distanceTo(desired) < 0.01) camera.position.copy(desired);
-    camTarget.set(jeep.pos.x + Math.sin(h) * 14, jeep.pos.y + ch * 0.7, jeep.pos.z + Math.cos(h) * 14);
+    // On a phone the car sits in the middle of the screen (nothing is drawn over it there): the
+    // camera looks a little lower, so the car rides higher in the frame, clear of the controls.
+    const lookUp = document.body.classList.contains('has-touch') ? 0.36 : 0.7;
+    camTarget.set(jeep.pos.x + Math.sin(h) * 14, jeep.pos.y + ch * lookUp, jeep.pos.z + Math.cos(h) * 14);
     if (crashCam) camTarget.lerp(_openLook.set(crashCam.x, crashCam.y, crashCam.z), cc * 0.75);
     // The opening shot: from high over the land, off to one side, the camera sweeps round and
     // down onto the car. The sweep is how far it still is from the follow camera, shrinking to
@@ -1159,6 +1165,7 @@ function getIn() {
   walker.exit(); syncLookButton();
 }
 function toggleWalk() {
+  if (refuel.active) { refuel.scene.finish(); return; }
   if (mode === 'walk') {
     if (riding.on) { getOffHorse(); return; }
     const h = !sitting && !walker.swimming && !walker.soaking && walker.state === 'walk' && riding.near(walker.pos);
@@ -2087,6 +2094,7 @@ const learn = new Learn();
 sheet.register('learn', () => learn.open());
 // Sit down on foot: lower view, free look, and time passes faster while you rest and watch.
 function toggleSit(force) {
+  if (refuel.active) return;
   if (mode === 'sky') return;
   if (mode !== 'walk') { hud.toast('Step out of the car first (E), then sit down.', { seconds: 2.5 }); return; }
   if (riding.on) return;
@@ -2236,6 +2244,8 @@ applyNitroSetting();
 // The gauge under the speed, warnings with a route to the nearest station, and one button that
 // refuels under a station's roof or, with the tank dry, tows you to the nearest station.
 const fuel = new FuelTank(store);
+const condition = new Condition(store);
+const refuel = { active: false, scene: null, look: null };
 let fuelWarned = 1, fuelMode = '', fuelText = '', fuelStart = 0;
 function applyFuelSetting() {
   fuel.on = settings.fuel !== 'off';
@@ -2248,9 +2258,42 @@ applyFuelSetting();
 function fuelAction() {
   if (mode === 'sky') return;
   if (fuelMode === 'refuel') {
+    // He gets out and fills it himself (refuel.js); pressed again while it pumps, he stops.
+    if (refuel.active) { refuel.scene.stop(); return; }
+    if (startRefuel()) return;
     fuel.filling = !fuel.filling;
     if (fuel.filling) haptics.play('medium', 0);
-  } else if (fuelMode === 'tow') towToStation();
+  } else if (fuelMode === 'tow') { abortRefuel(); towToStation(); }
+}
+// Out of the car to the pump: true if he is on his way (or told to pull up closer).
+function startRefuel() {
+  if (mode !== 'chase' || ride !== 'car' || !walker?.man || jeep.boatOn || jeep.boat > 0.05) return false;
+  const s = stations?.at(jeep.pos.x, jeep.pos.z);
+  const fn = s && stations.faceNear(s, jeep.pos.x, jeep.pos.z);
+  if (!fn) return false;
+  if (fn.dist > 5.2) { hud.toast(`Pull up beside a pump to fill up.`, { seconds: 3, priority: 2 }); return true; }
+  mode = 'walk'; walkTilt = false; walker.enter(jeep); look.walkYaw = 0;
+  refuel.scene ||= new RefuelScene(scene);
+  refuel.look = camera.position.clone().add(camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(8));
+  refuel.scene.begin({
+    car: jeep, walker, face: fn.face, stations, ground: (x, z) => walker.groundAt(x, z),
+    onFill: (on) => { fuel.filling = on; if (on) { fuelStart = fuel.level(jeep.kind); haptics.play('medium', 0); } },
+    onDone: () => { refuel.active = false; document.body.classList.remove('refuelling'); getIn(); },
+  });
+  refuel.active = true;
+  document.body.classList.add('refuelling');
+  syncLookButton();
+  track('fuel_walk', { station: s.name, vehicle: jeep.kind });
+  return true;
+}
+function abortRefuel() { if (refuel.active) { refuel.scene.abort(); refuel.active = false; document.body.classList.remove('refuelling'); } }
+// The refuel shot: the camera eases to a fixed place ahead of the car, looking back over the
+// pump and the car, and holds while he goes about it.
+function refuelCamera(dt) {
+  const S = refuel.scene.shot, k = 1 - Math.exp(-dt * 2.4);
+  camera.position.lerp(S.eye, k);
+  refuel.look.lerp(S.at, k);
+  camera.lookAt(refuel.look);
 }
 $('fuel-act').addEventListener('click', fuelAction);
 function towToStation() {
@@ -2266,10 +2309,14 @@ function fuelTick(dt) {
   const kind = jeep.kind, driving = mode !== 'walk' && ride === 'car';
   let lvl = fuel.level(kind);
   // Pumping: stop if the car moves off, finish when the tank is full.
-  const here = driving && fuel.on && Math.abs(jeep.vF) < 1.2 && !jeep.boatOn ? stations?.at(jeep.pos.x, jeep.pos.z) : null;
+  const here = refuel.active ? stations?.at(jeep.pos.x, jeep.pos.z) : driving && fuel.on && Math.abs(jeep.vF) < 1.2 && !jeep.boatOn ? stations?.at(jeep.pos.x, jeep.pos.z) : null;
   if (fuel.filling && !here) fuel.filling = false;
   // Stopped at a station: the dents are knocked out and any broken glass put back.
-  if (driving && damage?.total > 0 && Math.abs(jeep.vF) < 1.2 && stations?.at(jeep.pos.x, jeep.pos.z)) { damage.repair(); hud.toast('Good as new: the station fixed the dents.', { seconds: 3, priority: 2 }); haptics.play('success'); }
+  if (driving && (damage?.total > 0 || condition.level(kind) < 0.995) && Math.abs(jeep.vF) < 1.2 && stations?.at(jeep.pos.x, jeep.pos.z)) {
+    const was = condition.pct(kind);
+    damage?.repair(); condition.repair(kind); condWarned = 1;
+    hud.toast(was < 100 ? `Good as new: the station fixed the car (it was at ${was}%).` : 'Good as new: the station fixed the dents.', { seconds: 3.5, priority: 2 }); haptics.play('success');
+  }
   if (fuel.filling && fuel.fill(dt, kind)) {
     fuel.filling = false;
     const added = fuel.litres(kind, 1 - fuelStart);
@@ -2283,7 +2330,7 @@ function fuelTick(dt) {
   g.classList.toggle('is-low', lvl < 0.2 && lvl > 0);
   g.classList.toggle('is-empty', lvl <= 0);
   g.setAttribute('aria-valuenow', String(Math.round(lvl * 100)));
-  if (!fuel.on) { if (fuelMode) { fuelMode = ''; $('fuel-act').hidden = true; document.body.classList.remove('fuel-prompt'); } return; }
+  if (!fuel.on && condition.level(kind) > 0) { if (fuelMode) { fuelMode = ''; $('fuel-act').hidden = true; document.body.classList.remove('fuel-prompt'); } return; }
   // Low fuel: say so twice on the way down, with a route to the nearest station.
   if (lvl > 0.3) fuelWarned = 1;
   const step = lvl < 0.08 ? 0.08 : lvl < 0.2 ? 0.2 : 1;
@@ -2299,21 +2346,25 @@ function fuelTick(dt) {
     }
   }
   // The button: refuel under a roof, or a tow once the tank is dry and the car has stopped.
-  const m = here && lvl < 0.995 ? 'refuel' : driving && lvl <= 0 && Math.abs(jeep.vF) < 0.5 ? 'tow' : '';
+  const broken = driving && condition.level(kind) <= 0;
+  const m = here && lvl < 0.995 ? 'refuel' : driving && (lvl <= 0 || broken) && Math.abs(jeep.vF) < 0.5 ? 'tow' : '';
   const b = $('fuel-act');
   if (m !== fuelMode) { if (m === 'refuel') fuelStart = lvl; fuelMode = m; b.hidden = !m; document.body.classList.toggle('fuel-prompt', !!m); b.classList.toggle('is-tow', m === 'tow'); }
   if (!m) return;
   const n = m === 'tow' ? stations?.nearest(jeep.pos.x, jeep.pos.z) : null;
   // Short: what is wrong and the key; the button's own key label follows (F), touch shows no key.
   const press = document.body.classList.contains('has-touch') ? '' : ' · Press';
-  const text = m === 'tow' ? `Out of fuel${press}` : fuel.filling ? `Filling · ${fuel.litres(kind)} L` : `Refuel${press}`;
-  if (text !== fuelText) { fuelText = text; $('fuel-act-text').innerHTML = text; b.setAttribute('aria-label', m === 'tow' ? `Out of fuel. Get a tow to the fuel station at ${n?.station.name}` : fuel.filling ? 'Stop filling' : 'Refuel the car'); }
+  const why = lvl <= 0 ? 'Out of fuel' : 'Broken down';
+  const errand = refuel.active && !fuel.filling ? (['out', 'toPump', 'take'].includes(refuel.scene.phase) ? 'Fetching the nozzle' : refuel.scene.phase === 'toCap' ? 'To the tank' : 'Hanging up') : '';
+  const text = m === 'tow' ? `${why}${press}` : fuel.filling ? `Filling · ${fuel.litres(kind)} L` : errand || `Refuel${press}`;
+  if (text !== fuelText) { fuelText = text; $('fuel-act-text').innerHTML = text; b.setAttribute('aria-label', m === 'tow' ? `${why}. Get a tow to the fuel station at ${n?.station.name}` : fuel.filling ? 'Stop filling' : 'Refuel the car'); }
   b.style.setProperty('--p', m === 'refuel' ? lvl.toFixed(3) : '0');
 }
 
 // ---------- Vehicles ----------
 let pendingVehicle = null;
 function setVehicle(kind, announce = true) {
+  abortRefuel();
   if (mode === 'sky') { hud.toast('Land first, then change vehicles.', { seconds: 2.5, priority: 2 }); return; }
   if (kind === 'heli') { boardHeli(announce); return; }
   if (!VEHICLES[kind]) return;
@@ -2341,6 +2392,7 @@ function setVehicle(kind, announce = true) {
 // make every material rebuild its shader).
 const LAMP_HOME = { head: null, spread: null };
 function boardHeli(announce = true) {
+  abortRefuel();
   pendingVehicle = 'heli';
   settings.vehicle = 'heli'; store.save();
   introInfo('heli');
@@ -2594,11 +2646,72 @@ function crashEffects(dt) {
         crashCam = { t0: performance.now(), a: side * 0.55, x: H.x, y: e.y, z: H.z };
       }
     }
-    if (H.speed > 12 && !crashToldOnce) { crashToldOnce = true; hud.toast('That left a mark. Any fuel station will fix the dents.', { seconds: 3.5, priority: 1 }); }
+    crashCondition(H.speed);
   }
   if (H.slide > 1.5) crashFx.grind(e, dt);
 }
 let crashToldOnce = false;
+// ---------- Condition and driving safely (condition.js) ----------
+// Knocks and driving off the road wear the car down; the game says plainly why it matters: a
+// real crash at these speeds hurts people, and in Iceland driving off the road is against the law
+// because tyre tracks tear the moss, which takes decades to grow back.
+let safeCrashAt = -1e9, offRoadRun = 0, offRoadToldAt = -1e9, condWarned = 1, condSaveT = 0;
+function safeToast(text, opts = {}) { hud.toast(text, { seconds: 6, priority: 3, tone: 'safe', ...opts }); }
+function stationRoute() {
+  const n = stations?.nearest(jeep.pos.x, jeep.pos.z);
+  if (!n) return null;
+  const label = `${n.station.name} fuel station`;
+  return nav.dest?.label === label ? null : { label: 'Route', run: () => { driveTo(n.station.x, n.station.z, label); haptics.play('medium'); } };
+}
+function crashCondition(speed) {
+  const loss = condition.crash(jeep.kind, speed, !!jeep.spec.bike);
+  if (loss <= 0) return;
+  const pct = condition.pct(jeep.kind), kmh = Math.round(speed * 3.6), now = performance.now();
+  if (speed > 11 && now - safeCrashAt > 15000) {
+    safeCrashAt = now;
+    safeToast(jeep.spec.bike
+      ? `A ${kmh} km/h crash on a bike would put a real rider in hospital. Slow down. Condition ${pct}%.`
+      : `A crash at ${kmh} km/h would badly hurt the people inside. Slow down and stay on the road. Condition ${pct}%.`, { seconds: 6.5 });
+  } else if (!crashToldOnce && loss > 0.02) {
+    crashToldOnce = true;
+    hud.toast(`That knock cost the car ${Math.round(loss * 100)}%. Any fuel station fixes it.`, { seconds: 3.5, priority: 2 });
+  }
+  conditionWarn();
+}
+// Saying so as it runs down: at a half, a fifth and when it gives out, each with a route to a station.
+function conditionWarn() {
+  const l = condition.level(jeep.kind);
+  if (l > 0.6) condWarned = 1;
+  const step = l <= 0 ? 0 : l < 0.2 ? 0.2 : l < 0.5 ? 0.5 : 1;
+  if (step >= condWarned) return;
+  condWarned = step;
+  const pct = condition.pct(jeep.kind);
+  if (step === 0) safeToast('The car has broken down. Get a tow to the nearest fuel station, where they will fix it.', { seconds: 6, priority: 4 });
+  else if (step === 0.2) safeToast(`Condition ${pct}%. The car is badly damaged and losing power. Drive gently to a fuel station for repairs.`, { action: stationRoute() });
+  else safeToast(`Condition ${pct}%. The car is taking a beating. Any fuel station can patch it up.`, { seconds: 5, action: stationRoute() });
+  haptics.play('warning', 0);
+}
+// Each frame while driving: wear off the road, and the reminder why.
+function conditionTick(dt) {
+  if (!dt || jeep.boat > 0.05 || jeep.air) return;
+  const off = jeep.surface === 'moss' || jeep.surface === 'sand' || jeep.surface === 'snow';
+  const sp = Math.abs(jeep.vF);
+  if (off && sp > 1.5) {
+    const m = sp * dt;
+    condition.wear(jeep.kind, m, jeep.spec.offroad[jeep.surface] ?? 0.6);
+    offRoadRun += m;
+    const now = performance.now();
+    if (offRoadRun > 45 && now - offRoadToldAt > 240000) {
+      offRoadToldAt = now;
+      safeToast(jeep.surface === 'moss'
+        ? 'Off-road driving is against the law in Iceland. Tyres tear the moss, and it takes decades to grow back. Stay on the roads and marked tracks.'
+        : 'Off-road driving is against the law in Iceland and wears your car down. Head back to the road.', { seconds: 7 });
+    }
+    conditionWarn();
+  } else if (!off) offRoadRun = Math.max(0, offRoadRun - sp * dt * 0.5);
+  if ((condSaveT += dt) > 10) { condSaveT = 0; if (condition.dirty) condition.save(); }
+}
+
 // The light on the crash dust: the sun's colour and the sky's.
 const _cl = { sun: new THREE.Color(), amb: new THREE.Color(), sunDir: new THREE.Vector3(0, 1, 0) };
 function crashLight() {
@@ -2727,6 +2840,7 @@ function vehicleEffects(dt) {
   // Skid marks from the rear wheels while the tyres slide: rubber on tarmac, scuffs elsewhere.
   if (jeep.boat < 0.1 && !jeep.air && dt) wheelsWorld.slice(2).forEach(([x, z], i) => skids.mark(i, x, heightAt(x, z) + (jeep.surface === 'paved' ? 0.17 : 0.05), z, jeep.heading, onSnow(x, z, jeep.surface) ? 0 : jeep.slip || 0, jeep.surface === 'paved')); // on snow the ruts show the slide
   // Landings after a jump: thud, camera knock, a burst of dust or spray.
+  if (jeep.landImpact > 7 && condition.landing(jeep.kind, jeep.landImpact) > 0.02) conditionWarn();
   if (jeep.landImpact > 2.5) {
     audio.thud(jeep.landImpact * 1.6);
     haptics.impact(jeep.landImpact * 1.6);
@@ -2824,6 +2938,7 @@ function driveTo(x, z, label) {
 
 // Put the car down somewhere new, back in it, with the camera behind.
 function putCar(x, z, heading) {
+  abortRefuel();
   if (afterJump || mode === 'sky') endJump();
   if (mode === 'walk') { endRide(); walker.exit(); }
   jeep.place(x, z, heading);
@@ -2837,6 +2952,7 @@ function putCar(x, z, heading) {
 }
 
 function fastTravel(x, z, label, face) {
+  abortRefuel();
   if (mode === 'sky') { hud.toast('Land first, then travel.', { seconds: 2.5, priority: 2 }); return; }
   const r = nearestRoadAnywhere(x, z);
   if (!r) return;
@@ -2902,7 +3018,7 @@ function frame(now) {
       riding.update(paused ? 0 : dt, input);
       if (riding.blocked && performance.now() - (rideBlockAt || 0) > 3000) { rideBlockAt = performance.now(); hud.toast(riding.blocked === 'deep' ? 'Too deep for the horse.' : 'Too steep for the horse here.', { seconds: 2 }); }
     } else {
-      walker.update(dt, input, walkLeash(), obstacles);
+      walker.update(dt, refuel.active ? refuel.scene.input(dt) : input, walkLeash(), obstacles);
       soakUpdate(dt);
       if (dt) footprints();
     }
@@ -2916,6 +3032,7 @@ function frame(now) {
       if (heliComing && !heli.auto) { heliComing = false; hud.toast(isTouch ? 'The helicopter has landed. Tap Get in when you are beside it.' : 'The helicopter has landed. Walk over and press E to get in.', { seconds: 3.5, priority: 2 }); }
     }
     obstacles.resolve(walker.pos, riding.on ? 0.8 : 0.4, true, walker.pos.y, riding.on ? 2.4 : 1.8);
+    if (refuel.active) refuel.scene.update(dt, { fuelFull: () => fuel.level(jeep.kind) >= 0.995 });
     wildlife.pushOut(walker.pos, riding.on ? 0.5 : 0.3); // nor through the animals
     if (riding.on) { riding.a.x = walker.pos.x; riding.a.z = walker.pos.z; }
     // Swimming: a splash going in, and spray off his arms as he strokes.
@@ -2933,7 +3050,8 @@ function frame(now) {
     if (heli.landed) jumpTipShown = false;
     else if (!jumpTipShown && heli.agl >= MIN_JUMP) { jumpTipShown = true; hud.toast(isTouch ? 'High enough to skydive: tap Jump to jump out.' : 'High enough to skydive: press J to jump out.', { seconds: 4, priority: 2 }); }
   } else {
-    if (!paused) jeep.power = fuel.burn(dt, jeep, input.throttle);
+    if (!paused) jeep.power = fuel.burn(dt, jeep, input.throttle) * condition.power(jeep.kind);
+    if (!paused) conditionTick(dt);
     jeep.update(paused ? 0 : dt, input, w, !paused);
     if (!paused) vehicleEffects(dt); else audio.scrape?.(0);
   }
@@ -3148,6 +3266,7 @@ function frame(now) {
       dayText: `${clock.m.name} · ${a.summer ? 'Midnight sun' : a.active ? 'Aurora out now' : hud.nextWindowText ? `Lights likely ${hud.nextWindowText}` : a.dark < CONFIG.aurora.minDarkness ? 'Waiting for dark' : 'Dark sky'}`,
       nitro: jeep.nitro, boosting: jeep.boosting,
       fuel: fuel.on && ride === 'car' && mode !== 'walk' ? { level: fuel.level(jeep.kind), litres: fuel.litres(jeep.kind) } : null,
+      condition: ride === 'car' && (mode !== 'walk' || refuel.active) ? condition.level(jeep.kind) : null,
       agl: mode === 'fly' ? Math.max(0, heli.agl) : mode === 'sky' ? Math.max(0, diver.agl) : null,
     });
   }
@@ -3252,11 +3371,37 @@ const startLabel = startBtn.querySelector('.start-label'), startPct = startBtn.q
 // The percentage follows the same timing as the fill (eased toward each target over its stage)
 // and only ever counts up, so it never jumps backwards after a busy moment.
 let pctShown = 0, pctSeg = { from: 0, to: 0, t0: 0, dur: 1 }, pTarget = 0;
+// A long stage doesn't sit on one line: every couple of seconds the label turns to something else
+// the island is up to, so the wait reads as something being made.
+const QUIPS = {
+  'Shaping the island': ['Pouring fresh lava', 'Raising the mountains', 'Carving the fjords', 'Cooling the basalt'],
+  'Loading realistic textures': ['Growing the moss', 'Sanding the black beaches'],
+  'Scattering rocks': ['Tumbling the boulders', 'Planting the lupins'],
+  'Placing landmarks': ['Filling the waterfalls', 'Waking the geysers', 'Raising the churches'],
+  'Building towns': ['Painting the red roofs', 'Brewing the coffee'],
+  'Lighting the sky': ['Hanging the stars', 'Charging the aurora'],
+  'Waking the wildlife': ['Herding the sheep', 'Teaching the puffins to fly', 'Saddling the horses'],
+  'Mixing the colours': ['Tuning the northern lights', 'Polishing the glaciers'],
+  'Parking your car': ['Topping up the tank', 'Checking the tyres'],
+};
+let quipFor = '', quipAt = 0, quipI = 0;
+function setStartLabel(text) {
+  if (startLabel.textContent === text) return;
+  startLabel.textContent = text;
+  if (!/%/.test(text)) { startLabel.classList.remove('is-new'); void startLabel.offsetWidth; startLabel.classList.add('is-new'); }
+}
+const quipTimer = setInterval(() => {
+  if (!startBtn.disabled) { clearInterval(quipTimer); return; }
+  const q = QUIPS[quipFor];
+  if (!q || performance.now() - quipAt < 2300) return;
+  quipAt = performance.now();
+  setStartLabel(q[quipI++ % q.length]);
+}, 400);
 function startProgress(p, ms, label) {
   p = pTarget = Math.max(p, pTarget); // the bar never heads backwards
   startBtn.style.setProperty('--dur', `${ms}ms`);
   startBtn.style.setProperty('--p', p.toFixed(3));
-  startLabel.textContent = label;
+  if (label !== quipFor || /%/.test(label)) { if (label !== quipFor) { quipAt = performance.now(); quipI = 0; } quipFor = label; setStartLabel(label); }
   countUp(); // catch the number up on the old step before starting the new one
   pctSeg = { from: pctShown, to: p, t0: performance.now(), dur: Math.max(1, ms) };
 }
@@ -3336,7 +3481,7 @@ bootSoon(async () => {
 // Handy for tuning from the browser console.
 window.chasingGreen = {
   clock, forecast, CONFIG, store, linkFor, scene, renderer, camera, mirrors, driver, setVehicle, fastTravel, input, badges, hud, notebook, THREE, get jeep() { return jeep; },
-  get obstacles() { return obstacles; }, get crashFx() { return crashFx; }, get damage() { return damage; }, get scene() { return scene; }, Vec3: THREE.Vector3, get puddles() { return puddles; }, get mapUI() { return mapUI; }, get snow() { return snow; },
+  get obstacles() { return obstacles; }, get crashFx() { return crashFx; }, get damage() { return damage; }, refuel, condition, get scene() { return scene; }, Vec3: THREE.Vector3, get puddles() { return puddles; }, get mapUI() { return mapUI; }, get snow() { return snow; },
   nearestRoad: (x, z, r) => nearestRoad(x, z, r), coastAt, roadDistAt, shoreDistAt, groundAt, solidTopAt, get wildlife() { return wildlife; },
   roadPaths: () => roadPaths, fuel, putCar, get stations() { return stations; }, stageTimes, get riding() { return riding; }, get walker() { return walker; },
   set camHold(v) { camHold = !!v; }, get camera() { return camera; },

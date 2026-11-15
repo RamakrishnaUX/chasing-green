@@ -44,6 +44,7 @@ const rideCost = ([l, f], want) => Math.abs(l - want) + Math.abs(f) * 2;
 const PEG = [0.2, 0.34, -0.2]; // foot pegs, unless the bike gives its own (see models.js)
 
 const V = () => new THREE.Vector3();
+const lerp = (a, b, t) => a + (b - a) * t;
 const X = new THREE.Vector3(1, 0, 0);
 const _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _m = new THREE.Matrix4(), _m2 = new THREE.Matrix4();
 const wpos = (o) => o.getWorldPosition(V());
@@ -332,7 +333,10 @@ export class Driver {
     this.group.visible = this.helmet.visible = show;
     if (!show) return;
     const bone = this.bone;
-    this.group.scale.setScalar(1);
+    // He is drawn a little larger on the bike, in step with the bike itself (drawn larger than its
+    // model), so his legs reach the road when he puts his feet down.
+    const RS = car.model.riderScale ?? 1.15;
+    this.group.scale.setScalar(RS);
     for (const [o, q] of this.rest) o.quaternion.copy(q);
     body.updateWorldMatrix(true, true);
     const toW = (x, y, z) => new THREE.Vector3(x, y, z).transformDirection(body.matrixWorld);
@@ -383,34 +387,60 @@ export class Driver {
 
     // Sit him: hips on the saddle, the body leaning forward over the tank, the head raised.
     const hipL = V();
-    const place = (lean, fwd) => {
+    const place = (lean, fwd, drop = 0) => {
       for (const o of [bone.Hips, bone.Neck, bone.Head]) o.quaternion.copy(this.rest.get(o));
       this.group.position.set(0, 0, 0); this.group.updateMatrixWorld(true);
       bone.Hips.quaternion.premultiply(_q.setFromAxisAngle(X, lean));
       bone.Neck.quaternion.premultiply(_q.setFromAxisAngle(X, -lean * 0.55));
       bone.Head.quaternion.premultiply(_q.setFromAxisAngle(X, -lean * 0.35));
       this.group.updateMatrixWorld(true);
-      hipL.set(0, this.saddle.y + 0.07, this.saddle.z + fwd);
-      const h = this.group.worldToLocal(wpos(bone.Hips));
+      hipL.set(0, this.saddle.y + 0.07 - drop, this.saddle.z + fwd);
+      const h = this.group.worldToLocal(wpos(bone.Hips)).multiplyScalar(RS);
       this.group.position.set(hipL.x - h.x, hipL.y - h.y, hipL.z - h.z);
       this.group.updateMatrixWorld(true);
     };
-    const short = () => { let m = 0; for (const s2 of ['Left', 'Right']) if (G[s2]) m += Math.max(0, wpos(bone[s2 + 'Arm']).distanceTo(G[s2].p) - this.armLen * 0.97); return m; };
+    const short = () => { let m = 0; for (const s2 of ['Left', 'Right']) if (G[s2]) m += Math.max(0, wpos(bone[s2 + 'Arm']).distanceTo(G[s2].p) - this.armLen * RS * 0.97); return m; };
     if (!this.ridePose) {
       let best = null, bc = Infinity;
       for (const pose of RIDES) { place(...pose); const c = short() * 100 + rideCost(pose, car.model.lean ?? 0.7); if (c < bc) { bc = c; best = pose; } }
       this.ridePose = best; place(...best); this.short = +short().toFixed(3);
     }
-    place(...this.ridePose);
+    // Feet down, he slides down off the crown of the saddle onto his feet (most when walking it
+    // back on both), sitting a little more upright.
+    const feetW = car.feet || 0, paddleW = car.paddling ? 1 : 0;
+    place(this.ridePose[0] * (1 - 0.25 * feetW), this.ridePose[1], feetW * (0.1 + 0.06 * paddleW));
     this.lean = this.ridePose[0];
 
-    // Legs: knees bent forward along the tank, feet on the pegs.
+    // Legs: knees bent forward along the tank, feet on the pegs. Stopped, his left foot goes down
+    // to the road and holds the bike up (the right stays on the brake); walking it back, both feet
+    // go down and push in turn: each foot planted beside the bike slides forward along it as the
+    // bike rolls back past it, then lifts and steps back for the next push (car.paddleT).
+    const feet = car.feet || 0, paddle = !!car.paddling;
     for (const s2 of ['Left', 'Right']) {
       const out = s2 === 'Left' ? 1 : -1;
       const k = car.model.size || 1; // the bike is drawn larger than its model; he is not
       const pg = car.model.pegs || PEG;
-      reach(bone[s2 + 'UpLeg'], bone[s2 + 'Leg'], bone[s2 + 'Foot'], body.localToWorld(new THREE.Vector3(out * pg[0] * k, pg[1] * k + 0.08, pg[2] * k)), toW(out * 0.35, 0.25, 1));
-      aim(bone[s2 + 'Foot'], bone[s2 + 'ToeBase'], toW(out * 0.15, -0.3, 1));
+      const peg = body.localToWorld(new THREE.Vector3(out * pg[0] * k, pg[1] * k + 0.08, pg[2] * k));
+      let down = paddle ? feet : s2 === 'Left' ? feet : 0;
+      let target = peg, pole = toW(out * 0.35, 0.25, 1), toe = toW(out * 0.15, -0.3, 1);
+      if (down > 0.001) {
+        // Where the foot meets the road beside the bike (the bike's own frame is level with the
+        // ground under its wheels), a little ahead of the hips.
+        let dz = 0.18, lift = 0;
+        if (paddle) {
+          const ph = ((car.paddleT || 0) + (s2 === 'Left' ? 0 : 0.5)) % 1;
+          if (ph < 0.62) dz = -0.08 + 0.52 * (ph / 0.62); // planted: slides forward as the bike goes back
+          else { const u = (ph - 0.62) / 0.38; dz = 0.44 - 0.52 * (u * u * (3 - 2 * u)); lift = Math.sin(Math.PI * u) * 0.11; }
+        }
+        // On the balls of his feet (a seat this tall is a tiptoe for most riders): the ankle a foot's
+        // length up, the foot pointing down and forward.
+        const g = car.root.localToWorld(new THREE.Vector3(out * 0.36, 0.03 + 0.12 * RS + lift, this.saddle.z + dz));
+        target = peg.clone().lerp(g, down);
+        pole = toW(out * lerp(0.35, 0.45, down), lerp(0.25, 0.35, down), 1);
+        toe = toW(out * lerp(0.15, 0.18, down), lerp(-0.3, -0.85, down), lerp(1, 0.5, down));
+      }
+      reach(bone[s2 + 'UpLeg'], bone[s2 + 'Leg'], bone[s2 + 'Foot'], target, pole);
+      aim(bone[s2 + 'Foot'], bone[s2 + 'ToeBase'], toe);
     }
 
     // Hands round the grips: the palm over the top, the thumb round underneath toward the bike's
@@ -454,7 +484,7 @@ export class Driver {
     const at = head.clone().addScaledVector(up, len * (this.helmetUp ?? 0.62)).addScaledVector(fwd, this.helmetFwd ?? -0.01);
     this.helmet.position.copy(body.worldToLocal(at));
     this.helmet.quaternion.copy(wquat(body).invert().multiply(want));
-    this.helmet.scale.setScalar(this.helmetScale ?? 1);
+    this.helmet.scale.setScalar((this.helmetScale ?? 1) * RS);
   }
 }
 // Shared with the skydiver, who is posed by hand the same way.

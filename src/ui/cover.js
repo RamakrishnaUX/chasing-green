@@ -6,6 +6,22 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { loadGLTF } from '../world/gltf.js';
 import { buildVehicleModel, modelReady } from '../vehicle/models.js';
+import { progressOf } from '../preload.js';
+
+// While a vehicle's model is still downloading, the empty turntable is a build bay: the vehicle's
+// outline is drawn on in blueprint lines, a scan sweeps across it, and a short line says what the
+// mechanics are up to, with how far along the download is. Side views, 240 x 100, ground at y 88.
+const W2 = (cx, cy, r) => `M${cx - r} ${cy}a${r} ${r} 0 1 0 ${2 * r} 0a${r} ${r} 0 1 0 ${-2 * r} 0`;
+const BLUEPRINT = {
+  jeep: { name: 'Trail 4x4', d: ['M24 70V52h46l20-16h10l-3 16h104l14 3v15h-17a20 20 0 0 0-38 0H78a20 20 0 0 0-38 0Z', 'M90 36l12-18M100 18h-8', W2(59, 72, 16), W2(181, 72, 16), W2(18, 56, 10), 'M120 54v14M150 58h18'] },
+  vintage: { name: 'Vintage car', d: ['M12 72q4-20 34-22h24q10-22 36-22h40q18 2 24 22h26q26 2 32 22', 'M70 50h106M108 30v20M140 30v20', W2(52, 74, 15), W2(192, 74, 15), 'M28 72q6-16 24-16t24 16M168 72q6-16 24-16t24 16', W2(222, 52, 4)] },
+  camper: { name: 'Camper van', d: ['M20 74V34q2-16 22-18h156q20 2 24 24v34h-18a18 18 0 0 0-34 0H78a18 18 0 0 0-34 0Z', 'M44 26h34v18H44ZM90 26h36v18H90ZM138 26h36v18h-36ZM186 26h18q8 2 10 18h-28Z', 'M20 54h202', W2(61, 76, 14), W2(187, 76, 14)] },
+  race: { name: 'Supercar', d: ['M10 68q4-12 30-14l58-16q24-6 52-2l60 16q22 4 22 16h-24a19 19 0 0 0-38 0H74a19 19 0 0 0-38 0Z', 'M100 40l20 12h48l-18-16', W2(55, 70, 16), W2(189, 70, 16), 'M200 56h20M14 62h18'] },
+  bike: { name: 'Cafe racer', d: [W2(54, 68, 21), W2(186, 68, 21), 'M54 68l44-26h52l36 26M98 42l18 26 34-26', 'M100 38q20-12 46-4l2 8h-48Z', 'M150 42l22-14h14M82 40h22'] },
+  heli: { name: 'Helicopter', d: ['M40 58q0-26 40-28h50q30 2 36 26q-4 14-36 14H74q-30 0-34-12Z', 'M166 50h56l8-12v20h-8', 'M30 22h180M120 22v8', 'M60 84h96M74 70v14M140 70v14', 'M70 36h30v16H70Z'] },
+};
+const STEPS = ['Welding the chassis', 'Bolting on the wheels', 'Wiring the headlamps', 'Spraying the paint', 'Polishing the chrome', 'Filling the tank', 'Tuning the engine'];
+const HELI_STEPS = ['Riveting the cabin', 'Balancing the rotors', 'Wiring the cockpit', 'Spraying the paint', 'Fuelling up', 'Warming the turbine'];
 
 const FOV = 26;
 const YAW = 0.62;
@@ -100,6 +116,8 @@ export class Cover {
       else if (this.kind === 'heli') this.show('heli');
     }).catch(() => {});
 
+    this.bay = null; // the build bay overlay (see BLUEPRINT), made when first needed
+
     this.onResize = () => this.resize();
     addEventListener('resize', this.onResize);
     this.resize();
@@ -130,7 +148,9 @@ export class Cover {
     }
     // Coming in from an empty stage (its file just arrived), it fades in rather than popping.
     // Not while paused behind the splash: the page keeps the canvas hidden then.
-    if (!this.car && !this.paused) { const c = this.canvas; c.style.transition = 'none'; c.style.opacity = '0'; requestAnimationFrame(() => requestAnimationFrame(() => { c.style.transition = 'opacity 700ms ease-out'; c.style.opacity = '1'; })); }
+    // Out of the build bay: it rolls out onto its mark, lights coming on, rather than fading in.
+    if (!this.car && this.bay && !this.bay.el.hidden && !this.paused) arrive = true;
+    else if (!this.car && !this.paused) { const c = this.canvas; c.style.transition = 'none'; c.style.opacity = '0'; requestAnimationFrame(() => requestAnimationFrame(() => { c.style.transition = 'opacity 700ms ease-out'; c.style.opacity = '1'; })); }
     const car = this.car = model.group;
     this.scene.add(car);
     // Measured square on, before it turns: a box measured after turning and turned back would
@@ -242,8 +262,50 @@ export class Cover {
     this.camera.updateProjectionMatrix();
   }
 
+  // The build bay over the empty turntable while kind's model downloads (or null to hide it).
+  buildBay(kind) {
+    if (!this.spot) return;
+    if (!kind) { if (this.bay && !this.bay.el.hidden) { this.bay.el.classList.add('is-done'); clearInterval(this.bay.timer); this.bay.timer = 0; const el = this.bay.el; setTimeout(() => { if (el.classList.contains('is-done')) el.hidden = true; }, 500); } return; }
+    if (!this.bay) {
+      const el = document.createElement('div');
+      el.className = 'cv-bay';
+      el.innerHTML = '<svg class="cv-bp" viewBox="0 0 240 100" aria-hidden="true"><defs><pattern id="cvgrid" width="10" height="10" patternUnits="userSpaceOnUse"><path d="M10 0H0V10" fill="none" stroke="currentColor" stroke-width="0.3"/></pattern></defs><rect class="cv-grid" x="0" y="0" width="240" height="100" fill="url(#cvgrid)"/><g class="cv-lines"></g><line class="cv-ground" x1="4" y1="90" x2="236" y2="90"/><rect class="cv-scan" x="0" y="0" width="3" height="100"/></svg><p class="cv-step"><span class="cv-dot"></span><b></b><em></em></p><p class="cv-who"></p>';
+      this.spot.appendChild(el);
+      this.bay = { el, kind: null, timer: 0, step: 0 };
+    }
+    const b = this.bay, el = b.el;
+    el.hidden = false; el.classList.remove('is-done');
+    if (b.kind !== kind) {
+      b.kind = kind;
+      const bp = BLUEPRINT[kind] || BLUEPRINT.jeep;
+      el.querySelector('.cv-lines').innerHTML = bp.d.map((d, i) => `<path d="${d}" pathLength="1" style="--i:${i}"/>`).join('');
+      el.querySelector('.cv-who').textContent = `Building your ${bp.name}`;
+      // Restart the drawing.
+      const g = el.querySelector('.cv-lines'); g.style.animation = 'none'; void g.getBoundingClientRect(); g.style.animation = '';
+    }
+    const steps = kind === 'heli' ? HELI_STEPS : STEPS;
+    const tick = () => {
+      if (!this.bay || this.bay.el.hidden) return;
+      const f = progressOf(kind === 'heli' ? 'models/heli.glb' : `models/car_${kind}.glb`);
+      // Past the download it is unpacked and put together: say so rather than sitting at 100%.
+      const i = f >= 1 ? steps.length - 1 : Math.min(steps.length - 2, Math.floor(f * (steps.length - 1)));
+      if (i !== b.step || !el.querySelector('.cv-step b').textContent) { b.step = i; const t = el.querySelector('.cv-step b'); t.textContent = steps[i]; t.classList.remove('is-in'); void t.offsetWidth; t.classList.add('is-in'); }
+      el.querySelector('.cv-step em').textContent = f >= 1 ? '' : `${Math.round(f * 100)}%`;
+      el.style.setProperty('--f', f.toFixed(3));
+    };
+    tick();
+    if (!b.timer) b.timer = setInterval(tick, 200);
+  }
+
   render() {
-    if (!this.car) { this.renderer.clear(); return; }
+    // No vehicle yet (its file is still on the way): the empty turntable, turning, with the build
+    // bay over it.
+    if (!this.car) {
+      const want = this.kind && !this.paused ? this.kind : null;
+      this.buildBay(want);
+      if (!want) { this.renderer.clear(); return; }
+      if (!this.stage) { this.stage = { R: 2.6, w: 4.2, h: 1.7 }; this.target = { ...this.stage }; this.fit = { w: 4.2, h: 1.7 }; this.floor.scale.setScalar(this.stage.R * 1.4); this.rings.scale.setScalar(this.stage.R / 0.8); }
+    } else if (this.bay && !this.bay.el.hidden) this.buildBay(null);
     const W = innerWidth, H = innerHeight, cam = this.camera;
     // The layout's spot is the free space for the vehicle. It stands on a ground line near the
     // spot's foot and fills most of it: as wide as fits, and no taller than the space above the
@@ -287,8 +349,10 @@ export class Cover {
       this.fit = { w: this.stage.w, h: this.stage.h };
     }
     this.lastT = now;
-    this.car.position.set(Math.sin(YAW) * off, lift, Math.cos(YAW) * off);
-    this.mirror.position.set(this.car.position.x, -lift, this.car.position.z);
+    if (this.car) {
+      this.car.position.set(Math.sin(YAW) * off, lift, Math.cos(YAW) * off);
+      this.mirror.position.set(this.car.position.x, -lift, this.car.position.z);
+    }
     if (this.lightsFrom) {
       const l = (now - this.lightsFrom) / 1000;
       this.setLights(l < 0.07 ? 0.7 : l < 0.14 ? 0.05 : l < 0.2 ? 0.9 : l < 0.26 ? 0.3 : Math.min(1, 0.6 + (l - 0.26) * 2));
@@ -297,7 +361,8 @@ export class Cover {
     const a = 0.18 * Math.sin(t * 0.06);
     // A little above the vehicle (about 11 degrees), so the turntable reads as a ring.
     cam.position.set(Math.sin(a) * dist * 0.98, dist * 0.19, Math.cos(a) * dist * 0.98);
-    if (!this.reduce) this.rings.rotation.z = t * 0.05;
+    // The empty bay's turntable turns faster, as if working.
+    if (!this.reduce) { this.ringA = (this.ringA ?? t * 0.05) + (this.car ? 0.05 : 0.4) * Math.min(0.05, (now - (this.ringT || now)) / 1000); this.ringT = now; this.rings.rotation.z = this.ringA; }
     cam.lookAt(0, this.fit.h / 2, 0);
     cam.setViewOffset(W, H, W / 2 - cx, H / 2 - cy, W, H);
     this.renderer.render(this.scene, cam);
@@ -307,6 +372,7 @@ export class Cover {
   // does that later, at a quiet moment.
   stop() {
     this.done = true;
+    if (this.bay) { clearInterval(this.bay.timer); this.bay.el.remove(); this.bay = null; }
     cancelAnimationFrame(this.raf);
     removeEventListener('resize', this.onResize);
   }

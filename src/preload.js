@@ -30,12 +30,18 @@ const typeOf = (u) => TYPES[u.split('?')[0].split('.').pop().toLowerCase()] || '
 
 let bytesDone = 0;
 const sizes = new Map();
+const fileProgress = new Map(); // url -> 0..1 while it downloads
+// How far along a listed file is (0..1): 1 once it is in the cache. path: as in public/.
+export function progressOf(path) {
+  const url = abs(BASE + path);
+  return fileProgress.get(url) ?? 0;
+}
 
 function get(url, attempt = 0) {
   if (ready.has(url)) return ready.get(url);
   const p = (async () => {
     const cache = await openCache();
-    if (cache && await cache.match(url)) return true;
+    if (cache && await cache.match(url)) { fileProgress.set(url, 1); return true; }
     let res;
     try {
       res = await realFetch(url, { cache: 'no-cache' });
@@ -47,7 +53,24 @@ function get(url, attempt = 0) {
       if (attempt < 2) { await new Promise((r) => setTimeout(r, 800 * (attempt + 1))); return get(url, attempt + 1); }
       throw e;
     }
-    const buf = await res.arrayBuffer();
+    // Read in pieces where the browser allows, so the start screen can show how far along a file
+    // is (the car being "built" on the turntable while its model downloads).
+    let buf;
+    const total = +res.headers.get('Content-Length') || 0;
+    if (res.body?.getReader && total) {
+      const reader = res.body.getReader(), parts = [];
+      let got = 0;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        parts.push(value); got += value.byteLength;
+        fileProgress.set(url, Math.min(0.99, got / total));
+      }
+      const all = new Uint8Array(got);
+      let o = 0; for (const v of parts) { all.set(v, o); o += v.byteLength; }
+      buf = all.buffer;
+    } else buf = await res.arrayBuffer();
+    fileProgress.set(url, 1);
     sizes.set(url, buf.byteLength); bytesDone += buf.byteLength;
     if (cache) {
       try { await cache.put(url, new Response(buf, { headers: { 'Content-Type': typeOf(url), 'Content-Length': String(buf.byteLength) } })); return true; } catch { /* storage full: keep it in memory */ }
@@ -82,19 +105,38 @@ window.fetch = function (input, init) {
 // Download every listed file. onProgress(fraction 0..1). A few at a time, so a phone's connection
 // is kept busy without one big file starving the others. Never rejects: a file that will not come
 // is left for the game to fetch the ordinary way.
+//
+// The order matters on a slow phone: the vehicle you last chose comes first, on its own for a
+// moment so it has the whole connection (it is what the start screen shows), then the other
+// vehicles, then everything else; the music comes last and does not hold up Start (it streams
+// from the cache once it is in, and plays from the network until then).
+const MUSIC = (u) => /\/music\//.test(u);
+function chosenVehicle() {
+  try { const s = JSON.parse(localStorage.getItem('chasing-green:v1') || '{}').settings || {}; return s.vehicle === 'heli' ? 'heli' : s.vehicle || 'jeep'; } catch { return 'jeep'; }
+}
+const rank = (u, first) => (u.endsWith(first) ? 0 : /\/models\/(car_|heli|person|helmet)/.test(u) ? 1 : MUSIC(u) ? 3 : 2);
 export function preloadAll(onProgress) {
+  const first = chosenVehicle() === 'heli' ? '/models/heli.glb' : `/models/car_${chosenVehicle()}.glb`;
+  const queue = URLS.slice().sort((a, b) => rank(a, first) - rank(b, first));
+  const gate = queue.filter((u) => !MUSIC(u));
   let done = 0;
-  const total = URLS.length;
-  const queue = URLS.slice();
-  const worker = async () => {
+  const total = gate.length;
+  let lead = null;
+  const worker = async (i) => {
+    // The chosen vehicle goes first, alone, for up to 6 s; then all four lanes share the rest.
+    if (i > 0) await Promise.race([lead, new Promise((r) => setTimeout(r, 6000))]).catch(() => {});
     while (queue.length) {
       const url = queue.shift();
-      try { await get(url); } catch (e) { console.warn('preload', e?.message || e); }
-      done++;
-      onProgress?.(done / total);
+      const p = get(url);
+      if (i === 0 && !lead) lead = p;
+      try { await p; } catch (e) { console.warn('preload', e?.message || e); }
+      if (!MUSIC(url)) { done++; onProgress?.(done / total); if (done >= total) gateDone.resolve(); }
     }
   };
-  return Promise.all(Array.from({ length: 4 }, worker));
+  const gateDone = {}; gateDone.p = new Promise((r) => { gateDone.resolve = r; });
+  // lead is set synchronously by the first worker before the others look at it.
+  Promise.all(Array.from({ length: 4 }, (_, i) => worker(i))).then(() => gateDone.resolve());
+  return gateDone.p;
 }
 
 // A URL for a listed file that plays without the network (the music, streamed by an <audio>
@@ -104,6 +146,11 @@ export async function offlineURL(u) {
   const url = abs(u);
   if (!listed.has(url)) return u;
   if (blobs.has(url)) return blobs.get(url);
+  // Music still downloading (it comes last and does not hold up Start): stream it from the network.
+  if (MUSIC(url) && fileProgress.get(url) !== 1) {
+    const cache = await openCache();
+    if (!memory.has(url) && !(cache && await cache.match(url))) return u;
+  }
   const r = await answer(url);
   if (!r) return u;
   const b = URL.createObjectURL(await r.blob());

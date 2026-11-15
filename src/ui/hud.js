@@ -16,7 +16,14 @@ export class Hud {
     this.toastTimer = 0;
     this.toastPriority = 0;
     this.lastStatus = '';
-    this.hx = Object.fromEntries(['tape', 'kick', 'place', 'next', 'clock', 'day', 'gear', 'fuel', 'fuelbar', 'fuelside', 'speed', 'unit', 'nitro-l', 'nitro-r', 'kp', 'kpbar'].map((k) => [k, $(`hx-${k}`)]));
+    this.hx = Object.fromEntries(['tape', 'kick', 'place', 'next', 'clock', 'day', 'gear', 'fuel', 'fuelbar', 'fuelside', 'speed', 'unit', 'nitro-l', 'nitro-r', 'kp', 'kpbar', 'cond', 'chip'].map((k) => [k, $(`hx-${k}`)]));
+    if (this.hx.cond) { this.hx.condPct = this.hx.cond.querySelector('em'); this.hx.condPips = [...this.hx.cond.querySelectorAll('.hx-pips i')]; }
+    if (this.hx.chip) {
+      const c = this.hx.chip;
+      Object.assign(this.hx, { chipFuel: c.querySelector('.c-fuel b'), chipFuelWrap: c.querySelector('.c-fuel'), chipCond: c.querySelector('.c-cond b'), chipCondWrap: c.querySelector('.c-cond'), chipKp: c.querySelector('.c-kp b') });
+      // The chip's Kp opens the aurora radio, as the Kp in the cluster does.
+      c.querySelector('.c-kp').addEventListener('click', () => this.el.radioToggle?.click());
+    }
     this.gauge = document.querySelector('.hx-gauge');
     this.buildTape();
     // The aurora moment: a big title when the lights first come out, once per display.
@@ -43,10 +50,13 @@ export class Hud {
 
   show() { this.el.hud.hidden = false; }
 
-  toast(text, { seconds = 4, priority = 1, action } = {}) {
+  toast(text, { seconds = 4, priority = 1, action, tone } = {}) {
     if (this.toastTimer > 0 && priority < this.toastPriority) return;
     const t = this.el.toast;
     t.textContent = text;
+    // A safety message wears its own amber dress with a "Drive safe" kicker.
+    t.classList.toggle('is-safe', tone === 'safe');
+    if (tone === 'safe') { const k = document.createElement('b'); k.className = 'toast-kick'; k.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v5.5c0 4.4-3 8-7 9.5-4-1.5-7-5.1-7-9.5V6z"/><path d="M12 8v5M12 16.2v.1"/></svg>Drive safe'; t.prepend(k); }
     if (action) {
       const b = document.createElement('button');
       b.className = 'btn btn-small';
@@ -226,6 +236,28 @@ export class Hud {
     h.fuelside.classList.toggle('was-alt', alt);
     if (!alt) h.fuelside.hidden = s.fuel == null;
     if (!alt) h.fuelbar.style.visibility = s.fuel == null ? 'hidden' : '';
+    // The car's condition: a small row of ten pips over the fuel (and the same in the phone's chip),
+    // amber below a half, red below a fifth.
+    if (h.cond) {
+      const c = s.condition;
+      h.cond.hidden = c == null || alt;
+      if (c != null) {
+        const pct = Math.round(c * 100), lit = Math.ceil(c * 10 - 0.001);
+        set(h.condPct, `${pct}%`);
+        if (h.cond.dataset.lit !== String(lit)) { h.cond.dataset.lit = String(lit); h.condPips.forEach((p, i) => p.classList.toggle('on', i < lit)); }
+        h.cond.classList.toggle('is-warn', c < 0.5 && c >= 0.2);
+        h.cond.classList.toggle('is-bad', c < 0.2);
+      }
+    }
+    if (h.chip) {
+      const show = !alt && s.fuel != null;
+      h.chip.hidden = !show && s.condition == null;
+      if (s.fuel != null) { set(h.chipFuel, `${Math.round(s.fuel.level * 100)}%`); h.chip.classList.toggle('fuel-low', s.fuel.level < 0.2); }
+      h.chipFuelWrap.hidden = s.fuel == null;
+      if (s.condition != null) { set(h.chipCond, `${Math.round(s.condition * 100)}%`); h.chip.classList.toggle('cond-warn', s.condition < 0.5); h.chip.classList.toggle('cond-bad', s.condition < 0.2); }
+      h.chipCondWrap.hidden = s.condition == null;
+      set(h.chipKp, kp.toFixed(1));
+    }
     if (!alt && s.fuel != null) {
       set(h.fuel, String(s.fuel.litres));
       dash(h.fuelbar, s.fuel.level * ramp(0.9, 1.1));

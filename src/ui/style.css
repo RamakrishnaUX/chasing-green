@@ -2272,3 +2272,74 @@ body.has-touch #hud .nav-stop svg { width: 10px; height: 10px; }
   body.has-touch.card-on .hx .hx-tl { opacity: 0; }
   body.has-touch.card-on #hud .minimap { top: calc(var(--u-top) + 92px) !important; }
 }
+
+/* ---------- The build bay: the empty turntable while the vehicle's model downloads (cover.js) ---------- */
+.cv-bay { position: absolute; left: 50%; bottom: 22%; width: min(80%, 520px); transform: translateX(-50%); display: grid; justify-items: center; gap: 6px;
+  color: var(--green-hi); opacity: 1; transition: opacity 0.45s ease, transform 0.45s ease; animation: cvBayIn 0.6s ease-out both; }
+.cv-bay.is-done { opacity: 0; transform: translateX(-50%) scale(1.04); }
+.cv-bay[hidden] { display: none; }
+@keyframes cvBayIn { from { opacity: 0; transform: translateX(-50%) translateY(8px); } }
+.cv-bp { width: 100%; height: auto; overflow: visible; filter: drop-shadow(0 0 6px rgba(102,223,176,0.55)); }
+.cv-bp .cv-grid { color: rgba(162,246,211,0.16); -webkit-mask: radial-gradient(60% 70% at 50% 60%, #000 30%, transparent 75%); mask: radial-gradient(60% 70% at 50% 60%, #000 30%, transparent 75%); }
+.cv-bp .cv-lines path { fill: none; stroke: currentColor; stroke-width: 1.15; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 1; stroke-dashoffset: 1;
+  animation: cvDraw 3.2s cubic-bezier(.6,.05,.3,1) infinite; animation-delay: calc(var(--i) * 0.18s); }
+@keyframes cvDraw { 0% { stroke-dashoffset: 1; opacity: 0.2; } 45% { stroke-dashoffset: 0; opacity: 1; } 80% { stroke-dashoffset: 0; opacity: 1; } 100% { stroke-dashoffset: 0; opacity: 0; } }
+.cv-bp .cv-ground { stroke: rgba(162,246,211,0.35); stroke-width: 0.6; stroke-dasharray: 2 3; }
+.cv-bp .cv-scan { fill: url(#cvgrid); fill: rgba(162,246,211,0.85); filter: blur(1.2px); animation: cvScan 2.4s ease-in-out infinite alternate; }
+@keyframes cvScan { from { transform: translateX(6px); } to { transform: translateX(230px); } }
+.cv-step { margin: 0; display: flex; align-items: center; gap: 9px; font: 600 13px var(--sans); letter-spacing: 0.02em; color: var(--ink-1, #f2f6f4); text-shadow: 0 1px 8px rgba(0,0,0,0.6); }
+.cv-step b { font-weight: 600; }
+.cv-step b.is-in { animation: cvStep 0.4s ease-out both; }
+@keyframes cvStep { from { opacity: 0; transform: translateY(5px); filter: blur(3px); } }
+.cv-step em { font-style: normal; font-variant-numeric: tabular-nums; color: var(--green); min-width: 3ch; }
+.cv-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 10px var(--green); animation: cvPulse 1s ease-in-out infinite; }
+@keyframes cvPulse { 50% { opacity: 0.35; transform: scale(0.75); } }
+.cv-who { margin: 0; font: 600 10px var(--sans); font-stretch: 125%; letter-spacing: 0.26em; text-transform: uppercase; color: var(--ink-3, rgba(255,255,255,0.5)); }
+@media (prefers-reduced-motion: reduce) { .cv-bp .cv-lines path { animation: none; stroke-dashoffset: 0; } .cv-bp .cv-scan, .cv-dot { animation: none; } }
+.btn-start.is-loading .start-label.is-new { animation: startQuip 0.45s ease-out both; }
+@keyframes startQuip { from { opacity: 0; transform: translateY(4px); filter: blur(2px); } }
+
+/* ---------- The car's condition (condition.js) ---------- */
+.hx-cond { position: absolute; left: 6%; top: calc(4% - 30px); display: flex; align-items: center; gap: 7px; white-space: nowrap; color: var(--ink-2); }
+.hx-cond[hidden] { display: none; }
+.hx-cond svg { width: 12px; height: 12px; fill: none; stroke: var(--green-hi); stroke-width: 2; stroke-linejoin: round; }
+.hx-cond small { font: 700 9px var(--sans); letter-spacing: 0.2em; text-transform: uppercase; }
+.hx-pips { display: flex; gap: 2px; }
+.hx-pips i { width: 7px; height: 9px; transform: skewX(-18deg); background: rgba(244,248,246,0.16); border-radius: 1px; transition: background 0.3s; }
+.hx-pips i.on { background: linear-gradient(180deg, var(--green-hi), var(--green)); }
+.hx-cond em { font: 600 12px var(--sans); font-style: normal; font-variant-numeric: tabular-nums; color: var(--ink); min-width: 4ch; }
+.hx-cond.is-warn svg { stroke: #ffbe5c; } .hx-cond.is-warn .hx-pips i.on { background: linear-gradient(180deg, #ffe7a3, #ffbe5c); } .hx-cond.is-warn em { color: #ffd38a; }
+.hx-cond.is-bad svg { stroke: #ff6a50; } .hx-cond.is-bad .hx-pips i.on { background: linear-gradient(180deg, #ffab95, #ff6a50); } .hx-cond.is-bad em { color: #ff8a6b; animation: condBlink 1s steps(2) infinite; }
+@keyframes condBlink { 50% { opacity: 0.4; } }
+body.is-looking .hx-cond { opacity: 0; }
+
+/* A safety message: an amber edge and a "Drive safe" kicker with a shield. */
+.toast.is-safe { box-shadow: inset 3px 0 0 #ffbe5c, 0 10px 30px rgba(0,0,0,0.3); text-align: left; }
+body.has-touch #hud .toast.is-safe { box-shadow: inset 3px 0 0 #ffbe5c, var(--u-edge); }
+.toast-kick { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; font: 700 10px var(--sans); letter-spacing: 0.2em; text-transform: uppercase; color: #ffcf7a; }
+.toast-kick svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ---------- Phones: less on screen while driving ---------- */
+/* The car in the middle and the controls at the bottom: no speed ribbon, no next-spot pointer
+   and no minimap (it comes back while a route is set). Fuel, the car's condition and the Kp sit
+   in one small chip beside the clock; the Kp in it still opens the aurora radio. */
+.hx-chip { display: none; }
+body.has-touch .hx-cluster, body.has-touch .hx-spot, body.has-touch .hx-spot.is-on, body.has-touch .hx-cond { display: none !important; }
+body.has-touch #hud:not(:has(#nav:not([hidden]))) .minimap { display: none; }
+body.has-touch .hx-chip:not([hidden]) { position: absolute; left: 50%; bottom: calc(22px + var(--safe-b)); transform: translateX(-50%); display: flex; align-items: center; gap: 2px; height: var(--u-h); padding: 0 4px 0 10px; border-radius: calc(var(--u-h) / 2);
+  background: var(--u-bg); -webkit-backdrop-filter: var(--u-fx); backdrop-filter: var(--u-fx); box-shadow: var(--u-edge); color: var(--ink); pointer-events: auto; }
+.hx-chip > * { display: flex; align-items: center; gap: 5px; padding: 0 8px 0 0; font: 600 13px/1 var(--sans); font-variant-numeric: tabular-nums; color: var(--ink); }
+.hx-chip > *[hidden] { display: none; }
+.hx-chip svg { width: 14px; height: 14px; fill: none; stroke: var(--green-hi); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.hx-chip .c-kp { height: 26px; padding: 0 9px; margin-left: 2px; border: 0; border-radius: 13px; background: rgba(102,223,176,0.14); cursor: pointer; }
+.hx-chip .c-kp small { font: 700 9px var(--sans); letter-spacing: 0.14em; text-transform: uppercase; color: var(--green-hi); }
+.hx-chip .c-kp::after { content: ''; position: absolute; inset: -6px 0; }
+.hx-chip .c-kp { position: relative; }
+.hx-chip.fuel-low .c-fuel svg { stroke: #ffbe5c; } .hx-chip.fuel-low .c-fuel b { color: #ffd38a; }
+.hx-chip.cond-warn .c-cond svg { stroke: #ffbe5c; } .hx-chip.cond-warn .c-cond b { color: #ffd38a; }
+.hx-chip.cond-bad .c-cond svg { stroke: #ff6a50; } .hx-chip.cond-bad .c-cond b { color: #ff8a6b; }
+body.is-looking .hx-chip, body.moment-on .hx-chip { opacity: 0; pointer-events: none; }
+body.has-touch.fuel-prompt .hx-chip { opacity: 0; pointer-events: none; }
+@media (orientation: portrait) { body.has-touch .hx-chip:not([hidden]) { left: auto; right: calc(14px + var(--safe-r)); bottom: auto; top: calc(var(--u-top) + 42px); transform: none; } }
+/* While he fills up by hand (refuel.js) the walking controls step aside; Refuel (to stop) stays. */
+body.refuelling #touch { opacity: 0; pointer-events: none; transition: opacity 0.3s; }

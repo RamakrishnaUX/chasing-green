@@ -40,6 +40,8 @@ function heightAt(x, z) {
   return carBase != null && rock < carBase + 2.6 && !solidRoofAt(x, z) ? rock : base;
 }
 
+// Walking the bike back with his feet: its pace (m/s) and the ground covered by each push (m).
+const PADDLE = 1.15, STRIDE = 0.5;
 // A bike does not float: no hull, only the sizes the rest of the car code reads from a kit.
 function bikeKit(model) {
   model.group.updateMatrixWorld(true);
@@ -210,6 +212,14 @@ export class Jeep {
     const afloat = this.boatOn && this.boat > 0.6; // hull down and jet out
     const B = S.boat || { maxSpeed: 15, accel: 6 };
 
+    // On the bike: feet down when it is stopped or being walked back (feet, 0..1, read by the
+    // rider, driver.js), lifted again as it pulls away. paddleT counts his steps walking it back.
+    if (S.bike) {
+      this.paddling = active && throttle < 0 && this.vF <= 0.5 && !this.air && this.depth < 0.6;
+      const want = !this.air && (this.paddling || (Math.abs(this.vF) < 0.9 && throttle <= 0) || (throttle > 0 && Math.abs(this.vF) < 0.25)) ? 1 : 0;
+      this.feet = clamp((this.feet || 0) + clamp(want - (this.feet || 0), -dt * 5, dt * 3.5), 0, 1);
+      if (this.paddling && this.vF < -0.05) this.paddleT = (this.paddleT || 0) + (-this.vF * dt) / STRIDE;
+    }
     // On the bike, the same control pulls a wheelie (see wheelieStep).
     // Nitro: hold to boost while the gauge lasts; it refills when you let go. It works on the
     // road and as a boat (it digs the jet in), but not while wading or changing over.
@@ -271,6 +281,15 @@ export class Jeep {
       else this.vF -= Math.min(this.vF, 1.6 * dt); // clutch in: no drive, a little drag
     } else if (throttle < 0) {
       if (this.vF > 0.5) { this.vF -= brake * dt; this.braking = 1; }
+      else if (S.bike) {
+        // A bike has no reverse gear: the rider puts both feet down and walks it back, seated,
+        // a push from each foot in turn. Only once his feet are on the ground, and at a walk.
+        if (this.feet > 0.85) {
+          const push = 0.78 + 0.22 * Math.sin(Math.PI * ((this.paddleT || 0) % 1)) ** 2;
+          this.vF = Math.max(this.vF - 2.4 * dt, -PADDLE * push);
+          if (this.vF < -PADDLE * push) this.vF = -PADDLE * push;
+        } else this.vF -= Math.sign(this.vF) * Math.min(Math.abs(this.vF), 3 * dt);
+      }
       else this.vF = Math.max(this.vF - S.accel * 0.6 * this.power * dt, -S.reverseMax);
     }
     // Rolling resistance: small on tarmac, more off-road for cars that are bad at it.
@@ -616,7 +635,10 @@ export class Jeep {
     }
     const pitchT = Math.atan2(gB - gF, F.z - B.z) - this.braking * 0.03;
     const v = this.vF, lean = Math.atan2(v * (this.yawRate || 0), 9.8);
-    const rollT = this.air ? this.roll : -clamp(lean, -0.52, 0.52) * clamp(Math.abs(v) / 4, 0, 1);
+    // Stopped on its feet, it leans a touch onto the rider's left foot, as a parked rider holds it;
+    // walking it back it stays upright between both feet.
+    const rest = (this.feet || 0) * (this.paddling ? 0 : 1) * (1 - clamp(Math.abs(v) / 1.5, 0, 1)) * 0.1;
+    const rollT = this.air ? this.roll : -clamp(lean, -0.52, 0.52) * clamp(Math.abs(v) / 4, 0, 1) - rest;
     const k = dt ? Math.min(1, dt * 6) : 1;
     this.pitch = this.air ? lerp(this.pitch, this.airPitch ?? 0, dt ? Math.min(1, dt * 3) : 1) : lerp(this.pitch, pitchT, k);
     // The lean eases toward its angle and never swings faster than a rider can tip a bike over
