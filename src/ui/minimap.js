@@ -436,6 +436,17 @@ export class MapUI {
       g.beginPath(); g.arc(u + S / 2, v + S / 2, 5.5 * dpr, 0, Math.PI * 2);
       g.fillStyle = '#ffffff'; g.fill(); g.lineWidth = 3 * dpr; g.strokeStyle = ME; g.stroke();
     }
+    // Friends in the room (ui/together.js): a dot in their colour, a notch for their heading; on the
+    // rim when off the edge, so you can always see which way they are.
+    if (this.others) for (const o of this.others) {
+      let u = (o.x - pos.x) * k, v = (o.z - pos.z) * k;
+      const m = S / 2 - 8 * dpr, f = Math.max(Math.abs(u), Math.abs(v)) / m;
+      if (f > 1) { u /= f; v /= f; }
+      u += S / 2; v += S / 2;
+      g.beginPath(); g.arc(u, v, 5.5 * dpr, 0, Math.PI * 2);
+      g.fillStyle = o.color; g.fill(); g.lineWidth = 2 * dpr; g.strokeStyle = '#0d1520'; g.stroke();
+      if (f <= 1) { g.beginPath(); g.moveTo(u + Math.sin(o.heading) * 9 * dpr, v + Math.cos(o.heading) * 9 * dpr); g.lineTo(u + Math.sin(o.heading) * 5.5 * dpr, v + Math.cos(o.heading) * 5.5 * dpr); g.lineWidth = 2.5 * dpr; g.strokeStyle = o.color; g.stroke(); }
+    }
     // Player: a blue arrow with a white rim and a soft pulse, the one thing on the map that moves.
     g.save();
     g.translate(S / 2, S / 2);

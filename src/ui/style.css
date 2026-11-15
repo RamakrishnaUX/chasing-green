@@ -2369,3 +2369,44 @@ body.has-touch .fill-card { left: calc(14px + var(--safe-l)); bottom: calc(14px 
 body.has-touch .fc-big b { font-size: 24px; } body.has-touch .fc-gauge { height: 9px; margin: 8px 0 5px; } body.has-touch .fc-kr, body.has-touch .fc-foot { font-size: 11px; }
 @media (orientation: portrait) { body.has-touch .fill-card { left: 50%; transform: translateX(-50%); bottom: calc(150px + var(--safe-b)); } }
 @media (prefers-reduced-motion: reduce) { .fc-gauge i::after, .fc-dot { animation: none; } }
+
+/* ---------- Together: a room of friends (ui/together.js, net/remotes.js) ---------- */
+.tg { display: grid; gap: 14px; max-width: 760px; }
+.tg-hero { padding: 20px 22px; background: rgba(6,16,14,0.62); }
+.tg-title { margin: 10px 0 0; font: 400 26px/1.2 var(--serif); }
+.tg-text { margin: 10px 0 0; font: 500 15px/1.55 var(--sans); color: var(--ink-2); max-width: 54ch; }
+.tg-name { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 10px 14px 10px 22px; background: rgba(6,16,14,0.62); }
+.tg-name span { font: 600 16px var(--sans); color: var(--ink); }
+.tg-name input { width: min(300px, 55%); height: 40px; padding: 0 14px; border: 1px solid var(--hair-2); border-radius: 8px; background: rgba(244,248,246,0.07); color: var(--ink); font: 600 16px var(--sans); outline: none; }
+.tg-name input::placeholder { color: var(--ink-3); }
+.tg-name input:focus { border-color: var(--green); box-shadow: 0 0 0 3px rgba(102,223,176,0.22); }
+.tg-room { padding: 18px 22px; background: rgba(6,16,14,0.62); }
+.tg-link { margin: 8px 0 0; font: 600 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--ink-2); word-break: break-all; user-select: all; -webkit-user-select: all; }
+.tg-people { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 2px; }
+.tg-people li { display: flex; align-items: baseline; gap: 10px; padding: 9px 0; border-top: 1px solid var(--hair-2); font: 500 14px var(--sans); color: var(--ink-2); }
+.tg-people i { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--c); box-shadow: 0 0 0 2px rgba(8,16,30,0.6); transform: translateY(1px); }
+.tg-people b { font: 700 15px var(--sans); color: var(--ink); }
+.tg-status { margin: 0; min-height: 1.4em; font: 600 14px var(--sans); color: var(--green); }
+.tg-status:empty { display: none; }
+.tg-actions { padding-top: 0; }
+.tg-note { margin: 0; font: 500 13px/1.5 var(--sans); color: var(--ink-3); max-width: 62ch; }
+.sheet-tabs .tab-count { min-width: 17px; height: 17px; padding: 0 5px; border-radius: 9px; background: var(--green); color: var(--green-ink); font: 800 11px/17px var(--sans); font-style: normal; text-align: center; }
+.sheet-tabs .tab-count[hidden] { display: none; }
+body:not(.has-touch) .sheet-tabs .tab-count { position: absolute; top: 9px; right: 2px; }
+body.has-touch .tg-hero { padding: 14px 16px; }
+body.has-touch .tg-title { font-size: 21px; }
+body.has-touch .tg-text { font-size: 14px; }
+body.has-touch .tg-name { padding: 8px 10px 8px 16px; }
+body.has-touch .tg-room { padding: 14px 16px; }
+body.has-touch .tg-actions .btn { min-height: 44px; }
+
+/* Names over the other players' heads, in the HUD's smoked glass. */
+.peer-tags { position: fixed; inset: 0; pointer-events: none; z-index: 4; overflow: hidden; }
+body.pre-start .peer-tags, body.photo-on .peer-tags { display: none; }
+.peer-tag { position: absolute; left: 0; top: 0; display: flex; align-items: center; gap: 6px; padding: 4px 10px 4px 8px; border-radius: 999px; white-space: nowrap;
+  background: rgba(8,16,14,0.55); -webkit-backdrop-filter: blur(12px) saturate(150%); backdrop-filter: blur(12px) saturate(150%);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.1), 0 6px 18px rgba(0,0,0,0.25); font: 700 12px var(--sans); color: var(--ink); will-change: transform; }
+.peer-tag::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--c); box-shadow: 0 0 8px var(--c); }
+.peer-tag span { font-weight: 600; color: var(--ink-2); }
+.peer-tag span:empty { display: none; }
+.peer-tag[hidden] { display: none; }

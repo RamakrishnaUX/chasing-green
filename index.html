@@ -274,6 +274,7 @@
         <button role="tab" data-page="garage" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M5 15.5l1.6-5.2A2 2 0 0 1 8.5 9h7a2 2 0 0 1 1.9 1.3l1.6 5.2M3.5 15.5h17v2.5a1 1 0 0 1-1 1h-15a1 1 0 0 1-1-1z"/></svg><span>Garage</span></button>
         <button role="tab" data-page="notebook" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M6.5 3.5h10a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2h-10zM6.5 3.5v17M9.5 8h6M9.5 11.5h6"/></svg><span>Journey</span></button>
         <button role="tab" data-page="learn" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M3 15c3-6 6-9 9-9s6 3 9 9M6 18c2-4 4-6 6-6s4 2 6 6"/></svg><span>Learn</span></button>
+        <button role="tab" data-page="together" aria-selected="false"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3.5 19c.6-3.4 2.8-5.5 5.5-5.5s4.9 2.1 5.5 5.5"/><circle cx="16.5" cy="9" r="2.4"/><path d="M15.2 13.7c2.6-.5 4.8 1.3 5.3 4.8"/></svg><span>Together</span><em class="tab-count" hidden></em></button>
         <button role="tab" data-page="sound" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9.5a3.5 3.5 0 0 1 0 5M18 7a7 7 0 0 1 0 10"/></svg><span>Sound</span></button>
         <button role="tab" data-page="settings" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M10.3 3h3.4l.5 2.4 1.6.9 2.3-.8 1.7 2.9-1.8 1.6v1.9l1.8 1.6-1.7 2.9-2.3-.8-1.6.9-.5 2.4h-3.4l-.5-2.4-1.6-.9-2.3.8-1.7-2.9L6 12.9V11L4.2 9.4l1.7-2.9 2.3.8 1.6-.9z"/><circle cx="12" cy="12" r="2.8"/></svg><span>Settings</span></button>
         <kbd class="tab-key" aria-hidden="true">E</kbd>
@@ -360,6 +361,31 @@
     </section>
 
     <!-- Sound -->
+    <!-- Together: a room of friends on the same island (ui/together.js) -->
+    <section id="together" class="sheet-page" data-page="together" hidden aria-label="Together">
+      <div class="tg">
+        <div class="tg-hero">
+          <p class="jr-k">Explore together</p>
+          <h3 class="tg-title">Same island, same sky</h3>
+          <p class="tg-text">Start a room and send the link. Friends who open it join you on the island, under the same weather, time and aurora. Up to eight in a room.</p>
+        </div>
+        <label class="tg-name" for="tg-name"><span>Your name</span><input id="tg-name" type="text" maxlength="20" autocomplete="nickname" spellcheck="false" placeholder="Traveller"></label>
+        <div class="tg-room" id="tg-room" hidden>
+          <p class="jr-k">Invite link</p>
+          <p class="tg-link" id="tg-link"></p>
+          <ul class="tg-people" id="tg-people" aria-label="In the room"></ul>
+        </div>
+        <p class="tg-status" id="tg-status" aria-live="polite"></p>
+        <div class="panel-actions tg-actions">
+          <button class="btn btn-primary" id="tg-start">Start a room</button>
+          <button class="btn btn-primary" id="tg-copy" hidden>Copy invite link</button>
+          <button class="btn" id="tg-share" hidden>Share</button>
+          <button class="btn btn-danger" id="tg-leave" hidden>Leave room</button>
+        </div>
+        <p class="tg-note">Players connect directly, browser to browser, as on a video call, so people in the room can see your internet address. Send the link only to people you know.</p>
+      </div>
+    </section>
+
     <section id="sound" class="sheet-page" data-page="sound" hidden aria-label="Sound">
       <div class="sound-muted" id="sound-muted" hidden>
         <span>Sound is muted.</span>

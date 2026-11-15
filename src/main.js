@@ -69,6 +69,9 @@ import { linkFor, readSharedSighting } from './share/link.js';
 import { ClipRecorder } from './share/recorder.js';
 import { dailyChallenge } from './challenges.js';
 import { track, tickPlay, countSighting, countStamp } from './analytics.js';
+import { roomLink } from './net/room.js';
+import { Together, DOING } from './ui/together.js';
+import { P as PERSON } from './net/remotes.js';
 
 const $ = (id) => document.getElementById(id);
 const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
@@ -149,9 +152,12 @@ addEventListener('resize', () => {
 });
 
 // ---------- State ----------
-const clock = new Clock(Number.isInteger(settings.month) ? settings.month : new Date().getMonth());
+// A room's link (net/room.js) brings its month and its trip seed, so everyone in it shares the sky.
+const linkRoom = roomLink();
+const clock = new Clock(linkRoom?.month ?? (Number.isInteger(settings.month) ? settings.month : new Date().getMonth()));
 clock.speed = settings.speed || 1;
-const tripSeed = (Date.now() ^ (Math.random() * 1e9)) >>> 0;
+const tripSeed = linkRoom?.seed ?? ((Date.now() ^ (Math.random() * 1e9)) >>> 0);
+let together = null; // exploring with friends (ui/together.js), made once the game is set up
 const forecast = new Forecast(tripSeed, { redChallenge: challenge.id === 'red' });
 const windNoise = createNoise2D(tripSeed ^ 77);
 const input = new Input(canvas);
@@ -1642,7 +1648,7 @@ function setQuality(name, save) {
   if (save) { settings.quality = name; forgetAutoQuality(); store.save(); }
   redrawUnderMenu();
 }
-$('set-month').addEventListener('change', (e) => setMonth(+e.target.value, true));
+$('set-month').addEventListener('change', (e) => { setMonth(+e.target.value, true); together?.event({ type: 'month', m: clock.month }); });
 // Months drive the sun path, darkness and aurora chance. The visual season follows from the month.
 function monthCardHTML() {
   const m = clock.m;
@@ -1671,7 +1677,7 @@ function setSeason(season, announce = true) {
   if (!announce) return;
   if (started) hud.toast(clock.midnightSun ? `${clock.m.name}. Midnight sun. No aurora this month.` : `${clock.m.name}. Aurora chance: ${clock.m.chance.toLowerCase()}. ${clock.m.tip}`, { seconds: 5 });
 }
-$('set-speed').addEventListener('change', (e) => { clock.speed = +e.target.value; settings.speed = clock.speed; store.save(); });
+$('set-speed').addEventListener('change', (e) => { clock.speed = +e.target.value; settings.speed = clock.speed; store.save(); together?.event({ type: 'speed', v: clock.speed }); });
 $('set-look').addEventListener('change', (e) => { settings.look = e.target.value; store.save(); hud.toast('The look changes on the next load. Reload the page to apply it.', { seconds: 4 }); track('setting_change', { setting: 'look', setting_value: e.target.value }); });
 $('set-rocks').addEventListener('change', (e) => { settings.rocks = e.target.value; store.save(); hud.toast('Rock density changes on the next load. Reload the page to apply it.', { seconds: 4 }); });
 $('set-reset').addEventListener('click', () => {
@@ -1770,7 +1776,7 @@ document.querySelectorAll('.icon-btn, .tile, .btn, .minimap').forEach((el) => ha
 document.querySelectorAll('.month-select').forEach((sel) => {
   sel.innerHTML = CONFIG.months.map((m, i) => `<option value="${i}">${m.name}</option>`).join('');
   sel.value = String(clock.month);
-  sel.addEventListener('change', (e) => setMonth(+e.target.value, started));
+  sel.addEventListener('change', (e) => { setMonth(+e.target.value, started); together?.event({ type: 'month', m: clock.month }); });
 });
 forecast.monthFactor = clock.m.aurora;
 renderMonthCards();
@@ -1898,6 +1904,7 @@ startBtn.addEventListener('click', () => {
   audio.setMuted(audio.muted);
   started = true; startedAt = performance.now();
   store.data.trips++; store.save();
+  setTimeout(() => together?.greet(), 1800);
   track('game_start', { month: clock.m.name, vehicle: settings.vehicle || 'jeep', graphics: qualityName, input: isTouch ? 'touch' : 'keyboard', trip_number: store.data.trips });
   $('intro').classList.add('is-leaving');
   document.body.classList.remove('pre-start');
@@ -3025,7 +3032,8 @@ function frame(now) {
   input.enabled = !paused;
   const t = now / 1000;
 
-  if (!paused) clock.tick(dt);
+  // In a room the clock runs behind a menu too: the others' time does not stop for yours.
+  if (!paused || together?.on) clock.tick(dt);
   const w = wind(clock.realSeconds);
 
   if (sitting && (mode !== 'walk' || input.throttle || input.steer)) toggleSit(false);
@@ -3098,6 +3106,7 @@ function frame(now) {
   trailDust.update(dt);
   powder.update(dt);
   powderCloud.update(dt);
+  if (together?.on) togetherTick(dt, paused);
 
   const p = activePos();
   const g = started ? guaranteeLevel() : 0;
@@ -3309,6 +3318,7 @@ function frame(now) {
     nav.update(dt, activePos(), activeHeading(), t);
     mapUI.route = nav.route?.pts || null; mapUI.dest = nav.dest;
     mapUI.lineMode = hud.hxShown;
+    mapUI.others = together?.on ? together.remotes.marks() : null;
     if (mapUI.lineMode) worldMarks(dt);
     mapUI.update(dt, activePos(), activeHeading());
     if (jeep.boatOn && started) badges.feat('boat');
@@ -3534,8 +3544,85 @@ bootSoon(async () => {
   }
 });
 
+// ---------- Exploring together (net/room.js, net/remotes.js, ui/together.js) ----------
+// What this player looks like to the others, ten times a second: what they are in and where.
+const r3 = (v) => Math.round(v * 1000) / 1000;
+function packState() {
+  const s = { m: mode === 'photo' ? 'chase' : mode, r: ride, k: jeep.kind };
+  if (ride === 'car') { const b = jeep.body; s.c = [jeep.pos.x, jeep.pos.y, jeep.pos.z, jeep.heading, b.rotation.x, b.rotation.z, b.position.y, jeep.vF, jeep.steerVis, jeep.boat].map(r3); }
+  else { s.h = [heli.pos.x, heli.pos.y, heli.pos.z, heli.heading, heli.pitch, heli.roll, heli.rpm].map(r3); if (heli.landed) s.hl = 1; }
+  if (mode === 'walk') {
+    const st = riding.on ? PERSON.ride : sitting ? PERSON.sit : walker.state === 'swim' ? PERSON.swim : walker.state === 'fall' ? PERSON.fall : walker.state === 'climb' || walker.state === 'mantle' ? PERSON.climb : PERSON.walk;
+    s.p = [walker.pos.x, walker.pos.y, walker.pos.z, walker.heading, riding.on ? riding.speed : walker.speedSmooth, st].map(r3);
+  } else if (mode === 'sky') s.p = [diver.pos.x, diver.pos.y, diver.pos.z, diver.heading, diver.speed, PERSON.sky].map(r3);
+  return s;
+}
+function describeState(s) {
+  if (s.m === 'walk') { const st = s.p?.[5]; return st === PERSON.ride ? 'On horseback' : st === PERSON.swim ? 'Swimming' : st === PERSON.sit ? 'Sitting' : st === PERSON.climb ? 'Climbing' : 'On foot'; }
+  if (s.r === 'heli' && s.m !== 'sky') return 'Flying';
+  if (s.m === 'chase' && s.r === 'car') return `${s.c?.[9] > 0.5 ? 'Boating in' : s.c && Math.abs(s.c[7]) > 1 ? 'Driving' : 'Parked in'} the ${(VEHICLES[s.k]?.name || 'car').toLowerCase()}`;
+  return DOING[s.m] || 'Exploring';
+}
+// The others are solid: your car and you on foot are kept out of them (each player keeps
+// themselves out, so a bump looks the same from both sides). Driving into one costs speed.
+let bumpAt = 0;
+function togetherTick(dt, paused) {
+  together.tick(dt, { started, camera, dark: lastSkyDark, w: innerWidth, h: innerHeight, hideTags: !!photo?.on || dialogOpen || document.body.classList.contains('is-looking') }, packState);
+  if (!started || paused) return;
+  const R = together.remotes;
+  if (mode === 'chase' && ride === 'car') {
+    const fx = Math.sin(jeep.heading), fz = Math.cos(jeep.heading), bike = !!jeep.model.bike;
+    const r = bike ? 0.45 : 1.0, half = bike ? 0.6 : 1.25;
+    for (const along of [half, -half]) {
+      const c = { x: jeep.pos.x + fx * along, z: jeep.pos.z + fz * along };
+      const hit = R.pushOut(c, r, jeep.pos.y);
+      if (!hit) continue;
+      jeep.pos.x += hit.nx * hit.push; jeep.pos.z += hit.nz * hit.push;
+      // Only the part of the motion into them is lost.
+      const into = -(fx * hit.nx + fz * hit.nz) * Math.sign(jeep.vF || 1);
+      if (into > 0) {
+        const hard = Math.abs(jeep.vF);
+        jeep.vF *= 1 - 0.85 * into;
+        if (hard > 3 && performance.now() - bumpAt > 600) { bumpAt = performance.now(); haptics.play('heavy'); audio.joint?.(Math.min(20, hard)); shake = Math.max(shake, Math.min(0.5, hard / 40)); }
+      }
+    }
+  } else if (mode === 'walk') R.pushOut(walker.pos, riding.on ? 0.8 : 0.35, walker.pos.y);
+}
+function setRoomClock(ck, snap) {
+  if (!ck || !Number.isFinite(ck.h)) return;
+  if (Number.isInteger(ck.m) && ck.m !== clock.month) setMonth(ck.m, false);
+  if (ck.sp && ck.sp !== clock.speed) { clock.speed = ck.sp; settings.speed = ck.sp; $('set-speed').value = String(ck.sp); }
+  // Far out (just joined, back from the background): jump to it; close: ease in, unseen.
+  const dh = ck.h - clock.gameHours, dr = ck.r - clock.realSeconds;
+  if (snap || Math.abs(dh) > 0.05) clock.gameHours = ck.h; else clock.gameHours += dh * 0.3;
+  if (snap || Math.abs(dr) > 3) clock.realSeconds = ck.r; else clock.realSeconds += dr * 0.3;
+}
+together = new Together({
+  scene, hud, track, haptics, settings, save: () => store.save(), seed: tripSeed,
+  month: () => clock.month,
+  clock: () => ({ h: clock.gameHours, r: clock.realSeconds, sp: clock.speed, m: clock.month }),
+  setClock: setRoomClock,
+  describe: describeState,
+  myPos: () => (world ? activePos() : { x: 0, z: 0 }),
+  onEvent: (peer, ev) => {
+    if (ev.type === 'month' && Number.isInteger(ev.m) && ev.m >= 0 && ev.m < 12 && ev.m !== clock.month) {
+      setMonth(ev.m, false);
+      hud.toast(`${peer.name} changed the month to ${clock.m.name}.`, { seconds: 3.5, priority: 2 });
+    } else if (ev.type === 'speed' && [1, 2, 4].includes(ev.v) && ev.v !== clock.speed) {
+      clock.speed = ev.v; settings.speed = ev.v; $('set-speed').value = String(ev.v); store.save();
+      hud.toast(`${peer.name} set time to ${ev.v === 1 ? 'normal speed' : `${ev.v}x`}.`, { seconds: 3, priority: 2 });
+    }
+  },
+});
+// Back from the background, take the time from the others before keeping it again.
+document.addEventListener('visibilitychange', () => {
+  const r = together?.room; if (!r || document.hidden) return;
+  r.away = true; clearTimeout(r.awayT); r.awayT = setTimeout(() => { r.away = false; }, 2500);
+});
+
 // Handy for tuning from the browser console.
 window.chasingGreen = {
+  get together() { return together; },
   clock, forecast, CONFIG, store, linkFor, scene, renderer, camera, mirrors, driver, setVehicle, fastTravel, input, badges, hud, notebook, THREE, get jeep() { return jeep; },
   get obstacles() { return obstacles; }, get crashFx() { return crashFx; }, get damage() { return damage; }, refuel, condition, get scene() { return scene; }, Vec3: THREE.Vector3, get puddles() { return puddles; }, get mapUI() { return mapUI; }, get snow() { return snow; },
   nearestRoad: (x, z, r) => nearestRoad(x, z, r), coastAt, roadDistAt, shoreDistAt, groundAt, solidTopAt, get wildlife() { return wildlife; },

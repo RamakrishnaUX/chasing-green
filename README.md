@@ -632,7 +632,11 @@ src/
     condition.js     each vehicle's condition: knocks, landings, off-road wear, repairs
     refuel.js        filling up by hand: out to the pump, nozzle and hose, back in
     input.js         keyboard, touch buttons, drag to look
+  net/
+    room.js          a room of friends: its link, finding each other (Trystero, WebRTC), who keeps the time
+    remotes.js       the other players drawn in their car, helicopter or on foot, their name tags and bumping
   ui/
+    together.js      the Together page: start a room, invite, who is here, leave
     cover.js         the start screen's hero shot: one vehicle at a time on wet ground
     auroraSky.js     the start screen's looping aurora sky, one shader on its own canvas
     hud.js           radio, compass, readouts, toasts, look-up meter
@@ -844,6 +848,38 @@ Riding and swimming play recordings from Freesound (`loadBody` and on in `audio.
 | Water round a swimmer | [Swimming in open water, sedate breaststroke](https://freesound.org/s/337682/) | YleArkisto | CC BY 4.0 |
 
 The Sound tab in the menu has a slider for each group: All sound, Music (the stereo), Car (engine, nitro, wading, splashes and knocks, and the hooves and swimming) and Ambience (wind, water and ice). Levels are saved; Music at zero also stops streaming. The quick Sound button and U still mute everything. The northern lights make no sound: the old high hum and crackle were removed because they sounded wrong.
+
+## Exploring together
+
+Friends can drive the same island at the same time. Menu → **Together** → **Start a room** makes a
+link like `/?room=k7f3q2x9ab&seed=1234567&m=10`; whoever opens it joins. Up to eight in a room.
+
+- **No server.** Players find each other through [Trystero](https://github.com/dmotz/trystero)
+  (its default: public Nostr relays carry the connection offers, encrypted with the room code as
+  the password) and then talk directly over WebRTC data channels. Trystero is loaded only when a
+  room opens (its own small chunk), so playing alone downloads nothing extra. `?net=local` swaps
+  the network for a `BroadcastChannel`: two tabs of one browser play together offline (the tests
+  use this).
+- **The same sky.** The link's `seed` is the trip seed (`tripSeed` in `main.js`), so the forecast,
+  clouds, wind and showers are the same for everyone; `m` is the month. The player who has been in
+  the room longest (and is playing now, not in the background) keeps the time: their clock goes
+  out every two seconds and the others ease theirs into step (or jump, if far out). In a room the
+  clock keeps running behind a menu. Changing the month or the time speed changes it for everyone.
+- **Everyone simulates only themselves** and sends what they are in and where, ten times a
+  second (`packState` in `main.js`). `remotes.js` draws each other player 150 ms in the past,
+  between the last two states, with the real models: their car with them at the wheel (wheels
+  turning and steering, the boat kit folding, lamps that glow at night), their helicopter, or
+  them on foot with the walker's own clip blend, swimming or falling. A parked car stays where
+  they left it while they walk.
+- **They are solid.** Your car and you on foot are pushed out of the others' cars and bodies
+  (two circles along your car against a capsule for theirs). Driving into one costs the speed
+  going into it, with a thump.
+- **Names** float over each player (fading with distance, with the distance once far off), and
+  they show on the minimap as dots in their colour, on its rim when off the edge.
+
+Not yet shared: the animals (each player has their own), the horse (a rider shows on foot), the
+canopy under a skydiver, and postcards. Players behind strict networks (some offices and mobile
+carriers) may not connect without a TURN server; `turnConfig` in `room.js` is where one would go.
 
 ## Analytics
 
