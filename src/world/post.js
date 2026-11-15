@@ -114,12 +114,20 @@ export class Post {
       // The occlusion pass draws the scene again for its normals and depth. Grass blades and far
       // boulders add little shading there and a lot of triangles, so they sit that pass out. So do
       // glows deeper in the scene, listed in scene.userData.noAO: drawn solid, they leave a dark square.
-      const aoRender = this.ao.render.bind(this.ao);
+      // The occlusion it finds is a metre or so across, under a pixel by a few hundred metres off,
+      // so the pass sees only to AO_FAR: drawing the whole island again for it (every terrain tile,
+      // road and landmark to the horizon) was about a tenth of every frame's work on the processor.
+      // The camera's far plane is pulled in for the whole pass, normals, depth and the occlusion
+      // alike, so they agree; beyond it the depth is clear and nothing is shaded.
+      const aoRender = this.ao.render.bind(this.ao), AO_FAR = 260;
       this.ao.render = (...args) => {
         const out = scene.children.filter((o) => o.userData.noAO && o.visible);
         for (const o of scene.userData.noAO || []) if (o.visible) out.push(o);
         for (const o of out) o.visible = false;
+        const far = camera.far, near = far > AO_FAR;
+        if (near) { camera.far = AO_FAR; camera.updateProjectionMatrix(); }
         aoRender(...args);
+        if (near) { camera.far = far; camera.updateProjectionMatrix(); }
         for (const o of out) o.visible = true;
       };
     }

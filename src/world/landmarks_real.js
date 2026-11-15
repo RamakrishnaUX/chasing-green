@@ -310,7 +310,17 @@ function fissureWalls(kit, path, { gap, lip, foot, wall = 4.5, seed = 0 }) {
     }
     // Swept as a craggy block from the crack's floor to its lip, the side away from the crack
     // ramped down into the land; moss over the tops.
-    const geo = masked(sweepGeometry(pts, { w: () => wall, h: (t) => lip(t) - foot, K: 26, seed: seed + side * 5, rough: 0.4, ramp: side }));
+    const K = 26, geo = masked(sweepGeometry(pts, { w: () => wall, h: (t) => lip(t) - foot, K, seed: seed + side * 5, rough: 0.4, ramp: side }));
+    // The block's underside reaches into the land wherever it is. The block is laid out from the
+    // ground under its middle, so where the land falls away beside the crack (Silfra lies on a
+    // slope) its outer foot hung in the air and the crack stood on the land like a raised trough.
+    {
+      const P = geo.attributes.position, rings = (P.count - 2) / K;
+      for (let i = 0; i < P.count; i++) {
+        if (i < rings * K && Math.sin(((i % K) / K) * Math.PI * 2) >= 0) continue;
+        P.setY(i, Math.min(P.getY(i), kit.ground(P.getX(i), P.getZ(i)) - 0.6));
+      }
+    }
     // Lava moss over everything gentle enough to hold it; the sheer faces stay bare basalt.
     geo.computeVertexNormals();
     const nr = geo.attributes.normal, cl = geo.attributes.color;
@@ -359,10 +369,11 @@ export function buildGrjotagja(kit) {
     s.material = s.material.clone(); s.material.opacity = 0.2; s.material.size = 3.5;
     s.position.set(x, kit.ground(x, z) + 0.6, z); g.add(s); kit.steam(s, 0.5);
   }
-  // A warm glow from the water at night.
-  const glow = new THREE.PointLight(0x5fd0ff, 0, 14, 2);
-  glow.position.set(0, y0 + 1.5, -15); g.add(glow);
-  kit.update((dt, t, env) => { glow.intensity = (env.dark || 0) * 6; });
+  // A glow from the water at night, in the water itself. (It was a point light: one more light in
+  // the scene whenever Grjótagjá came into view, which made every material on screen rebuild its
+  // shader, a freeze of a second or more as you drove up, and again as you left.)
+  water.emissive = new THREE.Color(0x3fb8e8);
+  kit.update((dt, t, env) => { water.emissiveIntensity = (env.dark || 0) * 0.55; });
   return g;
 }
 

@@ -22,6 +22,23 @@ import { HD } from './hd.js';
 
 // Built places keep their walls; everything else is a landform you can climb onto, not into.
 const NOT_GROUND = ['town', 'building', 'sculpture', 'bridge', 'wreck', 'pool', 'cave', 'stadium'];
+// Made by hand rather than by nature: closed shapes, drawn one side only as usual.
+const BUILT = ['town', 'building', 'sculpture', 'bridge', 'wreck', 'pool', 'stadium'];
+// Natural rock (cliffs, fissure walls, stacks, arches, gorges) is drawn from both sides. Its shells
+// are open where they meet the ground, and in places a wall stands higher than the land behind it
+// (Silfra's and Almannagjá's walls, the edge of Dyrhólaey's arch, a gorge's lip), or the realistic
+// look's displacement folds a thin ledge over; from there, drawn one side only, you looked straight
+// through the rock as if it were hollow. Shadows are cast as before (from the back faces), so the
+// faces do not shadow themselves. The materials are switched in place (some are lit at night or
+// read by the landmark's own updaters through these very objects).
+function solidRock(root) {
+  root.traverse((m) => {
+    if (!m.isMesh || Array.isArray(m.material)) return;
+    const mat = m.material;
+    if (!mat.isMeshStandardMaterial || mat.transparent || mat.side !== THREE.FrontSide) return;
+    mat.side = THREE.DoubleSide; mat.shadowSide = THREE.BackSide; mat.needsUpdate = true;
+  });
+}
 
 const DESC = {
   seljalandsfoss: 'A tall waterfall you can walk all the way behind.',
@@ -647,7 +664,7 @@ function spaceOut(P) {
   }
 }
 function slideAlongRoad(p, mx, mz) {
-  const r = nearestRoad(p.x, p.z, 300);
+  const r = nearestRoad(p.x, p.z, 300, true);
   if (!r) { p.x += mx; p.z += mz; return; }
   const dir = (q) => { const tx = q.seg.bx - q.seg.ax, tz = q.seg.bz - q.seg.az, L = Math.hypot(tx, tz) || 1; return [tx / L, tz / L]; };
   const [ux, uz] = dir(r), m = Math.hypot(mx, mz);
@@ -655,7 +672,7 @@ function slideAlongRoad(p, mx, mz) {
   // Pushed straight across the road: slide anyway, the way the push leans.
   if (Math.abs(along) < 0.4 * m) along = (along < 0 ? -1 : 1) * m;
   const side = (p.x - r.px) * -uz + (p.z - r.pz) * ux < 0 ? -1 : 1;
-  const r2 = nearestRoad(r.px + ux * along, r.pz + uz * along, 300) || r;
+  const r2 = nearestRoad(r.px + ux * along, r.pz + uz * along, 300, true) || r;
   const [vx, vz] = dir(r2);
   p.x = r2.px - vz * side * p.def.away;
   p.z = r2.pz + vx * side * p.def.away;
@@ -682,7 +699,7 @@ export class Landmarks {
     const placed = LANDMARKS.map((def) => {
       const w = def.pos ? { x: def.pos[0] * WS, z: def.pos[1] * WS } : toWorld(def.ll[0], def.ll[1]);
       let x = w.x, z = w.z;
-      const road = nearestRoad(x, z, 300);
+      const road = nearestRoad(x, z, 300, true);
       // Nudges are in the units of the island at WS 2.4: grown with it, so every gap between sights grows alike.
       if (def.offset) { x += def.offset[0] * GROW; z += def.offset[1] * GROW; }
       else if (def.away && road) {
@@ -706,12 +723,12 @@ export class Landmarks {
       let facing = 0;
       // Never build in the sea: step toward the road until the ground is dry.
       for (let k = 0; k < 30 && heightAt(x, z) < waterLevelAt(x, z) + 0.8 && def.kind !== 'headland' && def.kind !== 'beach'; k++) {
-        const rr = nearestRoad(x, z, 300);
+        const rr = nearestRoad(x, z, 300, true);
         if (!rr) break;
         const dx = rr.px - x, dz = rr.pz - z, d = Math.hypot(dx, dz) || 1;
         x += (dx / d) * 2; z += (dz / d) * 2;
       }
-      const r2 = nearestRoad(x, z, 300);
+      const r2 = nearestRoad(x, z, 300, true);
       if (r2) facing = Math.atan2(r2.px - x, r2.pz - z); // face the nearest road
       if (['lake', 'lagoon', 'beach', 'canyon', 'headland'].includes(def.kind)) facing = z < -150 * WS ? Math.PI : 0; // sea is north on the north coast
       if (def.facing != null) facing = def.facing;
@@ -813,6 +830,7 @@ export class Landmarks {
     if (lm.id === 'skogafoss') { const st = buildStairway(kit, root, { x0: 24, x1: 34, start: [24.5, 2.6], top: 23.6 }); this.collectColliders(st); }
     this.beforeBake?.(root, lm);
     bakeStatic(root);
+    if (!BUILT.includes(lm.kind)) solidRock(root);
   }
 
   collectColliders(obj) {

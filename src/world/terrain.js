@@ -128,7 +128,7 @@ function cellKey(cx, cz) { return cx * 100003 + cz; }
 function buildRoads() {
   for (const road of ROADS) {
     const pts = catmullRom(road.points, !!road.loop);
-    roadPaths.push({ name: road.name, type: road.type, loop: !!road.loop, pts, profile: road.profile, summit: road.summit || 0, isle: !!road.isle });
+    roadPaths.push({ name: road.name, type: road.type, loop: !!road.loop, pts, profile: road.profile, summit: road.summit || 0, isle: !!road.isle, spur: !!road.spur });
   }
 }
 
@@ -136,7 +136,7 @@ function insertSegments() {
   roadPaths.forEach((path, pi) => {
     const p = path.pts;
     for (let i = 0; i < p.length - 1; i++) {
-      const seg = { ax: p[i].x, az: p[i].z, bx: p[i + 1].x, bz: p[i + 1].z, ha: p[i].h, hb: p[i + 1].h, fa: p[i].ford, fb: p[i + 1].ford, type: path.type, path: pi, i };
+      const seg = { ax: p[i].x, az: p[i].z, bx: p[i + 1].x, bz: p[i + 1].z, ha: p[i].h, hb: p[i + 1].h, fa: p[i].ford, fb: p[i + 1].ford, type: path.type, path: pi, i, spur: path.spur };
       segments.push(seg);
       const minCx = Math.floor(Math.min(seg.ax, seg.bx) / CELL), maxCx = Math.floor(Math.max(seg.ax, seg.bx) / CELL);
       const minCz = Math.floor(Math.min(seg.az, seg.bz) / CELL), maxCz = Math.floor(Math.max(seg.az, seg.bz) / CELL);
@@ -150,7 +150,8 @@ function insertSegments() {
   });
 }
 
-export function nearestRoad(x, z, maxR = 96) {
+// mainOnly: leave out the turn-offs to sights (geo.js ACCESS), for placing the sights themselves.
+export function nearestRoad(x, z, maxR = 96, mainOnly = false) {
   const r = Math.ceil(maxR / CELL);
   const cx0 = Math.floor(x / CELL), cz0 = Math.floor(z / CELL);
   let best = null, bestD = maxR;
@@ -160,7 +161,7 @@ export function nearestRoad(x, z, maxR = 96) {
       const list = roadHash.get(cellKey(cx, cz));
       if (!list) continue;
       for (const s of list) {
-        if (seen.has(s)) continue;
+        if (seen.has(s) || (mainOnly && s.spur)) continue;
         seen.add(s);
         const q = segDist(x, z, s.ax, s.az, s.bx, s.bz);
         if (q.d < bestD) {
@@ -673,7 +674,7 @@ function rawHeight(x, z, cd, noLakes = false, noBridge = false) {
   // Kerið: the land follows the crater shape, a little below the detailed surface laid over it.
   if (!keridBusy && !noBridge) {
     const ku = keridU(x, z);
-    if (ku < 1.9) {
+    if (ku < 2.5) {
       if (KERID.base == null) {
         // Base height: the average of the land in a ring just outside the crater.
         keridBusy = true;
@@ -685,7 +686,10 @@ function rawHeight(x, z, cd, noLakes = false, noBridge = false) {
         keridBusy = false;
       }
       const target = KERID.base + keridProfile(ku) - (ku < 0.84 ? 1.8 : 0.3);
-      h = lerp(target, h, smoothstep(1.05, 1.9, ku));
+      // Down to the fields over a long, grassy flank, as the real crater's scoria hill does. The
+      // base can stand 20 m above the land round it, and eased down over less than half the crater's
+      // width that was a bare earth cliff, hidden under a sheet of flat green.
+      h = lerp(target, h, smoothstep(1.05, 2.5, ku));
     }
   }
   if (!noBridge) h = bridgeShape(x, z, h);
@@ -740,7 +744,7 @@ function applyJumps(path, h) {
 function snapJumps() {
   for (const J of JUMPS) {
     let bd = 1e9;
-    for (const path of roadPaths) for (const q of path.pts) { const d = Math.hypot(q.x - J.x, q.z - J.z); if (d < bd) { bd = d; J.sx = q.x; J.sz = q.z; J.path = path.name; } }
+    for (const path of roadPaths) if (!path.spur) for (const q of path.pts) { const d = Math.hypot(q.x - J.x, q.z - J.z); if (d < bd) { bd = d; J.sx = q.x; J.sz = q.z; J.path = path.name; } }
     J.x = J.sx; J.z = J.sz;
   }
 }
@@ -1057,7 +1061,7 @@ export async function buildTerrain(scene, res, season, onProgress) {
           if (rd < 7) continue;
           // Keep canyons sharp: smoothing would fill them in.
           if (CANYONS.some((c) => segDistSq(gx, gz, c.a.x, c.a.z, c.b.x, c.b.z) < (c.w + 6) ** 2)) continue;
-          if (keridU(gx, gz) < 1.95) continue;
+          if (keridU(gx, gz) < 2.55) continue;
           const avg = (src[i] * 4 + src[i - 1] + src[i + 1] + src[i - nx] + src[i + nx] + (src[i - nx - 1] + src[i - nx + 1] + src[i + nx - 1] + src[i + nx + 1]) * 0.5) / 10;
           Hh[i] = lerp(src[i], avg, smoothstep(7, 15, rd) * 0.8);
         }

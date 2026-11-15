@@ -156,6 +156,37 @@ export const ROADS = [
   },
 ];
 
+// Turn-offs to the sights that stand well back from their road, as the real ones have: a short
+// road from the main road straight towards the sight, ending at a car park (a short strip across
+// its end) just outside the sight's rocks, walls and water. from: the junction on the main road;
+// to: the car park. Worked out by tools/access-roads.js from where the landmarks stand; run it
+// again if a landmark or a main road moves. (Kerið has none: its crater crowns a hill whose
+// grassy flank starts at the road, so a turn-off would cut into it.)
+export const ACCESS = [
+  { id: 'thingvellir', type: 'paved', from: [64.25503, -21.13002], to: [64.28065, -21.13002] },
+  { id: 'kirkjufell', type: 'paved', from: [64.925, -23.25], to: [64.9284, -23.30715] },
+  { id: 'studlagil', type: 'gravel', from: [65.175, -15.23996], to: [65.16987, -15.30176] },
+  { id: 'dettifoss', type: 'gravel', from: [65.8148, -16.38821], to: [65.82533, -16.28639] },
+  { id: 'hallgrimskirkja', type: 'paved', from: [64.238, -21.88672], to: [64.23353, -21.82315] },
+  { id: 'perlan', type: 'paved', from: [64.07885, -21.66574], to: [64.02141, -21.72301] },
+  { id: 'skaftafell', type: 'paved', from: [64.01602, -16.96503], to: [64.03013, -16.93363] },
+  { id: 'asbyrgi', type: 'paved', from: [66.05438, -16.69699], to: [66.01349, -16.71054] },
+  { id: 'oxararfoss', type: 'paved', from: [64.25188, -21.06771], to: [64.28627, -21.04744] },
+  { id: 'hasteinsvollur', type: 'paved', from: [63.3277, -20.11979], to: [63.33726, -20.21409] },
+  { id: 'geosea', type: 'paved', from: [66.02908, -17.34133], to: [66.05241, -17.41078] },
+  { id: 'silfra', type: 'paved', from: [64.25106, -21.20201], to: [64.28027, -21.21485] },
+  { id: 'laugavegur', type: 'paved', from: [64.30785, -21.85584], to: [64.30359, -21.78206] },
+].map((A) => {
+  const [a, b] = ll([A.from, A.to]), len = Math.hypot(b.x - a.x, b.z - a.z);
+  return { ...A, a, b, len, ux: (b.x - a.x) / len, uz: (b.z - a.z) / len };
+});
+export const CAR_PARK = { half: 11, r: 14 }; // half its length across the turn-off's end; the level ground round it
+for (const A of ACCESS) {
+  const { a, b, ux, uz } = A, h = CAR_PARK.half;
+  ROADS.push({ name: `To ${A.id}`, type: A.type, spur: true, points: [a, { x: a.x + ux * A.len * 0.5, z: a.z + uz * A.len * 0.5 }, b] });
+  ROADS.push({ name: `Car park ${A.id}`, type: A.type, spur: true, points: [{ x: b.x - uz * h, z: b.z + ux * h }, b, { x: b.x + uz * h, z: b.z - ux * h }] });
+}
+
 // Shallow river crossings on the highland track. The first sits a little way up Kjölur from
 // Gullfoss and the last a little short of Landmannalaugar, so the track has room to come down
 // off the high ground to each.

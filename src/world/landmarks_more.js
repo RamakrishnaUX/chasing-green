@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { harpaInterior, churchInterior, wall as hiddenWall, HARPA_DOOR, CHURCH_DOOR } from './halls.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { createWaterMaterial, createRiverMaterial, riverGeometry } from './materials.js';
+import { createWaterMaterial, createRiverMaterial, riverGeometry, rockMaterial } from './materials.js';
 import { KERID, keridU, keridProfile, keridWob } from './geo.js';
 import { HD } from './hd.js';
 import { buildAsbyrgi as buildAsbyrgiRock } from './nature.js';
@@ -43,7 +43,13 @@ function knoll(kit, { top, topR, R, color }) {
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setIndex(idx);
   g.computeVertexNormals();
-  const mesh = M(g, std(color, 0.95));
+  // Drawn with the land's own shader (grass on the slopes, bare earth where it steepens, snow in
+  // winter, the scanned textures on the realistic look), so it is the same turf as the field it
+  // rises from in every season. It was one flat green, bright as a lawn even under snow. (Its
+  // colour attribute is the land's masks, black sand, lava and ice, all off.)
+  g.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(g.attributes.position.count * 3), 3));
+  const mesh = M(g, rockMaterial());
+  mesh.userData.keepShape = true;
   mesh.userData.ground = true; // you drive up it, not into it
   return { mesh, heightAt };
 }
@@ -434,7 +440,10 @@ export function buildKerid(kit) {
   };
   const hash = (x, z) => { const v = Math.sin(x * 12.9898 + z * 78.233) * 43758.5453; return v - Math.floor(v); };
   const nz = (x, z) => Math.sin(x * 0.21 + Math.sin(z * 0.13) * 2) * Math.sin(z * 0.17 - x * 0.07) * 0.5 + 0.5;
-  const NR = 84, NS = 140, U0 = 0.34, U1 = 1.9;
+  // Out to just past the rim. Beyond it the land itself, already shaped to the crater, shows
+  // through: the surface used to run on to nearly twice the crater's size as one flat moss green,
+  // a bright lawn round it in every season, even with snow on the fields.
+  const NR = 52, NS = 140, U0 = 0.34, U1 = 0.98;
   const pos = [], col = [], idx = [], C = new THREE.Color();
   const red = new THREE.Color(0.47, 0.19, 0.13), brown = new THREE.Color(0.33, 0.19, 0.13), moss = new THREE.Color(0.33, 0.43, 0.19);
   const lichen = new THREE.Color(0.5, 0.52, 0.42), ledge = new THREE.Color(0.2, 0.19, 0.17), scree = new THREE.Color(0.4, 0.3, 0.22), path = new THREE.Color(0.55, 0.24, 0.15);
@@ -451,7 +460,8 @@ export function buildKerid(kit) {
       // it, so nothing drives beneath it. (Blended separately, it rose up to 7 m above the land on
       // the outer slope, and cars drove along inside the grass.)
       const land = kit.ground(lx, lz) + 0.12;
-      if (u >= 0.84) y = land;
+      if (u >= 0.84) y = land - 0.32 * THREE.MathUtils.smoothstep(u, 0.9, 0.98); // its edge sinks under the land
+
       pos.push(lx, y, lz);
       // Colour: scree apron, red scoria walls with moss and scree streaks, a dark ledge band,
       // the red rim path, then mossy ground outside.

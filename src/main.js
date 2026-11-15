@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { CONFIG } from './config.js';
 import { store } from './storage.js';
 import { createNoise2D, clamp, smoothstep, lerp } from './world/noise.js';
-import { START, PLACES, CANYONS, JUMPS, KERID, GROW, toWorld } from './world/geo.js';
+import { START, PLACES, CANYONS, JUMPS, KERID, GROW, toWorld, ACCESS, CAR_PARK } from './world/geo.js';
 import { updateTerrainLod, buildTerrain, paintTerrain, iceAt, flattenPads, bridges, roadPaths, nearestRoad, heightAt, coastAt, nearestRoadAnywhere, exposureAt, waterLevelAt, postReflectorMat, lakeMat, snowAt, groundAt, roadDistAt, shoreDistAt, surfaceAt, deckAt, deckHeightOf, deckJointsCrossed } from './world/terrain.js';
 import { Scatter } from './world/scatter.js';
 import { Grass } from './world/grass.js';
@@ -315,7 +315,9 @@ async function buildWorld(progress) {
     const pads = list.filter((l) => PAD[l.kind] && l.id !== 'seydisfjordur').map((l) => ({ x: l.x, z: l.z, r: l.id === 'hallgrimskirkja' ? 58 : PAD[l.kind], cap: l.id === 'hallgrimskirkja' || l.id === 'laugavegur' ? 2.5 : null }));
     // Fuel stations beside the Ring Road get level forecourts too.
     stationSites = siteStations(list);
-    flattenPads(pads.concat(stationSites.map((s) => s.pad)), world.mesh);
+    // Car parks at the end of the turn-offs to sights (geo.js ACCESS) stand on level ground too.
+    const parks = ACCESS.map((A) => ({ x: A.b.x, z: A.b.z, r: CAR_PARK.r, cap: null }));
+    flattenPads(pads.concat(stationSites.map((s) => s.pad), parks), world.mesh);
   } });
   await landmarks.buildAll(() => new Promise((r) => setTimeout(r, 0)));
   landmarks.onEvent = (type, lm) => {
@@ -424,6 +426,11 @@ async function buildWorld(progress) {
   // (preload.js), every car model, the person and the helicopter, and every animal (fetched and
   // decoded one at a time, shaders built, herds baked). Phones on a slow connection get up to
   // three minutes; past that the game starts and anything missing arrives as before.
+  // The sky's light map (for reflections) is made on its first update. Make it before anything's
+  // shaders are built (the animals' just below, everything else after): a shader built without it
+  // is built again the first time it is drawn with it, which was the stall as each herd first
+  // came into view mid-drive.
+  try { sky.update({ camera, clock, cloud: 0.05, cloudOffset, city: { overhead: 0, horizon: 0, dirX: 1, dirZ: 0 }, auroraVis: 0, auroraTint: aurora.tint, t: 0 }); } catch { /* made on the first frame instead */ }
   {
     const done = (async () => {
       await stage('Downloading the island', 0.965, 4000);
@@ -449,7 +456,15 @@ async function buildWorld(progress) {
   const extra = [driver.group, driver.helmet].filter((g) => !g.parent);
   for (const g of extra) scene.add(g);
   const hidden = [];
+  // Lights stay as they will be drawn: shaders are built for the number of lights in view, so a
+  // light hidden now (inside a far landmark, say) shown just for this would build every shader for
+  // one light too many, and each would be built again on the first frame. The night lights are
+  // built both ways below (eachLightSet).
+  const litNow = new Set(), night = new Set(nightLightList());
+  scene.traverseVisible((o) => { if (o.isLight) litNow.add(o); });
   scene.traverse((o) => { if (!o.visible) { hidden.push(o); o.visible = true; } });
+  const unlit = [];
+  scene.traverse((o) => { if (o.isLight && !litNow.has(o) && !night.has(o) && o.visible) { unlit.push(o); o.visible = false; } });
   // A shader is built for where it draws: straight to the screen, or into the picture the
   // finishing passes (grade, glow) work on, which wants a different build. Build the ones the
   // game will really use, or each object stalls the game the first time it comes into view,
@@ -471,6 +486,7 @@ async function buildWorld(progress) {
     for (const K of Object.values(wildlife.rigs.kinds)) up(K.template);
   }
   for (const o of hidden) o.visible = false;
+  for (const o of unlit) o.visible = true;
   for (const g of extra) scene.remove(g);
   if (compiled) try { await Promise.race([compiled, new Promise((r) => setTimeout(r, 4000))]); } catch { /* compiles on first use */ }
   // A built shader still has a setup step the first time it is drawn (its inputs are looked up,
@@ -500,6 +516,18 @@ async function eachLightSet(compile) {
   for (const on of [true, false]) { for (const L of list) L.visible = on; out.push(compile()); }
   for (const L of list) L.visible = was;
   return Promise.all(out.map((p) => Promise.resolve(p).catch(() => {})));
+}
+
+// The distance along (dx, dz) from (x, y, z) to the first solid surface of a landmark, or null
+// within far: the rock a climber's hands go on (walker.js faceGap).
+const faceCaster = new THREE.Raycaster(), faceFrom = new THREE.Vector3(), faceDir = new THREE.Vector3();
+function landmarkFaceRay(x, y, z, dx, dz, far) {
+  const near = landmarks.list.filter((l) => l.root && Math.hypot(l.x - x, l.z - z) < (l.cullR || 60) * 1.5 + 20).map((l) => l.root);
+  if (!near.length) return null;
+  faceCaster.set(faceFrom.set(x, y, z), faceDir.set(dx, 0, dz).normalize());
+  faceCaster.far = far;
+  const hit = faceCaster.intersectObjects(near, true).find((h) => h.object.isMesh && h.object.visible && !h.object.material.transparent && h.object.material.visible !== false);
+  return hit ? hit.distance : null;
 }
 
 // Things that arrive while you play (animals as you near a herd): build their shaders in the
@@ -2818,7 +2846,7 @@ function frame(now) {
     diverEvents(diver.update(paused ? 0 : dt, { throttle: input.throttle, steer: input.steer }, w));
   } else if (mode === 'walk') {
     if (ride === 'heli') heli.fly(paused ? 0 : dt, w, walker.pos); else jeep.update(dt, input, w, false);
-    if (landmarks && !walker.bathAt) { walker.bathAt = (x, z, m) => landmarks.bathAt(x, z, m); walker.rimAt = (x, z) => landmarks.rimAt(x, z); }
+    if (landmarks && !walker.bathAt) { walker.bathAt = (x, z, m) => landmarks.bathAt(x, z, m); walker.rimAt = (x, z) => landmarks.rimAt(x, z); walker.faceRay = landmarkFaceRay; }
     if (riding.on) {
       riding.update(paused ? 0 : dt, input);
       if (riding.blocked && performance.now() - (rideBlockAt || 0) > 3000) { rideBlockAt = performance.now(); hud.toast(riding.blocked === 'deep' ? 'Too deep for the horse.' : 'Too steep for the horse here.', { seconds: 2 }); }
@@ -3261,7 +3289,7 @@ window.chasingGreen = {
   nearestRoad: (x, z, r) => nearestRoad(x, z, r), coastAt, roadDistAt, shoreDistAt, groundAt, solidTopAt, get wildlife() { return wildlife; },
   roadPaths: () => roadPaths, fuel, putCar, get stations() { return stations; }, stageTimes, get riding() { return riding; }, get walker() { return walker; },
   set camHold(v) { camHold = !!v; },
-  walkerSet: (x, z, h) => { if (mode === 'walk' && !riding.on) { walker.pos.set(x, groundAt(x, z), z); walker.heading = h; } },
+  walkerSet: (x, z, h) => { if (mode === 'walk' && !riding.on) { walker.state = 'walk'; walker.mantleInfo = null; walker.vy = 0; walker.faceGap = 0; if (walker.body) walker.body.holds = null; walker.pos.set(x, groundAt(x, z), z); walker.heading = h; } },
   heightAt: (x, z) => heightAt(x, z), get skyRefl() { return skyRefl; }, get surf() { return surfFx; }, governor, set lodOff(v) { lodOff = v; },
   snowAt: (x, z) => snowAt(x, z),
   waterLevelAt: (x, z) => waterLevelAt(x, z),

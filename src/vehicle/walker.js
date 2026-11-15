@@ -3,7 +3,7 @@ import { loadGLTF } from '../world/gltf.js';
 import { CONFIG } from '../config.js';
 import { groundAt as heightAt, surfaceHeightAt, waterLevelAt } from '../world/terrain.js';
 import { clamp, lerp, smoothstep } from '../world/noise.js';
-import { Body, CYCLE } from './walkik.js';
+import { Body, CYCLE, climbRise } from './walkik.js';
 
 // The person on foot: a man in a winter coat ("Man In Coat" by Saitam, CC BY 4.0, an Adobe Fuse
 // character on a Mixamo rig) moved by Mixamo clips ("ETB Animated" by Royaleyourdad, CC BY 4.0;
@@ -19,7 +19,7 @@ import { Body, CYCLE } from './walkik.js';
 const STEP = 0.25; // a ledge this high is stepped up; anything higher is climbed
 const REACH = 0.35; // hands and toes to the rock, from the body's centre
 const BODY = 0.3; // radius kept clear of the car
-const CLIMB = 0.5; // metres a second up a face (a steady climber's pace)
+const CLIMB = 0.32; // metres a second up a face (a steady climber's pace, one limb at a time)
 const MANTLE_H = 1.15; // a lip this far above his feet is pressed up onto, not climbed
 const RANGE = 2500; // metres he may walk from the car: far enough to hike up a mountain and back
 const GRAVITY = 18;
@@ -66,6 +66,12 @@ export class Walker {
     this.grade = 0; // rise over run of the ground ahead, smoothed
     this.climbW = 0; this.feetW = 0; // how much of the climbing and foot-planting solve is shown
     this.jumpT = -1; // seconds into a hop, or -1
+    // On a landmark's rock, the ground he climbs (a height grid about a metre fine, read between its
+    // cells) starts rising up to a metre before the rock you see, so he climbed the air in front of
+    // the cliff. faceRay(x, y, z, dx, dz, far) (main.js) finds the real rock; while he climbs he and
+    // his holds are drawn that much further on (faceGap, along his heading), onto the rock itself.
+    this.faceRay = null; this.faceGap = 0; this.gapWant = 0; this.gapAt = 0;
+    this.shift = new THREE.Vector3();
     this.ready = loadGLTF(`${import.meta.env.BASE_URL}models/person.glb`).then((g) => {
       const man = g.scene;
       man.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false; } });
@@ -157,15 +163,18 @@ export class Walker {
 
     if (this.state === 'climb') {
       // Up the face while pushing forward, hanging on while not, letting go when backing off.
-      // The face is the highest rock between the body and arm's length. The body rises in two
-      // pushes a cycle, as each foot steps up and stands.
+      // The face is the highest rock between the body and arm's length. The climb runs at a steady
+      // pace through its limb moves; the body rises only in the two pushes a cycle, as each foot
+      // stands up on its new hold (climbRise), and holds still while a hand reaches.
       let face = -Infinity;
       for (const d of [0.05, 0.15, REACH]) face = Math.max(face, this.groundAt(this.pos.x + fx * d, this.pos.z + fz * d));
+      if (this.time - this.gapAt > 0.2) { this.gapWant = this.measureGap(fx, fz); this.gapAt = this.time; }
+      this.faceGap = lerp(this.faceGap, this.gapWant, Math.min(1, dt * 6));
       if (face <= this.pos.y + MANTLE_H) this.startMantle(face, fx, fz, true);
       else if (t > 0) {
-        const u = this.climbPhase - Math.floor(this.climbPhase), push = 1 + 0.35 * Math.sin(u * Math.PI * 4 - 1.2);
-        const up = Math.min(face - MANTLE_H - this.pos.y + 0.01, CLIMB * dt * push);
-        this.pos.y += up; moved = up; this.climbPhase += up / CYCLE;
+        const ph = this.climbPhase + (dt * CLIMB) / CYCLE;
+        const up = clamp((climbRise(ph) - climbRise(this.climbPhase)) * CYCLE, 0, Math.max(0, face - MANTLE_H - this.pos.y + 0.01));
+        this.pos.y += up; moved = up; this.climbPhase = ph;
       }
       else if (t < 0) { this.state = 'fall'; this.vy = 0; }
     } else if (this.state === 'mantle') {
@@ -178,12 +187,19 @@ export class Walker {
         M.hands = M.handsFrom.map((h, i) => h.clone().lerp(M.lip[i], k));
       } else {
         const step = 1.1 * dt, nx = this.pos.x + fx * step, nz = this.pos.z + fz * step, g = this.groundAt(nx, nz);
+        // Over the lip yet? Until then he is up at its height on his hands and a knee, whatever the
+        // ground under him (still the foot of the face): easing him down to that dropped him back
+        // to the bottom of the cliff.
+        const over = M.went + step > M.d + 0.05;
         // Another face straight after the lip: stand here and take it from the walk (climb it).
         if (g > this.pos.y + STEP + 0.05) { this.state = 'walk'; this.mantleInfo = null; }
+        // The top ends straight away (a narrow rim, a wall's crest): stand here at its edge rather
+        // than stepping on over it.
+        else if (over && g < this.pos.y - 0.5) { this.state = 'walk'; this.mantleInfo = null; }
         else {
           this.pos.x = nx; this.pos.z = nz; moved = step; M.went += step;
-          M.v = Math.min(1, M.went / 0.55);
-          this.pos.y = Math.max(g, lerp(this.pos.y, g, Math.min(1, dt * 10)));
+          M.v = Math.min(1, M.went / Math.max(0.55 + 0.6 * Math.max(0, M.gap), M.d + 0.25));
+          this.pos.y = over ? Math.max(g, lerp(this.pos.y, g, Math.min(1, dt * 10))) : Math.max(this.pos.y, g);
           if (M.v >= 1) { this.state = 'walk'; this.mantleInfo = null; }
         }
       }
@@ -209,7 +225,7 @@ export class Walker {
         let top = -Infinity;
         for (const d of [0.05, 0.15, REACH, REACH + 0.2]) top = Math.max(top, this.groundAt(this.pos.x + fx * d, this.pos.z + fz * d));
         if (top <= this.pos.y + MANTLE_H) this.startMantle(top, fx, fz, false);
-        else { this.state = 'climb'; this.climbPhase = 0.98; this.climbStart = true; }
+        else { this.state = 'climb'; this.climbPhase = 0.98; this.climbStart = true; this.faceGap = this.gapWant = this.measureGap(fx, fz); this.gapAt = this.time; }
       }
       else if (!tooFar && !tooDeep && !wall) { moved = step; this.pos.x = nx; this.pos.z = nz; }
       const g = this.groundAt(this.pos.x, this.pos.z);
@@ -245,10 +261,28 @@ export class Walker {
     this.landed = Math.max(0, this.landed - dt * 3);
     if (this.jumpT >= 0) { this.jumpT += dt; if (this.state !== 'walk' || this.jumpT * JUMP.speed > (JUMP.to - JUMP.from) * (this.jumpLen || 2.37)) this.jumpT = -1; }
     this.root.position.copy(this.pos);
+    // Onto the rock you see (see faceGap): fully while climbing, easing off as he steps onto the top.
+    const M = this.mantleInfo, gap = this.state === 'climb' ? this.faceGap : this.state === 'mantle' && M ? M.gap * (1 - smoothstep(0, 1, M.v)) : 0;
+    this.shift.set(fx * gap, 0, fz * gap);
+    if (this.state !== 'climb') this.faceGap = this.state === 'mantle' ? this.faceGap : 0;
+    this.root.position.add(this.shift);
     this.root.rotation.y = this.heading;
     if (this.state === 'swim') this.root.position.y += Math.sin(this.time * 2.1) * 0.03;
     this.animate(dt, Math.sign(speed) || 1);
     this.solve(dt);
+  }
+
+  // How much further on the rock you see is than the face of the ground he climbs, at chest height:
+  // what he is drawn forward by while climbing (see faceGap). Kept as it was if either is not found.
+  measureGap(fx, fz) {
+    if (!this.faceRay) return 0;
+    const y = this.pos.y + 1.1;
+    let dG = null;
+    for (let d = 0; d <= 2; d += 0.04) if (this.groundAt(this.pos.x + fx * d, this.pos.z + fz * d) >= y) { dG = d; break; }
+    if (dG == null) return this.faceGap;
+    const dR = this.faceRay(this.pos.x - fx * 0.3, y, this.pos.z - fz * 0.3, fx, fz, 3.5);
+    if (dR == null) return this.faceGap;
+    return clamp(dR - 0.3 - dG, -0.3, 1.2);
   }
 
   // A lip to press up onto: its height and distance, where both hands go on it, and where the
@@ -259,10 +293,12 @@ export class Walker {
     const lx = fz, lz = -fx;
     const lip = [-0.2, 0.2].map((lat) => { const x = this.pos.x + fx * (d + 0.22) + lx * lat, z = this.pos.z + fz * (d + 0.22) + lz * lat; return new THREE.Vector3(x, Math.max(top, this.groundAt(x, z)), z); });
     const B = this.body, H = climbing && B?.holds;
-    const handsFrom = H ? [H.RH.pos.clone(), H.LH.pos.clone()] : lip.map((p) => p.clone().setY(p.y - 0.25).addScaledVector(new THREE.Vector3(fx, 0, fz), -0.15));
-    const feet = H ? [H.RF.pos.clone(), H.LF.pos.clone()] : B ? B.legs.slice().reverse().map((l) => { const p = l.end.getWorldPosition(new THREE.Vector3()); p.y = this.groundAt(p.x, p.z); return p; }) : [];
+    // Holds were planned on the rock as drawn (shifted by the gap): back into the climbing ground's frame.
+    const sh = climbing ? this.shift : new THREE.Vector3();
+    const handsFrom = H ? [H.RH.pos.clone().sub(sh), H.LH.pos.clone().sub(sh)] : lip.map((p) => p.clone().setY(p.y - 0.25).addScaledVector(new THREE.Vector3(fx, 0, fz), -0.15));
+    const feet = H ? [H.RF.pos.clone().sub(sh), H.LF.pos.clone().sub(sh)] : B ? B.legs.slice().reverse().map((l) => { const p = l.end.getWorldPosition(new THREE.Vector3()); p.y = this.groundAt(p.x, p.z); return p; }) : [];
     const h = top - this.pos.y;
-    this.mantleInfo = { u: 0, v: 0, went: 0, y0: this.pos.y, top, d, x: this.pos.x, z: this.pos.z, lip, handsFrom, hands: handsFrom, feet, climbing, rise: 0.3 + 0.6 * clamp(h / MANTLE_H, 0.35, 1) };
+    this.mantleInfo = { u: 0, v: 0, went: 0, gap: climbing ? this.faceGap : 0, y0: this.pos.y, top, d, x: this.pos.x, z: this.pos.z, lip, handsFrom, hands: handsFrom, feet, climbing, rise: 0.3 + 0.6 * clamp(h / MANTLE_H, 0.35, 1) };
     this.state = 'mantle'; this.jumpT = -1;
   }
 
@@ -270,12 +306,13 @@ export class Walker {
   solve(dt) {
     const B = this.body;
     if (!B || !this.man || this.sitting) return;
-    const ground = (x, z) => this.groundAt(x, z);
+    const sh = this.shift, ground = sh.x || sh.z ? (x, z) => this.groundAt(x - sh.x, z - sh.z) : (x, z) => this.groundAt(x, z);
     const ease = (w, to, rate) => (to > w ? Math.min(to, w + rate * dt) : Math.max(to, w - rate * dt));
     this.climbW = ease(this.climbW, this.state === 'climb' ? 1 : 0, this.state === 'climb' ? 7 : 4);
     if (this.state === 'climb') { B.plan(this.root, this.heading, ground, this.climbPhase, this.climbStart); this.climbStart = false; }
     if (this.state === 'mantle') {
-      const M = this.mantleInfo;
+      const M0 = this.mantleInfo, add = (p) => p.clone().add(sh);
+      const M = sh.x || sh.z ? { ...M0, x: M0.x + sh.x, z: M0.z + sh.z, hands: M0.hands.map(add), feet: M0.feet.map(add), lip: M0.lip.map(add) } : M0;
       B.mantle(this.root, this.heading, ground, M, M.climbing ? 1 : smoothstep(0, 0.25, M.u));
       this.feetW = 0;
       return;

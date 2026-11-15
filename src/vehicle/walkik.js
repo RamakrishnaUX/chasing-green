@@ -27,16 +27,27 @@ const UP = new THREE.Vector3(0, 1, 0);
 const ANKLE = 0.095; // the ankle's height above the sole, standing (measured off the rig)
 
 // Climbing: metres climbed per full cycle of four limb moves, and each limb's move as a share of
-// the cycle (diagonal pairs, the foot starting a little after its hand). HI: how high above the
-// feet line (walker.pos.y) each hold is taken, at the moment it is gripped; LAT: how far out to
-// the side (left positive). Hands grip at the wrist's reach; feet stand on the toe.
-export const CYCLE = 0.4;
+// the cycle. A climber moves one limb at a time while the other three hold, and the body only
+// rises when the legs stand up on a foot just placed: right hand up (the body still), left foot up,
+// then the push up off it; left hand up, right foot up, then the push. Each hand reaches up to near
+// full stretch overhead (the shoulder is about 1.43 above the feet line, the arm 0.46 to the wrist)
+// and is down at the shoulder by the time it moves again. HI: how high above the feet
+// line (walker.pos.y) each hold is taken, at the moment it is gripped; LAT: how far out to the side
+// (left positive). Hands grip at the wrist's reach; feet stand on the toe.
+export const CYCLE = 0.5;
 const LIMBS = [
-  { k: 'RH', hand: true, side: 'Right', a: 0.0, b: 0.34, hi: 1.74, lat: -0.24 },
-  { k: 'LF', hand: false, side: 'Left', a: 0.14, b: 0.46, hi: 0.36, lat: 0.15 },
-  { k: 'LH', hand: true, side: 'Left', a: 0.5, b: 0.84, hi: 1.74, lat: 0.24 },
-  { k: 'RF', hand: false, side: 'Right', a: 0.64, b: 0.96, hi: 0.36, lat: -0.15 },
+  { k: 'RH', hand: true, side: 'Right', a: 0.0, b: 0.2, hi: 1.9, lat: -0.26 },
+  { k: 'LF', hand: false, side: 'Left', a: 0.18, b: 0.34, hi: 0.42, lat: 0.15 },
+  { k: 'LH', hand: true, side: 'Left', a: 0.5, b: 0.7, hi: 1.9, lat: 0.26 },
+  { k: 'RF', hand: false, side: 'Right', a: 0.68, b: 0.84, hi: 0.42, lat: -0.15 },
 ];
+const PUSHES = [[0.32, 0.5], [0.82, 1.0]];
+// How far the body has risen by a point in the climb, in cycles: a whole cycle each time round,
+// in two pushes, and level in between while a hand reaches or a foot steps up.
+export function climbRise(phase) {
+  const c = Math.floor(phase), u = phase - c;
+  return c + PUSHES.reduce((s, [a, b]) => s + 0.5 * smoothstep(a, b, u), 0);
+}
 // A little variety in where each hold is, the same every time for a given move.
 const jitter = (n, s) => { const x = Math.sin(n * 12.9898 + s * 78.233) * 43758.5453; return (x - Math.floor(x)) * 2 - 1; };
 
@@ -172,20 +183,23 @@ export class Body {
     if (reset || !this.holds) this.holds = {};
     for (const L of LIMBS) {
       const c = Math.floor(phase - L.a), end = c + L.b, H = (this.holds[L.k] ||= { pos: null, cycle: null, from: V(), to: V() });
-      const ideal = () => holdAt(p0.y + (end - phase) * CYCLE + L.hi + jitter(c, L.a) * 0.06, L.lat + jitter(c, L.b) * 0.05);
+      // Where the feet line will be (or was) at a point in the climb, from where it is now.
+      const lineAt = (ph) => p0.y + (climbRise(ph) - climbRise(phase)) * CYCLE;
+      const ideal = () => holdAt(lineAt(end) + L.hi + jitter(c, L.a) * 0.06, L.lat + jitter(c, L.b) * 0.05);
       if (!H.pos) {
         // Starting out: every limb already on a hold, as if planted at the end of its last move.
-        const back = phase >= end ? phase - end : phase - (end - 1);
-        H.to.copy(holdAt(p0.y - back * CYCLE + L.hi, L.lat));
+        H.to.copy(holdAt(lineAt(phase >= end ? end : end - 1) + L.hi, L.lat));
         if (!L.hand) H.to.y = Math.max(H.to.y, ground(H.to.x, H.to.z));
         H.pos = H.to.clone(); H.cycle = phase < end ? c - 1 : c; H.from.copy(H.to);
         continue;
       }
       if (phase < end) {
-        // Moving: off the old hold, out from the rock and up to the new one.
+        // Moving: peeled off the old hold, up close along the rock to the new one (a hand only a
+        // few centimetres out from the face, a foot a little more as the knee comes up), quick
+        // off the hold and settling onto the next.
         if (H.cycle !== c) { H.from.copy(H.pos); H.to.copy(ideal()); H.cycle = c; }
-        const s = smoothstep(0, 1, (phase - (c + L.a)) / (L.b - L.a));
-        H.pos.lerpVectors(H.from, H.to, s).addScaledVector(f, -(L.hand ? 0.12 : 0.1) * Math.sin(Math.PI * s));
+        const r = clamp((phase - (c + L.a)) / (L.b - L.a), 0, 1), s = 1 - Math.pow(1 - smoothstep(0, 1, r), 1.6);
+        H.pos.lerpVectors(H.from, H.to, s).addScaledVector(f, -(L.hand ? 0.05 : 0.08) * Math.sin(Math.PI * r));
         H.moving = s;
       } else {
         if (H.cycle !== c) { H.to.copy(ideal()); H.cycle = c; H.from.copy(H.to); }
@@ -204,8 +218,11 @@ export class Body {
     const hy = p0.y + 0.86;
     let dFace = 0.6;
     for (let d = 0; d <= 0.9; d += 0.04) if (ground(p0.x + f.x * d, p0.z + f.z * d) >= hy) { dFace = d; break; }
-    const u = phase - Math.floor(phase), sway = Math.sin(u * Math.PI * 2) * 0.07;
-    const hips = wpos(b.Hips), want = V().set(p0.x + f.x * (dFace - 0.3), hy + Math.sin(u * Math.PI * 4) * 0.025, p0.z + f.z * (dFace - 0.3)).addScaledVector(left, sway);
+    // The hips shift over the foot about to bear the weight (left while the left foot pushes, then
+    // right), and sit a little further off the rock while a foot steps up under them.
+    const u = phase - Math.floor(phase), sway = Math.sin((u - 0.12) * Math.PI * 2) * 0.06;
+    const step = Math.max(...['LF', 'RF'].map((k) => Math.sin(Math.PI * (H[k].moving || 0))));
+    const hips = wpos(b.Hips), want = V().set(p0.x + f.x * (dFace - 0.3 - 0.06 * step), hy, p0.z + f.z * (dFace - 0.3 - 0.06 * step)).addScaledVector(left, sway);
     this.shiftHips(want.sub(hips));
     // Chest a little away from the rock, head tipped back to look up the face.
     turnWorld(b.Spine, left, -0.04); turnWorld(b.Spine2, left, 0.08);
