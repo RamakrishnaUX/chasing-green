@@ -212,7 +212,7 @@ export const headlightUniforms = {
   uLampPos: { value: new THREE.Vector3() }, uLampDir: { value: new THREE.Vector3(0, 0, 1) },
   uBeamOn: { value: 0 }, uBeamReach: { value: 90 }, uAmbient: { value: 1 },
 };
-const LAMP_GLSL = /* glsl */ `
+export const LAMP_GLSL = /* glsl */ `
 uniform vec3 uLampPos; uniform vec3 uLampDir; uniform float uBeamOn, uBeamReach;
 float lampLit(vec3 wp) {
   if (uBeamOn < 0.01) return 0.0;
@@ -299,79 +299,7 @@ export class SnowFall {
   }
 }
 
-// ---------- Rain ----------
-// Streaks falling through a box that follows the camera, slanted by the wind and stretched by
-// their speed, fading out close to the eye (so none fall inside the cabin), with drops bursting
-// on the ground round about. Intensity 0 to 1.
-export class RainFall {
-  constructor(scene, count = 2600) {
-    this.n = count; this.box = { x: 46, y: 26, z: 46 };
-    this.p = new Float32Array(count * 3); this.speed = new Float32Array(count);
-    for (let i = 0; i < count; i++) {
-      this.p[i * 3] = (Math.random() - 0.5) * this.box.x; this.p[i * 3 + 1] = (Math.random() - 0.5) * this.box.y; this.p[i * 3 + 2] = (Math.random() - 0.5) * this.box.z;
-      this.speed[i] = 8 + Math.random() * 3;
-    }
-    this.pos = new Float32Array(count * 6);
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3));
-    this.mat = new THREE.ShaderMaterial({
-      uniforms: { ...THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { uOpacity: { value: 0 }, uFade: { value: 0.6 }, uLight: { value: 1 } }]), ...headlightUniforms },
-      vertexShader: `uniform float uFade; varying float vNear; varying float vLit;
-        ${LAMP_GLSL}
-        #include <fog_pars_vertex>
-        void main() { vec4 mvPosition = modelViewMatrix * vec4(position, 1.0); gl_Position = projectionMatrix * mvPosition;
-          vNear = smoothstep(uFade, uFade * 2.5, -mvPosition.z);
-          vLit = lampLit((modelMatrix * vec4(position, 1.0)).xyz);
-          #include <fog_vertex>
-        }`,
-      fragmentShader: `uniform float uOpacity, uLight; varying float vNear; varying float vLit;
-        #include <fog_pars_fragment>
-        void main() { gl_FragColor = vec4(vec3(0.78, 0.83, 0.88) * (0.35 + 0.65 * uLight) + vec3(1.0, 0.96, 0.88) * vLit * 1.4, uOpacity * vNear * (1.0 + vLit * 1.5));
-          #include <fog_fragment>
-        }`,
-      transparent: true, depthWrite: false, fog: true,
-    });
-    this.lines = new THREE.LineSegments(g, this.mat);
-    this.lines.frustumCulled = false; this.lines.visible = false; this.lines.userData.noAO = true;
-    scene.add(this.lines);
-    this.splash = new Particles(scene, { count: Math.round(count * 0.25), color: 0xdfe8ee, size: 0.14, opacity: 0.7, gravity: 9, drag: 2 });
-    this.intensity = 0; this.anchor = null; this.carry = 0;
-  }
-  // target: how hard it should be raining here; wind: { x, z }; fade: metres from the eye that
-  // stay clear; light: 0 at night to 1 by day; groundAt(x, z): for the splashes.
-  update(dt, eye, target, wind, fade, light, groundAt) {
-    this.intensity += (target - this.intensity) * Math.min(1, dt * 0.35);
-    const I = this.intensity, on = I > 0.01;
-    this.lines.visible = on;
-    this.mat.uniforms.uOpacity.value = 0.32 * Math.min(1, I * 1.4);
-    this.mat.uniforms.uFade.value = fade; this.mat.uniforms.uLight.value = light;
-    this.splash.mat.opacity = 0.6 * light + 0.15;
-    if (on) {
-      const b = this.box, hx = b.x / 2, hy = b.y / 2, hz = b.z / 2, c = { x: eye.x, y: eye.y + 4, z: eye.z };
-      const d = this.anchor ? { x: c.x - this.anchor.x, y: c.y - this.anchor.y, z: c.z - this.anchor.z } : { x: 0, y: 0, z: 0 };
-      this.anchor = c;
-      const wx = (wind?.x || 0) * 0.35, wz = (wind?.z || 0) * 0.35, live = Math.round(this.n * Math.min(1, I * 1.2));
-      const wrap = (v, h, size) => ((v + h) % size + size) % size - h;
-      const P = this.p, out = this.pos;
-      for (let i = 0; i < this.n; i++) {
-        const k = i * 3, o = i * 6, v = this.speed[i];
-        P[k] = wrap(P[k] + wx * dt - d.x, hx, b.x); P[k + 1] = wrap(P[k + 1] - v * dt - d.y, hy, b.y); P[k + 2] = wrap(P[k + 2] + wz * dt - d.z, hz, b.z);
-        const x = c.x + P[k], y = c.y + P[k + 1], z = c.z + P[k + 2], L = 0.055;
-        out[o] = x; out[o + 1] = y; out[o + 2] = z;
-        out[o + 3] = x - wx * L; out[o + 4] = y + v * L; out[o + 5] = z - wz * L;
-      }
-      this.lines.geometry.setDrawRange(0, live * 2);
-      this.lines.geometry.attributes.position.needsUpdate = true;
-      // Drops bursting where they land, all round you.
-      this.carry += I * 320 * dt;
-      for (; this.carry >= 1; this.carry--) {
-        const a = Math.random() * Math.PI * 2, r = 1.5 + Math.random() * 16, x = eye.x + Math.cos(a) * r, z = eye.z + Math.sin(a) * r;
-        this.splash.emit(x, groundAt(x, z) + 0.03, z, 0, 1.1, 0, 1, 0.9, 0.18);
-      }
-    }
-    this.splash.update(dt);
-  }
-}
+// Rain itself (streaks, splashes and the car's shelter) is in rain.js.
 
 // ---------- Rain on the windscreen ----------
 // Seen from the driver's seat: drops land on the glass and gather, run down it when slow and are

@@ -52,6 +52,19 @@ float g_n(vec2 p){ vec2 i = floor(p); vec2 f = fract(p); vec2 u = f*f*(3.0-2.0*f
   return mix(mix(g_h(i), g_h(i+vec2(1,0)), u.x), mix(g_h(i+vec2(0,1)), g_h(i+vec2(1,1)), u.x), u.y); }
 float g_f(vec2 p){ float s = 0.0, a = 0.5; for(int i=0;i<4;i++){ s += a*g_n(p); p = p*2.07 + 13.7; a *= 0.5; } return s; }
 uniform float uWet; uniform float uRain;
+// How wet one spot of ground is while the ground as a whole is wet w (0 to 1): the first drops
+// leave dark spots, the spots join into patches, then it is wet all over, and it dries back the
+// same way, the last damp patches going last. dist: from the eye (past ~15 m single drop spots
+// are too small to draw and only the patches show).
+float wetCover(vec2 p, float w, float dist){
+  if (w <= 0.001) return 0.0;
+  vec2 g = p * 6.0, c = floor(g), f = fract(g) - 0.5;
+  vec2 o = vec2(g_h(c + 1.7), g_h(c + 4.3)) - 0.5;
+  float spot = smoothstep(0.3, 0.16, length(f - o * 0.4)) * (1.0 - smoothstep(6.0, 18.0, dist));
+  float blot = g_n(p * 0.55) * 0.55 + g_n(p * 2.1 + 7.0) * 0.45;
+  float th = 1.0 - w * 1.3;
+  return smoothstep(th, th + 0.1, max(spot * 0.92, blot));
+}
 // Raindrop rings: in every cell a drop lands at its own moment and a ring spreads and fades.
 // Returns a slope (x, z) to tilt the water's normal by.
 vec2 rainRings(vec2 p, float t){
@@ -343,7 +356,7 @@ export function createTerrainMaterial() {
         ? 'vec3 tCol = terrainColor(vColor, vWPos, normalize(vWNrm), length(vViewPosition));\nhdDetail(vColor, vWPos, normalize(vWNrm), length(vViewPosition));\ndiffuseColor.rgb = hdNature(tCol, vWPos, length(vViewPosition)) * hdA * cloudShade(vWPos);'
         : 'diffuseColor.rgb = hdNature(terrainColor(vColor, vWPos, normalize(vWNrm), length(vViewPosition)), vWPos, length(vViewPosition)) * cloudShade(vWPos);')
       .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vec3(0.9, 0.95, 1.0) * tSpark * uSunUp * 1.5;')
-      .replace('#include <roughnessmap_fragment>', (hd ? 'float roughnessFactor = hdR;' : 'float roughnessFactor = tRough;') + '\n// Wet ground: darker and a little glossier.\nroughnessFactor = mix(roughnessFactor, 0.45, uWet * 0.5);\ndiffuseColor.rgb *= mix(1.0, 0.7, uWet);')
+      .replace('#include <roughnessmap_fragment>', (hd ? 'float roughnessFactor = hdR;' : 'float roughnessFactor = tRough;') + '\n// Wet ground: spots, then patches, then wet all over: darker, richer and a little glossier.\nfloat gWetC = wetCover(vWPos.xz, uWet, length(vViewPosition));\nroughnessFactor = mix(roughnessFactor, 0.42, gWetC * 0.55);\ndiffuseColor.rgb = mix(diffuseColor.rgb, pow(max(diffuseColor.rgb, vec3(0.0)), vec3(1.18)) * 0.78, gWetC);')
       .replace('#include <normal_fragment_maps>', hd
         ? `#include <normal_fragment_maps>
           normal = normalize((viewMatrix * vec4(hdN, 0.0)).xyz);
@@ -389,7 +402,7 @@ export function createRoadMaterial({ paved, halfWidth }) {
       // little above the land there, so the land never cuts into it in teeth.
       .replace('#include <begin_vertex>', `#include <begin_vertex>\nvRoad = aRoad;\nvJ = aJunction;\nvRW = (modelMatrix * vec4(transformed, 1.0)).xz;\nif (abs(aRoad.x) > ${(halfWidth + 1.05).toFixed(2)} && abs(aRoad.x) < ${(halfWidth + 1.4).toFixed(2)}) transformed.y += smoothstep(0.1, 0.5, uRoadSnow) * 0.32;`);
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', `#include <common>\nvarying vec2 vRoad;\nvarying float vJ;\nvarying vec2 vRW;\nuniform float uSummer; uniform float uRoadSnow;\n${NOISE}\n${TABLE_NOISE}\nfloat rBump; float rRough; float rSnow;${hd ? `\nuniform sampler2D rdAlb; uniform vec3 rdMean; uniform sampler2D grAlb; uniform vec3 grMean;\nvec3 rdRatio(sampler2D t, vec3 m, vec2 uv, float chroma, out float lum){ vec3 a = texture2D(t, uv).rgb; lum = dot(a, vec3(0.2126, 0.7152, 0.0722)) / max(dot(m, vec3(0.2126, 0.7152, 0.0722)), 1e-3); return clamp(mix(vec3(lum), a / max(m, vec3(1e-3)), chroma), 0.0, 2.5); }` : ''}`)
+      .replace('#include <common>', `#include <common>\nvarying vec2 vRoad;\nvarying float vJ;\nvarying vec2 vRW;\nuniform float uSummer; uniform float uRoadSnow;\n${NOISE}\n${TABLE_NOISE}\nfloat rBump; float rRough; float rSnow; float rPud; float rLow;\nuniform float uTime;${hd ? `\nuniform sampler2D rdAlb; uniform vec3 rdMean; uniform sampler2D grAlb; uniform vec3 grMean;\nvec3 rdRatio(sampler2D t, vec3 m, vec2 uv, float chroma, out float lum){ vec3 a = texture2D(t, uv).rgb; lum = dot(a, vec3(0.2126, 0.7152, 0.0722)) / max(dot(m, vec3(0.2126, 0.7152, 0.0722)), 1e-3); return clamp(mix(vec3(lum), a / max(m, vec3(1e-3)), chroma), 0.0, 2.5); }` : ''}`)
       .replace('#include <normal_pars_fragment>', `#include <normal_pars_fragment>\n${BUMP}`)
       .replace('#include <color_fragment>', `
         float lat = abs(vRoad.x);
@@ -400,6 +413,7 @@ export function createRoadMaterial({ paved, halfWidth }) {
         float patchy = g_n(vRoad * vec2(0.35, 0.06));
         float shoulder = smoothstep(hw - 0.05, hw + 0.2, lat);
         vec3 c;
+        rLow = 0.0;
         float hdPaint = 0.0;
         ${paved ? `
         // Dark, coarse Icelandic asphalt: pale stones in black binder, worn smoother in the wheel tracks.
@@ -414,12 +428,15 @@ export function createRoadMaterial({ paved, halfWidth }) {
         c = mix(asphalt, vec3(0.86, 0.86, 0.83), paint);
         hdPaint = paint;
         rRough = mix(mix(0.78, 0.66, track), 0.55, paint);
-        rBump = grain * 0.02 * (1.0 - paint) * fine;` : `
+        rBump = grain * 0.02 * (1.0 - paint) * fine;
+        // Water gathers in the worn wheel tracks and along the edges, where the camber drains it.
+        rLow = track * 0.1 + smoothstep(hw - 1.3, hw - 0.4, lat) * 0.08;` : `
         vec3 gravel = mix(vec3(0.43, 0.39, 0.33), vec3(0.55, 0.5, 0.43), grain);
         float ruts = smoothstep(0.45, 0.0, abs(lat - hw * 0.45));
         c = mix(gravel, gravel * 0.8, ruts * 0.6) * (0.9 + 0.15 * patchy);
         rRough = 0.95;
-        rBump = (grain * 0.12 + ruts * 0.08) * fine;`}
+        rBump = (grain * 0.12 + ruts * 0.08) * fine;
+        rLow = ruts * 0.16;`}
         // Gravel shoulder: grey-brown stones that thin out into the verge.
         vec3 sh = mix(vec3(0.27, 0.26, 0.25), vec3(0.45, 0.42, 0.38), grain) * (0.9 + 0.2 * patchy);
         c = mix(c, sh, shoulder);
@@ -452,6 +469,9 @@ export function createRoadMaterial({ paved, halfWidth }) {
           rBump = mix(rBump, (blot - 0.5) * 0.12 * fine + bank * 0.18 * blot, rSnow) * (1.0 - ice);
           hdPaint = max(hdPaint, max(rSnow, ice));
         }
+        // Puddles once it has rained a while: in the low spots, growing as the road gets wetter.
+        float pn = g_n(vRW * 0.19 + 17.0) * 0.6 + g_n(vRW * 0.73 + 3.0) * 0.3 + g_n(vRW * 2.9) * 0.1;
+        rPud = smoothstep(0.0, 0.04, pn + rLow - 1.08 + uWet * 0.36) * (1.0 - shoulder) * (1.0 - rSnow);
         diffuseColor.rgb = pow(c, vec3(2.2));${hd ? `
         float hdFade = 1.0 - smoothstep(120.0, 420.0, dist), lA, lG;
         vec3 ra = rdRatio(${paved ? 'rdAlb, rdMean, vRoad / 3.5, 0.0' : 'grAlb, grMean, vRoad / 4.0, 0.2'}, lA);
@@ -461,11 +481,18 @@ export function createRoadMaterial({ paved, halfWidth }) {
         // Bump finer than a pixel flickers into sun-coloured speckle: fade it out as the
         // texture's grain shrinks below a few pixels.
         rBump *= 1.0 - smoothstep(0.0015, 0.006, length(fwidth(vRoad)));` : ''}`)
-      .replace('#include <roughnessmap_fragment>', '// Wet tarmac: darker, and smooth enough to mirror lights and the sky (not the snow on it).\nfloat roughnessFactor = min(rRough, mix(rRough, 0.34, uWet * 0.85 * (1.0 - rSnow)));\ndiffuseColor.rgb *= mix(1.0, 0.42, uWet * (1.0 - rSnow));')
+      // Wet: the first drops darken spots, then it is wet all over, the water filling the grain so
+      // tarmac turns smooth enough to mirror lights and the sky (not the snow on it). Puddles are
+      // clear water over the dark road (muddy on gravel): a mirror.
+      .replace('#include <roughnessmap_fragment>', `float gWetC = wetCover(vRW, uWet, dist) * (1.0 - rSnow);
+        float roughnessFactor = min(rRough, mix(rRough, ${paved ? '0.3' : '0.4'}, gWetC * 0.9));
+        diffuseColor.rgb *= mix(1.0, ${paved ? '0.45' : '0.62'}, gWetC);
+        roughnessFactor = mix(roughnessFactor, 0.02, rPud);
+        diffuseColor.rgb = mix(diffuseColor.rgb, ${paved ? 'diffuseColor.rgb * 0.45' : 'vec3(0.05, 0.04, 0.03)'}, rPud);`)
       // The verge follows every bump in the land, so low light (headlights above all) picked out
       // each little tilt as a bright or dark step: it is lit as if nearly flat instead. The skirts
       // hanging below the edges are lit as flat too, so where one shows it reads as more verge.
-      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>\nnormal = bumpNormal(normal, rBump, 1.0);\n{ vec3 upV = normalize((viewMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz); float vg = smoothstep(${(halfWidth - 0.1).toFixed(2)}, ${(halfWidth + 0.5).toFixed(2)}, abs(vRoad.x)); normal = normalize(mix(normal, upV, abs(vRoad.x) > ${(halfWidth + 1.15).toFixed(2)} ? 1.0 : vg * 0.8)); }`);
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>\nnormal = bumpNormal(normal, rBump * (1.0 - gWetC * 0.8) * (1.0 - rPud), 1.0);\nif (uRain > 0.01 && rPud > 0.01 && dist < 40.0) { vec2 rr = rainRings(vRW, uTime) * uRain * (1.0 - smoothstep(12.0, 40.0, dist)); normal = normalize(normal + (viewMatrix * vec4(-rr.x, 0.0, -rr.y, 0.0)).xyz * rPud * 0.7); }\n{ vec3 upV = normalize((viewMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz); float vg = smoothstep(${(halfWidth - 0.1).toFixed(2)}, ${(halfWidth + 0.5).toFixed(2)}, abs(vRoad.x)); normal = normalize(mix(normal, upV, abs(vRoad.x) > ${(halfWidth + 1.15).toFixed(2)} ? 1.0 : vg * 0.8)); }`);
   };
   return mat;
 }

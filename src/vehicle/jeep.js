@@ -10,7 +10,7 @@ import { bakeStatic } from '../world/bake.js';
 import { solidStep, solidTopAt, solidRoofAt } from '../world/solids.js';
 import { buildInterior } from './interiors.js';
 import { HD } from '../world/hd.js';
-import { applyGrime, grime } from './grime.js';
+import { applyGrime, applyGlassWet, grime } from './grime.js';
 import { buildBoatKit, stages } from './boat.js';
 import { VOICES } from '../audio/engines.js';
 
@@ -108,6 +108,7 @@ export class Jeep {
     // Dirt that builds up as you drive (grime.js). The realistic look's built-in cars keep a little
     // road grime even when clean; the Sketchfab cars carry their own wear in their textures.
     applyGrime(this.model.group);
+    applyGlassWet(this.model.group);
     grime.uBase.value = HD.on && !this.model.glb ? 0.3 : 0;
     this.kit = this.model.bike ? bikeKit(this.model) : buildBoatKit(this.model);
     // Wheels turn and steer; the rest of the body is merged into a few meshes.
