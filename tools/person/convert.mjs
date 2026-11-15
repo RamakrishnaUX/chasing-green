@@ -1,10 +1,10 @@
 // A person and their Mixamo clips, FBX to one glTF: node tools/person/convert.mjs
-// (PERSON=jody for Jody; David by default). The character (David or Jody, Mixamo) and every clip
+// (PERSON=kachujin for Kachujin; David by default). The character (David or Kachujin, Mixamo) and every clip
 // were downloaded from Mixamo on that character, so the clips drive their own skeleton as they are:
 // no retargeting. The FBX files (downloads/<person>) are read by three.js's FBXLoader in headless
 // Chromium (tools/person/convert.html, served by the Vite dev server, which must be running:
 // npx vite --port 5179), scaled to metres and written to downloads/<person>/<person>.glb, which
-// process.mjs then makes the game's person.glb (David) or person-jody.glb (Jody).
+// process.mjs then makes the game's person.glb (David) or person-kachujin.glb (Kachujin).
 // Needs, not saved to package.json: npm i --no-save playwright-core (and Chromium from Playwright).
 import { chromium } from 'playwright-core';
 import fs from 'fs';
@@ -12,6 +12,8 @@ import os from 'os';
 
 const PORT = process.env.PORT || 5179;
 const WHO = process.env.PERSON || 'david', DIR = `downloads/${WHO}`;
+// To a person's height: Kachujin comes 2.08 m tall to the top of her bun, so 0.82 makes her 1.70 m.
+const SCALE = +(process.env.SCALE || { kachujin: 0.82 }[WHO] || 1);
 // File (downloads/david/<file>.fbx), the name the game knows it by, and whether to hold the hips
 // in place across the ground (the game moves him; the climbs keep their rise to be measured).
 export const CLIPS = [
@@ -28,7 +30,7 @@ const page = await browser.newPage();
 page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') console.log(m.type(), m.text()); });
 await page.goto(`http://127.0.0.1:${PORT}/tools/person/convert.html`);
 await page.waitForFunction(() => window.ready);
-const info = await page.evaluate((u) => window.character(u), `/${DIR}/${WHO}.fbx`);
+const info = await page.evaluate(([u, s]) => window.character(u, s), [`/${DIR}/${WHO}.fbx`, SCALE]);
 console.log("bind diff", info.bindDiff, "bind matrices off identity", info.bindMatrices, "missing textures", info.missing, "extra bones", info.extraBones, "offset", info.extraOffset, "scale", info.scale, "size", info.size.map((v) => v.toFixed(3)), "bones", info.bones);
 for (const m of info.meshes) console.log(" ", m);
 if (process.env.BONES) console.log(info.boneNames);

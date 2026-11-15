@@ -6,7 +6,9 @@ import * as THREE from 'three';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 
-const S = 0.01; // Mixamo works in centimetres; the game in metres
+// Mixamo works in centimetres, the game in metres; times the person's own scale (character()), as
+// some Mixamo characters come far taller than a person (Kachujin at 2.08 m).
+let S = 0.01;
 const loader = new FBXLoader();
 const rename = (n) => n.replace(/^mixamorig\d*:?/, 'mixamorig');
 const scaleT = (m) => { m.elements[12] *= S; m.elements[13] *= S; m.elements[14] *= S; };
@@ -29,7 +31,7 @@ function toStandard(m) {
     let hasA = false; for (let i = 3; i < A.length && !hasA; i += 4) hasA = A[i] < 250;
     for (let i = 0; i < A.length; i += 4) d.data[i + 3] = hasA ? A[i + 3] : A[i];
     // Under the cut-away parts the picture is often white, which the filtering between texels
-    // bleeds into the edge of every strand (a white fringe along Jody's hairline): there, the
+    // bleeds into the edge of every strand (a white fringe along a hairline): there, the
     // average colour of the solid parts instead.
     let r = 0, g = 0, b = 0, n = 0;
     for (let i = 0; i < A.length; i += 4) if (d.data[i + 3] > 200) { r += d.data[i]; g += d.data[i + 1]; b += d.data[i + 2]; n++; }
@@ -47,7 +49,8 @@ function toStandard(m) {
 // The character, scaled to metres in place (bones, meshes and binds), so the exported nodes carry
 // no scale. Every world position shrinks about the origin, so each bind matrix and bone inverse
 // keeps its turn and has its translation scaled.
-window.character = async (url) => {
+window.character = async (url, scale = 1) => {
+  S = 0.01 * scale;
   const man = await loader.loadAsync(url);
   // The embedded pictures decode after the load resolves: wait for every one.
   const texs = new Set();

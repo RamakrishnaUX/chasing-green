@@ -21,7 +21,7 @@ export const P = { walk: 0, swim: 1, fall: 2, climb: 3, sit: 4, ride: 5, sky: 6 
 // Name tag and map colours, one per player in the order they arrive.
 export const COLORS = ['#ffb547', '#ff6fa8', '#b58cff', '#5fd3ff', '#9be15d', '#ff8a5c', '#f2e86d'];
 
-// Each person's file once (David or Jody, whoever each player chose); every player is a copy.
+// Each person's file once (David or Kachujin, whoever each player chose); every player is a copy.
 const personFiles = new Map();
 const personFile = (id) => personFiles.get(id) || personFiles.set(id, loadPerson(id)).get(id);
 

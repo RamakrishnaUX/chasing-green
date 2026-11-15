@@ -95,7 +95,7 @@ line ranges, never whole.
   `minimap.js`). **Audio:** `src/audio/`.
 - **Asset pipelines** (run from inside the project; they need its `node_modules`):
   - `tools/person/convert.mjs` then `process.mjs` build `public/models/person.glb` from David and his Mixamo clips (no retargeting);
-    `PERSON=jody` with `IN`/`OUT` builds `person-jody.glb` from `downloads/jody`; `portrait.mjs` renders the splash portraits. Run
+    `PERSON=kachujin` with `IN`/`OUT` builds `person-kachujin.glb` from `downloads/kachujin` (scaled to 1.70 m); `portrait.mjs` renders the splash portraits. Run
     in place.
   - `tools/animals/`, `tools/cars/`, `tools/heli/`: the animals, cars and helicopter.
   - Source files live in `downloads/`.
@@ -103,7 +103,7 @@ line ranges, never whole.
 ## Hard-won gotchas
 
 - **Person model:**
-  - David or Jody from Mixamo (picked on the splash; `src/vehicle/person.js` holds each one's file and clip paces), each with the
+  - David or Kachujin from Mixamo (picked on the splash; `src/vehicle/person.js` holds each one's file and clip paces), each with the
     same 14 clips downloaded on them; Mixamo rig, T-pose bind facing +Z, Y up, one shared 65-bone skeleton. Load the person with
     `loadPerson()` and follow `onPerson()`, never a hard-coded `person.glb`.
   - Mixamo exports: the API's `details.duration` is unreliable; match clips to David's by the FBX's own length. Script-started

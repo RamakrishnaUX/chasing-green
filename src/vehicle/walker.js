@@ -5,10 +5,11 @@ import { groundAt as heightAt, surfaceHeightAt, waterLevelAt } from '../world/te
 import { clamp, lerp, smoothstep } from '../world/noise.js';
 import { Body, CYCLE, climbRise } from './walkik.js';
 
-// The person on foot: David (a fitted hoodie, joggers and trainers) or Jody (a zip-up track top,
-// leggings and trainers), whoever you chose on the splash (person.js): Mixamo characters moved by
-// Mixamo clips captured on their own skeletons (see tools/person): a breathing idle, walk, a walk
-// backwards, run, a standing jump, a fall, kneeling, a front crawl and treading water.
+// The person on foot: David (a fitted hoodie, joggers and trainers) or Kachujin (her hair up in a
+// bun, a red fighter's tunic and scarf, tall boots), whoever you chose on the splash (person.js):
+// Mixamo characters moved by Mixamo clips captured on their own skeletons (see tools/person): a
+// breathing idle, walk, a walk backwards, run, a standing jump, a fall, kneeling, a front crawl and
+// treading water.
 //
 // Forward walks; held on, he breaks into a run, and pressed again quickly (tapping it) he picks
 // up the pace sooner. Shift keeps him walking. Space hops like a person does, he climbs any rock face

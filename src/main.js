@@ -81,7 +81,7 @@ const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in win
 store.load();
 const settings = store.data.settings;
 // Who you travel as (person.js): picked on the splash, remembered; set before anyone loads them.
-setPerson(settings.person);
+setPerson(settings.person); settings.person = personId();
 // Phones that run hot get a lighter Low: small or low-memory Android phones and any phone with
 // few cores render fewer pixels, less grass and simpler aurora. Phones also cap at 30 fps,
 // which this slow-paced game does not need more than and which keeps them cool.

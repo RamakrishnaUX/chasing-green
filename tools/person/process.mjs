@@ -22,8 +22,9 @@ const root = doc.getRoot();
 
 for (const mat of root.listMaterials()) {
   mat.setMetallicFactor(0).setRoughnessFactor(0.82);
-  // The hair and lashes are cut out by their alpha (drawn solid, so they sort with the rest).
-  if (/hair/i.test(mat.getName())) mat.setAlphaMode('MASK').setAlphaCutoff(0.5).setDoubleSided(true);
+  // The hair and lashes are cut out by their alpha (drawn solid, so they sort with the rest): by
+  // name, or any material convert.html already cut out (Kachujin's hair is "kachujin_MAT_").
+  if (/hair/i.test(mat.getName()) || mat.getAlphaMode() === 'MASK') mat.setAlphaMode('MASK').setAlphaCutoff(0.5).setDoubleSided(true);
   else mat.setAlphaMode('OPAQUE').setDoubleSided(false);
 }
 
@@ -36,7 +37,7 @@ let before = 0, after = 0;
 for (const m of root.listMeshes()) {
   for (const p of m.listPrimitives()) {
     const n = count(p); before += n;
-    if (!/hair|eyelash/i.test(m.getName())) simplifyPrimitive(p, { simplifier: MeshoptSimplifier, ratio: RATIO, error: ERROR, lockBorder: true });
+    if (!/hair|eyelash/i.test(m.getName()) && p.getMaterial()?.getAlphaMode() !== 'MASK') simplifyPrimitive(p, { simplifier: MeshoptSimplifier, ratio: RATIO, error: ERROR, lockBorder: true });
     after += count(p);
     console.log(' ', m.getName(), n, '->', count(p));
   }

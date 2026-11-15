@@ -17,7 +17,7 @@
 // ?net=local swaps the network for a BroadcastChannel, so two tabs of the same browser can play
 // together offline (used by the tests).
 
-import { PEOPLE, personId } from '../vehicle/person.js';
+import { personKey, personId } from '../vehicle/person.js';
 
 const APP_ID = 'chasing-green-together-v1';
 export const MAX_PLAYERS = 8;
@@ -131,7 +131,7 @@ export class Room {
       // A room holds eight: a ninth player is told, and nobody draws them.
       const since = Date.now() - Math.max(0, Number(d.age) || 0);
       if (first && this.count >= MAX_PLAYERS) { if (since > this.since) t.send('full', {}, id); return; }
-      p.name = cleanName(d.name); p.person = PEOPLE[d.person] ? d.person : 'david'; p.since = since; p.hello = true; p.last = performance.now();
+      p.name = cleanName(d.name); p.person = personKey(d.person); p.since = since; p.hello = true; p.last = performance.now();
       if (first) this.hooks.onPeer?.(p);
       else this.hooks.onRename?.(p);
       // The one who has been here longest keeps the time; take it from them the moment they say hello.

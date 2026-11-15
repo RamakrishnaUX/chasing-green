@@ -8,7 +8,7 @@ import fs from 'fs';
 import os from 'os';
 
 const PORT = process.env.PORT || 5179;
-const PEOPLE = { david: 'person.glb', jody: 'person-jody.glb' };
+const PEOPLE = { david: 'person.glb', kachujin: 'person-kachujin.glb' };
 const exe = process.env.CHROMIUM || `${os.homedir()}/Library/Caches/ms-playwright/chromium-1155/chrome-mac/Chromium.app/Contents/MacOS/Chromium`;
 const browser = await chromium.launch({ executablePath: exe, args: ['--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist'] });
 const page = await browser.newPage();
