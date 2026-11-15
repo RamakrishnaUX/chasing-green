@@ -6,6 +6,7 @@ import { bakeStatic } from './bake.js';
 import { HD } from './hd.js';
 import { buildBridgeModels } from './bridges.js';
 import { createTerrainMaterial, createRoadMaterial, createWaterMaterial, createRiverMaterial, riverGeometry, surfaceUniforms } from './materials.js';
+import { held } from '../hold.js';
 
 export const BOUNDS = { minX: -900 * WS, maxX: 930 * WS, minZ: -690 * WS, maxZ: 580 * WS };
 
@@ -1014,6 +1015,7 @@ export async function buildTerrain(scene, res, season, onProgress) {
     if (document.hidden || performance.now() - lastYield < 40) return;
     onProgress?.(f);
     await new Promise((r) => setTimeout(r, 0));
+    await held();
     lastYield = performance.now();
   };
   buildRoads();

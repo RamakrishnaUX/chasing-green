@@ -96,7 +96,8 @@ export class Cover {
       m.traverse((o) => { if (o.isMesh && o.material.transparent) { o.material.depthWrite = false; o.renderOrder = 2; } });
       m.position.y = -new THREE.Box3().setFromObject(m).min.y;
       this.heli = new THREE.Group(); this.heli.add(m);
-      if (this.kind === 'heli') this.show('heli');
+      if (this.wantPrime === 'heli' && this.paused) this.prime('heli');
+      else if (this.kind === 'heli') this.show('heli');
     }).catch(() => {});
 
     this.onResize = () => this.resize();
@@ -110,6 +111,9 @@ export class Cover {
   // arrive: true when the player picked it, so it rolls in onto the stage and then switches its
   // lights on; otherwise it is simply there, lights on.
   show(kind, arrive = false) {
+    // Already built and drawn behind the splash (prime): it only needs to start its arrival.
+    if (this.primed === kind && this.car) { this.primed = null; this.begin(kind, arrive); return; }
+    this.primed = null;
     this.kind = kind;
     this.car?.removeFromParent(); this.mirror?.removeFromParent();
     let model;
@@ -125,7 +129,8 @@ export class Cover {
       model.group.traverse((o) => { if (!o.isMesh) return; if (o.material === head) o.material = model.lightMat; else if (o.material === tail) o.material = model.tailMat; });
     }
     // Coming in from an empty stage (its file just arrived), it fades in rather than popping.
-    if (!this.car) { const c = this.canvas; c.style.transition = 'none'; c.style.opacity = '0'; requestAnimationFrame(() => requestAnimationFrame(() => { c.style.transition = 'opacity 700ms ease-out'; c.style.opacity = '1'; })); }
+    // Not while paused behind the splash: the page keeps the canvas hidden then.
+    if (!this.car && !this.paused) { const c = this.canvas; c.style.transition = 'none'; c.style.opacity = '0'; requestAnimationFrame(() => requestAnimationFrame(() => { c.style.transition = 'opacity 700ms ease-out'; c.style.opacity = '1'; })); }
     const car = this.car = model.group;
     this.scene.add(car);
     // Measured square on, before it turns: a box measured after turning and turned back would
@@ -190,10 +195,32 @@ export class Cover {
         this.rotors.push({ o, axis });
       });
     }
+    this.begin(kind, arrive);
+  }
+
+  // Its arrival: rolling (or flying) in, lights off until it stops; or simply there, lights on.
+  begin(kind, arrive) {
     this.spin = arrive ? 1 : 0;
     this.arrive = arrive && !this.reduce ? { t0: performance.now(), heli: kind === 'heli' } : null;
+    this.lightsFrom = 0;
     this.setLights(this.arrive ? 0 : 1);
     if (arrive && this.reduce) this.lightsFrom = performance.now(); // no roll, just the lights
+  }
+
+  // Start the arrival now (from its first mark): after a stall, so it does not jump ahead.
+  restart() { if (this.arrive) this.arrive.t0 = performance.now(); }
+
+  // Build the vehicle and draw it once while the canvas is hidden behind the splash, so its
+  // shaders are compiled and its geometry is on the GPU before it is shown. show(kind) then starts
+  // it at once. Waits for the model's file if it is not in yet (the page calls again when it is).
+  prime(kind) {
+    this.wantPrime = kind;
+    if (!this.paused) return;
+    this.show(kind);
+    if (!this.car) return;
+    this.wantPrime = null;
+    this.primed = kind;
+    this.render();
   }
 
   // Lamps from off (0) to on (1): headlamps, tail lamps and their glow together.

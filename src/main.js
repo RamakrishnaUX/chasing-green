@@ -40,6 +40,7 @@ import { updateInterior, turnWheel, trackTitle } from './vehicle/interiors.js';
 import { Walker } from './vehicle/walker.js';
 import { Heli } from './vehicle/heli.js';
 import { loadCarModels, modelReady, whenModel } from './vehicle/models.js';
+import { holdBuild, held } from './hold.js';
 import { releasePictures } from './world/gltf.js';
 import { grime, updateGrime, setDirtColor } from './vehicle/grime.js';
 import { Mirrors } from './vehicle/mirrors.js';
@@ -271,7 +272,11 @@ const auroraSteps = () => Q.auroraSteps;
 // load always feels like a load (at least MIN_LOAD_MS) even on a fast machine.
 const BUILD_SHARE = 0.82, MIN_LOAD_MS = 3200;
 // Wait for a painted frame between stages, except in a background tab, where there are no frames.
-const nextPaint = () => (document.hidden ? Promise.resolve() : new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0))));
+// It also waits out a hold (hold.js), so the vehicle's arrival on the start screen plays undisturbed.
+const nextPaint = () => (document.hidden ? Promise.resolve() : new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0))).then(held));
+// A brief break between heavy build steps (no frame wait), so a tap on the start screen is
+// answered between them rather than after a long run of them.
+const breather = () => new Promise((r) => setTimeout(r, 0)).then(held);
 const stageTimes = {};
 async function buildWorld(progress) {
   // The camper's graffiti is painted from two web fonts; they download while the island is built
@@ -321,7 +326,7 @@ async function buildWorld(progress) {
     landPads = pads.concat(stationSites.map((s) => s.pad), parks);
     flattenPads(landPads, world.mesh);
   } });
-  await landmarks.buildAll(() => new Promise((r) => setTimeout(r, 0)));
+  await landmarks.buildAll(() => new Promise((r) => setTimeout(r, 0)).then(held));
   // High ground behind every waterfall cliff, so each is the edge of the land (terrain.js raiseLand).
   raiseLand(landmarks.plateaus, world.mesh, landPads);
   landmarks.onEvent = (type, lm) => {
@@ -350,10 +355,13 @@ async function buildWorld(progress) {
     .concat(landmarks.list.filter((l) => l.clearGround).map((l) => { const [a, b] = l.clearGround.at, c = Math.cos(l.facing), s = Math.sin(l.facing); return { x: l.x + a * c + b * s, z: l.z - a * s + b * c, r: l.clearGround.r }; }))
     // Plunge pools and the rivers out of them (waterfalls.js).
     .concat(landmarks.list.flatMap((l) => l.grassClear || []));
+  await breather();
   scatter = new Scatter(scene, { grass: 0, rocks: Math.round(Q.rocks * (CONFIG.rockDensity[settings.rocks || 'normal'] || 1)), obstacles, clear });
   // The realistic look grows the field thicker and a little further out (each tuft is ten blades,
   // so this is most of the grass's cost: the same density over a smaller circle is far cheaper).
+  await breather();
   if (Q.grass > 0) grass = new Grass(scene, { count: HD.on ? Math.max(Q.grass, 34000) : Q.grass, radius: HD.on ? Math.max(Q.grassRadius, 46) : Q.grassRadius, clear });
+  await breather();
   // The realistic look always grounds things with ambient occlusion.
   if (Q.post) post = new Post(renderer, scene, camera, { ao: !!Q.ao || HD.on, aoSamples: Q.ao ? 12 : 6, samples: Q.msaa ?? 4, shafts: HD.on });
   // Realistic look: a little more contrast and a touch less saturation, like a photograph.
@@ -371,7 +379,9 @@ async function buildWorld(progress) {
   props = new Props(scene, { farms: Math.round((qualityName === 'low' ? 14 : 26) * GROW), landmarks: landmarks.list, keepClear: [START, ...stationSites], obstacles });
   // Realistic look: scanned detail on landmark and prop surfaces (not town houses, cars or people).
   if (HD.on) detailScene(scene);
+  await breather();
   stations = new Stations(scene, stationSites, { obstacles, low: qualityName === 'low' });
+  await breather();
   towns = new Towns(scene, { landmarks: landmarks.list, obstacles, scale: qualityName === 'low' ? 0.6 : 1, clear: stationSites.map((st) => ({ x: st.pad.x, z: st.pad.z, r: 34 })).concat(landmarks.list.filter((l) => l.kind === 'stadium').map((l) => ({ x: l.x, z: l.z, r: 84 }))) });
   snow = new SnowFall(scene, qualityName === 'low' ? 900 : 2200);
   rain = new RainFall(scene, qualityName === 'low' ? 1300 : 2800);
@@ -387,9 +397,12 @@ async function buildWorld(progress) {
   bathSteam = new Particles(scene, { count: qualityName === 'low' ? 90 : 200, color: 0xeef2f4, size: 1.8, opacity: 0.06, gravity: -0.12, drag: 0.9, fadeNear: [0.8, 2.6] });
   boatWater = new BoatWater(scene, { low: qualityName === 'low' });
   waterFx = new WaterFx(scene, { low: qualityName === 'low' });
+  await breather();
   surfFx = new Surf(scene, { low: qualityName === 'low' });
+  await breather();
   // The road ribbons never move: their matrices are worked out once.
   for (const o of scene.children) if (o.isMesh && 'roadLift' in o.userData) { o.updateMatrixWorld(true); o.matrixAutoUpdate = false; o.matrixWorldAutoUpdate = false; o.userData.static = true; }
+  await breather();
   wildlife = new Wildlife(scene, { low: qualityName === 'low' });
   wildlife.rigs.warm = warmShaders;
   // The rotor's dust: bigger, thicker billows than a car's.
@@ -1785,24 +1798,34 @@ const cover = new Cover($('intro-hero'), { spot: document.querySelector('.cv-spo
 cover.paused = true; // nothing to draw behind the splash; it starts when the splash lifts
 const coverKind = () => (settings.vehicle === 'heli' ? 'heli' : VEHICLES[settings.vehicle] ? settings.vehicle : 'jeep');
 introInfo(coverKind());
+if (coverKind() === 'heli') cover.prime('heli'); // the cars are primed as their files arrive (below)
 // The splash comes first; the garage (and the vehicle rolling in) only once you press a key or tap,
 // which also lets the sound play. The island keeps loading the whole time.
 $('intro').classList.add('is-splash');
-const spBar = setInterval(() => { $('sp-bar').style.width = `${startBtn.getAttribute('aria-valuenow') || 0}%`; if (!startBtn.disabled) $('sp-bar').style.width = '100%'; }, 200);
+const spBar = setInterval(() => { $('sp-bar').style.transform = `scaleX(${startBtn.disabled ? (startBtn.getAttribute('aria-valuenow') || 0) / 100 : 1})`; }, 200);
 function closeSplash() {
   if (!$('intro').classList.contains('is-splash')) return;
-  wakeUiSfx();
-  // Every car's arrival sound, fetched now so a switch never waits for it.
   $('intro').classList.remove('is-splash');
   cover.paused = false;
   $('intro').classList.add('is-garage-in');
   clearInterval(spBar);
   setTimeout(() => { $('splash').hidden = true; }, 700);
-  setTimeout(() => { const k = coverKind(); cover.show(k, true); if (cover.car && k === 'heli') sfx.arrive(k); }, 450);
+  // The vehicle starts rolling in on this very tap (it was built and drawn once, hidden, while the
+  // splash showed), and the island build steps aside until it has stopped and its lights are on.
+  holdBuild(2200);
+  const k = coverKind(); cover.show(k, true);
+  // Sound wakes just after that first frame: starting the audio can take a few hundred ms, which
+  // would hold back the splash lifting. The vehicle waits on its mark meanwhile, then sets off.
+  // (Still inside the tap's activation window, so the browser lets the audio start.)
+  requestAnimationFrame(() => setTimeout(() => {
+    wakeUiSfx();
+    cover.restart();
+    if (cover.car && k === 'heli') sfx.arrive(k);
+  }, 0));
 }
 // CHASING is set exactly as wide as GREEN below it: its letter spacing is worked out from both widths.
 function fitSplashTitle() {
-  const a = document.querySelector('.sp-a'), b = document.querySelector('.sp-b');
+  const a = document.querySelector('.sp-a'), b = document.querySelector('.sp-gw');
   if (!a || !b) return;
   // The ink of each word (first letter's left to last letter's right), so spacing after the last
   // letter never counts.
@@ -1814,11 +1837,18 @@ function fitSplashTitle() {
   a.style.letterSpacing = `${sp}px`; a.style.marginRight = `${-sp}px`;
 }
 document.fonts.ready.then(fitSplashTitle);
+// The splash plays once its two faces are in (or after 1.5 s without them), with CHASING already
+// spaced to GREEN's width, so nothing changes face or spacing while it moves.
+Promise.race([Promise.all(['400 100px Michroma', '500 20px Saira'].map((f) => document.fonts.load(f))), new Promise((r) => setTimeout(r, 1500))])
+  .catch(() => {}).then(() => { fitSplashTitle(); $('splash').classList.add('is-set'); });
 addEventListener('resize', fitSplashTitle);
 $('splash').addEventListener('pointerdown', (e) => { e.preventDefault(); closeSplash(); });
 addEventListener('keydown', (e) => { if ($('intro').classList.contains('is-splash') && !e.metaKey && !e.ctrlKey) { e.preventDefault(); e.stopImmediatePropagation(); closeSplash(); } }, true);
 const carsLoaded = loadCarModels((kind) => {
   cover.refresh(kind);
+  // Behind the splash, the vehicle that will roll in is built and drawn once now, so the tap
+  // finds it ready (no build, no shader compile) and it moves at once.
+  if (cover.paused && kind === coverKind()) cover.prime(kind);
   gg.cover?.refresh(kind);
   if (jeep && jeep.kind === kind && ride === 'car') jeep.setType(kind);
   renderGarage();

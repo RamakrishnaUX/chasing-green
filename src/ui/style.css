@@ -1638,28 +1638,27 @@ body.has-touch .gx-menu svg { width: 20px; height: 20px; }
 .splash { position: absolute; inset: 0; z-index: 6; display: grid; place-content: center; justify-items: center; gap: 0; padding: 24px; text-align: center; cursor: pointer;
   background: radial-gradient(70% 60% at 50% 55%, rgba(2,8,7,0.35), rgba(2,8,7,0.7)); transition: opacity 0.7s ease, transform 0.7s ease; outline: none; }
 .sp-title { display: grid; justify-items: center; gap: 18px; margin: 0; font-weight: 400; font-family: var(--serif); text-transform: uppercase; white-space: nowrap; }
-/* CHASING, smaller, tracks in from wide letters; GREEN, larger, is wiped on in the aurora green. */
-.sp-a { font-size: clamp(22px, 3.2vw, 48px); line-height: 1; color: var(--ink); animation: sp-rise 1.2s cubic-bezier(0.2, 0.7, 0.2, 1) 0.1s both; }
-.sp-b { position: relative; font-size: clamp(44px, 7.6vw, 116px); line-height: 1; letter-spacing: 0.14em; padding-left: 0.14em; color: var(--green);
-  background: linear-gradient(90deg, #66dfb0 0%, #a2f6d3 45%, #66dfb0 60%, #43ab83 100%) 0 0 / 220% 100%; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
-  animation: sp-wipe 1.3s cubic-bezier(0.6, 0, 0.2, 1) 0.6s both, sp-sheen 6s ease-in-out 2s infinite; }
+/* CHASING, smaller, rises in; GREEN, larger, comes into focus in the aurora green (below).
+   Everything on the splash moves by transform and opacity only, so it runs on the compositor and
+   stays smooth while the island is built on the main thread behind it. */
+.sp-a { font-size: clamp(22px, 3.2vw, 48px); line-height: 1; color: var(--ink); animation: sp-rise 1.2s cubic-bezier(0.2, 0.7, 0.2, 1) 0.1s both; will-change: transform, opacity; }
 @keyframes sp-rise { from { opacity: 0; transform: translateY(10px); } }
-@keyframes sp-wipe { from { clip-path: inset(0 100% 0 0); opacity: 0.4; } to { clip-path: inset(0 0 0 0); opacity: 1; } }
-@keyframes sp-sheen { 50% { background-position: 100% 0; } }
 .sp-line { max-width: 36em; text-wrap: balance; margin: 34px 0 0; font: 500 clamp(16px, 1.6vw, 21px)/1.5 var(--sans); color: var(--ink-2); animation: sp-in 1.2s cubic-bezier(0.2, 0.7, 0.2, 1) 1.3s both; }
 .sp-go { margin: 56px 0 0; font: 600 13px var(--sans); letter-spacing: 0.34em; text-transform: uppercase; color: var(--green-hi); animation: sp-in 1s ease 2s both, sp-pulse 2.4s ease-in-out 3s infinite; }
 .sp-touch { display: none; } body.has-touch .sp-desk { display: none; } body.has-touch .sp-touch { display: inline; }
 @media (pointer: coarse) { .sp-desk { display: none; } .sp-touch { display: inline; } }
 .sp-load { width: min(260px, 60vw); height: 2px; margin-top: 22px; background: rgba(244,248,246,0.14); animation: sp-in 1s ease 2s both; }
-.sp-load i { display: block; width: 0; height: 100%; background: linear-gradient(90deg, var(--green-deep), var(--green)); transition: width 0.4s ease; }
-@keyframes sp-in { from { opacity: 0; transform: translateY(12px); letter-spacing: inherit; } }
+.sp-load i { display: block; width: 100%; height: 100%; background: linear-gradient(90deg, var(--green-deep), var(--green)); transform: scaleX(0); transform-origin: 0 50%; transition: transform 0.4s ease; }
+/* Nothing on the splash starts until its type has loaded, so no word swaps face or respaces mid-move. */
+.splash:not(.is-set), .splash:not(.is-set) * { animation-play-state: paused !important; }
+@keyframes sp-in { from { opacity: 0; transform: translateY(12px); } }
 @keyframes sp-pulse { 50% { opacity: 0.45; } }
 /* While the splash shows, the garage waits; then it comes up underneath as the splash lifts. */
 #intro.is-splash > :not(.splash):not(#intro-sky):not(.cv-shade) { opacity: 0; pointer-events: none; }
 #intro:not(.is-splash) .splash { opacity: 0; transform: scale(1.04); pointer-events: none; }
 #intro.is-garage-in > :not(.splash):not(#intro-sky):not(.cv-shade):not(#intro-hero) { animation: gx-up 0.8s cubic-bezier(0.2, 0.7, 0.2, 1) 0.25s both; }
 @keyframes gx-up { from { opacity: 0; } }
-@media (prefers-reduced-motion: reduce) { .sp-a, .sp-b, .sp-line, .sp-go, .sp-load { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .sp-a, .sp-line, .sp-go, .sp-load { animation: none; } }
 
 /* ---------- The speed cluster as one ribbon (after a scooter dash) ---------- */
 @media (min-width: 1000px) and (min-height: 600px) {
@@ -2104,19 +2103,37 @@ body.land-on .hx-spot, body.land-on .toast { opacity: 0 !important; pointer-even
 @media (orientation: portrait) and (max-width: 600px) { .land-acts { top: calc(158px + var(--safe-t)); flex-direction: row; gap: 8px; } .land-acts button { height: 44px; padding: 0 14px 0 12px; font-size: 13px; gap: 7px; } .land-acts button svg { width: 18px; height: 18px; } }
 
 /* GREEN comes into focus from left to right: a soft blurred copy underneath, and the sharp word on
-   top revealed by a feathered edge that sweeps across, so the focus seems to travel along it. */
-.sp-b, .sp-blur { grid-row: 2; grid-column: 1; }
-.sp-blur { font-size: clamp(44px, 7.6vw, 116px); line-height: 1; letter-spacing: 0.14em; padding-left: 0.14em; color: var(--green); font-family: var(--serif); text-transform: uppercase;
-  filter: blur(14px); pointer-events: none; padding: 0.4em 0.5em 0.4em calc(0.14em + 0.5em); margin: -0.4em -0.5em; /* room for the blur, so it is not cut square */
-  -webkit-mask-image: linear-gradient(90deg, transparent 0%, transparent 40%, #000 60%, #000 100%); mask-image: linear-gradient(90deg, transparent 0%, transparent 40%, #000 60%, #000 100%);
-  -webkit-mask-size: 250% 100%; mask-size: 250% 100%; animation: sp-blur-in 0.9s ease-out 0.3s both, sp-focus 2.4s cubic-bezier(0.45, 0, 0.25, 1) 1s both; }
-.sp-b { animation: sp-sharp 2.4s cubic-bezier(0.45, 0, 0.25, 1) 1s both, sp-sheen 6s ease-in-out 3s infinite !important;
-  -webkit-mask-image: linear-gradient(90deg, #000 0%, #000 40%, transparent 60%, transparent 100%); mask-image: linear-gradient(90deg, #000 0%, #000 40%, transparent 60%, transparent 100%);
-  -webkit-mask-size: 250% 100%; mask-size: 250% 100%; }
+   top revealed by a feathered edge that sweeps across, so the focus seems to travel along it; later
+   a soft sheen passes over it now and then.
+   Each layer is a masked window (.sp-m) holding a copy of the word (.sp-t). The window slides
+   right while the word inside slides left by the same amount, so the word stays put and only the
+   mask's edge travels: two transforms, both on the compositor (an animated mask-position or
+   background-position would be redrawn on the main thread every frame, and stutter during loading).
+   Sizes are in multiples of the word's width W: each window spans -1.5W..1.2W (270%), and the
+   word sits 1.5W into it (55.56%), W wide (37.04%). */
+.sp-g { position: relative; display: block; font-size: clamp(44px, 7.6vw, 116px); line-height: 1; letter-spacing: 0.14em; padding-left: 0.14em; }
+.sp-gw { visibility: hidden; }
+.sp-m { position: absolute; top: -0.5em; bottom: -0.5em; left: -150%; width: 270%; pointer-events: none; will-change: transform; }
+.sp-t { position: absolute; top: 0.5em; left: 55.5556%; width: 37.037%; padding-left: 0.14em; box-sizing: border-box; will-change: transform; }
+.sp-blur .sp-t { color: var(--green); filter: blur(14px); }
+.sp-b .sp-t { color: var(--green); background: linear-gradient(90deg, #66dfb0 0%, #a2f6d3 45%, #66dfb0 60%, #43ab83 100%) 0 0 / 220% 100%; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+.sp-shine .sp-t { color: #e4fff4; }
+/* The focus edge: 0.5W wide, from just left of the word (fully blurred) to just past it (sharp). */
+.sp-b { -webkit-mask-image: linear-gradient(90deg, #000 0 37.04%, transparent 55.56%); mask-image: linear-gradient(90deg, #000 0 37.04%, transparent 55.56%); }
+.sp-blur { -webkit-mask-image: linear-gradient(90deg, transparent 0 37.04%, #000 55.56%); mask-image: linear-gradient(90deg, transparent 0 37.04%, #000 55.56%); }
+.sp-b, .sp-blur { animation: sp-win 2.4s cubic-bezier(0.45, 0, 0.25, 1) 1s both; }
+.sp-blur { animation: sp-blur-in 0.9s ease-out 0.3s both, sp-win 2.4s cubic-bezier(0.45, 0, 0.25, 1) 1s both; }
+.sp-b .sp-t, .sp-blur .sp-t { animation: sp-word 2.4s cubic-bezier(0.45, 0, 0.25, 1) 1s both; }
 @keyframes sp-blur-in { from { opacity: 0; } }
-@keyframes sp-sharp { from { -webkit-mask-position: 100% 0; mask-position: 100% 0; } to { -webkit-mask-position: 0 0; mask-position: 0 0; } }
-@keyframes sp-focus { from { -webkit-mask-position: 100% 0; mask-position: 100% 0; } to { -webkit-mask-position: 0 0; mask-position: 0 0; } }
-@media (prefers-reduced-motion: reduce) { .sp-blur { display: none; } .sp-b { animation: none !important; -webkit-mask-image: none; mask-image: none; } }
+@keyframes sp-win { from { transform: translateX(0); } to { transform: translateX(55.5556%); } }
+@keyframes sp-word { from { transform: translateX(0); } to { transform: translateX(-150%); } }
+/* The sheen: a soft band 0.6W wide, crossing from left of the word to right of it every 7 s. */
+.sp-shine { opacity: 0.5; -webkit-mask-image: linear-gradient(90deg, transparent 25.93%, #000 37.04%, transparent 48.15%); mask-image: linear-gradient(90deg, transparent 25.93%, #000 37.04%, transparent 48.15%);
+  animation: sp-shine-win 7s 3.6s infinite both; }
+.sp-shine .sp-t { animation: sp-shine-word 7s 3.6s infinite both; }
+@keyframes sp-shine-win { 0% { transform: translateX(0); animation-timing-function: cubic-bezier(0.45, 0, 0.35, 1); } 40%, 100% { transform: translateX(66.667%); } }
+@keyframes sp-shine-word { 0% { transform: translateX(0); animation-timing-function: cubic-bezier(0.45, 0, 0.35, 1); } 40%, 100% { transform: translateX(-180%); } }
+@media (prefers-reduced-motion: reduce) { .sp-blur, .sp-shine { display: none; } .sp-b, .sp-b .sp-t { animation: none; transform: none; -webkit-mask-image: none; mask-image: none; } }
 /* The nitro's empty bed: the dip in a dim nitro colour, under the fill. */
 .hx-band.hx-nitro.is-bed { filter: none !important; transition: opacity 0.3s; }
 
