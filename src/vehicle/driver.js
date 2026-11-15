@@ -335,7 +335,7 @@ export class Driver {
     const bone = this.bone;
     // He is drawn a little larger on the bike, in step with the bike itself (drawn larger than its
     // model), so his legs reach the road when he puts his feet down.
-    const RS = car.model.riderScale ?? 1.15;
+    const RS = car.model.riderScale ?? 1.3;
     this.group.scale.setScalar(RS);
     for (const [o, q] of this.rest) o.quaternion.copy(q);
     body.updateWorldMatrix(true, true);
@@ -405,17 +405,24 @@ export class Driver {
       for (const pose of RIDES) { place(...pose); const c = short() * 100 + rideCost(pose, car.model.lean ?? 0.7); if (c < bc) { bc = c; best = pose; } }
       this.ridePose = best; place(...best); this.short = +short().toFixed(3);
     }
-    // Feet down, he slides down off the crown of the saddle onto his feet (most when walking it
-    // back on both), sitting a little more upright.
-    const feetW = car.feet || 0, paddleW = car.paddling ? 1 : 0;
-    place(this.ridePose[0] * (1 - 0.25 * feetW), this.ridePose[1], feetW * (0.1 + 0.06 * paddleW));
+    // Stopped with a foot down, he slides down off the crown of the saddle onto it, sitting a little
+    // more upright. Walking it back he stands up off the seat, astride the bike with both feet on
+    // the road and his hands on the bars, his hips as high as his legs reach (car.stand, 0..1).
+    const feetW = car.feet || 0, standW = car.stand || 0;
+    this.legLen ??= wpos(bone.LeftUpLeg).distanceTo(wpos(bone.LeftLeg)) / RS + wpos(bone.LeftLeg).distanceTo(wpos(bone.LeftFoot)) / RS;
+    const legL = this.legLen * RS * 0.975;
+    const ankY = body.worldToLocal(car.root.localToWorld(new THREE.Vector3(0.3, 0.03 + 0.11 * RS, this.saddle.z))).y;
+    const lat = Math.max(0, 0.3 - 0.09 * RS);
+    const standHip = ankY + Math.sqrt(Math.max(0.01, legL * legL - lat * lat - 0.08 * 0.08));
+    const drop = lerp(feetW * 0.1, this.saddle.y + 0.07 - standHip, standW);
+    place(lerp(this.ridePose[0] * (1 - 0.25 * feetW), Math.min(this.ridePose[0], 0.42), standW), this.ridePose[1] + 0.1 * standW, drop);
     this.lean = this.ridePose[0];
 
     // Legs: knees bent forward along the tank, feet on the pegs. Stopped, his left foot goes down
-    // to the road and holds the bike up (the right stays on the brake); walking it back, both feet
-    // go down and push in turn: each foot planted beside the bike slides forward along it as the
-    // bike rolls back past it, then lifts and steps back for the next push (car.paddleT).
-    const feet = car.feet || 0, paddle = !!car.paddling;
+    // to the road and holds the bike up (the right stays on the brake). Standing to walk it back,
+    // both feet are on the road under his hips and he steps backwards: each planted foot stays put
+    // as he and the bike go back past it, then lifts and steps back behind him (car.paddleT).
+    const feet = car.feet || 0, paddle = standW > 0.02;
     for (const s2 of ['Left', 'Right']) {
       const out = s2 === 'Left' ? 1 : -1;
       const k = car.model.size || 1; // the bike is drawn larger than its model; he is not
@@ -426,15 +433,19 @@ export class Driver {
       if (down > 0.001) {
         // Where the foot meets the road beside the bike (the bike's own frame is level with the
         // ground under its wheels), a little ahead of the hips.
-        let dz = 0.18, lift = 0;
+        let dz = 0.18, lift = 0, wide = 0.36;
         if (paddle) {
+          // Standing: feet under his hips, stepping back. Before he is up, the trailing foot waits.
           const ph = ((car.paddleT || 0) + (s2 === 'Left' ? 0 : 0.5)) % 1;
-          if (ph < 0.62) dz = -0.08 + 0.52 * (ph / 0.62); // planted: slides forward as the bike goes back
-          else { const u = (ph - 0.62) / 0.38; dz = 0.44 - 0.52 * (u * u * (3 - 2 * u)); lift = Math.sin(Math.PI * u) * 0.11; }
+          let sdz, sl = 0;
+          if (ph < 0.6) sdz = -0.12 + 0.36 * (ph / 0.6); // planted, as he goes back past it
+          else { const u = (ph - 0.6) / 0.4; sdz = 0.24 - 0.36 * (u * u * (3 - 2 * u)); sl = Math.sin(Math.PI * u) * 0.09; }
+          dz = lerp(dz, 0.1 + sdz, standW); lift = sl * standW; wide = lerp(0.36, 0.3, standW);
+          if (s2 === 'Right') down = Math.min(feet, standW * 1.5);
         }
         // On the balls of his feet (a seat this tall is a tiptoe for most riders): the ankle a foot's
         // length up, the foot pointing down and forward.
-        const g = car.root.localToWorld(new THREE.Vector3(out * 0.36, 0.03 + 0.12 * RS + lift, this.saddle.z + dz));
+        const g = car.root.localToWorld(new THREE.Vector3(out * wide, 0.03 + 0.11 * RS + lift, this.saddle.z + dz));
         target = peg.clone().lerp(g, down);
         pole = toW(out * lerp(0.35, 0.45, down), lerp(0.25, 0.35, down), 1);
         toe = toW(out * lerp(0.15, 0.18, down), lerp(-0.3, -0.85, down), lerp(1, 0.5, down));

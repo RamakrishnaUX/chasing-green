@@ -490,6 +490,21 @@ export class Stations {
     this.hoses.setMatrixAt(face.i, on ? face.frame : Z); this.nozzles.setMatrixAt(face.i, on ? face.nozzle : Z);
     this.hoses.instanceMatrix.needsUpdate = this.nozzles.instanceMatrix.needsUpdate = true;
   }
+  // Whether a person of radius r standing at (x, z) on station s would be inside something solid on
+  // its forecourt: a pump, a canopy column, a crash post, the bin or the bucket. (The islands' kerbs
+  // are only a step up, so they are not solid to a person.)
+  solidAt(s, x, z, r = 0.25) {
+    const dx = x - s.x, dz = z - s.z, u = dx * s.ax + dz * s.az, w = dx * s.fx + dz * s.fz;
+    for (const I of ISLANDS) {
+      if (Math.abs(u - I) > 1.5) continue;
+      if (Math.abs(u - I) < 0.39 + r && Math.abs(w) < 0.62 + r) return true; // the pump on its plinth
+      for (const [cw, cr] of [[3.1, 0.17], [-3.1, 0.17], [3.55, 0.1], [-3.55, 0.1], [2.2, 0.21], [1.55, 0.15]]) if (Math.hypot(u - I, w - cw) < cr + r) return true;
+    }
+    return false;
+  }
+  // A point on a station given in its own terms (u across, w along), in world space.
+  point(s, u, w) { return stationPoint(s, u, w); }
+
   // The pump face nearest a point on a station's forecourt (the side of the island it is on).
   faceNear(s, x, z) {
     let best = null, bd = Infinity;

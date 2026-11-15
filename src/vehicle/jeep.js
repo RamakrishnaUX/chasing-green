@@ -41,7 +41,7 @@ function heightAt(x, z) {
 }
 
 // Walking the bike back with his feet: its pace (m/s) and the ground covered by each push (m).
-const PADDLE = 1.15, STRIDE = 0.5;
+const PADDLE = 0.85, STRIDE = 0.34;
 // A bike does not float: no hull, only the sizes the rest of the car code reads from a kit.
 function bikeKit(model) {
   model.group.updateMatrixWorld(true);
@@ -218,6 +218,10 @@ export class Jeep {
       this.paddling = active && throttle < 0 && this.vF <= 0.5 && !this.air && this.depth < 0.6;
       const want = !this.air && (this.paddling || (Math.abs(this.vF) < 0.9 && throttle <= 0) || (throttle > 0 && Math.abs(this.vF) < 0.25)) ? 1 : 0;
       this.feet = clamp((this.feet || 0) + clamp(want - (this.feet || 0), -dt * 5, dt * 3.5), 0, 1);
+      // To walk it back he stands up off the seat first (feet down, then up in about half a second),
+      // and sits back down once it has stopped.
+      const standWant = this.paddling && this.feet > 0.7 ? 1 : 0;
+      this.stand = clamp((this.stand || 0) + clamp(standWant - (this.stand || 0), -dt * 2.6, dt * 2.2), 0, 1);
       if (this.paddling && this.vF < -0.05) this.paddleT = (this.paddleT || 0) + (-this.vF * dt) / STRIDE;
     }
     // On the bike, the same control pulls a wheelie (see wheelieStep).
@@ -284,7 +288,7 @@ export class Jeep {
       else if (S.bike) {
         // A bike has no reverse gear: the rider puts both feet down and walks it back, seated,
         // a push from each foot in turn. Only once his feet are on the ground, and at a walk.
-        if (this.feet > 0.85) {
+        if (this.feet > 0.85 && this.stand > 0.85) {
           const push = 0.78 + 0.22 * Math.sin(Math.PI * ((this.paddleT || 0) % 1)) ** 2;
           this.vF = Math.max(this.vF - 2.4 * dt, -PADDLE * push);
           if (this.vF < -PADDLE * push) this.vF = -PADDLE * push;

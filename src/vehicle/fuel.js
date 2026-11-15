@@ -48,7 +48,7 @@ export class FuelTank {
 
   // Pump some fuel in; returns true once the tank is full.
   fill(dt, kind) {
-    const lvl = Math.min(1, this.level(kind) + dt * FILL);
+    const lvl = Math.min(1, this.level(kind) + dt * FILL * (this.rate ?? 1));
     this.levels[kind] = lvl;
     if (lvl >= 1) { this.save(); return true; }
     return false;

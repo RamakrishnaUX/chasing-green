@@ -40,75 +40,199 @@ export class RefuelScene {
     this.bones = walker.man ? bonesOf(walker.man) : null;
     const h = car.heading, f = new THREE.Vector3(Math.sin(h), 0, Math.cos(h)), l = new THREE.Vector3(Math.cos(h), 0, -Math.sin(h));
     const B = walker.car || { cx: 0, cz: 0, hx: 1, hz: 2.2, top: 1.6 };
+    this.B = B; this.f = f; this.l = l;
     const at = (x, z) => new THREE.Vector3(car.pos.x + l.x * x + f.x * z, 0, car.pos.z + l.z * x + f.z * z);
     // Which side of the car the pump is on (+1 his door's side, the car's left).
     const fp = face.root;
     const sgn = Math.sign((fp.x - car.pos.x) * l.x + (fp.z - car.pos.z) * l.z) || 1;
     const bike = !!car.model.bike;
-    // The filler: on the bike the top of the tank; on a car low on its rear quarter, pump side.
+    const S = face.s, side = face.side;
+    // Where he can stand: clear of the car's body (by more than the walker keeps clear of it) and of
+    // the forecourt's solid parts. Each spot below is a list of choices, best first; the first one
+    // free is used, so a car parked tight against the island still gets filled (he steps onto the
+    // kerb, or round the corner of the car).
+    this.free = (x, z) => !this.inCar(x, z, 0.34) && !stations.solidAt(S, x, z, 0.24);
+    const pick = (list) => list.find((p) => this.free(p.x, p.z)) || list[0];
+    // The shortest errand: of the free spots, the one nearest the next (dist(p) is how far from p).
+    const nearest = (list, dist) => { let b = null, bd = Infinity; for (const p of list) { const q = p.p || p; if (!this.free(q.x, q.z)) continue; const d = dist(q); if (d < bd) { bd = d; b = p; } } return b; };
+    const sideFiller = bike ? at(sgn * (B.hx + B.cx + 0.42), B.cz + B.hz * 0.05) : at(sgn * (B.hx + B.cx + 0.45), B.cz - B.hz * 0.5);
+    // At the pump: in front of its face, off the kerb if there is room, else on it; of those, the
+    // nearest the car's filler.
+    const pumpList = [];
+    for (const c of [0.95, 0.82, 0.7, 0.62]) for (const w of [0.3, 0.12, 0.48, -0.06, 0.66]) { const q = stations.point(S, face.u + side * c, w); pumpList.push(new THREE.Vector3(q.x, 0, q.z)); }
+    const pump = nearest(pumpList.filter((q) => Math.hypot(q.x - face.root.x, q.z - face.root.z) < 1.05), (q) => q.distanceTo(sideFiller)) || pick(pumpList);
+    // At the filler: beside it (pump side, rear quarter), nearer the car or further along it if
+    // that is where there is room; failing that, round the back corner, with the filler there.
+    const capList = [];
+    if (bike) {
+      for (const d of [0.45, 0.38]) for (const z of [0.05, 0.2, -0.1, 0.35, -0.25]) capList.push({ p: at(sgn * (B.hx + B.cx + d), B.cz + B.hz * z), z: B.cz + B.hz * 0.12 });
+    } else {
+      for (const d of [0.5, 0.42, 0.37]) for (const z of [-0.5, -0.38, -0.62, -0.25, -0.74]) capList.push({ p: at(sgn * (B.hx + B.cx + d), B.cz + B.hz * z), z: B.cz + B.hz * z });
+      for (const x of [0.4, 0.1, 0.7]) capList.push({ p: at(sgn * (B.hx * x + B.cx + (x > 0.6 ? 0.25 : 0)), B.cz - B.hz - 0.4), z: B.cz - B.hz + 0.3, behind: true });
+    }
+    // Beside the filler if there is room (the spot along the car nearest the pump), else round the back.
+    const cs = nearest(capList.filter((c) => !c.behind), (q) => q.distanceTo(pump)) || nearest(capList, (q) => q.distanceTo(pump)) || capList[0];
+    const capStand = cs.p;
     this.cap = bike
-      ? at(0, B.cz + B.hz * 0.12).setY(car.pos.y + B.top * 0.74)
-      : at(sgn * (B.hx - 0.02) + B.cx, B.cz - B.hz * 0.5).setY(car.pos.y + Math.min(1.05, B.top * 0.5));
-    this.out = l.clone().multiplyScalar(sgn); // away from the car at the filler
-    const capStand = bike ? at(sgn * (B.hx + B.cx + 0.4), B.cz + B.hz * 0.05) : at(sgn * (B.hx + B.cx + 0.5), B.cz - B.hz * 0.5);
-    const door = at(B.hx + B.cx + 0.55, B.cz + B.hz * 0.12);
-    const pump = new THREE.Vector3(face.stand.x, 0, face.stand.z);
-    // Round the back when the pump is on the other side from his door.
-    const round = sgn < 0 ? [at(B.hx + B.cx + 0.7, B.cz - B.hz - 0.7), at(-(B.hx + B.cx) - 0.7, B.cz - B.hz - 0.7)] : [];
-    const face2car = Math.atan2(-this.out.x, -this.out.z);
+      ? at(0, cs.z).setY(car.pos.y + B.top * 0.74)
+      : at(sgn * (B.hx - (cs.behind ? 0.08 : 0.02)) + B.cx, cs.z).setY(car.pos.y + Math.min(1.05, B.top * 0.5));
+    this.out = cs.behind ? f.clone().negate() : l.clone().multiplyScalar(sgn); // the way out of the car at the filler
+    // At his door, where he gets out and back in.
+    // On the bike he swings his leg over on the pump's side; out of a car, it is his door.
+    const dside = bike ? sgn : 1;
+    const doorList = [];
+    for (const d of [0.55, 0.45, 0.38]) for (const z of [0.12, 0.3, -0.05, 0.45, -0.2]) doorList.push(at(dside * (B.hx + B.cx + d), B.cz + B.hz * z));
+    doorList.push(at(dside * B.hx * 0.6, B.cz - B.hz - 0.45));
+    const door = bike ? (nearest(doorList, (q) => q.distanceTo(pump)) || doorList[0]) : pick(doorList);
+    const facePump = Math.atan2(face.root.x - pump.x, face.root.z - pump.z);
+    const faceCap = Math.atan2(this.cap.x - capStand.x, this.cap.z - capStand.z);
+    this.spots = { pump, capStand, door };
     this.paths = {
-      toPump: { pts: [...round, pump], facing: face.stand.heading },
-      toCap: { pts: [capStand], facing: face2car },
-      toPump2: { pts: [pump], facing: face.stand.heading },
-      toDoor: { pts: [...round.slice().reverse(), door], facing: car.heading },
+      toPump: { to: pump, facing: facePump },
+      toCap: { to: capStand, facing: faceCap },
+      toPump2: { to: pump, facing: facePump },
+      toDoor: { to: door, facing: car.heading },
     };
     walker.pos.set(door.x, ground(door.x, door.z), door.z);
-    walker.heading = car.heading + Math.PI / 2;
+    walker.heading = Math.atan2(pump.x - door.x, pump.z - door.z); // stepping out toward the pump
     this.active = true; this.go('out');
     this.carry = 0; // 1 while the nozzle is in his hand
     this.armW = 0;
     this.filling = false;
-    // The shot: from ahead of the car and out past the pump, looking back across the two, so the
-    // whole errand is in view.
-    const mid = pump.clone().lerp(capStand, 0.5);
-    const ahead = f.clone();
     // Down the gap between the car and the pump, from ahead of the car and a little above: the
     // car on one side, the pump on the other, and him in between.
+    const mid = pump.clone().lerp(capStand, 0.5);
     const toLane = new THREE.Vector3(face.n.x, 0, face.n.z);
     this.shot = {
-      eye: mid.clone().addScaledVector(ahead, 5.6).addScaledVector(toLane, 0.5).setY(car.pos.y + 2.5),
-      at: mid.clone().addScaledVector(ahead, -1.2).setY(car.pos.y + 0.85),
+      eye: mid.clone().addScaledVector(f, 5.6).addScaledVector(toLane, 0.5).setY(car.pos.y + 2.5),
+      at: mid.clone().addScaledVector(f, -1.2).setY(car.pos.y + 0.85),
     };
+    this.makeScreen();
   }
 
-  go(phase) { this.phase = phase; this.t = 0; this.wp = 0; this.arrived = false; this.holdT = 0; }
+  // Inside the car's body grown by r (its own frame, as the walker measures it).
+  inCar(x, z, r) {
+    const B = this.B, c = this.car, dx = x - c.pos.x, dz = z - c.pos.z;
+    const lx = dx * this.l.x + dz * this.l.z - B.cx, lz = dx * this.f.x + dz * this.f.z - B.cz;
+    return Math.abs(lx) < B.hx + r && Math.abs(lz) < B.hz + r;
+  }
+
+  // A way from (x, z) to `to` round the car and the forecourt's solid parts: a search over a 0.2 m
+  // grid (8 ways), then the corners cut wherever the straight line between is clear. Returns
+  // waypoints ending at `to`.
+  route(from, to) {
+    const clear = (a, b) => { const n = Math.ceil(a.distanceTo(b) / 0.1); for (let i = 1; i < n; i++) { const t = i / n; if (!this.free(a.x + (b.x - a.x) * t, a.z + (b.z - a.z) * t)) return false; } return true; };
+    const A = new THREE.Vector3(from.x, 0, from.z);
+    if (clear(A, to)) return [to.clone()];
+    const G = 0.2, x0 = Math.min(A.x, to.x) - 6, z0 = Math.min(A.z, to.z) - 6;
+    const nx = Math.ceil((Math.max(A.x, to.x) + 6 - x0) / G), nz = Math.ceil((Math.max(A.z, to.z) + 6 - z0) / G);
+    const id = (i, j) => j * nx + i, cell = (p) => [Math.round((p.x - x0) / G), Math.round((p.z - z0) / G)];
+    const ok = new Uint8Array(nx * nz);
+    for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) ok[id(i, j)] = this.free(x0 + i * G, z0 + j * G) ? 1 : 0;
+    const [si, sj] = cell(A), [gi, gj] = cell(to);
+    ok[id(si, sj)] = 1; ok[id(gi, gj)] = 1; // he is where he is; the spot was chosen free
+    const g = new Float32Array(nx * nz).fill(Infinity), prev = new Int32Array(nx * nz).fill(-1), done = new Uint8Array(nx * nz);
+    const open = [id(si, sj)]; g[open[0]] = 0;
+    const hh = (k) => Math.hypot((k % nx) - gi, Math.floor(k / nx) - gj);
+    const goal = id(gi, gj);
+    while (open.length) {
+      let bi = 0; for (let k = 1; k < open.length; k++) if (g[open[k]] + hh(open[k]) < g[open[bi]] + hh(open[bi])) bi = k;
+      const cur = open[bi]; open.splice(bi, 1);
+      if (cur === goal) break;
+      if (done[cur]) continue; done[cur] = 1;
+      const ci = cur % nx, cj = Math.floor(cur / nx);
+      for (let di = -1; di <= 1; di++) for (let dj = -1; dj <= 1; dj++) {
+        if (!di && !dj) continue;
+        const ni = ci + di, nj = cj + dj;
+        if (ni < 0 || nj < 0 || ni >= nx || nj >= nz) continue;
+        const k = id(ni, nj);
+        if (!ok[k] || done[k] || (di && dj && (!ok[id(ci + di, cj)] || !ok[id(ci, cj + dj)]))) continue;
+        const ng = g[cur] + (di && dj ? 1.414 : 1);
+        if (ng < g[k]) { g[k] = ng; prev[k] = cur; open.push(k); }
+      }
+    }
+    if (prev[goal] < 0) return [to.clone()];
+    const pts = [];
+    for (let k = goal; k >= 0; k = prev[k]) pts.push(new THREE.Vector3(x0 + (k % nx) * G, 0, z0 + Math.floor(k / nx) * G));
+    pts.reverse(); pts[pts.length - 1] = to.clone();
+    // Cut corners: from each kept point, on to the furthest one in a clear straight line.
+    const out = []; let a = A;
+    for (let i = 0; i < pts.length;) {
+      let j = pts.length - 1;
+      while (j > i && !clear(a, pts[j])) j--;
+      out.push(pts[j]); a = pts[j]; i = j + 1;
+    }
+    return out;
+  }
+
+  go(phase) {
+    this.phase = phase; this.t = 0; this.wp = 0; this.arrived = false; this.holdT = 0;
+    const P = this.paths?.[phase];
+    if (P) {
+      P.pts = this.route(this.walker.pos, P.to); this.best = Infinity; this.bestT = 0;
+      let len = 0, a = this.walker.pos; for (const q of P.pts) { len += Math.hypot(q.x - a.x, q.z - a.z); a = q; }
+      P.limit = len / 0.9 + 3; // longer than any honest walk there takes
+      P.len = len;
+    }
+  }
 
   // What the walker is told to do this frame: walk toward the next waypoint (steered by setting his
   // heading), slowing to stop on the last, then turning to face what he came for.
   input(dt) {
     const W = this.walker, P = this.paths[this.phase];
     const inp = { throttle: 0, steer: 0, walk: true };
-    if (!P) return inp;
+    if (!P?.pts) return inp;
     const tgt = P.pts[Math.min(this.wp, P.pts.length - 1)];
     const dx = tgt.x - W.pos.x, dz = tgt.z - W.pos.z, d = Math.hypot(dx, dz);
     const last = this.wp >= P.pts.length - 1;
-    // Held up (the car or a post in the way) for too long: he steps the last bit.
-    if (this.t > 9) { const end = P.pts[P.pts.length - 1]; W.pos.x = end.x; W.pos.z = end.z; W.heading = P.facing; W.fwd = 0; this.arrived = true; return inp; }
-    if (!last && d < 0.45) { this.wp++; return this.input(dt); }
-    if (last && d < 0.12) {
+    // Getting no closer (pressed against something): within reach, he stops there; held up for
+    // long, he steps the last bit.
+    if (d < this.best - 0.03) { this.best = d; this.bestT = this.t; }
+    const stalled = this.t - this.bestT > 0.9;
+    if (stalled && !last) { this.wp++; this.best = Infinity; this.bestT = this.t; return this.input(dt); }
+    if (this.t > P.limit || (stalled && last && d > 0.6)) { W.pos.x = P.to.x; W.pos.z = P.to.z; W.fwd = 0; this.wp = P.pts.length - 1; this.best = 0; }
+    if (!last && d < 0.35) { this.wp++; this.best = Infinity; this.bestT = this.t; return this.input(dt); }
+    if (last && (d < 0.14 || stalled)) {
       W.fwd = 0;
       const turn = wrap(P.facing - W.heading);
       W.heading += Math.sign(turn) * Math.min(Math.abs(turn), dt * 4.5);
-      if (Math.abs(turn) < 0.08 && W.speedSmooth < 0.2) this.arrived = true;
+      if (Math.abs(turn) < 0.08 && W.speedSmooth < 0.25) this.arrived = true;
       return inp;
     }
     const want = Math.atan2(dx, dz), turn = wrap(want - W.heading);
-    W.heading += Math.sign(turn) * Math.min(Math.abs(turn), dt * 5);
+    W.heading += Math.sign(turn) * Math.min(Math.abs(turn), dt * 6);
     // Turn on the spot first if it is well behind him; slow for the last half metre.
     inp.throttle = Math.abs(turn) > 1.2 ? 0.15 : last ? Math.max(0.3, Math.min(1, d / 0.7)) : 1;
     if (last && d < 0.5) W.fwd = Math.min(W.fwd, 0.3 + d * 2);
     return inp;
   }
+
+  // The pump's own screen counting up while he fills: a picture of its own laid over the face he
+  // is using (the others keep their resting figures).
+  makeScreen() {
+    if (!this.screen) {
+      this.screenCanvas = document.createElement('canvas'); this.screenCanvas.width = 256; this.screenCanvas.height = 192;
+      this.screenTex = new THREE.CanvasTexture(this.screenCanvas); this.screenTex.colorSpace = THREE.SRGBColorSpace;
+      this.screen = new THREE.Mesh(new THREE.PlaneGeometry(0.44, 0.33), new THREE.MeshBasicMaterial({ map: this.screenTex, toneMapped: false }));
+      this.scene.add(this.screen);
+    }
+    const F = this.face, n = new THREE.Vector3(F.n.x, 0, F.n.z), q = this.stations.point(F.s, F.u + F.side * 0.288, -0.16);
+    this.screen.position.set(q.x, F.s.y + 1.34, q.z);
+    this.screen.lookAt(this.screen.position.clone().add(n));
+    this.screen.visible = true;
+    this.drawScreen(0);
+  }
+  drawScreen(litres, price = 314.9) {
+    const g = this.screenCanvas.getContext('2d'), w = 256, h = 192;
+    g.fillStyle = '#0b0f0e'; g.fillRect(0, 0, w, h);
+    g.strokeStyle = '#2b3331'; g.lineWidth = 6; g.strokeRect(3, 3, w - 6, h - 6);
+    const fmt = (v, d) => v.toFixed(d).replace('.', ',');
+    const row = (y, label, val, px) => { g.textBaseline = 'middle'; g.textAlign = 'right'; g.fillStyle = '#9dffd0'; g.font = `600 ${px}px "Saira", system-ui, sans-serif`; g.fillText(val, w - 22, y); g.textAlign = 'left'; g.fillStyle = '#6c7a75'; g.font = '700 16px "Saira", system-ui, sans-serif'; g.fillText(label, 20, y); };
+    row(46, 'KR', Math.round(litres * price).toLocaleString('is-IS'), 46); row(104, 'LÍTRAR', fmt(litres, 2), 38); row(156, 'KR/L', fmt(price, 1), 30);
+    this.screenTex.needsUpdate = true;
+  }
+  // Each frame while filling: the litres so far, on the pump.
+  setPumped(litres) { if (this.screen?.visible && Math.abs(litres - (this.shown ?? -1)) > 0.04) { this.shown = litres; this.drawScreen(litres); } }
 
   // After the walker has moved and been animated: the phase clock, his arm, the nozzle and the hose.
   // fuelFull(): whether the tank is full.
@@ -138,6 +262,7 @@ export class RefuelScene {
   abort() {
     if (!this.active) return;
     this.active = false;
+    if (this.screen) this.screen.visible = false;
     this.nozzle.visible = this.hose.visible = false;
     this.stations.holster(this.face, true);
     if (this.filling) { this.filling = false; this.onFill?.(false); }
@@ -146,6 +271,7 @@ export class RefuelScene {
   // Done or called off: hang the nozzle up and hand back to the car.
   finish() {
     this.active = false;
+    if (this.screen) this.screen.visible = false;
     this.nozzle.visible = this.hose.visible = false;
     this.stations.holster(this.face, true);
     if (this.filling) { this.filling = false; this.onFill?.(false); }

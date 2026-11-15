@@ -2277,7 +2277,9 @@ function startRefuel() {
   refuel.look = camera.position.clone().add(camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(8));
   refuel.scene.begin({
     car: jeep, walker, face: fn.face, stations, ground: (x, z) => walker.groundAt(x, z),
-    onFill: (on) => { fuel.filling = on; if (on) { fuelStart = fuel.level(jeep.kind); haptics.play('medium', 0); } },
+    // By hand it pumps at about half the drive-up rate (about six seconds from empty), so the tank
+    // can be seen filling.
+    onFill: (on) => { fuel.filling = on; fuel.rate = on ? 0.55 : 1; if (on) { fuelStart = fuel.level(jeep.kind); haptics.play('medium', 0); } },
     onDone: () => { refuel.active = false; document.body.classList.remove('refuelling'); getIn(); },
   });
   refuel.active = true;
@@ -2285,6 +2287,22 @@ function startRefuel() {
   syncLookButton();
   track('fuel_walk', { station: s.name, vehicle: jeep.kind });
   return true;
+}
+// While he fills: the tank rising on screen (a card over the Refuel button: the gauge, litres
+// pumped and what it costs) and the same litres counting up on the pump's own screen.
+let fillShown = false;
+function fillCard(kind, lvl) {
+  const on = refuel.active && (fuel.filling || refuel.scene.phase === 'fill');
+  if (on !== fillShown) { fillShown = on; $('fill-card').hidden = !on; document.body.classList.toggle('filling', on); }
+  if (!on) return;
+  const tank = TANKS[kind]?.litres || 60, added = Math.max(0, (lvl - fuelStart) * tank);
+  refuel.scene.setPumped(added);
+  $('fc-l').textContent = added.toFixed(1).replace('.', ',');
+  $('fc-kr').textContent = Math.round(added * 314.9).toLocaleString('is-IS');
+  $('fc-pct').textContent = `${Math.round(lvl * 100)}%`;
+  $('fc-tank').textContent = `${Math.round(lvl * tank)} / ${tank} L`;
+  $('fc-bar').style.transform = `scaleX(${lvl.toFixed(3)})`;
+  $('fc-was').style.left = `${(fuelStart * 100).toFixed(1)}%`;
 }
 function abortRefuel() { if (refuel.active) { refuel.scene.abort(); refuel.active = false; document.body.classList.remove('refuelling'); } }
 // The refuel shot: the camera eases to a fixed place ahead of the car, looking back over the
@@ -2325,6 +2343,7 @@ function fuelTick(dt) {
     track('fuel_refuel', { station: here.name, litres: added, vehicle: kind });
   }
   lvl = fuel.level(kind);
+  fillCard(kind, lvl);
   const g = $('fuel');
   $('fuel-bar').style.transform = `scaleX(${lvl.toFixed(3)})`;
   g.classList.toggle('is-low', lvl < 0.2 && lvl > 0);
@@ -3031,7 +3050,8 @@ function frame(now) {
       fitGear(walkerBones, diver.pack, sitting ? null : diver.helmet);
       if (heliComing && !heli.auto) { heliComing = false; hud.toast(isTouch ? 'The helicopter has landed. Tap Get in when you are beside it.' : 'The helicopter has landed. Walk over and press E to get in.', { seconds: 3.5, priority: 2 }); }
     }
-    obstacles.resolve(walker.pos, riding.on ? 0.8 : 0.4, true, walker.pos.y, riding.on ? 2.4 : 1.8);
+    // (On his way round the pumps he follows a path planned round them, refuel.js.)
+    if (!refuel.active) obstacles.resolve(walker.pos, riding.on ? 0.8 : 0.4, true, walker.pos.y, riding.on ? 2.4 : 1.8);
     if (refuel.active) refuel.scene.update(dt, { fuelFull: () => fuel.level(jeep.kind) >= 0.995 });
     wildlife.pushOut(walker.pos, riding.on ? 0.5 : 0.3); // nor through the animals
     if (riding.on) { riding.a.x = walker.pos.x; riding.a.z = walker.pos.z; }
@@ -3265,7 +3285,7 @@ function frame(now) {
       kick: mode === 'walk' ? (riding?.on ? 'On horseback' : 'On foot') : ride === 'heli' ? 'Helicopter' : jeep.spec.name, next: hud.nextText, gear: gearText(),
       dayText: `${clock.m.name} · ${a.summer ? 'Midnight sun' : a.active ? 'Aurora out now' : hud.nextWindowText ? `Lights likely ${hud.nextWindowText}` : a.dark < CONFIG.aurora.minDarkness ? 'Waiting for dark' : 'Dark sky'}`,
       nitro: jeep.nitro, boosting: jeep.boosting,
-      fuel: fuel.on && ride === 'car' && mode !== 'walk' ? { level: fuel.level(jeep.kind), litres: fuel.litres(jeep.kind) } : null,
+      fuel: fuel.on && ride === 'car' && (mode !== 'walk' || refuel.active) ? { level: fuel.level(jeep.kind), litres: fuel.litres(jeep.kind) } : null,
       condition: ride === 'car' && (mode !== 'walk' || refuel.active) ? condition.level(jeep.kind) : null,
       agl: mode === 'fly' ? Math.max(0, heli.agl) : mode === 'sky' ? Math.max(0, diver.agl) : null,
     });
