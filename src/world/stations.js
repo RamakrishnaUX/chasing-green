@@ -502,6 +502,26 @@ export class Stations {
     }
     return false;
   }
+  // Push a person of radius r at pos (its x and z changed in place) out of station s's solid parts
+  // as solidAt sees them: off the pump's box by its nearest side, off a post or column radially.
+  pushOut(s, pos, r = 0.25) {
+    for (let it = 0; it < 3; it++) {
+      const dx = pos.x - s.x, dz = pos.z - s.z, u = dx * s.ax + dz * s.az, w = dx * s.fx + dz * s.fz;
+      let du = 0, dw = 0;
+      for (const I of ISLANDS) {
+        if (Math.abs(u - I) > 1.5) continue;
+        const ou = 0.39 + r - Math.abs(u - I), ow = 0.62 + r - Math.abs(w);
+        if (ou > 0 && ow > 0) { if (ou < ow) du = Math.sign(u - I || 1) * ou; else dw = Math.sign(w || 1) * ow; break; }
+        for (const [cw, cr] of [[3.1, 0.17], [-3.1, 0.17], [3.55, 0.1], [-3.55, 0.1], [2.2, 0.21], [1.55, 0.15]]) {
+          const pu = u - I, pw = w - cw, d = Math.hypot(pu, pw), o = cr + r - d;
+          if (o > 0 && d > 1e-4) { du = (pu / d) * o; dw = (pw / d) * o; break; }
+        }
+        if (du || dw) break;
+      }
+      if (!du && !dw) return;
+      pos.x += s.ax * du + s.fx * dw; pos.z += s.az * du + s.fz * dw;
+    }
+  }
   // A point on a station given in its own terms (u across, w along), in world space.
   point(s, u, w) { return stationPoint(s, u, w); }
 

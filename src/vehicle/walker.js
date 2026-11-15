@@ -399,7 +399,9 @@ function carBox(car) {
   _inv.copy(car.root.matrixWorld).invert();
   const b = new THREE.Box3();
   car.body.traverseVisible((m) => {
-    if (!m.isMesh || !m.geometry || m.userData.noBox || m.material?.blending === THREE.AdditiveBlending) return;
+    // Not the driver sitting in it: a skinned man's box is his T-pose at rest, arms out, which made
+    // the car half a metre wider on his side.
+    if (!m.isMesh || m.isSkinnedMesh || !m.geometry || m.userData.noBox || m.material?.blending === THREE.AdditiveBlending) return;
     m.geometry.boundingBox || m.geometry.computeBoundingBox();
     b.union(_box.copy(m.geometry.boundingBox).applyMatrix4(_m.multiplyMatrices(_inv, m.matrixWorld)));
   });

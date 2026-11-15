@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { nozzleGeometry, NOZZLE_TAIL, NOZZLE_TIP } from '../world/stations.js';
-import { reach, wpos } from './driver.js';
+import { reach, wpos, turnWorld } from './driver.js';
 import { bonesOf } from './skydiver.js';
 
 // Filling up by hand. Press Refuel under a station's roof and the driver gets out at his door,
@@ -47,6 +47,8 @@ export class RefuelScene {
     const sgn = Math.sign((fp.x - car.pos.x) * l.x + (fp.z - car.pos.z) * l.z) || 1;
     const bike = !!car.model.bike;
     const S = face.s, side = face.side;
+    // Across the car, d beyond its body on side g (+1 its left): the box is not centred on the car.
+    const sx = (g, d) => g * (B.hx + d) + B.cx;
     // Where he can stand: clear of the car's body (by more than the walker keeps clear of it) and of
     // the forecourt's solid parts. Each spot below is a list of choices, best first; the first one
     // free is used, so a car parked tight against the island still gets filled (he steps onto the
@@ -54,8 +56,8 @@ export class RefuelScene {
     this.free = (x, z) => !this.inCar(x, z, 0.34) && !stations.solidAt(S, x, z, 0.24);
     const pick = (list) => list.find((p) => this.free(p.x, p.z)) || list[0];
     // The shortest errand: of the free spots, the one nearest the next (dist(p) is how far from p).
-    const nearest = (list, dist) => { let b = null, bd = Infinity; for (const p of list) { const q = p.p || p; if (!this.free(q.x, q.z)) continue; const d = dist(q); if (d < bd) { bd = d; b = p; } } return b; };
-    const sideFiller = bike ? at(sgn * (B.hx + B.cx + 0.42), B.cz + B.hz * 0.05) : at(sgn * (B.hx + B.cx + 0.45), B.cz - B.hz * 0.5);
+    const nearest = (list, dist) => { let b = null, bd = Infinity; for (const p of list) { const q = p.p || p; if (!this.free(q.x, q.z)) continue; const d = dist(q, p); if (d < bd) { bd = d; b = p; } } return b; };
+    const sideFiller = bike ? at(sx(sgn, 0.42), B.cz + B.hz * 0.05) : at(sx(sgn, 0.45), B.cz - B.hz * 0.5);
     // At the pump: in front of its face, off the kerb if there is room, else on it; of those, the
     // nearest the car's filler.
     const pumpList = [];
@@ -65,18 +67,27 @@ export class RefuelScene {
     // that is where there is room; failing that, round the back corner, with the filler there.
     const capList = [];
     if (bike) {
-      for (const d of [0.45, 0.38]) for (const z of [0.05, 0.2, -0.1, 0.35, -0.25]) capList.push({ p: at(sgn * (B.hx + B.cx + d), B.cz + B.hz * z), z: B.cz + B.hz * 0.12 });
+      for (const d of [0.45, 0.38]) for (const z of [0.05, 0.2, -0.1, 0.35, -0.25]) capList.push({ p: at(sx(sgn, d), B.cz + B.hz * z), z: B.cz + B.hz * 0.12 });
     } else {
-      for (const d of [0.5, 0.42, 0.37]) for (const z of [-0.5, -0.38, -0.62, -0.25, -0.74]) capList.push({ p: at(sgn * (B.hx + B.cx + d), B.cz + B.hz * z), z: B.cz + B.hz * z });
-      for (const x of [0.4, 0.1, 0.7]) capList.push({ p: at(sgn * (B.hx * x + B.cx + (x > 0.6 ? 0.25 : 0)), B.cz - B.hz - 0.4), z: B.cz - B.hz + 0.3, behind: true });
+      // Close to the car (a short arm's length from the filler), further out only if that is blocked.
+      for (const d of [0.38, 0.45, 0.55]) for (const z of [-0.5, -0.38, -0.62, -0.25, -0.74]) capList.push({ p: at(sx(sgn, d), B.cz + B.hz * z), z: B.cz + B.hz * z, d });
+      for (const x of [0.4, 0.1, 0.7]) capList.push({ p: at(sgn * (B.hx * x + (x > 0.6 ? 0.25 : 0)) + B.cx, B.cz - B.hz - 0.4), z: B.cz - B.hz + 0.3, behind: true });
     }
     // Beside the filler if there is room (the spot along the car nearest the pump), else round the back.
-    const cs = nearest(capList.filter((c) => !c.behind), (q) => q.distanceTo(pump)) || nearest(capList, (q) => q.distanceTo(pump)) || capList[0];
+    // Standing off the body costs: he stands close enough to hold the nozzle in with a bent arm.
+    const capCost = (q, c) => q.distanceTo(pump) + (c.d ? (c.d - 0.38) * 4 : 0);
+    const cs = nearest(capList.filter((c) => !c.behind), capCost) || nearest(capList, capCost) || capList[0];
     const capStand = cs.p;
+    this.out = cs.behind ? f.clone().negate() : l.clone().multiplyScalar(sgn); // the way out of the car at the filler
     this.cap = bike
       ? at(0, cs.z).setY(car.pos.y + B.top * 0.74)
-      : at(sgn * (B.hx - (cs.behind ? 0.08 : 0.02)) + B.cx, cs.z).setY(car.pos.y + Math.min(1.05, B.top * 0.5));
-    this.out = cs.behind ? f.clone().negate() : l.clone().multiplyScalar(sgn); // the way out of the car at the filler
+      : at(sgn * (B.hx - (cs.behind ? 0.08 : 0.02)) + B.cx, cs.z).setY(car.pos.y + THREE.MathUtils.clamp(B.top * 0.5, 0.9, 1.05)); // low cars fill high on the haunch
+    // The box is only the car's outline (its mirrors, wheels and wings stick out): find the panel
+    // itself, so the spout goes into the body rather than stopping in the air beside it.
+    if (!bike) {
+      const hit = this.panel(this.cap, this.out);
+      if (hit) { this.cap.copy(hit.point).addScaledVector(hit.n, -0.05); this.out.copy(hit.n); }
+    }
     // At his door, where he gets out and back in.
     // On the bike he swings his leg over on the pump's side; out of a car, it is his door.
     const dside = bike ? sgn : 1;
@@ -98,6 +109,7 @@ export class RefuelScene {
     this.active = true; this.go('out');
     this.carry = 0; // 1 while the nozzle is in his hand
     this.armW = 0;
+    this.lookW = 0; this.lookAt = null; this.leanW = 0; this.fillM = null;
     this.filling = false;
     // Down the gap between the car and the pump, from ahead of the car and a little above: the
     // car on one side, the pump on the other, and him in between.
@@ -108,6 +120,38 @@ export class RefuelScene {
       at: mid.clone().addScaledVector(f, -1.2).setY(car.pos.y + 0.85),
     };
     this.makeScreen();
+  }
+
+  // The car's body panel near p, seen from outside along out (a horizontal unit vector): the
+  // highest point of the side, below p, that faces outward, and its outward normal. Its filler is
+  // just under the top of the panel there.
+  panel(p, out) {
+    const meshes = [];
+    this.car.body.traverseVisible((m) => { if (m.isMesh && !m.isSkinnedMesh && m.geometry && !m.userData.noBox && m.material?.blending !== THREE.AdditiveBlending) meshes.push(m); });
+    if (!meshes.length) return null;
+    const ray = new THREE.Raycaster(), dir = out.clone().negate();
+    ray.far = 2.4;
+    let best = null;
+    for (let dy = 0.12; dy > -0.5; dy -= 0.04) {
+      ray.set(p.clone().addScaledVector(out, 1.6).setY(p.y + dy), dir);
+      const h = ray.intersectObjects(meshes, false)[0];
+      if (!h || !h.face) continue;
+      const n = h.face.normal.clone().transformDirection(h.object.matrixWorld);
+      if (n.dot(out) < 0) n.negate(); // a double-sided face seen from behind
+      if (Math.abs(n.y) > 0.6 || n.dot(out) < 0.5) continue; // the top of a wing, or a wheel's face
+      // How far in it is from the car's outline: no deeper than the box allows.
+      if (h.point.clone().sub(p).dot(out) < -0.45) continue;
+      best = { point: h.point.clone(), n: n.setY(0).normalize() };
+      break;
+    }
+    if (!best) return null;
+    // A hand's width under the top, so the spout goes into the side and not over its lip; found
+    // again there, since the side may lean in or out.
+    ray.set(best.point.clone().addScaledVector(out, 1.6).addScaledVector(UP, -0.11), dir);
+    const h = ray.intersectObjects(meshes, false)[0];
+    if (h?.face && Math.abs(h.point.clone().sub(best.point).dot(out)) < 0.12) best.point.copy(h.point);
+    else best.point.y -= 0.11;
+    return best;
   }
 
   // Inside the car's body grown by r (its own frame, as the walker measures it).
@@ -252,6 +296,10 @@ export class RefuelScene {
       if (this.filling && fuelFull()) { this.filling = false; this.onFill?.(false); }
       if (!this.filling && this.t > 0.6 && (this.holdT += dt) > 0.6) this.go('toPump2');
     }
+    // Never inside the pump, a column or a post, whatever his steering did on the way round.
+    const W = this.walker, px = W.pos.x, pz = W.pos.z;
+    this.stations.pushOut(this.face.s, W.pos, 0.22);
+    if (W.pos.x !== px || W.pos.z !== pz) { W.root.position.x += W.pos.x - px; W.root.position.z += W.pos.z - pz; W.root.updateMatrixWorld(true); }
     this.pose(dt);
   }
 
@@ -314,6 +362,20 @@ export class RefuelScene {
       want = 1;
     }
     this.armW += (want - this.armW) * Math.min(1, dt * 8);
+    // Where he looks: down at the spout in the filler while he fills (head bowed, shoulders a
+    // little forward over it), at the holster as he reaches for it or hangs it up, and ahead when
+    // walking. Done before the arm, so the arm reaches from where the bend put his shoulder.
+    let look = 0;
+    let lean = 0;
+    if (ph === 'fill') {
+      this.lookAt = this.cap; look = 1;
+      // Bent at the waist when the filler is further or lower than his arm reaches standing.
+      if (B && this.fillM) { const g = new THREE.Vector3().setFromMatrixPosition(this.fillM); lean = THREE.MathUtils.clamp((wpos(B.RightArm).distanceTo(g) - 0.45) * 1.6, 0, 0.5); }
+    }
+    else if (ph === 'take' || ph === 'hang') { this.lookAt = new THREE.Vector3().setFromMatrixPosition(rest); look = t < 0.85 ? 0.75 : 0.2; }
+    this.lookW += (look - this.lookW) * Math.min(1, dt * (look > this.lookW ? 3.5 : 4.5));
+    this.leanW = (this.leanW || 0) + (lean - (this.leanW || 0)) * Math.min(1, dt * 3);
+    if (B && this.lookAt && this.lookW > 0.01) this.bow(this.lookAt, this.lookW, this.leanW);
     if (B && target && this.armW > 0.01) {
       const arm = B.RightArm, fore = B.RightForeArm, hand = B.RightHand;
       const q0 = [arm.quaternion.clone(), fore.quaternion.clone()];
@@ -343,6 +405,25 @@ export class RefuelScene {
       if (ph === 'hang' && t > 0.3) M = lerpMatrix(held, rest, ease(Math.min(1, (t - 0.3) / 0.25)));
       this.nozzle.matrix.copy(M); this.nozzle.matrixWorld.copy(M);
       this.updateHose(M);
+    }
+  }
+
+  // Bow his head and upper back so he looks at p, by k (0 to 1): the turn spread down the spine,
+  // most of it in the neck and head, a little in the back, as a person leans over to watch the
+  // spout. Added on top of whatever his clip has him doing.
+  bow(p, k, lean = 0) {
+    const B = this.bones, W = this.walker;
+    if (!B.Head || !B.Neck) return;
+    const d = p.clone().sub(wpos(B.Head)), flat = Math.hypot(d.x, d.z);
+    const yaw = THREE.MathUtils.clamp(wrap(Math.atan2(d.x, d.z) - W.heading), -1.0, 1.0);
+    const pitch = THREE.MathUtils.clamp(Math.atan2(-d.y, Math.max(0.15, flat)), -0.15, 1.05); // + is down
+    const a = W.heading + yaw * 0.6, left = new THREE.Vector3(Math.cos(a), 0, -Math.sin(a));
+    // [bone, share of the bow, share of the turn]
+    // lean: a further bend at the waist (radians, from the hips up), the head kept on its target.
+    for (const [b, sp, sy, sl] of [[B.Spine, 0.1, 0.1, 0.5], [B.Spine1, 0.12, 0.12, 0.3], [B.Spine2, 0.13, 0.13, 0.2], [B.Neck, 0.28, 0.25, -0.45], [B.Head, 0.37, 0.4, -0.25]]) {
+      if (!b) continue;
+      turnWorld(b, UP, yaw * sy * k);
+      turnWorld(b, left, (pitch * sp + lean * sl) * k);
     }
   }
 
