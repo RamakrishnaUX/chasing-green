@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { createWaterMaterial } from './materials.js';
 import { toWorld, LAKES, CANYONS, WS, GROW } from './geo.js';
 import { heightAt, nearestRoad, roadDistAt } from './terrain.js';
@@ -20,6 +19,7 @@ import { bakeStatic } from './bake.js';
 import { buildGeyser } from './geyser.js';
 import { addSolids, solidTopAt } from './solids.js';
 import { HD } from './hd.js';
+import { crystalIceGeometry, glacierIceMaterial } from './ice.js';
 
 // Built places keep their walls; everything else is a landform you can climb onto, not into.
 const NOT_GROUND = ['town', 'building', 'sculpture', 'bridge', 'wreck', 'pool', 'cave', 'stadium'];
@@ -426,41 +426,10 @@ function rockBox(w, h, d, rough = 0.6) {
   return new THREE.Mesh(g, rockMaterial());
 }
 
-// Irregular ice: a subdivided sphere pushed in and out, flattened, with a sharp waterline.
-// Glacier ice: a faceted crystal. Starts from a subdivided sphere, then every face is pushed
-// in or out by its own amount and the mesh is split so each facet keeps a hard edge.
+// Glacier ice: a crystal with flat broken facets, sharp edges and melt scallops (ice.js). Floating
+// bergs are fresher and more angular, with a pinnacle or two.
 function iceGeometry(size, rand, angular = false) {
-  // Glacier ice washed up on black sand: rounded and polished by the waves, flattened, with a
-  // few softer bulges, and coloured from frosty white on top to deep blue underneath.
-  // The icosahedron comes with every triangle separate; weld it so the normals come out smooth.
-  const ico = new THREE.IcosahedronGeometry(size, 3);
-  ico.deleteAttribute('normal'); ico.deleteAttribute('uv');
-  const g = mergeVertices(ico);
-  ico.dispose();
-  const p = g.attributes.position;
-  const k = [rand() * 6, rand() * 6, rand() * 6, rand() * 6];
-  const sx = 0.8 + rand() * 0.6, sy = 0.45 + rand() * 0.35, sz = 0.8 + rand() * 0.6;
-  for (let i = 0; i < p.count; i++) {
-    const x = p.getX(i) / size, y = p.getY(i) / size, z = p.getZ(i) / size;
-    let n = 1 + 0.2 * Math.sin(x * 2.1 + k[0]) * Math.sin(z * 1.7 + k[1]) + 0.1 * Math.sin(y * 3.3 + k[2])
-      + 0.05 * Math.sin(x * 6.3 + z * 5.1 + k[3]) + 0.025 * Math.sin(x * 13 - y * 11 + z * 9);
-    // Floating bergs are freshly broken: sharp ridges and a pinnacle or two, not wave-polished.
-    if (angular) n += 0.22 * Math.pow(Math.abs(Math.sin(x * 3.1 + k[1]) * Math.cos(z * 2.7 + k[2])), 3) + 0.35 * Math.max(0, y) * Math.pow(Math.abs(Math.sin(x * 1.3 + z * 1.9 + k[3])), 6);
-    p.setXYZ(i, x * n * sx * size, Math.max(y * n * sy * size, -size * 0.28), z * n * sz * size);
-  }
-  g.computeVertexNormals();
-  g.computeBoundingBox();
-  const y0 = g.boundingBox.min.y, y1 = g.boundingBox.max.y, col = new Float32Array(p.count * 3);
-  const ash = rand() < 0.4 ? (() => { const v = new THREE.Vector3(rand() - 0.5, 1.5, rand() - 0.5).normalize(); return [v.x, v.y, v.z, (rand() - 0.5) * 0.6]; })() : null;
-  for (let i = 0; i < p.count; i++) {
-    const t = (p.getY(i) - y0) / Math.max(y1 - y0, 1e-3), f = 0.85 + rand() * 0.15;
-    col[i * 3] = (0.32 + 0.6 * t * t) * f; col[i * 3 + 1] = (0.6 + 0.37 * t) * f; col[i * 3 + 2] = (0.78 + 0.21 * t) * f;
-    // Some bergs carry a band of black volcanic ash, tilted as the berg rolled over.
-    if (ash && Math.abs(p.getX(i) * ash[0] + p.getY(i) * ash[1] + p.getZ(i) * ash[2] - ash[3] * size) < size * 0.07) { col[i * 3] *= 0.22; col[i * 3 + 1] *= 0.22; col[i * 3 + 2] *= 0.24; }
-  }
-  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
-  if (angular) { const ng = g.toNonIndexed(); g.dispose(); ng.computeVertexNormals(); return ng; }
-  return g;
+  return crystalIceGeometry(size, rand, { angular });
 }
 
 
@@ -1012,24 +981,39 @@ export class Landmarks {
     this.scene.add(tongue);
     // Smooth, wet ice; each chunk's colours run from frosty white on top to blue underneath, and
     // the four tints vary the blue from bergy white to deep glacier blue.
-    const iceMats = [0xffffff, 0xe6f4fb, 0xd2ecf8, 0xf4fbff].map((c) => new THREE.MeshPhysicalMaterial({ roughness: 0.2, metalness: 0, color: c, vertexColors: true, emissive: 0x0d2a3c, emissiveIntensity: 0.45, clearcoat: 1, clearcoatRoughness: 0.04, sheen: 0.4, sheenColor: new THREE.Color(0xd8f0ff), sheenRoughness: 0.5 }));
+    // Glassy glacier ice (ice.js): clear and dark face on, mirror-bright at a glancing angle, milky
+    // where air is trapped, glinting as you move. Some bergs clearer, some deeper blue.
+    const iceMats = [0, 1, 2, 3].map((i) => glacierIceMaterial({ quality: this.quality, deep: i % 2 === 1, clear: [0.6, 0.72, 0.5, 0.66][i] }));
     for (let i = 0; i < 42; i++) {
       const size = 0.6 + Math.pow(rand(), 2) * 3.2;
       const geo = iceGeometry(size, rand, true);
       geo.scale(1, 0.6 + rand() * 0.7, 1);
       const m = new THREE.Mesh(geo, iceMats[i % 4]);
-      const a = rand() * Math.PI * 2, r = Math.sqrt(rand()) * 0.55;
-      const chunk = { mesh: m, cx: lm.x, cz: lm.z, a, r, speed: (0.004 + rand() * 0.01) * (rand() > 0.5 ? 1 : -1), bob: rand() * 6, size, spin: (rand() - 0.5) * 0.05 };
+      // Each berg drifts on its own loop round the middle of the lagoon (not the landmark's spot,
+      // which is on the road), starting somewhere in open water well clear of the road.
+      const lag = LAKES[2];
+      let a = 0, r = 0;
+      for (let t = 0; t < 40; t++) {
+        a = rand() * Math.PI * 2; r = Math.sqrt(rand()) * 0.75;
+        const x = lag.x + Math.cos(a) * r * lag.r * lag.stretch, z = lag.z + Math.sin(a) * r * lag.r;
+        if (this.bergClear(x, z, size)) break;
+      }
+      const chunk = { mesh: m, cx: lag.x, cz: lag.z, a, r, speed: (0.004 + rand() * 0.01) * (rand() > 0.5 ? 1 : -1), bob: rand() * 6, size, spin: (rand() - 0.5) * 0.05 };
       this.ice.push(chunk);
       this.scene.add(m);
     }
     // A scatter of ice on the black sand of Diamond Beach, south of the road.
-    for (let i = 0; i < 16; i++) {
+    // Kept well off the road: the big pieces are for walking round, not driving into.
+    for (let i = 0, tries = 0; i < 16 && tries < 200; tries++) {
       const s = 0.4 + rand() * 1.2;
-      const m = new THREE.Mesh(iceGeometry(s, rand), iceMats[i % 4]);
       const x = lm.x + (rand() - 0.5) * 50, z = lm.z + 30 + rand() * 12;
+      if (roadDistAt(x, z) < 8 + s * 1.5 || waterLevelAt(x, z) > heightAt(x, z)) continue;
+      i++;
+      const m = new THREE.Mesh(iceGeometry(s, rand), iceMats[i % 4]);
       m.position.set(x, heightAt(x, z) + s * 0.3, z);
-      m.rotation.set(rand() * 3, rand() * 3, rand() * 3);
+      m.rotation.set((rand() - 0.5) * 0.6, rand() * 6.3, (rand() - 0.5) * 0.6);
+      // The big ones are solid: the car stops against them rather than driving through.
+      if (s > 0.8) { m.userData.collideCircle = s * 0.85; this.collectColliders(m); }
       this.scene.add(m);
     }
   }
@@ -1083,14 +1067,22 @@ export class Landmarks {
     for (const s of this.steam) animateMist(s, dt * 0.6);
     const lag = LAKES[2];
     for (const c of this.ice) {
-      c.a += c.speed * dt;
       const rx = lag.r * lag.stretch, rz = lag.r;
+      // A berg that would drift aground or towards the road turns back along its loop instead.
+      const a1 = c.a + c.speed * dt;
+      const nx = c.cx + Math.cos(a1) * c.r * rx, nz = c.cz + Math.sin(a1) * c.r * rz;
+      if (this.bergClear(nx, nz, c.size)) c.a = a1; else c.speed = -c.speed;
       const x = c.cx + Math.cos(c.a) * c.r * rx;
       const z = c.cz + Math.sin(c.a) * c.r * rz;
       c.mesh.position.set(x, (lag.level || 0) + 0.1 + Math.sin(t * 0.6 + c.bob) * 0.12, z);
       c.mesh.rotation.y += c.spin * dt;
       c.mesh.rotation.z = Math.sin(t * 0.4 + c.bob) * 0.04;
     }
+  }
+
+  // Open water for a berg of this size: afloat, and well away from the road and its bridge.
+  bergClear(x, z, size) {
+    return waterLevelAt(x, z) > heightAt(x, z) + 0.4 && roadDistAt(x, z) > 7 + size * 1.6;
   }
 
   nearest(x, z) {

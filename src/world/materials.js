@@ -103,6 +103,15 @@ float g_ft(vec2 p){ float s = 0.0, a = 0.5; for (int i = 0; i < 4; i++) { s += a
 // rock layers and smooth snow.
 const TERRAIN_COLOR = /* glsl */ `
 float tBump; float tRough; float tSpark;
+// Fall-line relief on steep ground (0 on flat), turned into light and shade by the normal chunk.
+float tFlute;
+// Gullies and spurs running straight down a slope: ridged noise, stretched about six times
+// longer down the slope than across it, so spurs come to sharp crests between broad gullies.
+float fluteN(vec2 q, float lod){
+  float a = 1.0 - abs(g_n(vec2(q.x * 0.045, q.y * 0.0075)) * 2.0 - 1.0);
+  float b = 1.0 - abs(g_n(vec2(q.x * 0.13 + 5.3, q.y * 0.021)) * 2.0 - 1.0);
+  return a * a * 0.7 + mix(0.5, b, 0.4 + 0.6 * lod) * 0.3;
+}
 // Layer weights, read by the realistic (desktop) shader to blend its scanned textures.
 float tEarthW; float tRockW; float tSnowW; float tLavaW;
 // Its noise, kept for the grassland colouring (NATURE).
@@ -180,74 +189,78 @@ vec3 terrainColor(vec3 masks, vec3 p, vec3 nrm, float dist){
   col *= 0.8 + 0.34 * mix(0.5, streak, detail) + 0.12 * (nF - 0.5);
   tBump = streak * 0.08 * detail;
   tRough = 0.95;
-  // Lower slopes: brown earth and moss; steep faces: dark layered basalt with pale scree streaks.
+  // Fall-line fluting: rain, frost and meltwater cut Iceland's steep slopes into gullies and
+  // spurs running straight downhill (the old look painted level basalt bands instead, which read
+  // as stripes across every mountain). On steep ground downhill is close to straight down, so the
+  // noise is stretched vertically and projected from the two sides the slope faces; that needs no
+  // slope direction, which wanders on curved faces and bent painted streaks into swirls.
+  float steepF = smoothstep(0.16, 0.42, slope);
+  vec2 sw = abs(nrm.xz) + 1e-4; sw /= sw.x + sw.y;
+  sw = smoothstep(0.2, 0.8, sw); sw /= sw.x + sw.y;
+  float flute = steepF > 0.0 ? sw.x * fluteN(p.zy + 17.0, lod) + sw.y * fluteN(p.xy, lod) : 0.5;
+  tFlute = flute * steepF;
+  float fluteC = 1.0;
+#ifdef HD_ROCK
+  // Up close the scanned rock and turf carry their own grain; the fluting's colour fades in with distance.
+  fluteC = mix(0.35, 1.0, smoothstep(120.0, 500.0, dist));
+#endif
+  // Grass and moss on a steep slope: damp, darker gullies between drier, paler spurs.
+  col *= 1.0 + (flute - 0.5) * 0.45 * steepF * fluteC;
+  // Lower slopes: brown earth and moss; steep faces: dark basalt and tuff with pale scree.
   tEarthW = smoothstep(0.14, 0.32, slope) * 0.8;
   col = mix(col, mix(vec3(0.38, 0.30, 0.21), olive * 0.8, nM) * (0.85 + 0.3 * nF), tEarthW);
-  float warp = g_n(p.xz * 0.02 + p.y * 0.02) * 9.0 + g_n(p.xz * 0.045 + p.y * 0.03) * 3.0 + g_n(p.xz * 0.25) * 1.0 * lod;
-  float layers = sin(p.y * (0.55 + 0.2 * nL) + warp) * (1.0 - smoothstep(250.0, 900.0, dist) * 0.7);
-#ifdef HD_ROCK
-  // The scanned rock carries the detail up close; strong painted bands would read as wood grain.
-  layers *= mix(0.1, 1.0, smoothstep(150.0, 600.0, dist));
-#endif
   vec3 rockDark = vec3(0.16, 0.15, 0.15), rockWarm = vec3(0.36, 0.27, 0.21), rockGrey = vec3(0.42, 0.42, 0.42);
-  vec3 rock = mix(rockDark, rockWarm, (layers * 0.5 + 0.5) * 0.45 + nM * 0.3 + nF * 0.15 * detail);
-  float scree = smoothstep(0.55, 0.8, g_n(vec2(p.x * 0.035, p.y * 0.012 + p.z * 0.035)) * 0.6 + mix(0.5, g_n(p.xz * 0.5), lod) * 0.4) * smoothstep(0.3, 0.5, slope);
+  // Rock tone in broad irregular patches (dark lava, brown tuff, grey scree), never level bands.
+  float tone = g_n(p.xz * 0.011 + p.y * 0.006 + 4.0) * 0.55 + nM * 0.45;
+  vec3 rock = mix(rockDark, rockWarm, smoothstep(0.2, 0.85, tone) * 0.7 + nF * 0.15 * detail);
+  // Scree: pale stones that fill the gullies and fan out where the slope eases.
+  float scree = smoothstep(0.42, 0.12, flute) * (0.55 + 0.45 * nM) + smoothstep(0.62, 0.85, mix(0.5, g_n(p.xz * 0.5), lod)) * 0.3;
+  scree *= smoothstep(0.3, 0.5, slope);
 #ifdef HD_ROCK
   scree *= mix(0.2, 1.0, smoothstep(120.0, 500.0, dist));
 #endif
-  rock = mix(rock, rockGrey * (0.85 + 0.2 * nF), scree * 0.4);
-  float rockAmt = smoothstep(0.28, 0.5, slope);
+  rock = mix(rock, rockGrey * (0.85 + 0.2 * nF), scree * 0.45);
+  // Rock breaks out on the spurs first; turf and moss climb highest up the damp gullies, so the
+  // edge between them is ragged and follows the fall line.
+  float rockAmt = smoothstep(0.3, 0.52, slope + (flute - 0.45) * 0.3 * steepF + (nM - 0.5) * 0.12);
   tRockW = rockAmt;
-  // Erosion gullies running straight down the fall line, visible from any distance.
-  vec2 fall = normalize(nrm.xz + vec2(1e-4));
-  // On flat ground the fall line is undefined, so fade back to plain coordinates there.
-  float across = mix(p.x + p.z * 0.37, dot(p.xz, vec2(-fall.y, fall.x)), smoothstep(0.08, 0.28, slope));
-  float gully = g_n(vec2(across * 0.05, p.y * 0.008)) * 0.7 + mix(0.5, g_n(vec2(across * 0.16, p.y * 0.02)), lod) * 0.3;
-  float gullyDark = smoothstep(0.58, 0.85, gully);
-#ifdef HD_ROCK
-  // On weathered (bumpy) faces the fall line wanders, which bends painted streaks into swirls.
-  // Up close the scanned rock carries the detail, so the painted gullies fade in only with distance.
-  gullyDark *= mix(0.15, 1.0, smoothstep(120.0, 500.0, dist));
-#endif
-  rock *= 1.0 - gullyDark * 0.3;
-  // Shadowed cavity under each basalt ledge.
-  rock *= 0.78 + 0.22 * smoothstep(-0.7, 0.5, layers);
+  // Spurs catch the light, gullies sit in shade.
+  rock *= 1.0 + (flute - 0.5) * 0.75 * fluteC;
   // Big, slow variation so whole mountainsides are not one flat colour.
   rock *= 0.85 + 0.3 * g_n(p.xz * 0.0025 + 11.0);
   col = mix(col, rock, rockAmt);
   tBump = mix(tBump, nF * 0.35 * lod, rockAmt);
   tRough = mix(tRough, 0.88, rockAmt);
-  // Snow: settles on gentler ground above the snow line and on the ledges between rock layers.
+  // Snow: settles on gentler ground above the snow line, and lingers in the gullies.
   float line = uSnowLine + (nL - 0.5) * 16.0 + (nM - 0.5) * 6.0;
   float above = smoothstep(line - 7.0, line + 9.0, p.y);
   // Snow lies on every slope it can hold to: thick on gentle ground, thinner on steep rock,
   // so the white follows the mountain's shape instead of sitting on it in bands.
   float flatSnow = above * mix(1.0, 0.55, smoothstep(0.32, 0.75, slope));
   float snowPatch = smoothstep(0.35, 0.75, g_n(p.xz * 0.08 + p.y * 0.1) * 0.7 + mix(0.5, g_n(p.xz * 0.4 - p.y * 0.3), lod) * 0.3);
-  float ledge = above * smoothstep(0.3, 0.85, layers) * smoothstep(0.28, 0.5, slope) * snowPatch;
+  // Drifted into the gullies, snow outlasts the slopes round it and reaches down below the line
+  // in long white fingers, as on any Icelandic mountain in spring.
+  float gullySnow = smoothstep(line - 30.0, line + 2.0, p.y) * smoothstep(0.4, 0.12, flute) * steepF * mix(0.6, 1.0, snowPatch);
   float dust = (1.0 - uSummer) * smoothstep(line - 18.0, line, p.y) * smoothstep(0.55, 0.85, nM) * (1.0 - rockAmt) * 0.6;
-  float snow = max(max(flatSnow, ledge * 0.25 * lod), dust * 0.7);
-#ifdef HD_ROCK
-  // Wind scours steep faces and ridges, so dark rock breaks through the snow in patches.
-  float bare = smoothstep(0.36, 0.62, slope) * smoothstep(0.38, 0.68, g_n(p.xz * 0.05 + p.y * 0.04) * 0.6 + g_n(p.xz * 0.19 - p.y * 0.07) * 0.4);
-  snow *= 1.0 - bare * 0.9;
-#endif
+  float snow = max(max(flatSnow, gullySnow * 0.9), dust * 0.7);
+  // Wind scours the spurs and ridges, so dark rock breaks through the snow along them.
+  float bare = smoothstep(0.36, 0.62, slope) * smoothstep(0.5, 0.85, flute * 0.7 + g_n(p.xz * 0.05 + p.y * 0.04) * 0.3);
+  snow *= 1.0 - bare * 0.85;
   tSnowW = snow;
-  // Snow: wind streaks down the slope, cooler blue in hollows, brighter on the ridges,
-  // with thin lines of rock showing through in the steeper gullies.
-  float streakS = g_n(vec2(across * 0.06, p.y * 0.01)) * 0.6 + g_n(vec2(across * 0.22, p.y * 0.03)) * 0.4 * lod;
+  // Snow: cooler blue in the gullies, brightest on the open slopes.
+  float streakS = flute;
 #ifdef HD_ROCK
-  streakS = mix(0.5, streakS, mix(0.25, 0.55, smoothstep(150.0, 600.0, dist)));
+  streakS = mix(0.5, streakS, mix(0.3, 0.6, smoothstep(150.0, 600.0, dist)));
 #endif
-  // Wind streaks only where the slope is steep enough to have a clear fall line.
-  vec3 snowC = mix(vec3(0.84, 0.88, 0.95), vec3(0.97, 0.98, 1.0), mix(0.65, smoothstep(0.28, 0.78, streakS), smoothstep(0.25, 0.55, slope)));
+  vec3 snowC = mix(vec3(0.84, 0.88, 0.95), vec3(0.97, 0.98, 1.0), mix(0.65, smoothstep(0.15, 0.75, streakS), steepF));
   snowC *= 0.94 + 0.06 * nF;
-  float thin = smoothstep(0.34, 0.6, slope) * smoothstep(0.58, 0.85, gully);
-  snowC = mix(snowC, rock * 0.9, thin * 0.75);
+  // Thin cover on the steepest spurs lets the rock show through in lines.
+  float thin = smoothstep(0.34, 0.6, slope) * smoothstep(0.6, 0.85, flute);
+  snowC = mix(snowC, rock * 0.9, thin * 0.6);
   col = mix(col, snowC, snow);
   // Wind ripples (sastrugi) up close and soft drifts further out.
   float ripples = sin(dot(p.xz, vec2(1.1, 0.45)) * 2.2 + nF * 4.0) * 0.5 + 0.5;
-  tBump = mix(tBump, ripples * 0.1 * detail + streakS * 0.25 * lod, snow);
+  tBump = mix(tBump, ripples * 0.1 * detail + snowPatch * 0.2 * lod, snow);
   tSpark = snow * detail * step(0.9965, g_h(floor(p.xz * 9.0) + floor(p.y * 9.0)));
   tRough = mix(tRough, 0.62, snow);
   // Rhyolite mountains: banded reds, ochres, greens and greys on the slopes around Landmannalaugar.
@@ -273,7 +286,9 @@ vec3 terrainColor(vec3 masks, vec3 p, vec3 nrm, float dist){
   tBump = mix(tBump, nF * 0.4 * lod, masks.g);
   // Glacier ice, with blue in the crevasses and grey ash bands.
   vec3 ice = mix(vec3(0.9, 0.94, 0.97), vec3(0.6, 0.76, 0.87), smoothstep(0.5, 0.8, nM) * 0.7);
-  ice = mix(ice, vec3(0.45, 0.45, 0.46), smoothstep(0.75, 0.9, sin(p.y * 0.6 + nL * 6.0)) * 0.25);
+  // Grit and old ash melt out in irregular patches and streaks (not the level bands it had).
+  float grit = smoothstep(0.6, 0.85, g_n(p.xz * 0.017 + 9.0) * 0.6 + g_n(p.xz * 0.06 + 2.0) * 0.4);
+  ice = mix(ice, vec3(0.5, 0.5, 0.52), grit * 0.28);
   col = mix(col, ice, masks.b);
   tRough = mix(tRough, 0.45, masks.b);
   // Under water: dark seabed.
@@ -343,8 +358,15 @@ export function createTerrainMaterial() {
               float r2 = 1.0 - abs(g_n(vWPos.xz * 0.13 - vWPos.y * 0.05) * 2.0 - 1.0);
               normal = bumpNormal(normal, (r1 * r1 * 0.7 + r2 * 0.3) * far * steep, 9.0);
             }
+            // Gullies and spurs down every steep face, lit by the sun at any distance.
+            if (tFlute > 0.0) normal = bumpNormal(normal, tFlute * (1.0 - smoothstep(2500.0, 4000.0, dv)), 7.0);
           }`
-        : '#include <normal_fragment_maps>\nnormal = bumpNormal(normal, tBump * (1.0 - smoothstep(40.0, 140.0, length(vViewPosition))), 4.0);');
+        : `#include <normal_fragment_maps>
+          {
+            // Fine bump up close; the gullies and spurs down steep faces at any distance.
+            float dv = length(vViewPosition);
+            normal = bumpNormal(normal, tBump * (1.0 - smoothstep(40.0, 140.0, dv)) + tFlute * 3.0 * (1.0 - smoothstep(2500.0, 4000.0, dv)), 4.0);
+          }`);
   };
   return mat;
 }

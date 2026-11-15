@@ -4,6 +4,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { createWaterMaterial, createRiverMaterial, riverGeometry, rockMaterial } from './materials.js';
 import { KERID, keridU, keridProfile, keridWob } from './geo.js';
 import { HD } from './hd.js';
+import { glacierIceMaterial } from './ice.js';
 import { buildAsbyrgi as buildAsbyrgiRock } from './nature.js';
 import { townChurch, husavikChurch } from './archkit.js';
 
@@ -723,14 +724,9 @@ export function buildSkaftafell(kit, s = 1) {
 
 // ---------- Beaches and lava ----------
 export function iceMaterial(quality) {
-  // Polished glacier ice: frosty white to deep blue from the geometry's colours, a wet clearcoat
-  // and a faint blue glow from inside. No refraction pass: transmission re-renders the whole
-  // scene every frame the ice is on screen, and the colours carry the look.
-  return new THREE.MeshPhysicalMaterial({
-    color: 0xffffff, vertexColors: true, roughness: 0.22, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.04,
-    ior: 1.31, specularIntensity: 1, sheen: 0.4, sheenColor: new THREE.Color(0xd8f0ff), sheenRoughness: 0.5,
-    emissive: new THREE.Color(0x0b3550), emissiveIntensity: quality === 'low' ? 0.3 : 0.45,
-  });
+  // Glassy glacier ice (ice.js): see-through face on, mirror-bright at a glancing angle, milky
+  // where air is trapped and glinting as you move.
+  return glacierIceMaterial({ quality, clear: 0.58 });
 }
 
 export function buildDiamondBeach(kit) {
@@ -741,10 +737,10 @@ export function buildDiamondBeach(kit) {
   for (let i = 0, tries = 0; i < 46 && tries < 400; tries++) {
     const s = 0.25 + Math.pow(kit.rand(), 2.5) * 1.1;
     const x = (kit.rand() - 0.5) * 80, z = 2 + kit.rand() * 10;
-    if (kit.roadDist(x, z) < 8 || kit.ground(x, z) < -0.3) continue;
+    if (kit.roadDist(x, z) < 8 + s * 1.5 || kit.ground(x, z) < -0.3) continue;
     i++;
-    const m = M(kit.iceGeometry(s, kit.rand), mats[i % 2], x, kit.ground(x, z) + s * 0.25, z);
-    m.rotation.set(kit.rand() * 0.6, kit.rand() * 6, kit.rand() * 0.6);
+    const m = M(kit.iceGeometry(s, kit.rand), mats[i % 2], x, kit.ground(x, z) + s * 0.2, z);
+    m.rotation.set((kit.rand() - 0.5) * 0.5, kit.rand() * 6, (kit.rand() - 0.5) * 0.5);
     if (s > 0.8) m.userData.solidCircle = s * 0.9;
     g.add(m);
   }

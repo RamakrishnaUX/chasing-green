@@ -6,11 +6,12 @@ import { CONFIG } from './config.js';
 import { store } from './storage.js';
 import { createNoise2D, clamp, smoothstep, lerp } from './world/noise.js';
 import { START, PLACES, CANYONS, JUMPS, KERID, GROW, toWorld, ACCESS, CAR_PARK } from './world/geo.js';
-import { updateTerrainLod, buildTerrain, paintTerrain, iceAt, flattenPads, raiseLand, bridges, roadPaths, nearestRoad, heightAt, coastAt, nearestRoadAnywhere, exposureAt, waterLevelAt, postReflectorMat, lakeMat, snowAt, groundAt, roadDistAt, shoreDistAt, surfaceAt, deckAt, deckHeightOf, deckJointsCrossed } from './world/terrain.js';
+import { updateTerrainLod, buildTerrain, paintTerrain, iceAt, flattenPads, raiseLand, bridges, roadPaths, nearestRoad, heightAt, coastAt, nearestRoadAnywhere, exposureAt, waterLevelAt, postReflectorMat, lakeMat, snowAt, groundAt, roadDistAt, shoreDistAt, surfaceAt, deckAt, deckHeightOf, deckJointsCrossed, surfaceHeightAt } from './world/terrain.js';
 import { Scatter } from './world/scatter.js';
 import { Grass } from './world/grass.js';
 import { Post } from './world/post.js';
 import { installLook } from './world/look.js';
+import { IceBits } from './world/ice.js';
 import { Props } from './world/props.js';
 import { Towns } from './world/towns.js';
 import { Obstacles } from './world/obstacles.js';
@@ -388,6 +389,16 @@ async function buildWorld(progress) {
   skids = new SkidMarks(scene);
   wetTracks = new WetTracks(scene);
   snowTracks = new SnowTracks(scene);
+  // Small pieces of glacier ice on the road and the sand at Jökulsárlón and Diamond Beach, which
+  // the tyres push aside, flick away or crush (ice.js).
+  {
+    const sites = [];
+    for (const l of landmarks.list.filter((l) => l.id === 'jokulsarlon' || l.id === 'diamondbeach')) {
+      const r = nearestRoadAnywhere(l.x, l.z);
+      if (r && !sites.some((st) => Math.hypot(st.x - r.x, st.z - r.z) < 60)) sites.push({ x: r.x, z: r.z, r: 46 });
+    }
+    iceBits = new IceBits(scene, sites, { surfaceHeightAt, waterLevelAt, roadDistAt, heightAt }, { quality: qualityName });
+  }
   // The dust a car raises off a gravel road: big soft billows that hang and drift.
   trailDust = new Particles(scene, { count: qualityName === 'low' ? 300 : 600, color: 0xb6a07c, size: 4.5, opacity: 0.15, gravity: -0.1, drag: 0.7, fadeNear: [4, 10] });
   windscreen = new Windscreen($('rain-glass'));
@@ -1050,7 +1061,7 @@ function flyCamera(dt, l) {
 const skyOff = new THREE.Vector3(), _sk = new THREE.Vector3(), _sh = new THREE.Vector3();
 const smooth01 = (agl, top) => 1 - smoothstep(0, top, Math.max(0, agl));
 let skyHeading = null, skyAim = null;
-let skyRefl = null, snowTracks = null, footStep = -1, washing = null, washTipShown = false, washDirtIn = 0, swimTipShown = false, soakTipShown = false, soakStill = 0, bathSteam = null, lastSkyDark = 0;
+let skyRefl = null, iceBits = null, snowTracks = null, footStep = -1, washing = null, washTipShown = false, washDirtIn = 0, swimTipShown = false, soakTipShown = false, soakStill = 0, bathSteam = null, lastSkyDark = 0;
 function skyCamera(dt, l) {
   const d = diver, agl = Math.max(0, d.agl), fallingNow = d.falling;
   const far = Math.min(16000, Math.max(Q.far || 3000, 2600 + agl * 3.6));
@@ -2693,6 +2704,12 @@ function vehicleEffects(dt) {
   // Wet tyres print tracks out of a puddle or the water, fading as each tyre dries (about 14 m),
   // and the prints themselves dry away over half a minute (WetTracks). Rain wets everything, so
   // there they would not show.
+  // Ice on the road: the tyres shove, flick and crush the pieces, and come out wet with melt.
+  if (iceBits) {
+    const hits = iceBits.update(dt, { x: jeep.pos.x, y: jeep.pos.y, z: jeep.pos.z, heading: jeep.heading, vF: jeep.boat < 0.1 ? jeep.vF : 0, vL: jeep.vL || 0, wheels: jeep.wheels, air: !!jeep.air });
+    for (const i of hits) if (i < tyreWet.length) tyreWet[i] = Math.max(tyreWet[i], 0.75);
+    if (hits.length && jeep.speed > 3) haptics.play('light');
+  }
   if (dt && jeep.boat < 0.1 && !jeep.air) {
     const now = performance.now() / 1000;
     wheelsWorld.forEach(([x, z], i) => {
@@ -3322,14 +3339,14 @@ window.chasingGreen = {
   get obstacles() { return obstacles; }, get crashFx() { return crashFx; }, get damage() { return damage; }, get scene() { return scene; }, Vec3: THREE.Vector3, get puddles() { return puddles; }, get mapUI() { return mapUI; }, get snow() { return snow; },
   nearestRoad: (x, z, r) => nearestRoad(x, z, r), coastAt, roadDistAt, shoreDistAt, groundAt, solidTopAt, get wildlife() { return wildlife; },
   roadPaths: () => roadPaths, fuel, putCar, get stations() { return stations; }, stageTimes, get riding() { return riding; }, get walker() { return walker; },
-  set camHold(v) { camHold = !!v; },
+  set camHold(v) { camHold = !!v; }, get camera() { return camera; },
   walkerSet: (x, z, h) => { if (mode === 'walk' && !riding.on) { walker.state = 'walk'; walker.mantleInfo = null; walker.vy = 0; walker.faceGap = 0; if (walker.body) walker.body.holds = null; walker.pos.set(x, groundAt(x, z), z); walker.heading = h; } },
   heightAt: (x, z) => heightAt(x, z), get skyRefl() { return skyRefl; }, get surf() { return surfFx; }, governor, set lodOff(v) { lodOff = v; },
   snowAt: (x, z) => snowAt(x, z),
   waterLevelAt: (x, z) => waterLevelAt(x, z),
   get kerid() { return KERID; },
   // Make it rain (0 to 1), or null to let the weather decide.
-  set rain(v) { forceRain = v; }, set snowFall(v) { forceSnow = v; }, get roadSnow() { return roadSnow; }, get snowTracks() { return snowTracks; }, iceAt: (x, z) => iceAt(x, z), setMonth: (m) => setMonth(m), get dirt() { return carDirt; }, setDirt(v, c) { carDirt.dirt = v; if (c) carDirt.color = c; grime.uDirt.value = v; setDirtColor(carDirt.color); }, get rain() { return rain?.intensity || 0; }, get wetness() { return wetness; }, set wetness(v) { wetness = v; },
+  set rain(v) { forceRain = v; }, set snowFall(v) { forceSnow = v; }, get roadSnow() { return roadSnow; }, get snowTracks() { return snowTracks; }, get iceBits() { return iceBits; }, iceAt: (x, z) => iceAt(x, z), setMonth: (m) => setMonth(m), get dirt() { return carDirt; }, setDirt(v, c) { carDirt.dirt = v; if (c) carDirt.color = c; grime.uDirt.value = v; setDirtColor(carDirt.color); }, get rain() { return rain?.intensity || 0; }, get wetness() { return wetness; }, set wetness(v) { wetness = v; },
   poolAt: (x, z) => poolAt(x, z), get pools() { return poolSurfaces; }, get skids() { return skids; }, get wetTracks() { return wetTracks; }, get waterFx() { return waterFx; },
   get bridges() { return bridges; },
   get jumps() { return JUMPS; },

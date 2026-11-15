@@ -629,17 +629,15 @@ function rawHeight(x, z, cd, noLakes = false, noBridge = false) {
     const capN = nA(x * 0.0013 - 4.0, z * 0.0013 + 9.0) * 0.5 + 0.5;
     const cap = 55 + 120 * capN;
     if (m > cap) m = cap + (m - cap) * 0.12;
-    // Layered basalt: soft terraces give the striped, stepped faces.
-    const step = 8 + 3 * nP;
-    const tq = m / step, fr = tq - Math.floor(tq);
-    const terr = (Math.floor(tq) + smoothstep(0.5, 1.0, fr)) * step;
-    m = lerp(m, terr, smoothstep(16, 45, m) * 0.6);
-    // Realistic look (desktop): erosion. Sharper sub-ridges and gullies cut into every face,
-    // with finer rills on top, growing with height so foothills and roads stay as they were.
-    if (HD.on) {
+    // Erosion: sharper sub-ridges and gullies cut into every face, growing with height so
+    // foothills and roads stay as they were. (These faces used to be stepped into level basalt
+    // terraces, which on the coarse mesh read as stripes round every mountain.) The realistic
+    // look's finer mesh also takes the finer rills.
+    {
       const k = smoothstep(6, 40, m);
-      const g = ridged(x * 0.016 + 31.7, z * 0.016 - 12.3), f = ridged(x * 0.045 - 8.1, z * 0.045 + 4.4);
-      m += ((g - 0.42) * 11 + (f - 0.42) * 3.2) * k;
+      const g = ridged(x * 0.016 + 31.7, z * 0.016 - 12.3);
+      m += (g - 0.42) * (HD.on ? 11 : 9) * k;
+      if (HD.on) m += (ridged(x * 0.045 - 8.1, z * 0.045 + 4.4) - 0.42) * 3.2 * k;
     }
     h += m;
     mountainH = m;
