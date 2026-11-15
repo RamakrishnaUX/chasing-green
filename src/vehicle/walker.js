@@ -5,9 +5,9 @@ import { groundAt as heightAt, surfaceHeightAt, waterLevelAt } from '../world/te
 import { clamp, lerp, smoothstep } from '../world/noise.js';
 import { Body, CYCLE, climbRise } from './walkik.js';
 
-// The person on foot: a man in a winter coat ("Man In Coat" by Saitam, CC BY 4.0, an Adobe Fuse
-// character on a Mixamo rig) moved by Mixamo clips ("ETB Animated" by Royaleyourdad, CC BY 4.0;
-// see tools/person): idle, walk, a walk backwards, run, a standing jump and kneeling.
+// The person on foot: David, a Mixamo character in a fitted hoodie, joggers and trainers, moved by
+// Mixamo clips captured on his own skeleton (see tools/person): a breathing idle, walk, a walk
+// backwards, run, a standing jump, a fall, kneeling, a front crawl and treading water.
 //
 // Forward walks; held on, he breaks into a run, and pressed again quickly (tapping it) he picks
 // up the pace sooner. Shift keeps him walking. Space hops like a person does, he climbs any rock face
@@ -27,15 +27,16 @@ const GRAVITY = 18;
 const RUN = 4.2, WALK = 1.3, BACK = 1.0; // metres a second
 // The clips' own paces, measured off the planted foot, where the feet do not slide; and where in
 // each the left foot is furthest forward (a share of the clip), so walk and run keep step.
-const RUN_PACE = 3.0, WALK_PACE = 1.06, BACK_PACE = 0.73;
-const STEP_AT = { walk: 0.183, run: 0.2 };
+const RUN_PACE = 5.0, WALK_PACE = 1.55, BACK_PACE = 1.0;
+const STEP_AT = { walk: 0.225, run: 0.217 };
 // Forward held this long is a walk; then he speeds up to a run over the next RUN_BUILD seconds.
 // Pressed again within TAP of letting go, the hold carries on and counts TAP_BOOST more.
 const RUN_AFTER = 0.7, RUN_BUILD = 0.8, TAP = 0.4, TAP_BOOST = 0.45;
-// The jump clip: a crouch, take-off at about a third of the way in, the top halfway, landing at
-// about 0.62, then standing again. A hop plays from the end of the crouch to just after landing.
-const JUMP = { from: 0.31, to: 0.74, speed: 1.3 };
-const CLIPS = ['idle', 'walk', 'back', 'run', 'jump', 'kneel', 'swim', 'tread'];
+// The jump clip (Mixamo's standing "Jumping"): a crouch to 0.18 of the way in, take-off at 0.27,
+// the top at 0.4, landing at 0.575, then standing again by 0.85. A hop plays from the bottom of the
+// crouch to the knees straightening after landing.
+const JUMP = { from: 0.18, to: 0.75, speed: 1.3 };
+const CLIPS = ['idle', 'walk', 'back', 'run', 'jump', 'fall', 'kneel', 'swim', 'tread'];
 // Swimming: past chest depth he swims a front crawl, face in the water and turning to breathe, his
 // back at the surface, kicking; stopped, he treads water upright with his head and shoulders out.
 // Both are Mixamo clips (see tools/person); the crawl is played at the pace he swims. The water is
@@ -259,7 +260,7 @@ export class Walker {
     this.keepClear(car);
     this.speedSmooth = lerp(this.speedSmooth, this.state === 'walk' || this.state === 'swim' || this.state === 'soak' || (this.state === 'mantle' && this.mantleInfo?.u >= 1) ? Math.abs(speed) : 0, Math.min(1, dt * 8));
     this.landed = Math.max(0, this.landed - dt * 3);
-    if (this.jumpT >= 0) { this.jumpT += dt; if (this.state !== 'walk' || this.jumpT * JUMP.speed > (JUMP.to - JUMP.from) * (this.jumpLen || 2.37)) this.jumpT = -1; }
+    if (this.jumpT >= 0) { this.jumpT += dt; if (this.state !== 'walk' || this.jumpT * JUMP.speed > (JUMP.to - JUMP.from) * (this.jumpLen || 1.9)) this.jumpT = -1; }
     this.root.position.copy(this.pos);
     // Onto the rock you see (see faceGap): fully while climbing, easing off as he steps onto the top.
     const M = this.mantleInfo, gap = this.state === 'climb' ? this.faceGap : this.state === 'mantle' && M ? M.gap * (1 - smoothstep(0, 1, M.v)) : 0;
@@ -348,7 +349,7 @@ export class Walker {
   // airborne part for a hop, and is held or rocked for a fall, a climb and a pull-up.
   animate(dt, dir) {
     if (!this.mixer) return;
-    const want = { idle: 0, walk: 0, back: 0, run: 0, jump: 0, kneel: 0, swim: 0, tread: 0 };
+    const want = { idle: 0, walk: 0, back: 0, run: 0, jump: 0, fall: 0, kneel: 0, swim: 0, tread: 0 };
     const A = this.actions, J = A.jump, len = this.jumpLen;
     J.paused = true;
     if (this.sitting) want.kneel = 1;
@@ -356,23 +357,21 @@ export class Walker {
       // The crawl while moving, its strokes keeping pace with him; treading water while not.
       const v = this.speedSmooth;
       want.swim = clamp((v - 0.15) / 0.45, 0, 1); want.tread = 1 - want.swim;
-      if (A.swim) A.swim.timeScale = lerp(0.8, 1.5, clamp(v / SWIM, 0, 1)); // the clip itself swims a slow 0.36 m/s
+      if (A.swim) A.swim.timeScale = lerp(0.8, 1.5, clamp(v / SWIM, 0, 1)); // the clip itself swims a slow 0.44 m/s
     }
     else if (this.state === 'climb' || (this.state === 'mantle' && !(this.mantleInfo?.u >= 1))) {
       // On the rock: the relaxed stance underneath, the limbs then put on their holds (solve).
-      want.jump = 0.85; want.idle = 0.15; J.time = len * 0.04;
+      want.idle = 1;
     }
-    else if (this.state === 'fall') { want.jump = 1; J.time = len * 0.47; }
+    else if (this.state === 'fall') want.fall = 1;
     else if (this.jumpT >= 0) { want.jump = 1; J.time = len * JUMP.from + this.jumpT * JUMP.speed; }
     else {
       const v = this.speedSmooth;
       if (dir < 0) want.back = clamp(v / 0.4, 0, 1);
       else if (v >= 1.9) { want.run = clamp((v - 1.9) / 1.5, 0, 1); want.walk = 1 - want.run; }
       else if (v >= 0.1) want.walk = clamp(v / 0.5, 0, 1);
-      // Standing: the pack's idle is a nervous crouch, so it is mostly the relaxed stance from
-      // the jump's first frame, with a little of the idle for breathing and shifting weight.
-      const rest = 1 - want.walk - want.run;
-      want.idle = rest * 0.2; want.jump = rest * 0.8; J.time = len * 0.04;
+      // Standing: the breathing idle, weight shifting a little.
+      want.idle = 1 - want.walk - want.run - want.back;
       // Walk and run share one stride, as far along as the ground covered, so their feet agree
       // while they blend and never slide.
       const wd = A.walk.getClip().duration, rd = A.run.getClip().duration;

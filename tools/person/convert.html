@@ -1,0 +1,146 @@
+<!doctype html>
+<!-- FBX to glTF for the person, run headless by convert.mjs through the Vite dev server. -->
+<meta charset="utf-8">
+<script type="module">
+import * as THREE from 'three';
+import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
+import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
+
+const S = 0.01; // Mixamo works in centimetres; the game in metres
+const loader = new FBXLoader();
+const rename = (n) => n.replace(/^mixamorig\d*:?/, 'mixamorig');
+const scaleT = (m) => { m.elements[12] *= S; m.elements[13] *= S; m.elements[14] *= S; };
+
+// Phong (as the FBX comes) to the standard material glTF carries. A separate opacity map (the hair
+// and lashes) is folded into the colour map's alpha, and those are cut out rather than blended so
+// they sort with the rest of him.
+const done = new Map();
+function toStandard(m) {
+  if (done.has(m)) return done.get(m);
+  let map = m.map;
+  if (m.alphaMap && m.map) {
+    const img = m.map.image, a = m.alphaMap.image, w = img.width, h = img.height;
+    const c = document.createElement('canvas'); c.width = w; c.height = h;
+    const x = c.getContext('2d', { willReadFrequently: true });
+    x.drawImage(a, 0, 0, w, h); const A = x.getImageData(0, 0, w, h).data;
+    x.clearRect(0, 0, w, h); x.drawImage(img, 0, 0, w, h); const d = x.getImageData(0, 0, w, h);
+    // The mask is the opacity picture's alpha where it has one (his hair's is the colour picture
+    // itself, cut out by its alpha), else its grey.
+    let hasA = false; for (let i = 3; i < A.length && !hasA; i += 4) hasA = A[i] < 250;
+    for (let i = 0; i < A.length; i += 4) d.data[i + 3] = hasA ? A[i + 3] : A[i];
+    x.putImageData(d, 0, 0);
+    map = new THREE.CanvasTexture(c); map.colorSpace = THREE.SRGBColorSpace; map.flipY = m.map.flipY;
+    map.wrapS = m.map.wrapS; map.wrapT = m.map.wrapT;
+  }
+  const s = new THREE.MeshStandardMaterial({ name: m.name, color: m.map ? 0xffffff : m.color, map, normalMap: m.normalMap, roughness: 0.8, metalness: 0, side: m.alphaMap ? THREE.DoubleSide : THREE.FrontSide });
+  if (m.alphaMap) { s.alphaTest = 0.5; s.transparent = false; }
+  done.set(m, s);
+  return s;
+}
+
+// The character, scaled to metres in place (bones, meshes and binds), so the exported nodes carry
+// no scale. Every world position shrinks about the origin, so each bind matrix and bone inverse
+// keeps its turn and has its translation scaled.
+window.character = async (url) => {
+  const man = await loader.loadAsync(url);
+  // The embedded pictures decode after the load resolves: wait for every one.
+  const texs = new Set();
+  man.traverse((o) => { if (o.isMesh) for (const m of [].concat(o.material)) for (const k of ['map', 'normalMap', 'alphaMap', 'specularMap']) if (m[k]) texs.add(m[k]); });
+  for (let i = 0; i < 200 && [...texs].some((t) => !(t.image && t.image.width)); i++) await new Promise((r) => setTimeout(r, 100));
+  const info = { scale: man.scale.toArray(), meshes: [], bones: 0, missing: [...texs].filter((t) => !(t.image && t.image.width)).length };
+  man.scale.set(1, 1, 1);
+  man.traverse((o) => {
+    if (o !== man) o.position.multiplyScalar(S);
+    if (o.isBone) info.bones++;
+    if (o.isSkinnedMesh) {
+      o.geometry.scale(S, S, S);
+      scaleT(o.bindMatrix); o.bindMatrixInverse.copy(o.bindMatrix).invert();
+      for (const b of o.skeleton.boneInverses) scaleT(b);
+    }
+    if (o.isMesh) {
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      info.meshes.push(`${o.name} ${o.geometry.attributes.position.count}v ` + mats.map((m) => `${m.name}[${m.map ? 'map ' : ''}${m.normalMap ? 'normal ' : ''}${m.alphaMap ? 'alpha ' : ''}${m.specularMap ? 'spec ' : ''}${m.transparent ? 'transparent' : ''}]`).join(' '));
+      o.material = Array.isArray(o.material) ? mats.map(toStandard) : toStandard(o.material);
+    }
+  });
+  const names = []; man.traverse((o) => o.isBone && names.push(o.name)); info.boneNames = names.join(' ');
+  // His file names the joints "mixamorig10:Hips" and so on: to the usual "mixamorigHips", which is
+  // what the game looks his bones up by.
+  man.traverse((o) => { if (o.isBone) o.name = rename(o.name); });
+  // FBXLoader gives a joint shared by several meshes one bone per mesh, each extra one a child of
+  // the first at no offset. One skeleton: every mesh is bound to the first bone of each name.
+  const first = new Map(), extra = [];
+  man.traverse((o) => { if (!o.isBone) return; if (first.has(o.name)) extra.push(o); else first.set(o.name, o); });
+  info.extraBones = extra.length;
+  info.extraOffset = Math.max(0, ...extra.map((b) => b.position.length() + 2 * (1 - Math.abs(b.quaternion.w))));
+  for (const b of extra) b.parent.remove(b);
+  man.updateMatrixWorld(true);
+  // One skeleton for every mesh, with all his bones (each mesh's own lists only the bones that move
+  // it, so the hair's has no legs, and code reading "the" skeleton found half a man). A bone's
+  // inverse is the one a mesh already had, else the inverse of where it stands in the bind pose;
+  // the two are checked to agree.
+  const all = [...first.values()], inv = new Map();
+  let bindDiff = 0;
+  man.traverse((o) => {
+    if (!o.isSkinnedMesh) return;
+    o.skeleton.bones.forEach((b, i) => {
+      const m = o.skeleton.boneInverses[i], bone = first.get(b.name), mine = bone.matrixWorld.clone().invert();
+      bindDiff = Math.max(bindDiff, ...m.elements.map((v, k) => Math.abs(v - mine.elements[k])));
+      if (!inv.has(bone)) inv.set(bone, m.clone());
+    });
+  });
+  const skeleton = new THREE.Skeleton(all, all.map((b) => inv.get(b) || b.matrixWorld.clone().invert()));
+  man.traverse((o) => {
+    if (!o.isSkinnedMesh) return;
+    const map = o.skeleton.bones.map((b) => all.indexOf(first.get(b.name)));
+    const si = o.geometry.attributes.skinIndex;
+    for (let i = 0; i < si.array.length; i++) si.array[i] = map[si.array[i]];
+    si.needsUpdate = true;
+    o.bind(skeleton, o.bindMatrix);
+  });
+  info.bindDiff = bindDiff; info.bindMatrices = [];
+  man.traverse((o) => { if (o.isSkinnedMesh) info.bindMatrices.push(Math.max(...o.bindMatrix.elements.map((v, k) => Math.abs(v - (k % 5 === 0 ? 1 : 0))))); });
+  info.bones = first.size;
+  man.updateMatrixWorld(true);
+  window.man = man; man.animations = [];
+  const box = new THREE.Box3().setFromObject(man, true);
+  info.size = box.getSize(new THREE.Vector3()).toArray();
+  return info;
+};
+
+// A clip downloaded on him (without skin): the same skeleton, so its tracks drive his bones as
+// they are. Positions to metres; scale tracks dropped. inPlace holds the hips over where they start
+// across the ground (keeping the rise and fall), and reports the pace the clip travels.
+window.clip = async (url, name, inPlace) => {
+  const g = await loader.loadAsync(url);
+  const c = g.animations[0];
+  c.name = name;
+  c.tracks = c.tracks.filter((t) => !t.name.endsWith('.scale'));
+  for (const t of c.tracks) t.name = rename(t.name);
+  let pace = null;
+  for (const t of c.tracks) {
+    if (!t.name.endsWith('.position')) continue;
+    for (let i = 0; i < t.values.length; i++) t.values[i] *= S;
+    if (/Hips\.position$/.test(t.name)) {
+      const v = t.values, n = v.length / 3, T = t.times[n - 1] - t.times[0];
+      pace = { x: (v[(n - 1) * 3] - v[0]) / T, y: (v[(n - 1) * 3 + 1] - v[1]) / T, z: (v[(n - 1) * 3 + 2] - v[2]) / T, hipsY: [Math.min(...v.filter((_, k) => k % 3 === 1)), Math.max(...v.filter((_, k) => k % 3 === 1))] };
+      if (inPlace) { const x0 = v[0], z0 = v[2]; for (let k = 0; k < n; k++) { v[k * 3] = x0; v[k * 3 + 2] = z0; } }
+    }
+  }
+  // Tracks bind by name: keep only those that point at his bones.
+  const names = new Set(); window.man.traverse((o) => names.add(o.name));
+  const before = c.tracks.length;
+  c.tracks = c.tracks.filter((t) => names.has(t.name.split('.')[0]));
+  window.man.animations.push(c);
+  return { name, duration: c.duration, tracks: c.tracks.length, dropped: before - c.tracks.length, pace };
+};
+
+window.exportGLB = async () => {
+  const ex = new GLTFExporter();
+  const buf = await ex.parseAsync(window.man, { binary: true, animations: window.man.animations, onlyVisible: false });
+  const bytes = new Uint8Array(buf);
+  let s = ''; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+};
+window.ready = true;
+</script>

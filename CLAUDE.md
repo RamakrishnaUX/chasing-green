@@ -94,7 +94,7 @@ line ranges, never whole.
 - **Aurora:** `src/aurora/`. **UI:** `src/ui/` (HUD, menus as `sheet.js`, `photomode.js`,
   `minimap.js`). **Audio:** `src/audio/`.
 - **Asset pipelines** (run from inside the project; they need its `node_modules`):
-  - `tools/person/process.mjs` builds `public/models/person.glb`: Mixamo clips, retargeted, run
+  - `tools/person/convert.mjs` then `process.mjs` build `public/models/person.glb` from David and his Mixamo clips (no retargeting), run
     in place.
   - `tools/animals/`, `tools/cars/`, `tools/heli/`: the animals, cars and helicopter.
   - Source files live in `downloads/`.
@@ -102,8 +102,8 @@ line ranges, never whole.
 ## Hard-won gotchas
 
 - **Person model:**
-  - Mixamo rig, T-pose bind facing +Z, Y up.
-  - Bone names look like `mixamorigLeftArm_09`; `bonesOf()` (in `skydiver.js`) strips the
+  - David from Mixamo, his clips downloaded on him; Mixamo rig, T-pose bind facing +Z, Y up, one shared 65-bone skeleton.
+  - Bone names look like `mixamorigLeftArm` (GLTFLoader may add `_1` and the like); `bonesOf()` (in `skydiver.js`) strips the
     prefix and the numeric suffix.
   - Pose limbs outright from rest frames (see `horseride.js`), not by nudging the idle clip, or
     their roll drifts.
