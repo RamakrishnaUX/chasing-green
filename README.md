@@ -83,7 +83,7 @@ The game opens on a splash over the aurora: CHASING, smaller, tracking in from w
 
 The start screen is a garage. It plays from the first frame, while the island is still being built: a looping aurora over dark mountains (`src/ui/auroraSky.js`, one shader that needs nothing from the game), and in front of it the chosen vehicle on a turntable (`src/ui/cover.js`). The turntable is part of the 3D scene, so the vehicle always stands on it: a dark glossy floor with the vehicle's reflection, and a glowing rim with tick marks that turns slowly. The vehicle is lit like a studio shot, with a green rim light from the aurora and a glow on each headlamp.
 
-The vehicle's name sits in brackets at the top with arrows either side, and what it is above it (a 1940s field car). Its four stats lean in toward it from both sides, each a value and a ten-step bar: top speed, off-road, wading depth and fuel tank (the helicopter shows its own). The month, tonight's daylight, dark hours and aurora chance sit at the bottom left with today's challenge, and Start Drive at the bottom right, filling as the island loads.
+The vehicle's name sits in brackets at the top with arrows either side, and what it is above it (a 1940s field car). Its four stats lean in toward it from both sides, each a value and a ten-step bar: top speed, off-road, wading depth and fuel tank (the helicopter shows its own). The month, tonight's daylight, dark hours and aurora chance sit at the bottom left with today's challenge, and Start Drive at the bottom right, filling as the island loads, with Solo and Multiplayer tabs above it (see **Exploring together**).
 
 The arrows step through every car and the helicopter and change your vehicle the same way the garage does. The one you pick rolls in onto its mark with its engine (the helicopter comes down from above onto the pad, rotors turning, and winds down), then its headlights flicker on; the turntable gives a clunk and a short servo whirr as it switches. Car models start loading at once; a vehicle appears only once its real model is in, never as a code-built stand-in. Until it is, the empty turntable is a build bay: it turns faster, the vehicle's outline is drawn on in glowing blueprint lines over a fine grid with a scan sweeping across, and one line says what the mechanics are up to (Welding the chassis, Bolting on the wheels, Wiring the headlamps…) with how far its file has downloaded; when it lands the vehicle rolls out of the bay onto its mark and its lights come on. The chosen vehicle downloads first and alone for up to 6 s (it is what you are looking at), then the other vehicles, then everything else; the music comes last and no longer holds up Start (it plays from the network until its copy is in). The Start button's line also turns over every couple of seconds within a long stage (Pouring fresh lava, Carving the fjords, Herding the sheep, Charging the aurora…), so the wait reads as the island being made. On phones held upright the stats sit in two columns under the vehicle.
 
@@ -637,7 +637,8 @@ src/
     room.js          a room of friends: its link, finding each other (Trystero, WebRTC), who keeps the time
     remotes.js       the other players drawn in their car, helicopter or on foot, their name tags and bumping
   ui/
-    together.js      the Together page: start a room, invite, who is here, leave
+    together.js      the Together page: start a room, join by code, invite, who is here, leave
+    lobby.js         the start screen's Solo or Multiplayer: create or join a room, wait for everyone, 3, 2, 1 together
     rounds.js        challenge rounds in a room: race, aurora hunt, team hunt; countdown, timer, results
     cover.js         the start screen's hero shot: one vehicle at a time on wet ground
     auroraSky.js     the start screen's looping aurora sky, one shader on its own canvas
@@ -853,8 +854,28 @@ The Sound tab in the menu has a slider for each group: All sound, Music (the ste
 
 ## Exploring together
 
-Friends can drive the same island at the same time. Menu → **Together** → **Start a room** makes a
-link like `/?room=k7f3q2x9ab&seed=1234567&m=10`; whoever opens it joins. Up to eight in a room.
+Friends can drive the same island at the same time. Up to eight in a room.
+
+- **Solo or Multiplayer, on the start screen** (`src/ui/lobby.js`). Two slanted tabs over Start pick
+  how you play (remembered). Multiplayer swaps the vehicle's right-hand stats for a lobby card:
+  **Create a room** gives a six-character code (`K7F-Q2X`, no 0/O or 1/L/I, so it reads out cleanly)
+  with Copy link and Share; **Join a room** takes that code (any case, with or without the dash) or
+  a pasted invite link. The card lists everyone with their colour, You and Host tags, and where
+  they are: `Loading 64%`, `Ready` or `On the island`. Each player says this (`lb`) every second
+  until they set off, which also keeps everyone counted as present for the lead.
+- **Nobody sets off alone.** Start belongs to the lobby in Multiplayer and says what it is waiting
+  for: `Create or join a room`, `Waiting for friends`, `Ben is loading`, or, for a guest,
+  `Waiting for Asha` (the host). Only the host (the longest in the room) can press **Start
+  together**, and only with at least two in the room and every island loaded. Then a `go` event
+  goes out, every screen counts 3, 2, 1 over the garage, and everyone sets off at once, lined up
+  two abreast on the road behind the host's spot. Someone who arrives after the others have set
+  off gets **Join them** and comes out on the road beside the host.
+- **Joining by code alone** carries no seed or month, so a guest takes the lead's seed from their
+  hello (`onSeed`; `forecast.reseed` and the wind noise are rebuilt) and the month and time from
+  the lead's clock: the same sky as with the link.
+- **In the game**, Menu → **Together** still starts a room (showing its code and link) or joins one
+  with a code, for anyone who set off solo. A link like `/?room=k7f3q2&seed=1234567&m=10` opens the
+  start screen already in Multiplayer, in that room's lobby.
 
 - **No server.** Players find each other through [Trystero](https://github.com/dmotz/trystero)
   (public Nostr relays carry the connection offers, encrypted with the room code as the password)
@@ -891,8 +912,9 @@ in `room.js` is where one would go.
 
 ### Challenge rounds
 
-In a room, the Together page has **Challenge rounds** (`src/ui/rounds.js`). Anyone picks one and
-presses Start round: everyone is lined up on the road behind the starter, two abreast, held still
+In a room, the Together page has **Challenge rounds** (`src/ui/rounds.js`). Anyone out on the island
+with at least one friend also out picks one and presses Start round (alone, it is greyed out and
+says it needs a friend): everyone is lined up on the road behind the starter, two abreast, held still
 through a 3, 2, 1, Go on every screen; a timer card sits at the top middle; a results card closes it.
 
 - **Race:** first to a place (pick one, nearest first, or Surprise me: one 0.7 to 2.4 km off).
@@ -905,8 +927,9 @@ through a 3, 2, 1, Go on every screen; a timer card sits at the top middle; a re
 
 Each player times themselves from their own Go and checks their own goal, then tells the room
 (`finish`, `claim`); a round ends when everyone still in the room is done, the team has every
-place, someone ends it, or time runs out (15 minutes; 10 for the aurora hunt). A player who joins
-mid-round sits it out.
+place, someone ends it, or time runs out (15 minutes; 10 for the aurora hunt). Only players out on
+the island are lined up: anyone still in the lobby or loading, or who joins mid-round, sits it
+out and is never pulled into a countdown.
 
 ## Analytics
 

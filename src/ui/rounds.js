@@ -13,6 +13,9 @@
 //   {type: 'endround', id}               someone ended it early
 // Each player times themselves from their own Go and checks their own goal: among colleagues,
 // trust is the anti-cheat.
+//
+// A round is only among players out on the island: it needs at least one other there, and anyone
+// still in the lobby (or loading) is neither lined up nor pulled out of it by a countdown.
 
 const COUNT = 4; // seconds of countdown: 3, 2, 1, Go
 // Metres from a landmark's middle that count as there (as for its stamp: some stand back from the road).
@@ -30,7 +33,7 @@ const ord = (n) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? 'th' : { 1: 'st', 2: 
 
 export class Rounds {
   // game: { together, landmarks(), pos(), place(start, slot, carsOnly), hold(on), navTo(lm), navStop(),
-  //         night(hours), auroraFloor(on), canAurora(), closeMenu(), hud, haptics, track }
+  //         night(hours), auroraFloor(on), canAurora(), closeMenu(), started(), hud, haptics, track }
   constructor(game) {
     this.g = game;
     this.r = null; // the round now (or just finished)
@@ -39,17 +42,20 @@ export class Rounds {
   }
   get room() { return this.g.together.room; }
   get live() { return this.r && (this.r.state === 'count' || this.r.state === 'run'); }
+  // The others out on the island now (each says so as they set off: room.js 'lb').
+  out() { return [...(this.room?.peers.values() || [])].filter((q) => q.hello && q.lb?.playing !== false); }
 
   // ---------- Starting ----------
   start() {
     if (!this.room || this.live) return;
+    if (!this.out().length) { this.flash('A round needs at least two of you on the island. Wait for a friend to join you.'); return; }
     const kind = this.kind, p = this.g.pos(), lms = this.g.landmarks();
     if (kind === 'aurora' && !this.g.canAurora()) { this.flash('No aurora in the midnight sun. Pick a darker month in Settings first.'); return; }
     const near = lms.map((l) => ({ l, d: Math.hypot(l.x - p.x, l.z - p.z) })).sort((a, b) => a.d - b.d);
     const round = {
       id: Math.random().toString(36).slice(2, 10), kind, by: this.room.name, limit: KINDS[kind].limit,
       start: { x: p.x, z: p.z, h: p.heading },
-      lineup: [this.room.selfId, ...[...this.room.peers.values()].filter((q) => q.hello).map((q) => q.id)].sort(),
+      lineup: [this.room.selfId, ...this.out().map((q) => q.id)].sort(),
     };
     if (kind === 'race') {
       const pick = $('rd-target').value;
@@ -80,7 +86,8 @@ export class Rounds {
 
   // ---------- Messages from the others ----------
   onEvent(peer, ev) {
-    if (ev.type === 'round' && ev.round?.kind in KINDS) { if (!this.live) { this.begin(ev.round); this.g.hud.toast(`${peer.name} started a round: ${KINDS[ev.round.kind].title}.`, { seconds: 3, priority: 3 }); } return; }
+    // Not lined up (still in the lobby, or joined after it was set): sit this one out.
+    if (ev.type === 'round' && ev.round?.kind in KINDS) { if (!this.live && this.g.started() && ev.round.lineup?.includes(this.room?.selfId)) { this.begin(ev.round); this.g.hud.toast(`${peer.name} started a round: ${KINDS[ev.round.kind].title}.`, { seconds: 3, priority: 3 }); } return; }
     const r = this.r;
     if (!r || ev.id !== r.id) return;
     if (ev.type === 'finish' && !r.results[peer.id]) {
@@ -235,8 +242,10 @@ export class Rounds {
     for (const b of document.querySelectorAll('#rd-kinds button')) { const on = b.dataset.kind === this.kind; b.classList.toggle('is-on', on); b.setAttribute('aria-pressed', String(on)); }
     $('rd-target-row').hidden = this.kind !== 'race';
     if (this.kind === 'race') this.fillTargets();
-    $('rd-note').textContent = this.live ? `${KINDS[this.r.kind].title} under way.` : KINDS[this.kind].note;
+    const alone = !this.out().length;
+    $('rd-note').textContent = this.live ? `${KINDS[this.r.kind].title} under way.` : alone ? 'Rounds start once a friend is out on the island with you.' : KINDS[this.kind].note;
     $('rd-start').hidden = this.live;
+    $('rd-start').disabled = alone;
     $('rd-end').hidden = !this.live;
   }
 }

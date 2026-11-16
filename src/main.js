@@ -73,6 +73,7 @@ import { track, tickPlay, countSighting, countStamp } from './analytics.js';
 import { roomLink } from './net/room.js';
 import { Together, DOING } from './ui/together.js';
 import { Rounds } from './ui/rounds.js';
+import { Lobby } from './ui/lobby.js';
 import { P as PERSON } from './net/remotes.js';
 
 const $ = (id) => document.getElementById(id);
@@ -160,10 +161,11 @@ addEventListener('resize', () => {
 const linkRoom = roomLink();
 const clock = new Clock(linkRoom?.month ?? (Number.isInteger(settings.month) ? settings.month : new Date().getMonth()));
 clock.speed = settings.speed || 1;
-const tripSeed = linkRoom?.seed ?? ((Date.now() ^ (Math.random() * 1e9)) >>> 0);
+let tripSeed = linkRoom?.seed ?? ((Date.now() ^ (Math.random() * 1e9)) >>> 0); // a room joined by code takes its host's (reseedTrip)
 let together = null; // exploring with friends (ui/together.js), made once the game is set up
 const forecast = new Forecast(tripSeed, { redChallenge: challenge.id === 'red' });
-const windNoise = createNoise2D(tripSeed ^ 77);
+let windNoise = createNoise2D(tripSeed ^ 77);
+let islandReady = false; // the island is built and Start can be pressed
 const input = new Input(canvas);
 const hud = new Hud();
 const sheet = new Sheet();
@@ -1919,18 +1921,23 @@ startBtn.disabled = true;
 document.body.classList.add('pre-start');
 $('gx-menu').addEventListener('click', () => { haptics.play('select'); sheet.go('settings'); setCat('trip'); });
 addEventListener('keydown', (e) => {
-  if (started || document.querySelector('dialog[open]') || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (started || document.querySelector('dialog[open]') || e.metaKey || e.ctrlKey || e.altKey || document.activeElement?.tagName === 'INPUT') return;
   const k = e.key.toLowerCase();
   if (k === 'arrowleft' || k === 'arrowright') { e.preventDefault(); $(k === 'arrowleft' ? 'cv-prev' : 'cv-next').click(); }
-  else if (k === 'enter' && !startBtn.disabled && document.activeElement?.tagName !== 'SELECT') { e.preventDefault(); startBtn.click(); }
+  else if (k === 'enter' && !startBtn.disabled && document.activeElement?.tagName !== 'SELECT' && !document.activeElement?.closest?.('#lobby, #gx-mode')) { e.preventDefault(); startBtn.click(); }
 });
-startBtn.addEventListener('click', () => {
+// Solo sets off at once; in Multiplayer the button is the lobby's (ui/lobby.js), which sets off
+// everyone together when the host starts.
+startBtn.addEventListener('click', () => { if (lobby.press()) return; beginTrip(); });
+function beginTrip() {
+  if (started) return;
   audio.start();
   audio.setMuted(audio.muted);
   started = true; startedAt = performance.now();
   store.data.trips++; store.save();
   setTimeout(() => together?.greet(), 1800);
-  track('game_start', { month: clock.m.name, vehicle: settings.vehicle || 'jeep', person: personId(), graphics: qualityName, input: isTouch ? 'touch' : 'keyboard', trip_number: store.data.trips });
+  together.setLobby({ playing: true, ready: true, pct: 1 }); lobby.stop();
+  track('game_start', { mode: together.on ? 'multi' : 'solo', month: clock.m.name, vehicle: settings.vehicle || 'jeep', person: personId(), graphics: qualityName, input: isTouch ? 'touch' : 'keyboard', trip_number: store.data.trips });
   $('intro').classList.add('is-leaving');
   document.body.classList.remove('pre-start');
   // The cover fades out over the island; then its two canvases let go of their GPU contexts.
@@ -1952,7 +1959,7 @@ startBtn.addEventListener('click', () => {
   canvas.focus();
   setTimeout(() => hud.toast(isTouch ? 'The Kp, bottom right, is how strong the aurora is. Tap it for the aurora radio.' : 'The Kp, bottom right, is how strong the aurora is. Click it, or press K, for the aurora radio.', { seconds: 7 }), 4200);
   setTimeout(showReverseTip, 8000);
-});
+}
 
 // The opening, like a game's first shot: widescreen bars, the camera sweeping down onto the car, a
 // title card with where and when you are, then the bars lift, the HUD comes up and the gauges wake.
@@ -3482,7 +3489,7 @@ function setStartLabel(text) {
   if (!/%/.test(text)) { startLabel.classList.remove('is-new'); void startLabel.offsetWidth; startLabel.classList.add('is-new'); }
 }
 const quipTimer = setInterval(() => {
-  if (!startBtn.disabled) { clearInterval(quipTimer); return; }
+  if (!startBtn.disabled || islandReady) { clearInterval(quipTimer); return; }
   const q = QUIPS[quipFor];
   if (!q || performance.now() - quipAt < 2300) return;
   quipAt = performance.now();
@@ -3502,6 +3509,7 @@ function countUp() {
   const pct = Math.round(pctShown * 100);
   startPct.textContent = `${pct}%`;
   startBtn.setAttribute('aria-valuenow', String(pct));
+  if (together) { together.lb.pct = pctShown; if (together.room) together.room.lb.pct = pctShown; } // the lobby's loading bars
 }
 // A plain timer, not animation frames, so the number keeps up even when frames are scarce.
 const countTimer = setInterval(countUp, 50);
@@ -3553,8 +3561,10 @@ bootSoon(async () => {
     startBtn.classList.add('is-ready');
     startBtn.removeAttribute('role'); startBtn.removeAttribute('aria-valuenow'); startBtn.removeAttribute('aria-label');
     clearTimeout(slowHint); if ($('loading').textContent.startsWith('Taking a while') || $('loading').textContent.startsWith('Still building')) $('loading').textContent = '';
-    startLabel.textContent = resumeAt ? 'Continue your drive' : 'Start driving';
-    startBtn.disabled = false;
+    islandReady = true;
+    together.setLobby({ ready: true, pct: 1 });
+    lobby.syncStart(); // Start driving, or what the room is waiting for
+    lobby.render();
     haptics.play('success');
     const shared = readSharedSighting();
     if (shared) renderSharedSighting(shared);
@@ -3613,6 +3623,13 @@ function togetherTick(dt, paused) {
     }
   } else if (mode === 'walk') R.pushOut(walker.pos, riding.on ? 0.8 : 0.35, walker.pos.y);
 }
+// One sky for the room: the forecast, clouds and wind all come from the trip seed.
+function reseedTrip(seed) {
+  if (!seed || seed === tripSeed) return;
+  tripSeed = seed >>> 0;
+  forecast.reseed(tripSeed);
+  windNoise = createNoise2D(tripSeed ^ 77);
+}
 function setRoomClock(ck, snap) {
   if (!ck || !Number.isFinite(ck.h)) return;
   if (Number.isInteger(ck.m) && ck.m !== clock.month) setMonth(ck.m, false);
@@ -3623,14 +3640,15 @@ function setRoomClock(ck, snap) {
   if (snap || Math.abs(dr) > 3) clock.realSeconds = ck.r; else clock.realSeconds += dr * 0.3;
 }
 together = new Together({
-  scene, hud, track, haptics, settings, save: () => store.save(), seed: tripSeed,
+  scene, hud, track, haptics, settings, save: () => store.save(), get seed() { return tripSeed; }, reseed: reseedTrip,
   month: () => clock.month,
   clock: () => ({ h: clock.gameHours, r: clock.realSeconds, sp: clock.speed, m: clock.month }),
   setClock: setRoomClock,
   describe: describeState,
-  myPos: () => (world ? activePos() : { x: 0, z: 0 }),
+  myPos: () => (world && jeep ? activePos() : { x: 0, z: 0 }), // (a room can open while the island loads)
   onEvent: (peer, ev) => {
     if (['round', 'finish', 'claim', 'endround'].includes(ev.type)) { rounds.onEvent(peer, ev); return; }
+    if (ev.type === 'go') { lobby.onEvent(peer, ev); return; }
     if (ev.type === 'month' && Number.isInteger(ev.m) && ev.m >= 0 && ev.m < 12 && ev.m !== clock.month) {
       setMonth(ev.m, false);
       hud.toast(`${peer.name} changed the month to ${clock.m.name}.`, { seconds: 3.5, priority: 2 });
@@ -3664,7 +3682,7 @@ function darkestHours() {
 const rounds = new Rounds({
   together, hud, haptics, track,
   landmarks: () => landmarks?.list || [],
-  pos: () => { const p = world ? activePos() : { x: 0, z: 0 }; return { x: p.x, z: p.z, heading: world ? activeHeading() : 0 }; },
+  pos: () => { const p = world && jeep ? activePos() : { x: 0, z: 0 }; return { x: p.x, z: p.z, heading: world && jeep ? activeHeading() : 0 }; },
   place: placeForRound,
   hold: (on) => { roundHold = on; if (on) { jeep.vF = 0; jeep.vL = 0; } },
   navTo: (lm) => nav.start({ x: lm.x, z: lm.z, label: lm.name }, activePos()),
@@ -3675,8 +3693,19 @@ const rounds = new Rounds({
   canAurora: () => !clock.midnightSun,
   closeMenu: () => { const d = $('sheet'); if (d.open) d.close(); },
   openTogether: () => sheet.go('together'),
+  started: () => started,
 });
-together.onRender = () => rounds.render();
+// The start screen's Solo or Multiplayer, and the lobby (ui/lobby.js).
+const lobby = new Lobby({
+  together, settings, save: () => store.save(), haptics, track, startBtn,
+  loaded: () => islandReady, started: () => started, begin: beginTrip,
+  place: (start, slot) => placeForRound(start, slot, false),
+  pos: () => { const p = activePos(); return { x: p.x, z: p.z, heading: activeHeading() }; },
+  soloLabel: () => (resumeAt ? 'Continue your drive' : 'Start driving'),
+  setLabel: setStartLabel,
+});
+together.onRender = () => { rounds.render(); lobby.render(); };
+together.onFull = () => lobby.err('That room is full (eight players).');
 together.onPeerLeft = (id) => rounds.peerLeft(id);
 rounds.render();
 

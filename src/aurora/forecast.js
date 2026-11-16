@@ -36,6 +36,15 @@ export class Forecast {
     this.history = new Map(); // nightIndex -> [{h, kp}]
     this.lastHistoryH = -1;
   }
+  // A room shares one sky: someone who joined with only the code takes the lead's seed (room.js).
+  reseed(tripSeed) {
+    this.seed = tripSeed >>> 0;
+    this.cloudNoiseA = createNoise2D(this.seed ^ 0x9e37);
+    this.cloudNoiseB = createNoise2D(this.seed ^ 0x51ed);
+    this.timeNoise = createNoise2D(this.seed ^ 0x1234);
+    this.nights.clear(); this.history.clear(); this.lastHistoryH = -1;
+    this.corona = { active: false, until: 0, level: 0 };
+  }
 
   night(n) {
     if (this.nights.has(n)) return this.nights.get(n);

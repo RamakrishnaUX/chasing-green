@@ -90,8 +90,47 @@
         <div class="month-card" aria-live="polite"></div>
       </div>
     </div>
+    <!-- Multiplayer: create a room or join one with a code; the trip starts when everyone is in (src/ui/lobby.js). -->
+    <section class="lobby" id="lobby" hidden aria-label="Multiplayer">
+      <div class="lb-pick" id="lb-pick">
+        <p class="gx-k">Multiplayer</p>
+        <h3 class="lb-title">Play with friends</h3>
+        <p class="lb-text">Up to eight on the same island, under the same sky. Everyone sets off together.</p>
+        <div class="lb-choices">
+          <button type="button" class="lb-choice" id="lb-create"><b>Create a room</b><span>Get a code to share</span></button>
+          <button type="button" class="lb-choice" id="lb-show-join"><b>Join a room</b><span>Enter a friend's code</span></button>
+        </div>
+      </div>
+      <div class="lb-joinbox" id="lb-joinbox" hidden>
+        <p class="gx-k">Join a room</p>
+        <form class="lb-form" id="lb-form" autocomplete="off">
+          <input id="lb-code" type="text" inputmode="text" maxlength="200" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="K7F-Q2X" aria-label="Room code or invite link">
+          <button type="submit" class="btn btn-primary" id="lb-join">Join</button>
+        </form>
+        <p class="lb-err" id="lb-err" role="alert" hidden></p>
+        <p class="lb-text">Ask the host for the code on their screen, or paste their invite link.</p>
+        <button type="button" class="lb-back" id="lb-back">Back</button>
+      </div>
+      <div class="lb-room" id="lb-room" hidden>
+        <div class="lb-codebar">
+          <div><p class="gx-k">Room code</p><button type="button" class="lb-code" id="lb-codeshow" title="Copy the code" aria-label="Room code. Copy it"></button></div>
+          <div class="lb-share"><button type="button" class="lb-mini" id="lb-copy">Copy link</button><button type="button" class="lb-mini" id="lb-share">Share</button></div>
+        </div>
+        <div class="lb-head"><p class="gx-k">Players</p><p class="gx-k" id="lb-count"></p></div>
+        <ul class="lb-people" id="lb-people" aria-label="In the room"></ul>
+        <p class="lb-status" id="lb-status" aria-live="polite"></p>
+        <div class="lb-foot">
+          <label class="lb-name"><span class="gx-k">Your name</span><input id="lb-name" type="text" maxlength="20" autocomplete="nickname" spellcheck="false" placeholder="Traveller"></label>
+          <button type="button" class="lb-mini lb-leave" id="lb-leave">Leave</button>
+        </div>
+      </div>
+    </section>
     <div class="gx-go">
-      <button id="start" class="btn btn-primary btn-start is-loading" role="progressbar" aria-label="Loading the island" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span class="start-fill" aria-hidden="true"></span><span class="start-label">Shaping the island</span><span class="start-pct">0%</span><kbd class="start-key" aria-hidden="true">&crarr;</kbd></button>
+      <div class="gx-mode" id="gx-mode" role="tablist" aria-label="How you play">
+        <button type="button" role="tab" data-mode="solo" aria-selected="true">Solo</button>
+        <button type="button" role="tab" data-mode="multi" aria-selected="false">Multiplayer</button>
+      </div>
+      <div class="gx-btn"><button id="start" class="btn btn-primary btn-start is-loading" role="progressbar" aria-label="Loading the island" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span class="start-fill" aria-hidden="true"></span><span class="start-label">Shaping the island</span><span class="start-pct">0%</span><kbd class="start-key" aria-hidden="true">&crarr;</kbd></button></div>
       <p class="loading" id="loading" role="status"></p>
     </div>
     <p class="keys-hint"><span><kbd>WASD</kbd>Drive</span><span><kbd>Space</kbd>Nitro</span><span><kbd>C</kbd>View</span><span><kbd>V</kbd>Vehicle</span><span><kbd>M</kbd>Map</span><span><kbd>H</kbd>Learn</span></p>
@@ -376,14 +415,20 @@
         <div class="tg-hero">
           <p class="jr-k">Explore together</p>
           <h3 class="tg-title">Same island, same sky</h3>
-          <p class="tg-text">Start a room and send the link. Friends who open it join you on the island, under the same weather, time and aurora. Up to eight in a room.</p>
+          <p class="tg-text">Start a room and send its code or link. Friends who enter it join you on the island, under the same weather, time and aurora. Up to eight in a room.</p>
         </div>
         <label class="tg-name" for="tg-name"><span>Your name</span><input id="tg-name" type="text" maxlength="20" autocomplete="nickname" spellcheck="false" placeholder="Traveller"></label>
         <div class="tg-room" id="tg-room" hidden>
-          <p class="jr-k">Invite link</p>
+          <p class="jr-k">Room code</p>
+          <p class="tg-code" id="tg-codeshow"></p>
           <p class="tg-link" id="tg-link"></p>
           <ul class="tg-people" id="tg-people" aria-label="In the room"></ul>
         </div>
+        <form class="tg-joinform" id="tg-joinform" autocomplete="off">
+          <span>Have a code?</span>
+          <input id="tg-code" type="text" maxlength="200" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="K7F-Q2X" aria-label="Room code or invite link">
+          <button type="submit" class="btn">Join</button>
+        </form>
         <p class="tg-status" id="tg-status" aria-live="polite"></p>
         <div class="rounds" id="rounds" hidden>
           <p class="jr-k">Challenge rounds</p>

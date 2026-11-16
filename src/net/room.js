@@ -10,9 +10,15 @@
 //
 // Each player simulates only themselves and sends where they are about ten times a second
 // (remotes.js draws the others). Messages:
-//   hello  {v, name, person, age, clock}   to each player who joins, and to all on a name change
+//   hello  {v, name, person, age, clock, seed, lb}   to each player who joins, and to all on a name change
+//   lb     {ready, playing, pct}            where this player is before the trip: loading, ready in
+//                                           the lobby, or out on the island (every second until then)
 //   s      {m, r, k, c?, h?, p?, ck?}       state, ten times a second (see Room.state below)
-//   ev     {type: 'month' | 'speed', ...}   a shared setting changed
+//   ev     {type: 'month' | 'speed' | 'go' | ..., ...}   a shared setting changed, the trip begun
+//
+// A friend can also join with just the code (six letters and numbers, read out or typed). Without
+// the link they do not know the seed, so everyone takes the seed of the longest in the room (the
+// lead) from their hello, and the month comes with the lead's clock.
 //
 // ?net=local swaps the network for a BroadcastChannel, so two tabs of the same browser can play
 // together offline (used by the tests).
@@ -23,9 +29,24 @@ const APP_ID = 'chasing-green-together-v1';
 export const MAX_PLAYERS = 8;
 const CODE_CHARS = 'abcdefghjkmnpqrstuvwxyz23456789'; // no 0/o, 1/l/i: read aloud without mistakes
 
-export function newCode() {
-  const a = crypto.getRandomValues(new Uint8Array(10));
+// Six characters: short enough to read out or type on a phone (31^6, near a billion codes).
+export function newCode(n = 6) {
+  const a = crypto.getRandomValues(new Uint8Array(n));
   return [...a].map((b) => CODE_CHARS[b % CODE_CHARS.length]).join('');
+}
+// K7F-Q2X: in capitals, split in two, as it is shown and read out.
+export function formatCode(code) {
+  const c = String(code || '').toUpperCase();
+  return c.length === 6 ? `${c.slice(0, 3)}-${c.slice(3)}` : c.replace(/(.{4})(?=.)/g, '$1-');
+}
+// What someone typed or pasted into the code box: a code (any case, with or without the dash or
+// spaces) or a whole invite link. null if it cannot be a room.
+export function parseCode(text) {
+  const t = String(text || '').trim();
+  if (/^https?:\/\/|[?&]room=/.test(t)) { const l = roomLink(/^https?:/.test(t) ? t : `${location.origin}/${t.replace(/^\/*/, '')}`); return l ? { ...l, fromLink: true } : null; }
+  const code = t.toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (code.length < 6 || code.length > 16) return null;
+  return { code };
 }
 
 // The room in this page's address, if any.
@@ -103,9 +124,11 @@ function localTransport(code) {
 
 // ---------- The room ----------
 export class Room {
-  // hooks: onPeer(peer), onLeave(peer), onState(peer, state), onEvent(peer, ev), onClock(clock), onFull()
+  // hooks: onPeer(peer), onLeave(peer), onState(peer, state), onEvent(peer, ev), onClock(clock), onFull(),
+  //        onLobby(peer), onSeed(seed)
   constructor({ code, seed, month, net = 'p2p', name, hooks }) {
     this.code = code; this.seed = seed >>> 0; this.month = month; this.net = net;
+    this.lb = { ready: false, playing: false, pct: 0 }; // this player before the trip (see 'lb')
     this.name = name || 'Traveller';
     this.hooks = hooks;
     this.since = Date.now();
@@ -143,12 +166,28 @@ export class Room {
       const since = Date.now() - Math.max(0, Number(d.age) || 0);
       if (first && this.count >= MAX_PLAYERS) { if (since > this.since) t.send('full', {}, id); return; }
       p.name = cleanName(d.name); p.person = personKey(d.person); p.since = since; p.hello = true; p.last = performance.now();
+      // (A player on an older page says nothing about the lobby: they are out on the island.)
+      p.lb = lobbyOf(d.lb) || p.lb || { ready: true, playing: true, pct: 1 };
+      // Everyone shares the lead's sky: someone who came in with only the code takes it now.
+      const seed = Number(d.seed) >>> 0;
+      if (seed && seed !== this.seed && this.lead() === id) { this.seed = seed; this.hooks.onSeed?.(seed); }
       if (first) this.hooks.onPeer?.(p);
       else this.hooks.onRename?.(p);
       // The one who has been here longest keeps the time; take it from them the moment they say hello.
       if (d.clock && this.lead() === id) this.hooks.onClock?.(d.clock, true);
     });
     t.on('full', () => { this.hooks.onFull?.(); this.leave(); });
+    t.on('lb', (d, id) => {
+      const p = this.peers.get(id), lb = lobbyOf(d);
+      if (!p?.hello || !lb) return;
+      p.last = performance.now();
+      const changed = !p.lb || p.lb.ready !== lb.ready || p.lb.playing !== lb.playing || Math.abs((p.lb.pct || 0) - lb.pct) > 0.004;
+      p.lb = lb;
+      if (changed) this.hooks.onLobby?.(p);
+    });
+    // Until the trip starts nothing else goes out, so a word every second keeps everyone counted
+    // as here (lead() drops anyone silent for 2.5 s) and their loading bars moving.
+    this.beat = setInterval(() => { if (!this.lb.playing && this.peers.size) t.send('lb', this.lb); }, 1000);
     t.on('s', (d, id) => {
       const p = this.peers.get(id);
       if (!p?.hello || !d) return;
@@ -161,7 +200,14 @@ export class Room {
     return true;
   }
   // How long we have been in, not when we came: two computers' clocks can disagree by minutes.
-  hello() { return { v: 1, name: this.name, person: personId(), age: Date.now() - this.since, clock: this.getClock?.() }; }
+  hello() { return { v: 1, name: this.name, person: personId(), age: Date.now() - this.since, clock: this.getClock?.(), seed: this.seed, lb: this.lb }; }
+  // Loading (pct), ready in the lobby, or out on the island: told to the others when it changes.
+  setLobby(patch) {
+    const lb = { ...this.lb, ...patch };
+    const changed = lb.ready !== this.lb.ready || lb.playing !== this.lb.playing;
+    this.lb = lb;
+    if (changed && this.t && this.peers.size) this.t.send('lb', lb);
+  }
   // The longest in the room keeps the time (ties go to the lower id), among those playing now: a
   // page in the background stops (its clock with it), so it hands the time on, and on coming back
   // (away, for a moment) takes the time from the others before it keeps it again.
@@ -180,8 +226,13 @@ export class Room {
   sendEvent(ev) { if (this.t && this.peers.size) this.t.send('ev', ev); }
   leave() {
     this.left = true;
+    clearInterval(this.beat);
     try { this.t?.leave(); } catch { /* already gone */ }
     this.t = null; this.peers.clear(); this.status = 'closed';
   }
+}
+function lobbyOf(d) {
+  if (!d || typeof d !== 'object') return null;
+  return { ready: !!d.ready, playing: !!d.playing, pct: Math.max(0, Math.min(1, Number(d.pct) || 0)) };
 }
 export function cleanName(s) { return String(s || '').replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, 20) || 'Traveller'; }
