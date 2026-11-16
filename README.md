@@ -857,8 +857,13 @@ Friends can drive the same island at the same time. Menu → **Together** → **
 link like `/?room=k7f3q2x9ab&seed=1234567&m=10`; whoever opens it joins. Up to eight in a room.
 
 - **No server.** Players find each other through [Trystero](https://github.com/dmotz/trystero)
-  (its default: public Nostr relays carry the connection offers, encrypted with the room code as
-  the password) and then talk directly over WebRTC data channels. Trystero is loaded only when a
+  (public Nostr relays carry the connection offers, encrypted with the room code as the password)
+  and then talk directly over WebRTC data channels. The relays are our own list (`RELAYS` in
+  `room.js`), all used at once: Trystero's default picks five by app id, and for ours those were
+  dead or refused its messages, so two players with the same link never met. Each listed relay was
+  checked to introduce two players in a few seconds; if rooms stop connecting, re-check them first
+  (a relay that refuses says so in the console as `Trystero: relay failure`). STUN is Cloudflare's
+  and Google's. Trystero is loaded only when a
   room opens (its own small chunk), so playing alone downloads nothing extra. `?net=local` swaps
   the network for a `BroadcastChannel`: two tabs of one browser play together offline (the tests
   use this).
@@ -881,7 +886,8 @@ link like `/?room=k7f3q2x9ab&seed=1234567&m=10`; whoever opens it joins. Up to e
 
 Not yet shared: the animals (each player has their own), the horse (a rider shows on foot), the
 canopy under a skydiver, and postcards. Players behind strict networks (some offices and mobile
-carriers) may not connect without a TURN server; `turnConfig` in `room.js` is where one would go.
+carriers) may not connect without a TURN server (no free public one works any more); `rtcConfig.iceServers`
+in `room.js` is where one would go.
 
 ### Challenge rounds
 

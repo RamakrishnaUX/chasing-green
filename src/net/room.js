@@ -51,10 +51,21 @@ export function linkFor({ code, seed, month, net }) {
 }
 function hashSeed(s) { let h = 2166136261; for (const c of s) h = Math.imul(h ^ c.charCodeAt(0), 16777619); return (h >>> 0) || 1; }
 
+// The Nostr relays that carry the offers. Trystero's own list picks five by app id, and for ours
+// those five were dead or refused its (ephemeral) messages, so two players with the same link
+// never met. These were each checked to introduce two players in a few seconds (Nov 2026); any
+// one relay both players reach is enough, so all of them are used at once.
+const RELAYS = [
+  'wss://relay.nostr.net', 'wss://nostr-pub.wellorder.net',
+  'wss://nostr.oxtr.dev', 'wss://nos.lol', 'wss://relay.damus.io',
+];
+// Two STUN servers, so a player behind a home router still finds their public address if one is down.
+const ICE = [{ urls: 'stun:stun.cloudflare.com:3478' }, { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }];
+
 // ---------- Transports: the same three calls whatever carries the messages ----------
 async function p2pTransport(code) {
   const { joinRoom, selfId } = await import('trystero');
-  const room = joinRoom({ appId: APP_ID, password: code }, `cg-${hashSeed(code).toString(36)}`);
+  const room = joinRoom({ appId: APP_ID, password: code, relayConfig: { urls: RELAYS }, rtcConfig: { iceServers: ICE } }, `cg-${hashSeed(code).toString(36)}`);
   const actions = {};
   const action = (name) => (actions[name] ||= room.makeAction(name));
   return {
