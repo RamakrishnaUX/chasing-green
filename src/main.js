@@ -74,7 +74,7 @@ import { roomLink } from './net/room.js';
 import { Together, DOING } from './ui/together.js';
 import { Rounds } from './ui/rounds.js';
 import { Lobby } from './ui/lobby.js';
-import { P as PERSON } from './net/remotes.js';
+import { P as PERSON, groundRef } from './net/remotes.js';
 
 const $ = (id) => document.getElementById(id);
 const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
@@ -3580,16 +3580,17 @@ bootSoon(async () => {
 });
 
 // ---------- Exploring together (net/room.js, net/remotes.js, ui/together.js) ----------
-// What this player looks like to the others, ten times a second: what they are in and where.
+// What this player looks like to the others, ten times a second: what they are in and where, each
+// with the ground under it as this island has it (the last number; see groundRef in net/remotes.js).
 const r3 = (v) => Math.round(v * 1000) / 1000;
 function packState() {
   const s = { m: mode === 'photo' ? 'chase' : mode, r: ride, k: jeep.kind };
-  if (ride === 'car') { const b = jeep.body; s.c = [jeep.pos.x, jeep.pos.y, jeep.pos.z, jeep.heading, b.rotation.x, b.rotation.z, b.position.y, jeep.vF, jeep.steerVis, jeep.boat].map(r3); }
-  else { s.h = [heli.pos.x, heli.pos.y, heli.pos.z, heli.heading, heli.pitch, heli.roll, heli.rpm].map(r3); if (heli.landed) s.hl = 1; }
+  if (ride === 'car') { const b = jeep.body; s.c = [jeep.pos.x, jeep.pos.y, jeep.pos.z, jeep.heading, b.rotation.x, b.rotation.z, b.position.y, jeep.vF, jeep.steerVis, jeep.boat, groundRef(jeep.pos.x, jeep.pos.z, jeep.pos.y)].map(r3); }
+  else { s.h = [heli.pos.x, heli.pos.y, heli.pos.z, heli.heading, heli.pitch, heli.roll, heli.rpm, groundRef(heli.pos.x, heli.pos.z, heli.pos.y)].map(r3); if (heli.landed) s.hl = 1; }
   if (mode === 'walk') {
     const st = riding.on ? PERSON.ride : sitting ? PERSON.sit : walker.state === 'swim' ? PERSON.swim : walker.state === 'fall' ? PERSON.fall : walker.state === 'climb' || walker.state === 'mantle' ? PERSON.climb : PERSON.walk;
-    s.p = [walker.pos.x, walker.pos.y, walker.pos.z, walker.heading, riding.on ? riding.speed : walker.speedSmooth, st].map(r3);
-  } else if (mode === 'sky') s.p = [diver.pos.x, diver.pos.y, diver.pos.z, diver.heading, diver.speed, PERSON.sky].map(r3);
+    s.p = [walker.pos.x, walker.pos.y, walker.pos.z, walker.heading, riding.on ? riding.speed : walker.speedSmooth, st, groundRef(walker.pos.x, walker.pos.z, walker.pos.y)].map(r3);
+  } else if (mode === 'sky') s.p = [diver.pos.x, diver.pos.y, diver.pos.z, diver.heading, diver.speed, PERSON.sky, groundRef(diver.pos.x, diver.pos.z, diver.pos.y)].map(r3);
   return s;
 }
 function describeState(s) {

@@ -10,6 +10,8 @@ import { buildBoatKit, stages } from '../vehicle/boat.js';
 import { Driver } from '../vehicle/driver.js';
 import { Heli } from '../vehicle/heli.js';
 import { person as personOf, loadPerson } from '../vehicle/person.js';
+import { surfaceHeightAt, waterLevelAt } from '../world/terrain.js';
+import { solidTopAt } from '../world/solids.js';
 
 const DELAY = 0.15; // seconds behind the newest state: one and a half sends, so there is nearly always a next one
 const STALE = 12; // seconds without a word before a player is taken off the island
@@ -27,11 +29,29 @@ const personFile = (id) => personFiles.get(id) || personFiles.set(id, loadPerson
 
 const lerpAngle = (a, b, t) => a + (((b - a + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI) * t;
 function mix(a, b, t, angles) {
-  if (!a || !b) return b || a;
+  if (!a || !b || a.length !== b.length) return b || a;
   // A jump (a round's line-up, a fast travel) is shown as one: never slid across the land between.
   if (Math.hypot(b[0] - a[0], b[2] - a[2]) > 25) return t < 0.5 ? a : b;
   const out = new Array(b.length);
   for (let i = 0; i < b.length; i++) out[i] = angles.includes(i) ? lerpAngle(a[i], b[i], t) : a[i] + (b[i] - a[i]) * t;
+  return out;
+}
+// Each player's island is shaped at their own detail: the quality sets how fine the land grid is
+// and the realistic look carves it further, so the same road can lie metres higher or lower on
+// another screen. Every height is sent with the ground under it (groundRef, at the sender), and
+// put back here on our own ground, so a car sits on our road rather than in the air over it.
+// The ground is the road, a bridge deck, a landform or the water, whichever is underfoot.
+export function groundRef(x, z, y) { return Math.max(surfaceHeightAt(x, z, y), waterLevelAt(x, z), solidTopAt(x, z, y + 1)); }
+// A sent state (x, y, z, ...) with its y moved onto our ground: by the whole difference near the
+// ground, fading out from 20 m to 150 m up (a helicopter or a skydiver high up keeps its height).
+// gi: where the sender's ground is in the array (states from before it was sent have none).
+function onOurGround(s, gi) {
+  const g = s?.[gi];
+  if (!Number.isFinite(g)) return s;
+  const w = 1 - THREE.MathUtils.smoothstep(s[1] - g, 20, 150);
+  if (w <= 0) return s;
+  const out = s.slice();
+  out[1] += (groundRef(s[0], s[2], s[1]) - g) * w;
   return out;
 }
 // A model's materials are shared with the car you drive, whose dirt (grime.js) is drawn in your
@@ -165,9 +185,9 @@ class Remote {
     const sa = a.s, sb = b.s, s = u < 0.5 ? sa : sb;
     this.view = { mode: s.m, ride: s.r };
     this.root.visible = true;
-    const c = sa.c && sb.c ? mix(sa.c, sb.c, u, [3]) : (s.c || null);
-    const h = sa.h && sb.h ? mix(sa.h, sb.h, u, [3]) : (s.h || null);
-    const p = sa.p && sb.p ? mix(sa.p, sb.p, u, [3]) : (s.p || null);
+    const c = onOurGround(sa.c && sb.c ? mix(sa.c, sb.c, u, [3]) : (s.c || null), 10);
+    const h = onOurGround(sa.h && sb.h ? mix(sa.h, sb.h, u, [3]) : (s.h || null), 7);
+    const p = onOurGround(sa.p && sb.p ? mix(sa.p, sb.p, u, [3]) : (s.p || null), 6);
     const driving = s.r === 'car' && (s.m === 'chase' || s.m === 'lookup');
     const onFoot = s.m === 'walk' || s.m === 'sky';
 

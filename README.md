@@ -899,6 +899,13 @@ Friends can drive the same island at the same time. Up to eight in a room.
   turning and steering, the boat kit folding, lamps that glow at night), their helicopter, or
   them on foot with the walker's own clip blend, swimming or falling. A parked car stays where
   they left it while they walk.
+- **On your ground, not theirs.** Each screen shapes the island at its own detail (the quality
+  sets the land grid, the realistic look carves it further), so one road can lie metres apart
+  in height from player to player: up to ~38 m between Realistic on desktop and Low on a phone.
+  Every car, helicopter and person is sent with the ground under it (`groundRef` in
+  `remotes.js`: road, bridge deck, landform or water), and the receiver puts it back on its own
+  ground by the difference, fully near the ground and fading out from 20 to 150 m up. Without
+  it, other players' cars hung in the air over your road or sank into it.
 - **They are solid.** Your car and you on foot are pushed out of the others' cars and bodies
   (two circles along your car against a capsule for theirs). Driving into one costs the speed
   going into it, with a thump.
