@@ -123,8 +123,6 @@ export class Towns {
       near.flush(ng); far.flush(fg);
       const spread = Math.max(...all.map((h) => Math.hypot(h.x - ox, h.z - oz)));
       lod.addLevel(ng, 0); lod.addLevel(fg, spread + (low ? 170 : quality === 'high' ? 420 : 300), 0.05);
-      // Past that, a town is a few pixels under the haze: nothing is drawn (each house is its own draw).
-      lod.addLevel(new THREE.Object3D(), spread + (low ? 700 : quality === 'high' ? 1300 : 1000), 0.05);
       this.group.add(lod);
     }
     scene.add(this.group);

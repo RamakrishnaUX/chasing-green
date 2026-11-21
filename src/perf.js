@@ -35,6 +35,7 @@ export class Governor {
     this.level = BASE; this.floor = touch ? BASE : 0;
     this.times = []; this.since = 0; this.good = 0; this.wait = 12; this.lastUp = -1e9; this.clock = 0;
     this.lowBattery = false; this.fps = 0; this.slow = 0;
+    this.cadence = 60; this.cadenceWait = 20; this.cadenceGood = 0; this.cadenceTry = -1e9;
     try {
       navigator.getBattery?.().then((b) => {
         const upd = () => { this.lowBattery = !b.charging && b.level <= 0.2; this.floor = this.lowBattery ? BASE + 1 : this.touch ? BASE : 0; if (this.level < this.floor) this.set(this.floor, 'battery'); };
@@ -51,10 +52,11 @@ export class Governor {
   gap({ menu, photo, still }) {
     if (menu) return 1000 / 20;
     if (this.touch || photo || still || this.lowBattery || !document.hasFocus()) return 1000 / 30;
-    // A 120 Hz screen (ProMotion and the like): a steady 60. Run uncapped, a frame of 10 to 20 ms
-    // shows for one refresh or two in turn (8 ms, then 17, then 8...), which reads as judder however
-    // high the average; every frame on the same 16.7 ms beat is smooth, and the governor keeps it.
-    if (this.refreshMs && this.refreshMs < 12) return 1000 / 60;
+    // A 120 Hz screen (ProMotion and the like): a steady beat. Run uncapped, a frame of 10 to 30 ms
+    // shows for one, two or three refreshes in turn, which reads as judder however high the
+    // average; every frame on the same beat is smooth. The beat is the fastest the frames can hold
+    // at full quality (frame): 60, or 40 (three refreshes, just as even), or 30.
+    if (this.refreshMs && this.refreshMs < 12) return 1000 / this.cadence;
     return 0;
   }
 
@@ -99,7 +101,17 @@ export class Governor {
       // A step that has just come back and could not be held waits twice as long next time.
       if (this.clock - this.lastUp < 20) { this.wait = Math.min(120, this.wait * 2); this.lastUp = -1e9; }
       this.lastDown = this.clock;
+      this.cadenceGood = 0;
+      // On a 120 Hz screen the beat slows to 40 before any pixels or detail go, so the picture
+      // stays as it is and only the beat changes (a step to 60 that could not hold waits longer
+      // before it is tried again).
+      const hi = this.refreshMs && this.refreshMs < 12 && !this.touch;
+      if (hi && this.cadence === 60) {
+        if (this.clock - this.cadenceTry < 15) this.cadenceWait = Math.min(240, this.cadenceWait * 2);
+        this.cadence = 40; return;
+      }
       if (this.level < this.max) this.set(this.level + 1, 'slow');
+      else if (hi && this.cadence === 40) this.cadence = 30;
       else this.exhausted = true;
     } else if (p75 < target * 1.06) {
       this.slow = 0;
@@ -109,6 +121,11 @@ export class Governor {
       // Going above the preset wants real room: the slow frames a fifth inside the budget.
       const above = this.level - 1 < BASE && p75 > target * 0.8;
       if (this.good >= this.wait && this.level > this.floor && (calm || !sharper) && !above) { this.good = 0; this.lastUp = this.clock; this.set(this.level - 1, 'room'); }
+      // With everything back and frames on the beat for a good while, try the next faster beat.
+      if (this.level <= BASE && this.cadence < 60) {
+        this.cadenceGood += 1.5;
+        if (this.cadenceGood >= this.cadenceWait) { this.cadenceGood = 0; this.cadenceTry = this.clock; this.cadence = this.cadence === 30 ? 40 : 60; }
+      }
       // A long smooth spell earns back the patience lost to see-sawing.
       if (this.clock - (this.lastDown ?? 0) > 90 && this.wait > 12) { this.wait = Math.max(12, this.wait / 2); this.lastDown = this.clock; }
     } else { this.good = 0; this.slow = 0; }

@@ -103,7 +103,7 @@ vec3 hdNature(vec3 c, vec3 p, float dist){
   return mix(c, cc, g);
 }
 `;
-const TABLE_NOISE = /* glsl */ `
+export const TABLE_NOISE = /* glsl */ `
 uniform sampler2D uNoiseTex;
 float g_nt(vec2 p){ vec2 i = floor(p), f = p - i; return textureLod(uNoiseTex, (i + f * f * (3.0 - 2.0 * f) + 0.5) * ${(1 / NOISE_SIZE).toFixed(8)}, 0.0).r; }
 float g_ft(vec2 p){ float s = 0.0, a = 0.5; for (int i = 0; i < 4; i++) { s += a * g_nt(p); p = p * 2.07 + 13.7; a *= 0.5; } return s; }

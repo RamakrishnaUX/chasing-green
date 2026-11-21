@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mulberry32, clamp, smoothstep, createNoise2D, fbm } from './noise.js';
-import { NOISE, surfaceUniforms } from './materials.js';
+import { NOISE, TABLE_NOISE, surfaceUniforms } from './materials.js';
 import { toWorld } from './geo.js';
 import { HD } from './hd.js';
 import { BOUNDS, heightAt, waterLevelAt, roadDistAt, roadHalfWidth, coastAt, sandMask, glacierMask, lavaMask, isleAt, nearestRoadAnywhere } from './terrain.js';
@@ -25,9 +25,9 @@ const STRIDE = 8; // floats per tree: x, y, z, scale | yaw, impostor row, hue, r
 
 // Quality: how far the detailed trees and impostors reach, how many variants, impostor detail.
 const QUALITY = {
-  low: { birch: 2, spruce: 1, shrub: 1, near: 30, band: 8, far: 1100, shrubFar: 70, cellPx: 112, density: 0.55 },
-  medium: { birch: 3, spruce: 2, shrub: 2, near: 44, band: 10, far: 1800, shrubFar: 120, cellPx: 160, density: 0.85 },
-  high: { birch: 4, spruce: 3, shrub: 2, near: 52, band: 12, far: 2600, shrubFar: 170, cellPx: 192, density: 1 },
+  low: { birch: 2, spruce: 1, shrub: 1, near: 34, band: 8, far: 1100, shrubFar: 70, cellPx: 112, density: 0.55 },
+  medium: { birch: 3, spruce: 2, shrub: 2, near: 58, band: 12, far: 1800, shrubFar: 120, cellPx: 160, density: 0.85 },
+  high: { birch: 4, spruce: 3, shrub: 2, near: 70, band: 14, far: 2600, shrubFar: 170, cellPx: 192, density: 1 },
 };
 
 // Real woods, by latitude and longitude. r is in world units (metres at the island's scale);
@@ -405,7 +405,7 @@ function makeBirch(rand) {
       pts.push(pts[k - 1].clone().addScaledVector(dir, Hs / n));
     }
     const r0 = stems > 1 ? 0.09 + rand() * 0.04 : 0.13 + rand() * 0.05;
-    tube(trunk, pts, pts.map((_, k) => r0 * (1 - 0.85 * (k / n)) + 0.012), 6, 1.6, (t, P) => 0.5 + 0.5 * smoothstep(0, 1.3, P.y));
+    tube(trunk, pts, pts.map((_, k) => r0 * (1 - 0.85 * (k / n)) + 0.012), 7, 1.6, (t, P) => 0.5 + 0.5 * smoothstep(0, 1.3, P.y));
     const at3 = (t) => { const f = t * n, i = Math.min(n - 1, Math.floor(f)); return pts[i].clone().lerp(pts[i + 1], f - i); };
     // First branches.
     const nb = Math.round((13 + rand() * 6) / Math.sqrt(stems));
@@ -424,13 +424,13 @@ function makeBirch(rand) {
         bp.push(bp[j - 1].clone().addScaledVector(d, L / 4));
       }
       branchTubes.push({ pts: bp.slice(0, 4), r: 0.025 + 0.02 * L / 3 });
-      const nc = 1 + Math.ceil(L / 0.8);
+      const nc = 2 + Math.ceil(L / 0.65);
       for (let j = 0; j < nc; j++) {
         const tb = 0.32 + 0.68 * (j + 0.3 + rand() * 0.5) / nc;
         const f = tb * 4, i = Math.min(3, Math.floor(f));
         const Oc = bp[i].clone().lerp(bp[i + 1], f - i);
         const a = bp[i + 1].clone().sub(bp[i]).normalize().add(V((rand() - 0.5) * 0.5, -0.15 - rand() * 0.25, (rand() - 0.5) * 0.5)).normalize();
-        cardSpecs.push({ O: Oc, a, s: 1.5 + rand() * 0.6, roll: j % 2 ? TAU : 2.4 });
+        cardSpecs.push({ O: Oc, a, s: 1.3 + rand() * 0.6, roll: j % 2 ? TAU : 2.4 });
       }
     }
     // The leader: a few sprays round the top of each stem.
@@ -440,8 +440,8 @@ function makeBirch(rand) {
       cardSpecs.push({ O: top.clone().addScaledVector(a, -0.6), a, s: 1.2 + rand() * 0.4, roll: TAU });
     }
   }
-  for (const b of branchTubes) tube(trunk, b.pts, b.pts.map((_, k) => b.r * (1 - 0.7 * k / (b.pts.length - 1)) + 0.006), 3, 1.6, (t) => 0.62 - 0.18 * t);
-  return finishCards(trunk, cards, cardSpecs, rand, { cols: [0, 1, 2, 3], row: 0, H, kind: 'birch', fill: 6 });
+  for (const b of branchTubes) tube(trunk, b.pts, b.pts.map((_, k) => b.r * (1 - 0.7 * k / (b.pts.length - 1)) + 0.006), 4, 1.6, (t) => 0.62 - 0.18 * t);
+  return finishCards(trunk, cards, cardSpecs, rand, { cols: [0, 1, 2, 3], row: 0, H, kind: 'birch', fill: 9 });
 }
 
 function makeSpruce(rand) {
@@ -464,7 +464,7 @@ function makeSpruce(rand) {
       const O = lean.clone().multiplyScalar(y);
       specs.push({ O, a, s: L * 1.1, roll: 1.0, droop: 0.14 * (1 - f) });
       // A second spray turned up on its edge, so the tree has body seen from the side too.
-      if (L > 0.9) specs.push({ O, a: a.clone().add(V(0, -0.12, 0)).normalize(), s: L * 1.0, roll: 0, rollTo: (rand() < 0.5 ? -1 : 1) * (1.0 + rand() * 0.4), droop: 0.1 * (1 - f) });
+      if (L > 0.55) specs.push({ O, a: a.clone().add(V(0, -0.12, 0)).normalize(), s: L * 1.0, roll: 0, rollTo: (rand() < 0.5 ? -1 : 1) * (1.0 + rand() * 0.4), droop: 0.1 * (1 - f) });
     }
     y += 0.36 + rand() * 0.16;
   }
@@ -562,7 +562,7 @@ const SWAY = /* glsl */ `
 
 function nearVertex(cards) {
   return {
-    common: `#include <common>\n${COMMON_GLSL}\nuniform float uTreeH; varying float vUpN;\n${NOISE}`,
+    common: `#include <common>\n${COMMON_GLSL}\nuniform float uTreeH; varying float vUpN;\n${NOISE}\n${TABLE_NOISE}`,
     normal: `#include <beginnormal_vertex>\nobjectNormal.xz = rotY(objectNormal.xz, aI1.x); vUpN = objectNormal.y;`,
     begin: `
       vec3 base = aI0.xyz; float sc = aI0.w;
@@ -938,9 +938,7 @@ export class Trees {
     const imp = impostorMaterials(baked.col.texture, baked.nor.texture, this.uniforms, rows, Q.cellPx, nb);
     this.impMesh = new THREE.Mesh(ig, imp.mat);
     this.impMesh.customDepthMaterial = imp.depth;
-    // Far trees cast no shadow: past the detailed ones (about 50 m) a tree's shadow is a smudge in
-    // the grass, and drawing thousands of cut-out cards into the shadow map cost about 2 ms a frame.
-    this.impMesh.castShadow = false; this.impMesh.receiveShadow = true;
+    this.impMesh.castShadow = true; this.impMesh.receiveShadow = true;
     this.impMesh.frustumCulled = false; this.impMesh.userData.noAO = true;
     this.impMesh.matrixAutoUpdate = false; this.impMesh.matrixWorldAutoUpdate = false;
     scene.add(this.impMesh);

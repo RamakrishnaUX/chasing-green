@@ -29,6 +29,8 @@ const SanitizeShader = {
 const GradeShader = {
   uniforms: {
     tDiffuse: { value: null },
+    // Ambient occlusion, multiplied in by the fast path (Post.render): its strength (0 for none).
+    tAO: { value: null }, uAO: { value: 0 },
     uVignette: { value: 0.28 },
     uSat: { value: 1.06 },
     uContrast: { value: 1.05 },
@@ -59,10 +61,15 @@ const GradeShader = {
     float h(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
     // The fast path (Post.render) hands this pass the scene's own HDR picture: tone map and encode
     // it here, so a whole extra pass over the screen (OutputPass) is saved.
+    #ifdef OUTPUT_IN_GRADE
+    uniform sampler2D tAO; uniform float uAO;
+    #endif
     vec3 tex(vec2 uv){
       vec3 c = texture2D(tDiffuse, uv).rgb;
       #ifdef OUTPUT_IN_GRADE
         if (!(c.r == c.r) || !(c.g == c.g) || !(c.b == c.b)) c = vec3(0.0);
+        // The occlusion as its own blend pass applies it: in linear light, before tone mapping.
+        if (uAO > 0.0) c *= mix(vec3(1.0), texture2D(tAO, uv).rgb, uAO);
         c = min(c, vec3(64.0));
         #ifdef TONE_MAPPING
           c = toneMapping(c);
@@ -141,9 +148,12 @@ export class Post {
       // At half resolution: occlusion is soft shading that the denoise pass blurs anyway, and the
       // pass draws the whole scene again for its normals and depth, so a quarter of the pixels took
       // its cost from about a fifth of the frame to a few percent with no visible change.
-      this.ao = new GTAOPass(scene, camera, Math.ceil(size.x / 2), Math.ceil(size.y / 2));
+      // Half a CSS pixel, whatever the screen's density: on a Retina screen at 2x that is a quarter
+      // of the picture's pixels each way, the same occlusion detail as at 1x (it is soft and denoised).
+      const aoDiv = () => Math.max(2, 2 * renderer.getPixelRatio());
+      this.ao = new GTAOPass(scene, camera, Math.ceil(size.x / aoDiv()), Math.ceil(size.y / aoDiv()));
       const aoSize = this.ao.setSize.bind(this.ao);
-      this.ao.setSize = (w, h) => aoSize(Math.ceil(w / 2), Math.ceil(h / 2));
+      this.ao.setSize = (w, h) => aoSize(Math.ceil(w / aoDiv()), Math.ceil(h / aoDiv()));
       this.ao.output = GTAOPass.OUTPUT.Default;
       this.ao.blendIntensity = 0.75;
       this.ao.updateGtaoMaterial({ radius: 1.2, distanceExponent: 1, thickness: 1, scale: 1, samples: aoSamples, distanceFallOff: 1, screenSpaceRadius: false });
@@ -210,15 +220,25 @@ export class Post {
     // daytime glow on the sun and bright glints).
     this.bloom.enabled = dark > 0.2 || aurora > 0.05 || this.dayBloom > 0;
     this.sanitize.enabled = this.bloom.enabled;
-    // Most of the day nothing needs the chain of passes (no glow, occlusion, sun rays or depth of
-    // field): the scene is drawn once and the grade, tone mapping included, writes straight to the
-    // screen. As Slow Roads does: on Apple's graphics each extra full-screen pass costs a store and
-    // reload of the whole picture, about 1.5 ms apiece at 1512 x 945, and the chain had five.
+    // Most of the day nothing needs the chain of passes (no glow, sun rays or depth of field): the
+    // scene is drawn once and the grade, with the tone mapping and the ambient occlusion folded in,
+    // writes straight to the screen. As Slow Roads does: on Apple's graphics each extra full-screen
+    // pass costs a store and reload of the whole picture, and the chain had five. The picture is
+    // the same as the chain's, pixel for pixel.
     const shafts = this.shafts && this.shafts.enabled && this.shafts.strength >= 0.002;
-    if (!this.bloom.enabled && !this.ao?.enabled && !shafts && !this.bokeh.enabled) {
-      const r = this.renderer, tgt = this.msaa || this.composer.renderTarget1;
+    if (this.ao) this.ao.output = GTAOPass.OUTPUT.Default;
+    if (!this.bloom.enabled && !shafts && !this.bokeh.enabled) {
+      const r = this.renderer, tgt = this.msaa || this.composer.renderTarget1, G = this.grade.uniforms;
       r.setRenderTarget(tgt);
       r.render(this.scene, this.camera);
+      G.uAO.value = 0;
+      if (this.ao?.enabled) {
+        // The occlusion's own passes (normals, occlusion, denoise) without its blend pass.
+        this.ao.output = GTAOPass.OUTPUT.Off;
+        this.ao.render(r, null, null);
+        this.ao.output = GTAOPass.OUTPUT.Default;
+        G.tAO.value = this.ao.pdRenderTarget.texture; G.uAO.value = this.ao.blendIntensity;
+      }
       this.grade.uniforms.tDiffuse.value = tgt.texture;
       r.setRenderTarget(null);
       this.gradeFast.fsQuad.render(r);

@@ -279,9 +279,6 @@ const governor = new Governor({ touch: isTouch, apply: (level, why) => {
   mirrors.extra = L.mirrors;
   shadowEvery = L.shadowEvery;
   trees?.setLevel(level);
-  // Ambient occlusion draws the scene a second time and needs the full chain of passes: it runs
-  // only with plenty of room to spare (the governor's sharpest level).
-  if (post?.ao) post.ao.enabled = level === 0;
   track('graphics_governor', { level, why, fps: Math.round(governor.fps) });
 } });
 const auroraSteps = () => Q.auroraSteps;
@@ -387,7 +384,7 @@ async function buildWorld(progress) {
   if (Q.grass > 0) grass = new Grass(scene, { count: HD.on ? Math.max(Q.grass, 34000) : Q.grass, radius: HD.on ? Math.max(Q.grassRadius, 46) : Q.grassRadius, clear });
   await breather();
   // The realistic look always grounds things with ambient occlusion.
-  if (Q.post) post = new Post(renderer, scene, camera, { ao: !!Q.ao || HD.on, aoSamples: Q.ao ? 8 : 6, samples: Q.msaa ?? 4, shafts: HD.on });
+  if (Q.post) post = new Post(renderer, scene, camera, { ao: !!Q.ao || HD.on, aoSamples: Q.ao ? 12 : 6, samples: Q.msaa ?? 4, shafts: HD.on });
   // Realistic look: a little more contrast and a touch less saturation, like a photograph.
   // The cinematic grade: the tone curve already has the contrast (installLook), so this adds colour
   // where it is missing, warm highlights over cool shadows, and a soft glow on the brightest things.
@@ -553,7 +550,7 @@ async function buildWorld(progress) {
   if (post) {
     const was = post.bloom.enabled; post.bloom.enabled = true; if (post.ao) post.ao.enabled = true;
     post.composer.render();
-    post.bloom.enabled = was; if (post.ao) post.ao.enabled = governor.level === 0;
+    post.bloom.enabled = was;
     post.render(0, {});
   }
   stageTimes[current] = Math.round(performance.now() - tStage);
@@ -2074,8 +2071,7 @@ const _cullV = new THREE.Vector3();
 let roadPieces = null, lodOff = false; // lodOff: testing, chasingGreen.lodOff = true
 function cullFar() {
   if (!landmarks) return;
-  // As in Slow Roads, small things end where the haze has nearly swallowed them.
-  const e = camera.position, k = qualityName === 'low' ? 1 : qualityName === 'medium' ? 1.35 : 1.7;
+  const e = camera.position, k = qualityName === 'low' ? 1 : qualityName === 'medium' ? 1.8 : 2.6;
   // Road pieces far off are a thread a pixel wide: on Low they stop beyond 1.3 km.
   roadPieces ||= scene.children.filter((o) => o.isMesh && o.userData.roadEdge && o.geometry.boundingBox);
   const roadFar = qualityName === 'low' ? 1300 : Infinity;
@@ -2085,12 +2081,6 @@ function cullFar() {
     if (lm.cullR == null) { const b = new THREE.Box3().setFromObject(r); lm.cullR = b.isEmpty() ? 10 : b.getSize(_cullV).length() / 2; lm.cullC = b.isEmpty() ? r.position.clone() : b.getCenter(new THREE.Vector3()); }
     const show = Math.hypot(lm.cullC.x - e.x, lm.cullC.z - e.z) - lm.cullR < Math.max(450, lm.cullR * 12) * k;
     if (show !== r.visible) { r.visible = show; r.matrixWorldAutoUpdate = show; }
-  }
-  // Farms (each a dozen or so meshes, one draw apiece) likewise.
-  const farmFar = qualityName === 'low' ? 450 : qualityName === 'medium' ? 800 : 1000;
-  for (const f of props?.groups || []) {
-    const show = Math.hypot(f.position.x - e.x, f.position.z - e.z) < farmFar;
-    if (show !== f.visible) { f.visible = show; f.matrixWorldAutoUpdate = show; }
   }
 }
 
@@ -3286,9 +3276,7 @@ function frame(now) {
   if (mode === 'fly' || mode === 'sky') sky.fog.density /= 1 + Math.max(0, camera.position.y - Math.max(0, heightAt(camera.position.x, camera.position.z)) - 60) / 220;
   // Ambient occlusion shades corners a few metres across: from a few hundred metres up it shows
   // nothing, and it would draw the whole island a second time, so it rests while you fly high.
-  // It also needs the full chain of passes (post.js), so it runs only when the governor has plenty
-  // of room to spare (its sharpest level).
-  if (post?.ao) post.ao.enabled = governor.level === 0 && !((mode === 'fly' && heli.agl > 150 && driveView !== 'cockpit') || (mode === 'sky' && diver.agl > 150));
+  if (post?.ao) post.ao.enabled = !((mode === 'fly' && heli.agl > 150 && driveView !== 'cockpit') || (mode === 'sky' && diver.agl > 150));
   const wash = rotorWash(dt);
   trees?.update(camera, w);
   scatter?.update?.(camera);
@@ -3404,7 +3392,7 @@ function frame(now) {
   if (!holdUnderMenu) mirrors.update(renderer, scene, camera, jeep.body, started && mode === 'chase' && driveView === 'cockpit' && !!jeep.model.mirrors);
   // Behind the cover the island is hidden: draw a few frames to warm it up, then none until Start.
   if (!holdUnderMenu && (started || coverWarmFrames-- > 0)) {
-    updateTerrainLod(camera.position, ...(lodOff ? [1e9, 1e9] : qualityName === 'low' ? [240, 800] : qualityName === 'medium' ? [280, 900] : [320, 1000]));
+    updateTerrainLod(camera.position, ...(lodOff ? [1e9, 1e9] : qualityName === 'low' ? [240, 800] : qualityName === 'medium' ? [360, 1100] : [500, 1500]));
     if (frameN % 15 === 0) cullFar();
     // Hidden things (the parked helicopter, the walker while you drive, far landmarks) skip having
     // their matrices worked out each frame; anything that never moves (userData.static) never does.

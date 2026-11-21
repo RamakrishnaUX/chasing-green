@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { waterlineAt } from './surf.js';
 import { BOUNDS, grid, roadField, coastAt, waterLevelAt, glacierMask, lavaMask, sandMask, heightAt } from './terrain.js';
-import { NOISE, surfaceUniforms } from './materials.js';
+import { NOISE, TABLE_NOISE, surfaceUniforms } from './materials.js';
 import { mulberry32 } from './noise.js';
 import { HD } from './hd.js';
 
@@ -142,6 +142,9 @@ export class Grass {
           uniform float uCloudCover; uniform vec2 uCloudOffset; uniform vec3 uSunDir; uniform float uSunUp;
           varying vec3 vGrassCol;
           ${NOISE}
+          // The same noise read from its table: every vertex of a clump works out the clump's colour
+          // and cloud shade, and one lookup is far cheaper than hashing four corners each octave.
+          ${TABLE_NOISE}
           float hFetch(ivec2 c){ c = clamp(c, ivec2(0), ivec2(uGridN) - 1); return texelFetch(uHeight, c, 0).r; }
           // Same triangle split as the terrain mesh, so blades stand exactly on the ground.
           float groundH(vec2 p){
@@ -253,8 +256,6 @@ export class Grass {
       const tz = Math.min(NT - 1, Math.max(0, Math.floor((off[i * 2 + 1] + radius) / ts)));
       buckets[tz * NT + tx].push(i);
     }
-    const idxAll = geo.index.count, idxHalf = Math.floor(idxAll / 18) * 9; // blades are 9 indices each
-    this.lod = { all: idxAll, half: idxHalf };
     this.tiles = buckets.map((list, b) => {
       const g = new THREE.InstancedBufferGeometry();
       g.index = geo.index;
@@ -289,17 +290,15 @@ export class Grass {
     this._fr.setFromProjectionMatrix(this._m.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
     const c = camera.position, R = this.radius, gy = heightAt(c.x, c.z), box = this._box;
     for (const T of this.tiles) {
-      let seen = false, near = Infinity;
+      let seen = false;
       for (const [x0, x1] of Grass.spans(c.x, T.x0, T.x0 + T.ts, R)) {
         for (const [z0, z1] of Grass.spans(c.z, T.z0, T.z0 + T.ts, R)) {
           box.min.set(x0 - 1, gy - 45, z0 - 1); box.max.set(x1 + 1, gy + 45, z1 + 1);
-          if (this._fr.intersectsBox(box)) seen = true;
-          near = Math.min(near, Math.hypot(Math.max(0, x0 - c.x, c.x - x1), Math.max(0, z0 - c.z, c.z - z1)));
+          if (this._fr.intersectsBox(box)) { seen = true; break; }
         }
+        if (seen) break;
       }
       T.mesh.visible = seen;
-      // Out past the middle distance a blade is a pixel or two: half of them do.
-      T.mesh.geometry.drawRange.count = near > R * 0.5 ? this.lod.half : this.lod.all;
     }
   }
 
