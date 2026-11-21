@@ -13,6 +13,7 @@ import { Post } from './world/post.js';
 import { installLook } from './world/look.js';
 import { IceBits } from './world/ice.js';
 import { Props } from './world/props.js';
+import { Trees } from './world/trees.js';
 import { Towns } from './world/towns.js';
 import { Obstacles } from './world/obstacles.js';
 import { Puddles, Particles, SnowFall, Windscreen, SkidMarks, WetTracks, SnowTracks, headlightUniforms } from './world/effects.js';
@@ -177,7 +178,7 @@ audio.muted = !!settings.muted;
 const volumes = settings.volumes || (settings.volumes = { master: 1, music: settings.music === 'off' ? 0 : 1, car: 1, ambience: 1 });
 audio.setLevels(volumes);
 
-let world = null, sky, aurora, landmarks, jeep, walker, heli, diver, scatter, grass, props, post = null, riding = null;
+let world = null, sky, aurora, landmarks, jeep, walker, heli, diver, scatter, grass, props, trees = null, post = null, riding = null;
 let crashFx = null, damage = null, crashCool = 0, warpT = 0, lastWarpAt = -1e9;
 const camKick = new THREE.Vector3(), camKickV = new THREE.Vector3(), kickApplied = new THREE.Vector3();
 let rotShake = 0, shakePhase = 0, crashCam = null;
@@ -277,6 +278,7 @@ const governor = new Governor({ touch: isTouch, apply: (level, why) => {
   if (skyRefl) { skyRefl.faces = L.sky; skyRefl.every = L.skyEvery; }
   mirrors.extra = L.mirrors;
   shadowEvery = L.shadowEvery;
+  trees?.setLevel(level);
   track('graphics_governor', { level, why, fps: Math.round(governor.fps) });
 } });
 const auroraSteps = () => Q.auroraSteps;
@@ -328,7 +330,9 @@ async function buildWorld(progress) {
   // The night sky (aurora, moon, stars) as the water mirrors it.
   skyRefl = new SkyReflection(renderer, qualityName === 'low' ? 64 : 128);
   skyRefl.faces = LEVELS[governor.level].sky; skyRefl.every = LEVELS[governor.level].skyEvery;
-  if (HD.on) sky.light = { env: 0.62, hemi: 0.3, sun: 1.95 };
+  // A strong sun against a softer fill from the sky, so everything has a lit and a shaded side and
+  // the woods throw real shade across the road (as in Slow Roads, the reference for this look).
+  if (HD.on) sky.light = { env: 0.5, hemi: 0.22, sun: 2.4, haze: 0.55 };
   aurora = new Aurora(scene, Q.auroraSteps);
   await stage('Placing landmarks', 0.67, 220);
   // Pads under built landmarks, by kind (radius in world units). Natural sites keep their shape.
@@ -387,7 +391,7 @@ async function buildWorld(progress) {
   if (post && HD.on) {
     const G = post.grade.uniforms;
     G.uContrast.value = 1.0; G.uSat.value = 1.06; G.uVibrance.value = 0.16; G.uSplit.value = 1; G.uCurve.value = 0.18; G.uBlack.value = 0.1; G.uWhite.value = 0.93;
-    G.uLift.value.set(0.0, 0.004, 0.01); G.uGain.value.set(1.0, 0.99, 0.965); G.uVignette.value = 0.34; G.uGrain.value = 0.014;
+    G.uLift.value.set(0.0, 0.004, 0.01); G.uGain.value.set(1.0, 0.99, 0.965); G.uVignette.value = 0.26; G.uGrain.value = 0.014;
     post.dayBloom = 0;
   }
   // AgX rolls highlights off like a camera does, instead of clipping bright sky and snow.
@@ -400,6 +404,11 @@ async function buildWorld(progress) {
   stations = new Stations(scene, stationSites, { obstacles, low: qualityName === 'low' });
   await breather();
   towns = new Towns(scene, { landmarks: landmarks.list, obstacles, scale: qualityName === 'low' ? 0.6 : 1, clear: stationSites.map((st) => ({ x: st.pad.x, z: st.pad.z, r: 34 })).concat(landmarks.list.filter((l) => l.kind === 'stadium').map((l) => ({ x: l.x, z: l.z, r: 84 }))) });
+  await stage('Planting the woods', 0.912, 900);
+  // Birch woods, spruce plantations, willow scrub and the farms' shelterbelts (trees.js).
+  trees = new Trees(scene, renderer, { quality: qualityName, obstacles, clear, farms: props.treeSpots, homes: props.sites.map((s) => ({ x: s.x, z: s.z, r: 26 })), landmarks: landmarks.list, avoid: stationSites.map((st) => ({ x: st.pad.x, z: st.pad.z, r: 40 })).concat([{ x: START.x, z: START.z, r: 30 }]) });
+  trees.setMonth(clock.month);
+  trees.setLevel(governor.level);
   snow = new SnowFall(scene, qualityName === 'low' ? 900 : 2200);
   rain = new RainFall(scene, { low: qualityName === 'low' });
   skids = new SkidMarks(scene);
@@ -1675,6 +1684,7 @@ function setMonth(m, announce = false) {
   document.querySelectorAll('.month-select').forEach((sel) => (sel.value = String(m)));
   renderMonthCards();
   setSeason(clock.season, announce);
+  trees?.setMonth(m);
   // Snow line by month: low in midwinter, high glaciers only in summer.
   surfaceUniforms.uSnowLine.value = snowLineFor(m);
 }
@@ -3261,6 +3271,7 @@ function frame(now) {
   // nothing, and it would draw the whole island a second time, so it rests while you fly high.
   if (post?.ao) post.ao.enabled = !((mode === 'fly' && heli.agl > 150 && driveView !== 'cockpit') || (mode === 'sky' && diver.agl > 150));
   const wash = rotorWash(dt);
+  trees?.update(camera, w);
   grass?.update(camera, w, mode === 'walk' || mode === 'sky' ? null : ride === 'heli' ? (heli.landed ? { x: heli.pos.x, z: heli.pos.z, r: 3.2 } : null) : { x: jeep.pos.x, z: jeep.pos.z, r: jeep.model.bike ? 1.1 : 2.3 }, wash);
   waterFx?.update(paused ? 0 : dt, camera, renderer.domElement.height, 1 - dark * 0.85, wash?.onWater ? wash : null);
   scatter?.hdRocks?.update(dt, camera.position);
@@ -3477,6 +3488,7 @@ const QUIPS = {
   'Scattering rocks': ['Tumbling the boulders', 'Planting the lupins'],
   'Placing landmarks': ['Filling the waterfalls', 'Waking the geysers', 'Raising the churches'],
   'Building towns': ['Painting the red roofs', 'Brewing the coffee'],
+  'Planting the woods': ['Planting the birches', 'Painting the bark', 'Lining up the spruces'],
   'Lighting the sky': ['Hanging the stars', 'Charging the aurora'],
   'Waking the wildlife': ['Herding the sheep', 'Teaching the puffins to fly', 'Saddling the horses'],
   'Mixing the colours': ['Tuning the northern lights', 'Polishing the glaciers'],
@@ -3733,6 +3745,7 @@ window.chasingGreen = {
   set rain(v) { forceRain = v; }, set snowFall(v) { forceSnow = v; }, get roadSnow() { return roadSnow; }, get snowTracks() { return snowTracks; }, get iceBits() { return iceBits; }, iceAt: (x, z) => iceAt(x, z), setMonth: (m) => setMonth(m), get dirt() { return carDirt; }, setDirt(v, c) { carDirt.dirt = v; if (c) carDirt.color = c; grime.uDirt.value = v; setDirtColor(carDirt.color); }, get rain() { return rain?.intensity || 0; }, get wetness() { return wetness; }, set wetness(v) { wetness = v; }, get carRain() { return carRain; }, get rainFx() { return rain; }, get carWet() { return carWet; }, set carWet(v) { carWet = v; },
   poolAt: (x, z) => poolAt(x, z), get pools() { return poolSurfaces; }, get skids() { return skids; }, get wetTracks() { return wetTracks; }, get waterFx() { return waterFx; },
   get bridges() { return bridges; },
+  get trees() { return trees; },
   get jumps() { return JUMPS; },
   // Debug switches for tracking down rendering problems.
   // Render one frame now through the same pipeline as the game (for captures from the console).

@@ -38,6 +38,22 @@ export class Obstacles {
     return o;
   }
 
+  // Whether a box (a building, a wall, a railing) stands within pad of (x, z): trees.js keeps
+  // trees out of houses and off bridges with it.
+  boxNear(x, z, pad = 0) {
+    for (let cx = Math.floor((x - pad) / CELL); cx <= Math.floor((x + pad) / CELL); cx++)
+      for (let cz = Math.floor((z - pad) / CELL); cz <= Math.floor((z + pad) / CELL); cz++) {
+        const list = this.cells.get(key(cx, cz));
+        if (!list) continue;
+        for (const o of list) {
+          if (o.circle) continue;
+          const cs = Math.cos(o.rot), sn = Math.sin(o.rot), dx = x - o.x, dz = z - o.z;
+          if (Math.abs(dx * cs - dz * sn) < o.hx + pad && Math.abs(dx * sn + dz * cs) < o.hz + pad) return true;
+        }
+      }
+    return false;
+  }
+
   // The highest climbable rock surface at (x, z), or -Infinity where there is none.
   topAt(x, z) {
     const list = this.cells.get(key(Math.floor(x / CELL), Math.floor(z / CELL)));

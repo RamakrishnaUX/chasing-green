@@ -544,7 +544,8 @@ export class Sky {
     // Realistic look: distance turns land blue, as air really does (aerial perspective), rather
     // than the pale grey of a painted backdrop.
     if (HD.on) { const day = 1 - wNight; this.fog.color.multiply(this.c2.setRGB(1 - 0.24 * day, 1 - 0.13 * day, 1)); }
-    this.fog.density = 0.0004 + wNight * 0.0005 + cloud * 0.00045;
+    // Iceland's air is clear: on the realistic look the daytime haze is thinner (light.haze).
+    this.fog.density = (0.0004 + cloud * 0.00045) * (1 - (1 - (this.light.haze ?? 1)) * (1 - wNight) * (1 - cloud)) + wNight * 0.0005;
     return { sunDir, dark };
   }
 }

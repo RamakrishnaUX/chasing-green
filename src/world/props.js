@@ -3,7 +3,7 @@ import { roadPaths, heightAt, coastAt, waterLevelAt, lavaMask, glacierMask, sand
 import { mulberry32 } from './noise.js';
 import { bakeStatic } from './bake.js';
 
-// Farms, fences and birch groves: the lived-in detail along Icelandic country roads.
+// Farms, fences and shelterbelts (the trees themselves are drawn by trees.js): the lived-in detail along Icelandic country roads.
 
 const wall = new THREE.MeshStandardMaterial({ color: 0xebe7dc, roughness: 0.85 });
 const wallTimber = new THREE.MeshStandardMaterial({ color: 0x7b3b2a, roughness: 0.8 });
@@ -11,7 +11,6 @@ const roofRed = new THREE.MeshStandardMaterial({ color: 0xa3281e, roughness: 0.5
 const roofGrey = new THREE.MeshStandardMaterial({ color: 0x55595d, roughness: 0.5, metalness: 0.4 });
 const windowMat = new THREE.MeshStandardMaterial({ color: 0x1a2228, roughness: 0.1, metalness: 0.6, emissive: 0xffc070, emissiveIntensity: 0 });
 const fenceMat = new THREE.MeshStandardMaterial({ color: 0x9b8f7c, roughness: 0.95 });
-const barkMat = new THREE.MeshStandardMaterial({ color: 0xd8d2c4, roughness: 0.9 });
 export const propMaterials = { windowMat };
 
 function gableRoof(w, d, h, overhang = 0.35) {
@@ -71,30 +70,10 @@ function house({ w, d, h, roof, wallM = wall, rand }) {
   return g;
 }
 
-function birch(rand) {
-  const g = new THREE.Group();
-  const h = 3.5 + rand() * 3;
-  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.14, h, 5), barkMat);
-  trunk.position.y = h / 2;
-  trunk.userData.solidCircle = 0.4;
-  trunk.userData.kind = 'tree';
-  g.add(trunk);
-  // Autumn crown: gold, amber or still green.
-  const hue = [0xa8822c, 0xbf9a3c, 0x9a6526, 0x66722f][Math.floor(rand() * 4)];
-  const crownMat = new THREE.MeshStandardMaterial({ color: hue, roughness: 0.9 });
-  for (let i = 0; i < 4; i++) {
-    const c = new THREE.Mesh(new THREE.IcosahedronGeometry(0.55 + rand() * 0.45, 1), crownMat);
-    c.position.set((rand() - 0.5) * 1.1, h * (0.55 + i * 0.16), (rand() - 0.5) * 1.1);
-    c.scale.set(1, 1.6, 1);
-    g.add(c);
-  }
-  g.traverse((m) => { if (m.isMesh) m.castShadow = true; });
-  return g;
-}
-
 export class Props {
   constructor(scene, { farms = 34, landmarks = [], keepClear = [], obstacles = null } = {}) {
     this.rand = mulberry32(2024);
+    this.treeSpots = [];
     const r = this.rand;
     const sites = [];
     const avoid = landmarks.map((l) => ({ x: l.x, z: l.z }));
@@ -137,14 +116,19 @@ export class Props {
         barn.position.set(10 + r() * 4, 0, -4 + r() * 8);
         g.add(barn);
       }
-      // A shelterbelt of birch behind the house.
+      // A shelterbelt behind the house: a row of spruce or birch, drawn by trees.js with the
+      // island's woods (this.treeSpots). The draws from r are kept as they were, so every farm's
+      // layout after this one is unchanged.
       const trees = 3 + Math.floor(r() * 6);
-      for (let t = 0; t < trees; t++) {
-        const tree = birch(r);
-        // Local +z faces the road, so the grove goes behind the house (negative z).
-        const tx = -10 + t * 3.2 + r() * 1.5, tz = -9 - r() * 9;
-        tree.position.set(tx, heightAt(s.x + tx, s.z + tz) - s.h + 0.3, tz);
-        g.add(tree);
+      const tr = mulberry32(Math.floor(s.x * 31 + s.z * 17));
+      const kind = tr() < 0.6 ? 'spruce' : 'birch';
+      const cf = Math.cos(s.face), sf = Math.sin(s.face);
+      const row = trees + 3 + Math.floor(tr() * 5);
+      for (let t = 0; t < row; t++) {
+        if (t < trees) for (let k = 0; k < 16; k++) r();
+        const tx = -12 + t * (kind === 'spruce' ? 3.4 : 3.0) + tr() * 1.2, tz = -10 - tr() * 3 - (t % 2) * 1.6;
+        // Local +z faces the road, so the row goes behind the house (negative z).
+        this.treeSpots.push({ x: s.x + tx * cf + tz * sf, z: s.z - tx * sf + tz * cf, kind, scale: kind === 'spruce' ? 0.65 + tr() * 0.35 : 0.6 + tr() * 0.4 });
       }
       g.traverse((m) => { if (m.isMesh && m.parent !== g) { /* children follow ground approximately */ } });
       scene.add(g);
