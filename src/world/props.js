@@ -74,6 +74,7 @@ export class Props {
   constructor(scene, { farms = 34, landmarks = [], keepClear = [], obstacles = null } = {}) {
     this.rand = mulberry32(2024);
     this.treeSpots = [];
+    this.groups = [];
     const r = this.rand;
     const sites = [];
     const avoid = landmarks.map((l) => ({ x: l.x, z: l.z }));
@@ -132,6 +133,7 @@ export class Props {
       }
       g.traverse((m) => { if (m.isMesh && m.parent !== g) { /* children follow ground approximately */ } });
       scene.add(g);
+      this.groups.push(g); // culled by distance (main.js cullFar)
       obstacles?.addFromObject(g, 'wall');
       bakeStatic(g);
       // Fence along the road frontage of the farm.

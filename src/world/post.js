@@ -7,6 +7,7 @@ import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { BokehPass } from 'three/examples/jsm/postprocessing/BokehPass.js';
 import { SunShaftsPass } from './look.js';
+import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
 
 // Removes bad pixels (NaN or infinity from very bright sun glints) before bloom can smear them
 // into black blocks, and caps extreme highlights so they bloom softly instead of overflowing.
@@ -56,15 +57,29 @@ const GradeShader = {
     uniform float uVibrance; uniform float uSplit; uniform vec3 uShadowTint; uniform vec3 uHighTint; uniform float uCurve; uniform float uBlack; uniform float uWhite;
     varying vec2 vUv;
     float h(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+    // The fast path (Post.render) hands this pass the scene's own HDR picture: tone map and encode
+    // it here, so a whole extra pass over the screen (OutputPass) is saved.
+    vec3 tex(vec2 uv){
+      vec3 c = texture2D(tDiffuse, uv).rgb;
+      #ifdef OUTPUT_IN_GRADE
+        if (!(c.r == c.r) || !(c.g == c.g) || !(c.b == c.b)) c = vec3(0.0);
+        c = min(c, vec3(64.0));
+        #ifdef TONE_MAPPING
+          c = toneMapping(c);
+        #endif
+        c = linearToOutputTexel(vec4(c, 1.0)).rgb;
+      #endif
+      return c;
+    }
     void main(){
-      vec3 c = texture2D(tDiffuse, vUv).rgb;
+      vec3 c = tex(vUv);
       if (!(c.r == c.r) || !(c.g == c.g) || !(c.b == c.b)) c = vec3(0.5);
       // Contrast-adaptive sharpening (after AMD's CAS): crisper detail where contrast is low, left
       // alone at hard edges so nothing rings. It restores the bite a picture loses when it is drawn
       // below the screen's own resolution and stretched to fit.
       if (uSharp > 0.0) {
-        vec3 n = texture2D(tDiffuse, vUv + vec2(0.0, uTexel.y)).rgb, s = texture2D(tDiffuse, vUv - vec2(0.0, uTexel.y)).rgb;
-        vec3 e = texture2D(tDiffuse, vUv + vec2(uTexel.x, 0.0)).rgb, w = texture2D(tDiffuse, vUv - vec2(uTexel.x, 0.0)).rgb;
+        vec3 n = tex(vUv + vec2(0.0, uTexel.y)), s = tex(vUv - vec2(0.0, uTexel.y));
+        vec3 e = tex(vUv + vec2(uTexel.x, 0.0)), w = tex(vUv - vec2(uTexel.x, 0.0));
         vec3 mn = min(min(min(n, s), min(e, w)), c), mx = max(max(max(n, s), max(e, w)), c);
         vec3 amp = sqrt(clamp(min(mn, 2.0 - mx) / max(mx, vec3(1e-4)), 0.0, 1.0));
         vec3 wt = amp * (-1.0 / mix(8.0, 5.0, uSharp));
@@ -95,10 +110,32 @@ const GradeShader = {
 export class Post {
   constructor(renderer, scene, camera, { samples = 4, ao = false, aoSamples = 12, shafts = false } = {}) {
     const size = renderer.getDrawingBufferSize(new THREE.Vector2());
-    const rt = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, samples });
+    // Only the scene itself is drawn multisampled (for antialiasing); it is resolved once into a
+    // plain buffer and every pass after works on plain buffers. The composer used to give all of
+    // its buffers the samples, so each full-screen pass (sanitise, occlusion, output, grade) wrote
+    // into and resolved a 4x HDR buffer: on an M1 Pro about 13 ms a frame, five times the scene.
+    const rt = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType });
     this.composer = new EffectComposer(renderer, rt);
-    this.composer.addPass(new RenderPass(scene, camera));
-    this.composer.addPass(new ShaderPass(SanitizeShader));
+    const scenePass = new RenderPass(scene, camera);
+    if (samples > 0) {
+      this.msaa = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, samples });
+      const resolve = new FullScreenQuad(new THREE.ShaderMaterial({
+        uniforms: { t: { value: this.msaa.texture } },
+        vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+        fragmentShader: 'uniform sampler2D t; varying vec2 vUv; void main(){ gl_FragColor = texture2D(t, vUv); }',
+        depthTest: false, depthWrite: false, blending: THREE.NoBlending,
+      }));
+      const draw = scenePass.render.bind(scenePass), msaa = this.msaa;
+      scenePass.render = (r, writeBuffer, readBuffer, dt, mask) => {
+        draw(r, writeBuffer, msaa, dt, mask);
+        r.setRenderTarget(readBuffer);
+        resolve.render(r);
+      };
+    }
+    this.composer.addPass(scenePass);
+    // NaNs only matter to the bloom's blur, which runs from dusk: this pass runs with it (render).
+    this.sanitize = new ShaderPass(SanitizeShader);
+    this.composer.addPass(this.sanitize);
     if (ao) {
       // Ground-truth ambient occlusion: shade in corners, under cars, between rocks.
       // At half resolution: occlusion is soft shading that the denoise pass blurs anyway, and the
@@ -142,8 +179,13 @@ export class Post {
     this.composer.addPass(new OutputPass());
     this.grade = new ShaderPass(GradeShader);
     this.composer.addPass(this.grade);
+    // The same grade, tone mapping and encoding itself, for the fast path. It shares the grade's
+    // uniforms, so every setting reaches both.
+    this.gradeFast = new ShaderPass({ ...GradeShader, defines: { OUTPUT_IN_GRADE: '' } });
+    this.gradeFast.uniforms = this.gradeFast.material.uniforms = this.grade.uniforms;
     this.renderer = renderer;
     this.camera = camera;
+    this.scene = scene;
     // Daytime glow on the brightest things (sun, glints, snow in sun): realistic look only.
     this.dayBloom = 0;
   }
@@ -151,6 +193,7 @@ export class Post {
     const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
     this.composer.setPixelRatio(1);
     this.composer.setSize(size.x, size.y);
+    this.msaa?.setSize(size.x, size.y);
   }
   render(t, { aurora = 0, dark = 0 } = {}) {
     this.grade.uniforms.uTime.value = t;
@@ -166,6 +209,21 @@ export class Post {
     // until dusk, when the lights and the aurora need the glow (the realistic look keeps a soft
     // daytime glow on the sun and bright glints).
     this.bloom.enabled = dark > 0.2 || aurora > 0.05 || this.dayBloom > 0;
+    this.sanitize.enabled = this.bloom.enabled;
+    // Most of the day nothing needs the chain of passes (no glow, occlusion, sun rays or depth of
+    // field): the scene is drawn once and the grade, tone mapping included, writes straight to the
+    // screen. As Slow Roads does: on Apple's graphics each extra full-screen pass costs a store and
+    // reload of the whole picture, about 1.5 ms apiece at 1512 x 945, and the chain had five.
+    const shafts = this.shafts && this.shafts.enabled && this.shafts.strength >= 0.002;
+    if (!this.bloom.enabled && !this.ao?.enabled && !shafts && !this.bokeh.enabled) {
+      const r = this.renderer, tgt = this.msaa || this.composer.renderTarget1;
+      r.setRenderTarget(tgt);
+      r.render(this.scene, this.camera);
+      this.grade.uniforms.tDiffuse.value = tgt.texture;
+      r.setRenderTarget(null);
+      this.gradeFast.fsQuad.render(r);
+      return;
+    }
     this.composer.render();
   }
 }

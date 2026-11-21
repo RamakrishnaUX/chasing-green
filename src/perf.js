@@ -51,7 +51,23 @@ export class Governor {
   gap({ menu, photo, still }) {
     if (menu) return 1000 / 20;
     if (this.touch || photo || still || this.lowBattery || !document.hasFocus()) return 1000 / 30;
+    // A 120 Hz screen (ProMotion and the like): a steady 60. Run uncapped, a frame of 10 to 20 ms
+    // shows for one refresh or two in turn (8 ms, then 17, then 8...), which reads as judder however
+    // high the average; every frame on the same 16.7 ms beat is smooth, and the governor keeps it.
+    if (this.refreshMs && this.refreshMs < 12) return 1000 / 60;
     return 0;
+  }
+
+  // Every animation tick (drawn or skipped): learns the screen's refresh interval.
+  tick(now) {
+    if (this._lt != null) {
+      const d = now - this._lt;
+      if (d > 3 && d < 50) {
+        (this._ticks ||= []).push(d);
+        if (this._ticks.length >= 90) { this._ticks.sort((a, b) => a - b); this.refreshMs = this._ticks[this._ticks.length >> 2]; this._ticks.length = 0; }
+      }
+    }
+    this._lt = now;
   }
 
   set(level, why) {

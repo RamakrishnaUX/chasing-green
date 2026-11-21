@@ -25,9 +25,9 @@ const STRIDE = 8; // floats per tree: x, y, z, scale | yaw, impostor row, hue, r
 
 // Quality: how far the detailed trees and impostors reach, how many variants, impostor detail.
 const QUALITY = {
-  low: { birch: 2, spruce: 1, shrub: 1, near: 34, band: 8, far: 1100, shrubFar: 70, cellPx: 112, density: 0.55 },
-  medium: { birch: 3, spruce: 2, shrub: 2, near: 58, band: 12, far: 1800, shrubFar: 120, cellPx: 160, density: 0.85 },
-  high: { birch: 4, spruce: 3, shrub: 2, near: 90, band: 14, far: 2600, shrubFar: 170, cellPx: 192, density: 1 },
+  low: { birch: 2, spruce: 1, shrub: 1, near: 30, band: 8, far: 1100, shrubFar: 70, cellPx: 112, density: 0.55 },
+  medium: { birch: 3, spruce: 2, shrub: 2, near: 44, band: 10, far: 1800, shrubFar: 120, cellPx: 160, density: 0.85 },
+  high: { birch: 4, spruce: 3, shrub: 2, near: 52, band: 12, far: 2600, shrubFar: 170, cellPx: 192, density: 1 },
 };
 
 // Real woods, by latitude and longitude. r is in world units (metres at the island's scale);
@@ -355,15 +355,17 @@ function card(G, O, a, n, s, col, row, crownN, ao, flip, droop = 0) {
   const b = V().crossVectors(n, a).normalize();
   const idx = [];
   const P = V(), N = V(), cn = V();
-  for (const u of [0, 0.5, 1]) for (const v of [0, 1]) {
+  // A drooping spray bends at its middle (three columns); a flat one is two triangles.
+  const us = droop > 0 ? [0, 0.5, 1] : [0, 1];
+  for (const u of us) for (const v of [0, 1]) {
     P.copy(O).addScaledVector(a, (u - 0.04) * s).addScaledVector(b, (v - 0.5) * s);
     P.y -= droop * u * u * s;
     crownN(P, cn);
     N.copy(n).multiplyScalar(Math.sign(n.dot(cn)) || 1).lerp(cn, 0.72).normalize();
     idx.push(G.vert(P, N, (col + u) / 8, (row + (flip ? 1 - v : v)) / 2, ao(P)));
   }
-  // 0:(u0,v0) 1:(u0,v1) 2:(u.5,v0) 3:(u.5,v1) 4:(u1,v0) 5:(u1,v1)
-  G.i.push(idx[0], idx[2], idx[1], idx[1], idx[2], idx[3], idx[2], idx[4], idx[3], idx[3], idx[4], idx[5]);
+  // Columns of (v0, v1) pairs along u.
+  for (let k = 0; k < us.length - 1; k++) { const a0 = idx[k * 2], a1 = idx[k * 2 + 1], b0 = idx[k * 2 + 2], b1 = idx[k * 2 + 3]; G.i.push(a0, b0, a1, a1, b0, b1); }
 }
 
 // Ellipsoid helpers for the crown.
@@ -403,7 +405,7 @@ function makeBirch(rand) {
       pts.push(pts[k - 1].clone().addScaledVector(dir, Hs / n));
     }
     const r0 = stems > 1 ? 0.09 + rand() * 0.04 : 0.13 + rand() * 0.05;
-    tube(trunk, pts, pts.map((_, k) => r0 * (1 - 0.85 * (k / n)) + 0.012), 7, 1.6, (t, P) => 0.5 + 0.5 * smoothstep(0, 1.3, P.y));
+    tube(trunk, pts, pts.map((_, k) => r0 * (1 - 0.85 * (k / n)) + 0.012), 6, 1.6, (t, P) => 0.5 + 0.5 * smoothstep(0, 1.3, P.y));
     const at3 = (t) => { const f = t * n, i = Math.min(n - 1, Math.floor(f)); return pts[i].clone().lerp(pts[i + 1], f - i); };
     // First branches.
     const nb = Math.round((13 + rand() * 6) / Math.sqrt(stems));
@@ -422,13 +424,13 @@ function makeBirch(rand) {
         bp.push(bp[j - 1].clone().addScaledVector(d, L / 4));
       }
       branchTubes.push({ pts: bp.slice(0, 4), r: 0.025 + 0.02 * L / 3 });
-      const nc = 2 + Math.ceil(L / 0.65);
+      const nc = 1 + Math.ceil(L / 0.8);
       for (let j = 0; j < nc; j++) {
         const tb = 0.32 + 0.68 * (j + 0.3 + rand() * 0.5) / nc;
         const f = tb * 4, i = Math.min(3, Math.floor(f));
         const Oc = bp[i].clone().lerp(bp[i + 1], f - i);
         const a = bp[i + 1].clone().sub(bp[i]).normalize().add(V((rand() - 0.5) * 0.5, -0.15 - rand() * 0.25, (rand() - 0.5) * 0.5)).normalize();
-        cardSpecs.push({ O: Oc, a, s: 1.3 + rand() * 0.6, roll: j % 2 ? TAU : 2.4 });
+        cardSpecs.push({ O: Oc, a, s: 1.5 + rand() * 0.6, roll: j % 2 ? TAU : 2.4 });
       }
     }
     // The leader: a few sprays round the top of each stem.
@@ -438,8 +440,8 @@ function makeBirch(rand) {
       cardSpecs.push({ O: top.clone().addScaledVector(a, -0.6), a, s: 1.2 + rand() * 0.4, roll: TAU });
     }
   }
-  for (const b of branchTubes) tube(trunk, b.pts, b.pts.map((_, k) => b.r * (1 - 0.7 * k / (b.pts.length - 1)) + 0.006), 4, 1.6, (t) => 0.62 - 0.18 * t);
-  return finishCards(trunk, cards, cardSpecs, rand, { cols: [0, 1, 2, 3], row: 0, H, kind: 'birch', fill: 9 });
+  for (const b of branchTubes) tube(trunk, b.pts, b.pts.map((_, k) => b.r * (1 - 0.7 * k / (b.pts.length - 1)) + 0.006), 3, 1.6, (t) => 0.62 - 0.18 * t);
+  return finishCards(trunk, cards, cardSpecs, rand, { cols: [0, 1, 2, 3], row: 0, H, kind: 'birch', fill: 6 });
 }
 
 function makeSpruce(rand) {
@@ -462,7 +464,7 @@ function makeSpruce(rand) {
       const O = lean.clone().multiplyScalar(y);
       specs.push({ O, a, s: L * 1.1, roll: 1.0, droop: 0.14 * (1 - f) });
       // A second spray turned up on its edge, so the tree has body seen from the side too.
-      if (L > 0.55) specs.push({ O, a: a.clone().add(V(0, -0.12, 0)).normalize(), s: L * 1.0, roll: 0, rollTo: (rand() < 0.5 ? -1 : 1) * (1.0 + rand() * 0.4), droop: 0.1 * (1 - f) });
+      if (L > 0.9) specs.push({ O, a: a.clone().add(V(0, -0.12, 0)).normalize(), s: L * 1.0, roll: 0, rollTo: (rand() < 0.5 ? -1 : 1) * (1.0 + rand() * 0.4), droop: 0.1 * (1 - f) });
     }
     y += 0.36 + rand() * 0.16;
   }
@@ -936,7 +938,9 @@ export class Trees {
     const imp = impostorMaterials(baked.col.texture, baked.nor.texture, this.uniforms, rows, Q.cellPx, nb);
     this.impMesh = new THREE.Mesh(ig, imp.mat);
     this.impMesh.customDepthMaterial = imp.depth;
-    this.impMesh.castShadow = true; this.impMesh.receiveShadow = true;
+    // Far trees cast no shadow: past the detailed ones (about 50 m) a tree's shadow is a smudge in
+    // the grass, and drawing thousands of cut-out cards into the shadow map cost about 2 ms a frame.
+    this.impMesh.castShadow = false; this.impMesh.receiveShadow = true;
     this.impMesh.frustumCulled = false; this.impMesh.userData.noAO = true;
     this.impMesh.matrixAutoUpdate = false; this.impMesh.matrixWorldAutoUpdate = false;
     scene.add(this.impMesh);
@@ -1094,12 +1098,17 @@ export class Trees {
     const { start, data, NV } = this;
     if (force || key !== this.lastNear) {
       this.lastNear = key;
-      for (let v = 0; v < NV; v++) {
-        const N = this.near[v], slices = [];
-        let n = 0;
-        this.cellsWithin(cx, cz, N.reach + 2, (c) => { const a = start[c * NV + v], b = start[c * NV + v + 1]; if (b > a) { slices.push(a, b); n += b - a; } });
-        N.stream.fill(n, (arr) => { let o = 0; for (let i = 0; i < slices.length; i += 2) { arr.set(data.subarray(slices[i] * STRIDE, slices[i + 1] * STRIDE), o); o += (slices[i + 1] - slices[i]) * STRIDE; } });
-      }
+      // The cells the detailed trees can reach from anywhere in this cell, with each cell's middle.
+      const reach = Math.max(...this.near.map((N) => N.reach)) + 2;
+      const cells = [];
+      this.cellsWithin(cx, cz, reach, (c) => {
+        let any = false; for (let v = 0; v < NV; v++) if (start[c * NV + v + 1] > start[c * NV + v]) { any = true; break; }
+        if (!any) return;
+        const x = BOUNDS.minX + ((c % this.grid.gx) + 0.5) * CELL, z = BOUNDS.minZ + (Math.floor(c / this.grid.gx) + 0.5) * CELL;
+        cells.push({ c, x, z, y: heightAt(x, z) });
+      });
+      this.nearCells = cells;
+      this.nearView = null;
     }
     // The impostors change slowly: redo them when you are two cells from where they were made.
     const far = this.lastFar;
@@ -1138,6 +1147,32 @@ export class Trees {
       this.uniforms.uWindStr.value = Math.min(1.2, 0.2 + s * 0.06);
     }
     this.rebuild(camera.position.x, camera.position.z);
+    this.cullNear(camera);
+  }
+
+  // The detailed trees are refilled from the cells in view (and a ring close round you, whose
+  // shadows can fall into view) whenever the camera has moved or turned a little: drawing every
+  // detailed tree round you, behind you included, was most of their cost.
+  cullNear(camera, force = false) {
+    camera.updateMatrixWorld();
+    const p = camera.position, e = camera.matrixWorld.elements, V = this.nearView;
+    if (!force && V && V.key === this.lastNear && Math.hypot(p.x - V.x, p.z - V.z) < 1.5 && Math.abs(p.y - V.y) < 1.5 && e[8] * V.d[0] + e[9] * V.d[1] + e[10] * V.d[2] > 0.9997 && camera.fov === V.fov) return;
+    this.nearView = { key: this.lastNear, x: p.x, y: p.y, z: p.z, d: [e[8], e[9], e[10]], fov: camera.fov };
+    const fr = this._fr ||= new THREE.Frustum(), m = this._m ||= new THREE.Matrix4(), sph = this._s ||= new THREE.Sphere();
+    // A slightly wider view than the camera's, so turning never shows a gap before the next refill.
+    fr.setFromProjectionMatrix(m.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+    const { start, data, NV } = this, keep = [];
+    for (const C of this.nearCells || []) {
+      const dx = C.x - p.x, dz = C.z - p.z;
+      sph.center.set(C.x, C.y + 6, C.z); sph.radius = CELL * 0.75 + 18;
+      if (dx * dx + dz * dz < 40 * 40 || fr.intersectsSphere(sph)) keep.push(C.c);
+    }
+    for (let v = 0; v < NV; v++) {
+      const N = this.near[v], slices = [];
+      let n = 0;
+      for (const c of keep) { const a = start[c * NV + v], b = start[c * NV + v + 1]; if (b > a) { slices.push(a, b); n += b - a; } }
+      N.stream.fill(n, (arr) => { let o = 0; for (let i = 0; i < slices.length; i += 2) { arr.set(data.subarray(slices[i] * STRIDE, slices[i + 1] * STRIDE), o); o += (slices[i + 1] - slices[i]) * STRIDE; } });
+    }
   }
 
   // How many trees are drawn now (for tests).

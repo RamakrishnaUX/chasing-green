@@ -48,6 +48,7 @@ export class Particles {
     scene.add(this.points);
   }
   emit(x, y, z, vx, vy, vz, count, spread, life = 0.9) {
+    this.points.visible = true;
     for (let k = 0; k < count; k++) {
       const i = this.next;
       this.next = (this.next + 1) % this.n;
@@ -74,6 +75,8 @@ export class Particles {
       if (this.life[i] <= 0) p[i * 3 + 1] = -9999;
     }
     if (any) this.points.geometry.attributes.position.needsUpdate = true;
+    // Nothing alive: not drawn at all (an empty system still cost a draw every frame).
+    this.points.visible = any;
   }
 }
 

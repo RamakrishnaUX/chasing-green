@@ -109,9 +109,6 @@ export class Grass {
       rnd[i * 4 + 2] = rand();
       rnd[i * 4 + 3] = rand();
     }
-    geo.setAttribute('aOffset', new THREE.InstancedBufferAttribute(off, 2));
-    geo.setAttribute('aRand', new THREE.InstancedBufferAttribute(rnd, 4));
-    geo.instanceCount = count;
 
     this.uniforms = {
       uCam: { value: new THREE.Vector3() },
@@ -246,17 +243,71 @@ export class Grass {
             totalEmissiveRadiance += vGrassCol * back * vTip * vTip * uSunUp * 1.4; }
           #endif`);
     };
-    this.mesh = new THREE.Mesh(geo, mat);
-    this.mesh.frustumCulled = false;
-    this.mesh.receiveShadow = true;
-    this.mesh.userData.noAO = true;
-    scene.add(this.mesh);
+    // The field is drawn as NT x NT tiles of the square round the camera, each its own draw, and a
+    // tile out of view is skipped (update). Drawn whole, every blade behind you went through the
+    // graphics card each frame: on High about two million triangles, most of a frame's.
+    const NT = 6, ts = (radius * 2) / NT;
+    const buckets = Array.from({ length: NT * NT }, () => []);
+    for (let i = 0; i < count; i++) {
+      const tx = Math.min(NT - 1, Math.max(0, Math.floor((off[i * 2] + radius) / ts)));
+      const tz = Math.min(NT - 1, Math.max(0, Math.floor((off[i * 2 + 1] + radius) / ts)));
+      buckets[tz * NT + tx].push(i);
+    }
+    const idxAll = geo.index.count, idxHalf = Math.floor(idxAll / 18) * 9; // blades are 9 indices each
+    this.lod = { all: idxAll, half: idxHalf };
+    this.tiles = buckets.map((list, b) => {
+      const g = new THREE.InstancedBufferGeometry();
+      g.index = geo.index;
+      for (const k of ['position', 'normal', 'aBlade']) g.setAttribute(k, geo.attributes[k]);
+      const o = new Float32Array(list.length * 2), r = new Float32Array(list.length * 4);
+      list.forEach((i, j) => { o[j * 2] = off[i * 2]; o[j * 2 + 1] = off[i * 2 + 1]; for (let q = 0; q < 4; q++) r[j * 4 + q] = rnd[i * 4 + q]; });
+      g.setAttribute('aOffset', new THREE.InstancedBufferAttribute(o, 2));
+      g.setAttribute('aRand', new THREE.InstancedBufferAttribute(r, 4));
+      g.instanceCount = list.length;
+      const mesh = new THREE.Mesh(g, mat);
+      mesh.frustumCulled = false;
+      mesh.receiveShadow = true;
+      mesh.userData.noAO = true;
+      mesh.matrixAutoUpdate = false; mesh.matrixWorldAutoUpdate = false;
+      scene.add(mesh);
+      return { mesh, x0: -radius + (b % NT) * ts, z0: -radius + Math.floor(b / NT) * ts, ts };
+    });
+    this.mesh = this.tiles[0].mesh;
+    this._fr = new THREE.Frustum(); this._m = new THREE.Matrix4(); this._box = new THREE.Box3();
+  }
+
+  // Where a tile's clumps are this frame, along one axis: they wrap to stay within the square
+  // round the camera (c +- R), so a tile is one stretch, or two when the square's edge cuts it.
+  static spans(c, a0, a1, R) {
+    const S = 2 * R;
+    const w0 = a0 + Math.round((c - a0) / S) * S, w1 = a1 + Math.round((c - a1) / S) * S;
+    return w1 > w0 ? [[w0, w1]] : [[w0, c + R], [c - R, w1]];
+  }
+
+  cull(camera) {
+    camera.updateMatrixWorld();
+    this._fr.setFromProjectionMatrix(this._m.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+    const c = camera.position, R = this.radius, gy = heightAt(c.x, c.z), box = this._box;
+    for (const T of this.tiles) {
+      let seen = false, near = Infinity;
+      for (const [x0, x1] of Grass.spans(c.x, T.x0, T.x0 + T.ts, R)) {
+        for (const [z0, z1] of Grass.spans(c.z, T.z0, T.z0 + T.ts, R)) {
+          box.min.set(x0 - 1, gy - 45, z0 - 1); box.max.set(x1 + 1, gy + 45, z1 + 1);
+          if (this._fr.intersectsBox(box)) seen = true;
+          near = Math.min(near, Math.hypot(Math.max(0, x0 - c.x, c.x - x1), Math.max(0, z0 - c.z, c.z - z1)));
+        }
+      }
+      T.mesh.visible = seen;
+      // Out past the middle distance a blade is a pixel or two: half of them do.
+      T.mesh.geometry.drawRange.count = near > R * 0.5 ? this.lod.half : this.lod.all;
+    }
   }
 
   // car: { x, z, r } for the vehicle you are in, or null on foot.
   // wash: { x, z, strength, radius } under a helicopter's rotor, or null.
   update(camera, wind, car = null, wash = null) {
     this.uniforms.uCam.value.copy(camera.position);
+    this.cull(camera);
     this.uniforms.uCar.value.set(car?.x || 0, car?.z || 0, car?.r || 0);
     this.uniforms.uWash.value.set(wash?.x || 0, wash?.z || 0, wash?.strength || 0, wash?.radius || 1);
     if (wind) {

@@ -122,10 +122,13 @@ export const CONFIG = {
   },
 
   // ---------- Rendering ----------
+  // Every desktop preset draws one pixel per CSS pixel, as Slow Roads does: a Retina screen's
+  // full density is four times the pixels for a picture the grade's sharpening keeps crisp anyway.
+  // The governor (perf.js) draws 30% more each way when frames have room to spare.
   quality: {
     low: { pixelRatio: 1.0, auroraSteps: 8, terrainRes: 560, shadowSize: 0, grass: 9000, grassRadius: 26, rocks: 200, post: false, far: 2000 },
-    medium: { pixelRatio: 1.25, auroraSteps: 12, terrainRes: 800, shadowSize: 2048, grass: 30000, grassRadius: 44, rocks: 570, post: true, msaa: 2, far: 3000 },
-    high: { pixelRatio: 2.0, auroraSteps: 20, terrainRes: 1080, shadowSize: 4096, grass: 64000, grassRadius: 62, rocks: 1050, post: true, far: 4200, ao: true },
+    medium: { pixelRatio: 1.0, auroraSteps: 12, terrainRes: 800, shadowSize: 2048, grass: 30000, grassRadius: 44, rocks: 570, post: true, msaa: 2, far: 3000 },
+    high: { pixelRatio: 1.0, auroraSteps: 20, terrainRes: 1080, shadowSize: 4096, grass: 44000, grassRadius: 52, rocks: 1050, post: true, far: 4200, ao: true },
   },
   defaultQuality: 'medium',
   rockDensity: { few: 0.5, normal: 1, many: 1.8 }, // multiplier on the rock count for the chosen quality

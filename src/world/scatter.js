@@ -93,6 +93,17 @@ export class Scatter {
   }
 
   // Grass colour follows the season, and tufts above the snow line are tucked away in winter.
+  // Far squares of boulders draw the lighter shape.
+  update(camera) {
+    if (!this.rockMeshes) return;
+    const c = camera.position;
+    for (const im of this.rockMeshes) {
+      const sp = im.boundingSphere, d = Math.hypot(sp.center.x - c.x, sp.center.z - c.z) - sp.radius;
+      const g = d > 90 ? this.rockLo : this.rockHi;
+      if (im.geometry !== g) im.geometry = g;
+    }
+  }
+
   setSeason(season) {
     if (!this.grassMesh) return;
     const pal = season === 'Summer' ? SUMMER : WINTER;
@@ -111,14 +122,21 @@ export class Scatter {
 
   buildRocks(scene, count) {
     // Weathered boulder: a lumpy sphere, flattened, so it sits into the ground.
-    const geo = new THREE.IcosahedronGeometry(1, 2);
+    const boulder = (detail) => {
+      const geo = new THREE.IcosahedronGeometry(1, detail);
+      const p = geo.attributes.position;
+      for (let i = 0; i < p.count; i++) {
+        const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+        const n = 1 + 0.22 * Math.sin(x * 3.1 + 1.3) * Math.sin(z * 2.7) + 0.12 * Math.sin(y * 5.3 + x * 2.0);
+        p.setXYZ(i, x * n, y * n * 0.75, z * n);
+      }
+      geo.computeVertexNormals();
+      return geo;
+    };
+    const geo = boulder(2);
+    // The same boulder with a quarter of the faces, for squares well away from the camera.
+    this.rockLo = boulder(1); this.rockHi = geo;
     const p = geo.attributes.position;
-    for (let i = 0; i < p.count; i++) {
-      const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
-      const n = 1 + 0.22 * Math.sin(x * 3.1 + 1.3) * Math.sin(z * 2.7) + 0.12 * Math.sin(y * 5.3 + x * 2.0);
-      p.setXYZ(i, x * n, y * n * 0.75, z * n);
-    }
-    geo.computeVertexNormals();
     const mat = new THREE.MeshStandardMaterial({ roughness: 0.92, metalness: 0, color: 0xffffff });
     const mesh = new THREE.InstancedMesh(geo, mat, count);
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), v = new THREE.Vector3(), e = new THREE.Euler();
@@ -161,10 +179,26 @@ export class Scatter {
     }
     // Desktop's realistic look draws the same spots with scanned rocks instead.
     if (HD.on && HD.rocks?.length) { this.hdRocks = new HDRocks(scene, spots, this.rand); geo.dispose(); return; }
-    mesh.count = n;
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    mesh.frustumCulled = false;
-    scene.add(mesh);
+    // The boulders line every road on the island, so most are out of view at any moment: they are
+    // drawn as one instanced mesh per 1.2 km square, each with its own bounds, so the camera (and the
+    // sun's shadow camera) skip the squares they cannot see instead of drawing every rock each pass.
+    const groups = new Map(), mm = new THREE.Matrix4(), cc = new THREE.Color();
+    for (let i = 0; i < n; i++) {
+      mesh.getMatrixAt(i, mm);
+      const k = Math.floor(mm.elements[12] / 1200) + ',' + Math.floor(mm.elements[14] / 1200);
+      (groups.get(k) || groups.set(k, []).get(k)).push(i);
+    }
+    this.rockMeshes = [];
+    for (const list of groups.values()) {
+      const im = new THREE.InstancedMesh(geo, mat, list.length);
+      list.forEach((i, j) => { mesh.getMatrixAt(i, mm); im.setMatrixAt(j, mm); mesh.getColorAt(i, cc); im.setColorAt(j, cc); });
+      im.computeBoundingSphere();
+      im.castShadow = true;
+      im.receiveShadow = true;
+      im.matrixAutoUpdate = false; im.matrixWorldAutoUpdate = false;
+      scene.add(im);
+      this.rockMeshes.push(im);
+    }
+    mesh.dispose();
   }
 }

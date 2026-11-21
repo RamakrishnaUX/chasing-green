@@ -389,8 +389,9 @@ export class Sky {
       this.sun.castShadow = true;
       this.sun.shadow.mapSize.set(shadowSize, shadowSize);
       const sc = this.sun.shadow.camera;
-      // Bigger shadow area on High, so mountains and cliffs further out still cast shadows.
-      const ext = shadowSize >= 4096 ? 230 : 140;
+      // A little bigger on High. Every caster in this square is drawn again into the shadow map
+      // each frame, so it stays close round you (it was 230 m: about 200 extra draws a frame).
+      const ext = shadowSize >= 4096 ? 165 : 140;
       sc.left = -ext; sc.right = ext; sc.top = ext; sc.bottom = -ext; sc.near = 1; sc.far = 1400;
       this.sun.shadow.bias = -0.0005;
       this.sun.shadow.normalBias = 0.8;
