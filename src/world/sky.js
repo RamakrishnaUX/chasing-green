@@ -6,6 +6,7 @@ import { HD, fogSun } from './hd.js';
 import { TONE_GLSL } from './skytone.js';
 import { N as TONE_N, plainTable } from './skytoneMath.js';
 
+const _worldUp = new THREE.Vector3(0, 1, 0), _sR = new THREE.Vector3(), _sU = new THREE.Vector3();
 
 export const GLSL_NOISE = /* glsl */ `
 // smoothstep, defined for edges in either order (GLSL leaves edge0 >= edge1 undefined; on Apple GPUs
@@ -607,10 +608,30 @@ export class Sky {
     const sunUp = smoothstep(-3, 4, elDeg);
     this.setRGB(this.sun.color, mixA(mixA([1.0, 0.55, 0.3], [1.0, 0.76, 0.55], sm(0, 5, elDeg)), [1.0, 0.95, 0.88], sm(5, 24, elDeg)));
     this.sun.intensity = 4.2 * this.light.sun * sunUp * (1 - cloud * 0.55);
-    // Snap the shadow box to whole units so shadows don't shimmer as you drive.
-    const fx = Math.round(f.x), fz = Math.round(f.z);
-    this.sun.target.position.set(fx, f.y, fz);
-    this.sun.position.set(fx, f.y, fz).addScaledVector(sunDir, 500);
+    // The shadow box follows you in steps of whole shadow-map texels, measured in the sun's own
+    // view, so the grid the shadows are drawn on stays put on the ground and only ever moves by a
+    // whole texel (which draws every edge exactly as before). Snapping to whole metres of world x
+    // and z with the height left free, as it used to, slid the grid a fraction of a texel every
+    // frame and jumped it by an odd fraction at each metre: the car's shadow (and every other)
+    // shimmered and stepped as you drove. The shadow camera looks along the sun with world up as
+    // its up (three.js lookAt), so its right and up axes are these.
+    const sh = this.sun.shadow, sc = sh.camera;
+    _sR.crossVectors(_worldUp, sunDir);
+    if (_sR.lengthSq() < 1e-8) _sR.set(1, 0, 0); else _sR.normalize();
+    _sU.crossVectors(sunDir, _sR);
+    const texel = (sc.right - sc.left) / sh.mapSize.x;
+    const snap = (v) => Math.round(v / texel) * texel;
+    this.sun.target.position.set(0, 0, 0)
+      .addScaledVector(_sR, snap(f.dot(_sR)))
+      .addScaledVector(_sU, snap(f.dot(_sU)))
+      .addScaledVector(sunDir, snap(f.dot(sunDir)));
+    this.sun.position.copy(this.sun.target.position).addScaledVector(sunDir, 500);
+    // How far above itself each surface looks up its shadow (normalBias). With the sun all but on
+    // the horizon (under 3 degrees, most of a winter day) it stays at 0.8 m, which keeps grazing
+    // light from speckling the land; but that also left anything under 0.8 m without a shadow on
+    // the ground, so the car's shadow was a faint patch adrift of its wheels. From 8 degrees up 2.7
+    // texels (0.3 m on High) is clear of speckle and the whole car casts, its shadow under its wheels.
+    sh.normalBias = 0.8 + (2.7 * texel - 0.8) * smoothstep(3, 8, elDeg);
     // The sun keeps casting even when it is too weak to matter: switching castShadow changes every
     // material's shader, so the whole scene recompiled (a long freeze) at every dusk and dawn. When
     // the sun is that weak the shadow map just stops being redrawn.
