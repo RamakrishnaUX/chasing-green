@@ -12,7 +12,7 @@ import { progressOf } from '../preload.js';
 // outline is drawn on in blueprint lines, a scan sweeps across it, and a short line says what the
 // mechanics are up to, with how far along the download is. Side views, 240 x 100, ground at y 88.
 const W2 = (cx, cy, r) => `M${cx - r} ${cy}a${r} ${r} 0 1 0 ${2 * r} 0a${r} ${r} 0 1 0 ${-2 * r} 0`;
-const BLUEPRINT = {
+export const BLUEPRINT = {
   jeep: { name: 'Trail 4x4', d: ['M24 70V52h46l20-16h10l-3 16h104l14 3v15h-17a20 20 0 0 0-38 0H78a20 20 0 0 0-38 0Z', 'M90 36l12-18M100 18h-8', W2(59, 72, 16), W2(181, 72, 16), W2(18, 56, 10), 'M120 54v14M150 58h18'] },
   vintage: { name: 'Vintage car', d: ['M12 72q4-20 34-22h24q10-22 36-22h40q18 2 24 22h26q26 2 32 22', 'M70 50h106M108 30v20M140 30v20', W2(52, 74, 15), W2(192, 74, 15), 'M28 72q6-16 24-16t24 16M168 72q6-16 24-16t24 16', W2(222, 52, 4)] },
   camper: { name: 'Camper van', d: ['M20 74V34q2-16 22-18h156q20 2 24 24v34h-18a18 18 0 0 0-34 0H78a18 18 0 0 0-34 0Z', 'M44 26h34v18H44ZM90 26h36v18H90ZM138 26h36v18h-36ZM186 26h18q8 2 10 18h-28Z', 'M20 54h202', W2(61, 76, 14), W2(187, 76, 14)] },

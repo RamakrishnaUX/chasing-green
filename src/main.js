@@ -26,6 +26,7 @@ import { siteStations, Stations } from './world/stations.js';
 import { FuelTank, TANKS } from './vehicle/fuel.js';
 import { Sheet } from './ui/sheet.js';
 import { haptics } from './ui/haptics.js';
+import { slowMenu } from './ui/slowmenu.js';
 import { CrashFX } from './world/crashfx.js';
 import { Damage } from './vehicle/damage.js';
 import { Condition } from './vehicle/condition.js';
@@ -1970,6 +1971,14 @@ function beginTrip() {
   if (!isTouch) whenCalm(() => { if (!gg.cover) ggPrewarm(); }, 9000);
   // On a computer the refuel line sits just above the quiet line, as a key and a few words.
   if (!document.body.classList.contains('has-touch')) $('qh-act').append($('fuel-act'));
+  // On a computer the menu is a row of names along the bottom, with the vehicle and the world in a band above it.
+  if (!document.body.classList.contains('has-touch') && !smenu) {
+    smenu = slowMenu({
+      go: (k) => (k === 'map' ? mapUI?.open() : k === 'journey' ? notebook.open() : k === 'learn' ? learn.open() : sheet.go(k)),
+      vehicle: () => (ride === 'heli' ? 'heli' : jeep.kind), setVehicle,
+      person: personId, setPerson: pickWho,
+    });
+  }
   if (settings.steering === 'tilt') Input.askTilt().then(applySteering);
   if (isTouch) { touchLayout(); goLandscape(); }
   canvas.focus();
@@ -2015,7 +2024,7 @@ addEventListener('keydown', (e) => {
   else if (k === 'l') toggleLookUp();
   else if (k === 'u') setMuted(!audio.muted);
   else if (k === 'm') mapUI?.open();
-  else if (k === 'v') cycleVehicle();
+  else if (k === 'v') (smenu ? smenu.toggle('vehicle') : cycleVehicle());
   else if (k === 'n') notebook.open();
   else if (k === 'r') toggleRecording();
   else if (k === 'p') snapPostcard();
@@ -2350,12 +2359,14 @@ function startRefuel() {
 }
 // While he fills: the tank rising on screen (a card over the Refuel button: the gauge, litres
 // pumped and what it costs) and the same litres counting up on the pump's own screen.
-let fillShown = false;
+let fillShown = false, fillNow = null; // fillNow: litres pumped and the tank, for the quiet line
+let smenu = null; // the menu row on computers (ui/slowmenu.js)
 function fillCard(kind, lvl) {
   const on = refuel.active && (fuel.filling || refuel.scene.phase === 'fill');
   if (on !== fillShown) { fillShown = on; $('fill-card').hidden = !on; document.body.classList.toggle('filling', on); }
-  if (!on) return;
+  if (!on) { fillNow = null; return; }
   const tank = TANKS[kind]?.litres || 60, added = Math.max(0, (lvl - fuelStart) * tank);
+  fillNow = { litres: added, level: lvl };
   refuel.scene.setPumped(added);
   $('fc-l').textContent = added.toFixed(1).replace('.', ',');
   $('fc-kr').textContent = Math.round(added * 314.9).toLocaleString('is-IS');
@@ -3396,6 +3407,7 @@ function frame(now) {
       condition: ride === 'car' && (mode !== 'walk' || refuel.active) ? condition.level(jeep.kind) : null,
       agl: mode === 'fly' ? Math.max(0, heli.agl) : mode === 'sky' ? Math.max(0, diver.agl) : null,
       // The quiet line: which ride, and on foot, what E does.
+      filling: fillNow,
       mode, walkKey: mode === 'walk' && !refuel.active && !afterJump ? (riding?.on ? 'Get off' : ride === 'heli' ? 'Back in the helicopter' : jeep.spec.bike ? 'Back on the bike' : 'Back in the car') : null,
     });
   }

@@ -52,7 +52,7 @@ export class Hud {
     this.q = { root: qh, scrim: document.querySelector('.qh-scrim'), items: {}, shown: '', placeText: '', kpHtml: '' };
     if (qh) {
       qh.querySelectorAll('.qh-it').forEach((el) => { this.q.items[el.dataset.i] = el; });
-      for (const k of ['alt', 'spd', 'up', 'place', 'time', 'fuel', 'cond', 'kp', 'kbd', 'key', 'altbar']) this.q[k] = $(`qh-${k}`);
+      for (const k of ['alt', 'spd', 'up', 'place', 'time', 'fuel', 'cond', 'kp', 'kbd', 'key', 'altbar', 'pumped', 'cost']) this.q[k] = $(`qh-${k}`);
       this.qShown = !!qh.offsetParent;
       new ResizeObserver(() => { this.qShown = !!qh.offsetParent; }).observe(qh);
     }
@@ -124,7 +124,7 @@ export class Hud {
     if (this.idleT > 0) {
       this.idleT -= dt;
       if (this.idleT <= 0) {
-        if (this.el.hud.querySelector('.hud-tr:hover, .nav:hover, .hud-tr:focus-within')) this.idleT = 1;
+        if (this.el.hud.querySelector('.hud-tr:hover, .nav:hover, .hud-tr:focus-within, .sm:hover, .sm.is-open, .sm:focus-within')) this.idleT = 1;
         else document.body.classList.add('hud-idle');
       }
     }
@@ -184,16 +184,19 @@ export class Hud {
     if (!s.walking) show.push('spd');
     if (air && !sky) show.push('up');
     show.push('place');
-    if (!sky) show.push('time');
-    if (s.fuel && s.fuel.level < 0.25) show.push('fuel');
-    if (s.condition != null && s.condition < 0.9) show.push('cond');
+    // Filling up at a pump: the litres and the price take the line, and the hairline is the tank.
+    const fill = s.filling;
+    if (fill) show.push('pumped', 'cost');
+    if (!sky && !fill) show.push('time');
+    if (s.fuel && s.fuel.level < 0.25 && !fill) show.push('fuel');
+    if (s.condition != null && s.condition < 0.9 && !fill) show.push('cond');
     const kpOn = !!s.aurora.active || (kp >= A.minKp && s.aurora.dark >= A.minDarkness && !s.aurora.summer);
     if (kpOn) show.push('kp');
     // A key to press: the helicopter's jump and the chute come from the jump button's state;
     // on foot, getting back in (or on the horse) from main.js.
     const jumpAct = this.jumpBtn ??= document.getElementById('t-jump');
     const act = jumpAct && !jumpAct.hidden ? jumpAct.dataset.act : '';
-    const key = act === 'jump' ? ['J', 'Jump'] : act === 'open' ? ['J', 'Open the chute'] : s.walkKey ? ['E', s.walkKey] : null;
+    const key = fill ? ['F', 'Stop'] : act === 'jump' ? ['J', 'Jump'] : act === 'open' ? ['J', 'Open the chute'] : s.walkKey ? ['E', s.walkKey] : null;
     if (key) { show.push('key'); set(q.kbd, key[0]); set(q.key, key[1]); }
 
     const shown = show.join(' ');
@@ -208,6 +211,7 @@ export class Hud {
       }
     }
     q.root.classList.toggle('is-air', air);
+    q.root.classList.toggle('is-fill', !!fill);
     q.scrim?.classList.toggle('is-air', air);
 
     set(q.spd, String(Math.abs(Math.round(s.kmh || 0))));
@@ -215,6 +219,11 @@ export class Hud {
       const h = Math.max(0, Math.round(s.agl));
       set(sky ? q.alt : q.up, h.toLocaleString('en'));
       const w = `${Math.min(100, h / 10).toFixed(1)}%`;
+      if (q.altbar.style.width !== w) q.altbar.style.width = w;
+    } else if (fill) {
+      set(q.pumped, fill.litres.toFixed(1).replace('.', ','));
+      set(q.cost, Math.round(fill.litres * 314.9).toLocaleString('is-IS'));
+      const w = `${(Math.min(1, fill.level) * 100).toFixed(1)}%`;
       if (q.altbar.style.width !== w) q.altbar.style.width = w;
     } else if (q.altbar.style.width !== '0px') q.altbar.style.width = '0px';
     set(q.time, s.clockLabel || '');
