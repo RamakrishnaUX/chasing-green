@@ -2630,3 +2630,116 @@ body.has-touch .rr-h { font-size: 22px; }
 .tg-joinform input:focus { border-color: var(--green); box-shadow: 0 0 0 3px rgba(102,223,176,0.22); }
 body.has-touch .tg-joinform { padding: 8px 10px 8px 16px; }
 body.has-touch .tg-code { font-size: 26px; }
+
+/* ---------- The quiet HUD (computers) ----------
+   Like Slow Roads: the world gets the screen. One slim line at the bottom centre (speed, place,
+   time; height in the air) on a hairline; fuel, the car's condition, the Kp and a key to press
+   grow into the line only while they matter (hud.js quiet()). The compass tape, the corner text,
+   the speed ribbon and the minimap step away; the buttons and a row of keys come back while the
+   mouse moves and fade after a few still seconds. A new place gets one quiet title at the top.
+   Phones and tablets keep their own layout. */
+.qh, .qh-scrim, .qh-keys { display: none; }
+body:not(.has-touch) #hud .hx-tape, body:not(.has-touch) #hud .hx-caret, body:not(.has-touch) #hud .hx-tl, body:not(.has-touch) #hud .hx-tr,
+body:not(.has-touch) #hud .hx-cluster, body:not(.has-touch) #hud .hud-tl, body:not(.has-touch) #hud .minimap, body:not(.has-touch) #hud .sky-hint { display: none !important; }
+body:not(.has-touch) .hx::before { display: none; }
+body:not(.has-touch) .qh-scrim { display: block; position: absolute; left: 0; right: 0; bottom: 0; height: 22vh; pointer-events: none;
+  background: linear-gradient(0deg, rgba(2,8,7,0.34), rgba(2,8,7,0)); transition: opacity 0.5s, background 0.5s; }
+body:not(.has-touch) .qh-scrim.is-air { background: linear-gradient(0deg, rgba(2,8,7,0.46), rgba(2,8,7,0)); }
+body:not(.has-touch) .qh { display: grid; justify-items: center; gap: 10px; position: absolute; left: 50%; bottom: calc(30px + var(--safe-b)); transform: translateX(-50%);
+  max-width: calc(100vw - 40px); color: var(--ink); white-space: nowrap; pointer-events: none; text-shadow: 0 1px 14px rgba(0,0,0,0.45); transition: opacity 0.5s; }
+.qh-row { display: flex; align-items: baseline; }
+/* Each item grows in and out of the row; the dot in front of it is its own. */
+.qh-it { display: inline-flex; align-items: baseline; gap: 6px; max-width: 0; opacity: 0; overflow: hidden;
+  transition: max-width 0.5s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.35s; font: 500 14px var(--sans); letter-spacing: 0.06em; color: rgba(236,243,247,0.78); }
+.qh-it.on { max-width: 340px; opacity: 1; }
+.qh-it::before { content: ''; align-self: center; flex: none; width: 3px; height: 3px; border-radius: 50%; background: rgba(236,243,247,0.5); margin: 0 8px 0 10px; }
+.qh-it.first::before { width: 0; margin: 0; }
+.qh-it svg { align-self: center; flex: none; width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.qh-num b { font: 400 24px/1 var(--serif); letter-spacing: 0; color: var(--ink); font-variant-numeric: tabular-nums; }
+.qh-num small { font: 600 10px var(--sans); letter-spacing: 0.24em; text-transform: uppercase; color: rgba(236,243,247,0.5); }
+.qh-sub b { font-size: 18px; color: rgba(236,243,247,0.82); }
+.qh-place { max-width: 0; }
+.qh-place.on { max-width: 340px; }
+.qh-place .qh-arrow { width: 13px; height: 13px; fill: var(--green-hi); stroke: none; }
+.qh-place em { font-style: normal; color: rgba(236,243,247,0.5); }
+.qh-place.is-route { color: var(--ink); }
+.qh-time { font-variant-numeric: tabular-nums; }
+.qh-fuel { color: #ffbe5c; font-weight: 600; }
+.qh-fuel.is-low svg { animation: qh-breathe 1.8s ease-in-out infinite; }
+.qh-fuel.is-empty { color: #ff8a6b; }
+.qh-cond { color: #ffd8c2; font-weight: 600; }
+.qh-cond.is-bad { color: #ff8a6b; }
+.qh-kp { color: var(--green-hi); font-weight: 600; text-shadow: 0 0 14px rgba(127,240,194,0.55); }
+.qh-kp i { align-self: center; flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--green-hi); box-shadow: 0 0 10px var(--green-hi); animation: qh-breathe 2.4s ease-in-out infinite; }
+.qh-kp.is-calm { color: rgba(162,246,211,0.85); text-shadow: none; } .qh-kp.is-calm i { animation: none; box-shadow: none; }
+.qh-it kbd { align-self: center; display: inline-grid; place-items: center; min-width: 19px; height: 19px; padding: 0 5px; border: 0; border-radius: 5px; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.22);
+  font: 600 10px var(--sans) !important; letter-spacing: 0; color: var(--ink); background: rgba(255,255,255,0.14); text-shadow: none; }
+.qh-key { color: var(--ink); font-weight: 600; }
+@keyframes qh-breathe { 50% { opacity: 0.45; } }
+/* The hairline the line sits on. In the air it is the altimeter: the lit part is your height above
+   the ground, full at 1,000 m, with a bright bead at its tip. */
+.qh-line { position: relative; width: 300px; height: 1px; }
+.qh-line::before { content: ''; position: absolute; inset: 0; opacity: 0.7; transition: opacity 0.4s;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.55) 30%, rgba(255,255,255,0.55) 70%, transparent); }
+.qh-line i { position: absolute; left: 0; top: -0.5px; height: 2px; width: 0; border-radius: 2px; opacity: 0; transition: width 0.5s ease-out, opacity 0.4s;
+  background: linear-gradient(90deg, rgba(159,208,255,0.15), #9fd0ff); box-shadow: 0 0 8px rgba(159,208,255,0.6); }
+.qh-line i::after { content: ''; position: absolute; right: -3px; top: 50%; width: 6px; height: 6px; margin-top: -3px; border-radius: 50%; background: #fff; box-shadow: 0 0 8px #9fd0ff; }
+.qh.is-air .qh-line::before { opacity: 0.25; }
+.qh.is-air .qh-line i { opacity: 1; }
+/* Refuel (or a tow) at a pump: a key and a few words just above the line. */
+.qh-act { display: flex; justify-content: center; min-height: 0; pointer-events: auto; }
+body:not(.has-touch) .qh-act .fuel-act { position: static; transform: none; display: inline-flex; align-items: center; gap: 8px; min-height: 0; height: auto; margin: 0 0 4px; padding: 0;
+  border: 0; border-radius: 0; background: none; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; overflow: visible;
+  font: 600 14px var(--sans); letter-spacing: 0.04em; color: #ffd690; text-shadow: 0 1px 12px rgba(0,0,0,0.5); }
+body:not(.has-touch) .qh-act .fuel-act[hidden] { display: none; }
+body:not(.has-touch) .qh-act .fuel-act svg, body:not(.has-touch) .qh-act .fuel-act .fuel-act-fill { display: none; }
+body:not(.has-touch) .qh-act .fuel-act kbd { display: inline-grid; place-items: center; order: -1; min-width: 20px; height: 19px; padding: 0 5px; border: 0; border-radius: 5px; box-shadow: none;
+  font: 800 11px/1 var(--sans); color: #1a1406; background: #ffbe5c; }
+body:not(.has-touch) .qh-act .fuel-act:hover { color: #fff1d6; }
+body:not(.has-touch) .qh-act .fuel-act.is-tow { color: #ff8a6b; } body:not(.has-touch) .qh-act .fuel-act.is-tow kbd { background: #ff8a6b; }
+
+/* Keys and buttons: only while the mouse moves (hud.js adds hud-idle after a few still seconds). */
+body:not(.has-touch) .qh-keys { display: flex; gap: 14px; position: absolute; left: calc(26px + var(--safe-l)); bottom: calc(32px + var(--safe-b)); pointer-events: none;
+  font: 500 12px var(--sans); letter-spacing: 0.04em; color: rgba(236,243,247,0.75); text-shadow: 0 1px 8px rgba(0,0,0,0.5); transition: opacity 0.4s; }
+.qh-keys kbd { display: inline-grid; place-items: center; min-width: 19px; height: 19px; padding: 0 5px; margin-right: 6px; border: 0; border-radius: 5px; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.18);
+  font: 600 10px var(--sans) !important; color: var(--ink); background: rgba(255,255,255,0.12); }
+body:not(.has-touch) #hud :is(.hud-tr, .nav, .qh-keys) { transition: opacity 0.4s, transform 0.4s; }
+body:not(.has-touch).hud-idle #hud :is(.hud-tr, .nav, .qh-keys) { opacity: 0 !important; pointer-events: none !important; }
+body:not(.has-touch).hud-idle #hud .hud-tr { transform: translateY(-6px); }
+@media (max-width: 900px) { body:not(.has-touch) .qh-keys { display: none; } }
+
+/* Looking up at the sky, or while the aurora moment plays: the line steps back too. */
+body:not(.has-touch).is-looking .qh, body:not(.has-touch).is-looking .qh-scrim { opacity: 0; }
+body:not(.has-touch).moment-on .qh { opacity: 0.45; }
+/* Markers in the world: a name, the distance and a small ring, no chevrons. */
+body:not(.has-touch) .hx-mark b { font: 600 11px var(--sans); letter-spacing: 0.2em; color: var(--ink); text-shadow: 0 1px 10px rgba(0,0,0,0.55); }
+body:not(.has-touch) .hx-mark span { font: 600 10px var(--sans); letter-spacing: 0.18em; color: rgba(236,243,247,0.7); text-shadow: 0 1px 10px rgba(0,0,0,0.55); }
+body:not(.has-touch) .hx-mark svg { display: none; }
+body:not(.has-touch) .hx-mark::after { content: ''; width: 7px; height: 7px; margin-top: 3px; border-radius: 50%; border: 1.5px solid var(--green-hi); box-shadow: 0 0 10px rgba(127,240,194,0.7); }
+body:not(.has-touch) .hx-mark.is-fuel::after { border-color: #ffbe5c; box-shadow: 0 0 10px rgba(255,190,92,0.7); }
+body:not(.has-touch) .hx-mark.is-back b { font-size: 10px; }
+body:not(.has-touch) .hx-mark.is-back span { font-size: 9px; }
+
+/* Tips sit near the top now that the compass tape has gone. */
+body:not(.has-touch) .toast, body:not(.has-touch).sky-on .toast { top: calc(28px + var(--safe-t)); }
+body:not(.has-touch).card-on .toast { top: calc(150px + var(--safe-t)); }
+body:not(.has-touch) .nav { top: calc(78px + var(--safe-t)); left: auto; right: calc(22px + var(--safe-r)); }
+
+/* A new place: one quiet title at the top centre for a few seconds, no road sign. */
+body:not(.has-touch) .infocard { left: 0 !important; right: 0; top: calc(44px + var(--safe-t)) !important; bottom: auto !important; width: min(640px, 80vw) !important; margin: 0 auto;
+  display: grid; justify-items: center; text-align: center; pointer-events: none; animation: qh-title 0.7s ease-out both; }
+@keyframes qh-title { from { opacity: 0; transform: translateY(-6px); } }
+body:not(.has-touch) .infocard::before { display: none; }
+body:not(.has-touch) .info-kick { justify-content: center; font: 600 10.5px var(--sans) !important; letter-spacing: 0.32em !important; color: var(--green-hi); text-shadow: 0 1px 14px rgba(0,0,0,0.45); }
+body:not(.has-touch) .info-kick::after { display: none; }
+body:not(.has-touch) .info-board { display: block; min-width: 0; margin: 10px 0 0; padding: 0; border-radius: 0; background: none; box-shadow: none; animation: none; }
+body:not(.has-touch) .info-board::before, body:not(.has-touch) .info-board::after { display: none; }
+body:not(.has-touch) .ib-face { padding: 0; border: 0; border-radius: 0; background: none; overflow: visible; }
+body:not(.has-touch) .ib-face::before, body:not(.has-touch) .ib-face::after { display: none; }
+body:not(.has-touch) .infocard h2, body:not(.has-touch) .infocard.is-long h2 { font: 400 26px/1.2 var(--serif) !important; letter-spacing: 0.01em; color: var(--ink); text-shadow: 0 1px 18px rgba(0,0,0,0.45); }
+body:not(.has-touch) .ib-sub { justify-content: center; gap: 7px; margin: 9px 0 0; padding: 0; background: none; font: 500 12.5px var(--sans); letter-spacing: 0.04em; color: rgba(236,243,247,0.78); text-shadow: 0 1px 14px rgba(0,0,0,0.45); }
+body:not(.has-touch) .ib-sub svg { width: 14px; height: 14px; stroke: currentColor; stroke-width: 2.6; }
+body:not(.has-touch) .ib-sub em { margin: 0; padding: 0; font-weight: 500; }
+body:not(.has-touch) .ib-sub em:not(:empty)::before { content: '·'; margin-right: 7px; }
+body:not(.has-touch) .infocard :is(.stamp-badge, .info-desc, .info-facts, .info-legend, .info-fact, .info-link, .info-actions) { display: none !important; }
+@media (prefers-reduced-motion: reduce) { .qh-it, .qh-line i, .qh-fuel svg, .qh-kp i { transition: none; animation: none; } body:not(.has-touch) .infocard { animation: none; } }

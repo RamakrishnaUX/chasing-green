@@ -1968,12 +1968,12 @@ function beginTrip() {
   // context and its shaders, a stall you would feel at speed, so it waits until you are stopped
   // and have left the controls alone for a moment.
   if (!isTouch) whenCalm(() => { if (!gg.cover) ggPrewarm(); }, 9000);
-  // On a computer the refuel line sits under the fuel reading, as text, and nothing moves for it.
-  if (!document.body.classList.contains('has-touch')) $('hx-fuelside').append($('fuel-act'));
+  // On a computer the refuel line sits just above the quiet line, as a key and a few words.
+  if (!document.body.classList.contains('has-touch')) $('qh-act').append($('fuel-act'));
   if (settings.steering === 'tilt') Input.askTilt().then(applySteering);
   if (isTouch) { touchLayout(); goLandscape(); }
   canvas.focus();
-  setTimeout(() => hud.toast(isTouch ? 'The Kp, bottom right, is how strong the aurora is. Tap it for the aurora radio.' : 'The Kp, bottom right, is how strong the aurora is. Click it, or press K, for the aurora radio.', { seconds: 7 }), 4200);
+  setTimeout(() => hud.toast(isTouch ? 'The Kp, bottom right, is how strong the aurora is. Tap it for the aurora radio.' : 'When the aurora is worth looking for, a green Kp joins the line at the bottom. Press K any time for the aurora radio.', { seconds: 7 }), 4200);
   setTimeout(showReverseTip, 8000);
 }
 
@@ -3395,6 +3395,8 @@ function frame(now) {
       fuel: fuel.on && ride === 'car' && (mode !== 'walk' || refuel.active) ? { level: fuel.level(jeep.kind), litres: fuel.litres(jeep.kind) } : null,
       condition: ride === 'car' && (mode !== 'walk' || refuel.active) ? condition.level(jeep.kind) : null,
       agl: mode === 'fly' ? Math.max(0, heli.agl) : mode === 'sky' ? Math.max(0, diver.agl) : null,
+      // The quiet line: which ride, and on foot, what E does.
+      mode, walkKey: mode === 'walk' && !refuel.active && !afterJump ? (riding?.on ? 'Get off' : ride === 'heli' ? 'Back in the helicopter' : jeep.spec.bike ? 'Back on the bike' : 'Back in the car') : null,
     });
   }
 

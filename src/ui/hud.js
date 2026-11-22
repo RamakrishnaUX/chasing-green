@@ -46,6 +46,22 @@ export class Hud {
     const hx = this.el.hud.querySelector('.hx') || document.querySelector('.hx');
     this.hxShown = !!hx?.offsetParent;
     if (hx) new ResizeObserver(() => { this.hxShown = !!hx.offsetParent; }).observe(hx);
+    // The quiet line (computers). Its items are kept in the page and only shown or hidden, so they
+    // can grow in and out of the line; text is written only when it changes.
+    const qh = $('qh');
+    this.q = { root: qh, scrim: document.querySelector('.qh-scrim'), items: {}, shown: '', placeText: '', kpHtml: '' };
+    if (qh) {
+      qh.querySelectorAll('.qh-it').forEach((el) => { this.q.items[el.dataset.i] = el; });
+      for (const k of ['alt', 'spd', 'up', 'place', 'time', 'fuel', 'cond', 'kp', 'kbd', 'key', 'altbar']) this.q[k] = $(`qh-${k}`);
+      this.qShown = !!qh.offsetParent;
+      new ResizeObserver(() => { this.qShown = !!qh.offsetParent; }).observe(qh);
+    }
+    // Buttons and key hints show while the mouse moves, and step away after a few still seconds
+    // (not for a drag, which is looking around, nor while the pointer rests on a button).
+    this.idleT = 4;
+    const wake = () => { this.idleT = 3; document.body.classList.remove('hud-idle'); };
+    addEventListener('mousemove', (ev) => { if (!ev.buttons) wake(); }, { passive: true });
+    this.el.hud.addEventListener('focusin', wake);
   }
 
   show() { this.el.hud.hidden = false; }
@@ -104,6 +120,14 @@ export class Hud {
     this.wasCall = callUp;
     this.moment(dt, s, kp);
     this.drive(s, kp);
+    this.quiet(s, kp);
+    if (this.idleT > 0) {
+      this.idleT -= dt;
+      if (this.idleT <= 0) {
+        if (this.el.hud.querySelector('.hud-tr:hover, .nav:hover, .hud-tr:focus-within')) this.idleT = 1;
+        else document.body.classList.add('hud-idle');
+      }
+    }
     e.cloud.textContent = `${Math.round(s.aurora.cloud * 100)}%`;
     e.dark.textContent = `${Math.round(s.aurora.dark * 100)}%`;
     const glow = s.aurora.city.overhead;
@@ -142,6 +166,88 @@ export class Hud {
     }
     this.hx.tape.innerHTML = `<path d="M0 40H${((540) * ppd).toFixed(0)}" class="base"/>${svg}`;
     this.ppd = ppd;
+  }
+
+  // The quiet line (computers): what it holds depends on the ride.
+  //   Road (car, bike, horse): speed · place · time
+  //   Helicopter: speed · height · place · time      Skydiving: height · speed · place
+  //   On foot: place · time
+  // Fuel (under a quarter tank), the car's condition (once dented), the Kp (when it is worth
+  // looking up) and a key to press (jump, open the chute, get back in) join only while they matter.
+  quiet(s, kp) {
+    const q = this.q;
+    if (!q.root || !this.qShown) return;
+    const set = (el, v) => { if (el.textContent !== v) el.textContent = v; };
+    const sky = s.mode === 'sky', air = s.agl != null, A = CONFIG.aurora;
+    const show = [];
+    if (sky) show.push('alt');
+    if (!s.walking) show.push('spd');
+    if (air && !sky) show.push('up');
+    show.push('place');
+    if (!sky) show.push('time');
+    if (s.fuel && s.fuel.level < 0.25) show.push('fuel');
+    if (s.condition != null && s.condition < 0.9) show.push('cond');
+    const kpOn = !!s.aurora.active || (kp >= A.minKp && s.aurora.dark >= A.minDarkness && !s.aurora.summer);
+    if (kpOn) show.push('kp');
+    // A key to press: the helicopter's jump and the chute come from the jump button's state;
+    // on foot, getting back in (or on the horse) from main.js.
+    const jumpAct = this.jumpBtn ??= document.getElementById('t-jump');
+    const act = jumpAct && !jumpAct.hidden ? jumpAct.dataset.act : '';
+    const key = act === 'jump' ? ['J', 'Jump'] : act === 'open' ? ['J', 'Open the chute'] : s.walkKey ? ['E', s.walkKey] : null;
+    if (key) { show.push('key'); set(q.kbd, key[0]); set(q.key, key[1]); }
+
+    const shown = show.join(' ');
+    if (shown !== q.shown) {
+      q.shown = shown;
+      let first = true;
+      for (const [k, el] of Object.entries(q.items)) {
+        const on = show.includes(k);
+        el.classList.toggle('on', on);
+        el.classList.toggle('first', on && first);
+        if (on) first = false;
+      }
+    }
+    q.root.classList.toggle('is-air', air);
+    q.scrim?.classList.toggle('is-air', air);
+
+    set(q.spd, String(Math.abs(Math.round(s.kmh || 0))));
+    if (air) {
+      const h = Math.max(0, Math.round(s.agl));
+      set(sky ? q.alt : q.up, h.toLocaleString('en'));
+      const w = `${Math.min(100, h / 10).toFixed(1)}%`;
+      if (q.altbar.style.width !== w) q.altbar.style.width = w;
+    } else if (q.altbar.style.width !== '0px') q.altbar.style.width = '0px';
+    set(q.time, s.clockLabel || '');
+    // Driving somewhere: the place gives way to the route, as the route card shows it.
+    const nav = this.navEl ??= document.getElementById('nav');
+    const route = nav && !nav.hidden ? `${document.getElementById('nav-name').textContent}|${document.getElementById('nav-dist').textContent}` : '';
+    const place = route || s.where || '';
+    if (place !== q.placeText) {
+      q.placeText = place;
+      q.items.place.classList.toggle('is-route', !!route);
+      if (route) {
+        const [name, dist] = route.split('|');
+        q.place.innerHTML = '';
+        q.place.insertAdjacentHTML('beforeend', '<svg class="qh-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 17-7-4-7 4z"/></svg>');
+        q.place.append(name, ' ');
+        const em = document.createElement('em'); em.textContent = dist; q.place.append(em);
+      } else q.place.textContent = place;
+    }
+    if (s.fuel) {
+      set(q.fuel, `${s.fuel.litres} L`);
+      q.items.fuel.classList.toggle('is-low', s.fuel.level < 0.25);
+      q.items.fuel.classList.toggle('is-empty', s.fuel.level < 0.05);
+    }
+    if (s.condition != null) {
+      set(q.cond, `${Math.round(s.condition * 100)}%`);
+      q.items.cond.classList.toggle('is-bad', s.condition < 0.3);
+    }
+    if (kpOn) {
+      const look = !!s.aurora.active && !s.lookingUp;
+      const html = `<i></i>Kp ${kp.toFixed(1)}${look ? ' <kbd>L</kbd> Look up' : ''}`;
+      if (html !== q.kpHtml) { q.kpHtml = html; q.items.kp.innerHTML = html; }
+      q.items.kp.classList.toggle('is-calm', !s.aurora.active);
+    }
   }
 
   // The driving display: only drawn when it shows (computers), and only what changed.
