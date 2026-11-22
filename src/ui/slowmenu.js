@@ -146,11 +146,36 @@ export function slowMenu({ go, vehicle, setVehicle, person, setPerson, sync, not
   }
 
   // ---- The panel ----
+  // While one of the sheet's pages is open (Map, Journey, Learn, Together), it floats as a panel
+  // above the row: the row stays in view and marks that page, and a click on the row, which lies
+  // under the sheet's backdrop, still reaches the tab or icon there once the sheet has closed.
+  const sheetEl = $('sheet'), SHEET_TAB = { map: 'map', notebook: 'journey', learn: 'learn', together: 'together' };
+  let sheetTab = '';
+  const watchSheet = () => {
+    const on = !!sheetEl?.open;
+    sheetTab = on ? SHEET_TAB[sheetEl.dataset.page] || '' : '';
+    document.body.classList.toggle('sm-sheet', on);
+    if (on && open) show('');
+    place();
+  };
+  if (sheetEl) {
+    new MutationObserver(watchSheet).observe(sheetEl, { attributes: true, attributeFilter: ['open', 'data-page'] });
+    sheetEl.addEventListener('click', (e) => {
+      if (e.target !== sheetEl) return;
+      const hit = [...root.querySelectorAll('.sm-tab, .sm-icons button')].find((b) => { const r = b.getBoundingClientRect(); return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom; });
+      if (!hit) return;
+      // (The sheet may have closed itself already, so the page it was showing is read from the sheet.)
+      const same = hit.dataset.t && hit.dataset.t === SHEET_TAB[sheetEl.dataset.page];
+      if (sheetEl.open) sheetEl.close();
+      if (!same) setTimeout(() => hit.click(), 0);
+    });
+  }
   function place() {
-    const t = tabs.find((x) => x.dataset.t === open);
-    if (!t) { ind.style.opacity = '0'; return; }
+    const t = tabs.find((x) => x.dataset.t === (open || sheetTab));
+    if (!t) { ind.style.opacity = '0'; for (const x of tabs) x.classList.remove('is-on'); return; }
     const s = t.querySelector('span'), base = t.parentElement.getBoundingClientRect(), r = s.getBoundingClientRect();
     ind.style.opacity = '1';
+    for (const x of tabs) x.classList.toggle('is-on', x === t);
     ind.style.width = `${r.width}px`;
     ind.style.transform = `translateX(${r.left - base.left}px)`;
   }
@@ -159,6 +184,7 @@ export function slowMenu({ go, vehicle, setVehicle, person, setPerson, sync, not
     open = name;
     root.classList.toggle('is-open', !!name);
     document.body.classList.toggle('sm-open', !!name);
+    for (const t of tabs) t.classList.toggle('is-on', t.dataset.t === (name || sheetTab));
     for (const t of tabs) if (t.hasAttribute('aria-selected')) t.setAttribute('aria-selected', String(t.dataset.t === name));
     for (const p of panels) p.hidden = p.dataset.p !== name;
     if (name === 'vehicle') { showVehicle(); showPerson(); }

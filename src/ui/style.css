@@ -2774,7 +2774,7 @@ body:not(.has-touch).hud-idle .sm:not(.is-open) .sm-row { opacity: 0; pointer-ev
 .sm-tab { appearance: none; border: 0; background: none; cursor: pointer; height: 100%; padding: 0 18px; font: 300 13.5px var(--sm-mono); letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap;
   color: rgba(243, 245, 246, 0.72); text-shadow: 0 0 10px rgba(0,0,0,0.55), 0 1px 2px rgba(0,0,0,0.35); transition: color 0.2s; }
 .sm-tab:hover, .sm-tab:focus-visible { color: var(--sm-ink); }
-.sm-tab[aria-selected="true"] { color: var(--sm-ink); font-weight: 400; }
+.sm-tab[aria-selected="true"], .sm-tab.is-on { color: var(--sm-ink); font-weight: 400; }
 .sm-ind { position: absolute; left: 0; bottom: 13px; width: 0; height: 2px; border-radius: 2px; background: var(--sm-ink); box-shadow: 0 0 10px rgba(255,255,255,0.6); opacity: 0; pointer-events: none;
   transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), width 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.25s; }
 .sm-icons { position: absolute; right: calc(16px + var(--safe-r)); top: 0; bottom: var(--safe-b); display: flex; align-items: center; gap: 2px; }
@@ -2898,3 +2898,86 @@ body:not(.has-touch) .mo-edge { box-shadow: inset 0 0 220px rgba(214, 224, 232, 
 @keyframes edge-breathe-white { 50% { box-shadow: inset 0 0 260px rgba(214, 224, 232, 0.32), inset 0 0 110px rgba(232, 238, 242, 0.22), inset 0 0 30px rgba(255, 255, 255, 0.26); } }
 body:not(.has-touch) .mo-act i { background: rgba(10, 13, 16, 0.55); box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.7); }
 body:not(.has-touch) .mo-bar b { background: linear-gradient(90deg, rgba(255,255,255,0.35), rgba(255,255,255,0.75) 25%, #ffffff 50%, rgba(255,255,255,0.75) 75%, rgba(255,255,255,0.35)) 0 0 / 200% 100%; }
+
+/* ---------- Map, Journey, Learn and Together in the menu's floating panel (computers, while driving) ----------
+   The same smoked glass, monospace and white choices as Settings, floating above the menu row, which
+   stays in view to move between them. Each page keeps its own content and keys. */
+body:not(.has-touch):not(.pre-start) #sheet[data-page] {
+  --sm-ink: #f3f5f6; --sm-ink-2: rgba(243, 245, 246, 0.72); --sm-ink-3: rgba(243, 245, 246, 0.46); --sm-on-ink: #13181b;
+  --sm-chip: rgba(255, 255, 255, 0.06); --sm-well: rgba(0, 0, 0, 0.24); --sm-hair: rgba(255, 255, 255, 0.08);
+  --sm-mono: 'DM Mono', ui-monospace, 'SF Mono', Menlo, monospace; --ink: #f3f5f6; --ink-2: rgba(243, 245, 246, 0.72); --ink-3: rgba(243, 245, 246, 0.46);
+  position: fixed; inset: auto auto calc(64px + var(--safe-b)) 50%; margin: 0; transform: translateX(-50%);
+  width: min(1180px, calc(100vw - 40px)); height: min(calc(100dvh - 100px), 800px); max-width: none; max-height: none;
+  border: 0; border-radius: 22px; overflow: hidden; color: var(--sm-ink); font-family: var(--sm-mono);
+  background: rgba(16, 20, 24, 0.5); -webkit-backdrop-filter: blur(34px) saturate(1.35); backdrop-filter: blur(34px) saturate(1.35);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.12), inset 0 0 0 1px rgba(255, 255, 255, 0.07); }
+body:not(.has-touch):not(.pre-start) #sheet[open] { grid-template-rows: auto minmax(0, 1fr); animation: sm-rise 0.36s cubic-bezier(0.2, 0.8, 0.2, 1); }
+@keyframes sm-rise { from { opacity: 0; transform: translateX(-50%) translateY(14px) scale(0.985); } }
+/* Every word in the panel in the menu's monospace, no heavier than it comes */
+body:not(.has-touch):not(.pre-start) #sheet[data-page] :is(h1, h2, h3, h4, h5, p, span, b, strong, em, small, li, dt, dd, label, button, input, textarea, select, a, output, div, td, th) { font-family: var(--sm-mono) !important; }
+body:not(.has-touch):not(.pre-start) #sheet[data-page] :is(b, strong, h3, h4, button) { font-weight: 400 !important; }
+/* The head: the page's name and a close button; the menu row below does the moving between pages */
+body:not(.has-touch):not(.pre-start) #sheet .sheet-head { padding: 22px 28px 6px; justify-content: flex-start; }
+body:not(.has-touch):not(.pre-start) #sheet :is(.sheet-brand, .sheet-tabs), body:not(.has-touch):not(.pre-start) #sheet .sheet-foot { display: none !important; }
+body:not(.has-touch):not(.pre-start) #sheet .sheet-head::before { font: 400 11.5px var(--sm-mono); letter-spacing: 0.18em; text-transform: uppercase; color: var(--sm-ink-2); }
+body:not(.has-touch):not(.pre-start) #sheet[data-page='map'] .sheet-head::before { content: 'Map'; }
+body:not(.has-touch):not(.pre-start) #sheet[data-page='notebook'] .sheet-head::before { content: 'Journey'; }
+body:not(.has-touch):not(.pre-start) #sheet[data-page='learn'] .sheet-head::before { content: 'Learn'; }
+body:not(.has-touch):not(.pre-start) #sheet[data-page='together'] .sheet-head::before { content: 'Together'; }
+body:not(.has-touch):not(.pre-start) #sheet .sheet-close { top: 14px; right: 14px; width: 32px; height: 32px; border-radius: 10px; background: var(--sm-chip); box-shadow: inset 0 0 0 1px var(--sm-hair); color: var(--sm-ink-2); }
+body:not(.has-touch):not(.pre-start) #sheet .sheet-close:hover { background: rgba(255, 255, 255, 0.12); color: var(--sm-ink); }
+body:not(.has-touch):not(.pre-start) #sheet .sheet-close svg { width: 15px; height: 15px; }
+/* The page */
+body:not(.has-touch):not(.pre-start) #sheet .sheet-page, body:not(.has-touch):not(.pre-start) #sheet :is(#journey, #notebook, #learn, #settings, #together).sheet-page { width: 100%; padding: 14px 28px 26px; }
+body:not(.has-touch):not(.pre-start) #sheet #map.sheet-page { padding: 12px 22px 22px; }
+body:not(.has-touch):not(.pre-start) :is(#notebook, #learn):not([hidden]), body:not(.has-touch):not(.pre-start) #journey:not([hidden]) .jr { grid-template-columns: 168px minmax(0, 1fr) 280px; column-gap: 24px; }
+/* The section rail: as Settings' */
+body:not(.has-touch):not(.pre-start) :is(#notebook, #learn) > .seg-tabs, body:not(.has-touch):not(.pre-start) .jr-rail { gap: 2px; padding-right: 16px; box-shadow: 1px 0 0 var(--sm-hair); }
+body:not(.has-touch):not(.pre-start) :is(#notebook, #learn) > .seg-tabs .tab, body:not(.has-touch):not(.pre-start) .jr-rail button {
+  height: 40px; padding: 0 14px; border-radius: 10px; gap: 10px; font: 400 12px var(--sm-mono) !important; letter-spacing: 0.16em; text-transform: uppercase; color: var(--sm-ink-3); box-shadow: none; }
+body:not(.has-touch):not(.pre-start) :is(#notebook, #learn) > .seg-tabs .tab:hover, body:not(.has-touch):not(.pre-start) .jr-rail button:hover { color: var(--sm-ink-2); }
+body:not(.has-touch):not(.pre-start) :is(#notebook, #learn) > .seg-tabs .tab.is-on, body:not(.has-touch):not(.pre-start) .jr-rail button.is-on { color: var(--sm-ink); background: rgba(255, 255, 255, 0.08); box-shadow: none; }
+body:not(.has-touch):not(.pre-start) :is(#notebook, #learn) > .seg-tabs svg, body:not(.has-touch):not(.pre-start) .jr-rail svg { display: none; }
+body:not(.has-touch):not(.pre-start) #notebook .tab span[id^='nb-n-'] { font: 300 11px var(--sm-mono) !important; letter-spacing: 0.04em; color: var(--sm-ink-3); }
+/* Cards: one quiet glass tile each */
+body:not(.has-touch):not(.pre-start) #sheet :is(.jr-hero, .jr-grid > div, .jr-card, .tg-hero, .tg-name, .tg-room, .tg-joinform, .stamps, .challenge-card, .page-note, .set-note, .sightings li),
+body:not(.has-touch):not(.pre-start) #learn > .tab-body {
+  background: var(--sm-chip); border: 0; border-radius: 14px; box-shadow: inset 0 0 0 1px var(--sm-hair); }
+body:not(.has-touch):not(.pre-start) #sheet :is(.jr-grid, .jr-mid) { gap: 8px; }
+/* Words */
+body:not(.has-touch):not(.pre-start) #sheet .sheet-page :is(h3, h4, .tg-title, .sn-title) { font-size: 17px !important; line-height: 1.35; letter-spacing: 0.02em; text-transform: none; color: var(--sm-ink); }
+body:not(.has-touch):not(.pre-start) #sheet .sheet-page :is(.jr-k, .sn-kick, .jr-grid span, .jr-hero span) { font-size: 10.5px !important; font-weight: 400 !important; letter-spacing: 0.18em; text-transform: uppercase; color: var(--sm-ink-3); }
+body:not(.has-touch):not(.pre-start) #sheet .sheet-page p { font-size: 12.5px; line-height: 1.65; font-weight: 300; color: var(--sm-ink-2); }
+body:not(.has-touch):not(.pre-start) #sheet .sheet-page :is(.jr-grid b, .jr-hero b, .sn-three b) { font-size: 26px !important; font-weight: 300 !important; letter-spacing: 0; color: var(--sm-ink); }
+body:not(.has-touch):not(.pre-start) #learn .learn-entry + .learn-entry { border-top-color: var(--sm-hair); }
+/* Buttons and fields: as Settings' */
+body:not(.has-touch):not(.pre-start) #sheet .sheet-page .btn { height: 38px; padding: 0 16px; border: 0; border-radius: 10px; font: 400 11.5px var(--sm-mono) !important; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--sm-ink); background: var(--sm-chip); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12); }
+body:not(.has-touch):not(.pre-start) #sheet .sheet-page .btn:hover { background: rgba(255, 255, 255, 0.12); }
+body:not(.has-touch):not(.pre-start) #sheet .sheet-page .btn-primary { color: var(--sm-on-ink); background: var(--sm-ink); box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25); }
+body:not(.has-touch):not(.pre-start) #sheet .sheet-page .btn-primary:hover { background: #ffffff; }
+body:not(.has-touch):not(.pre-start) #sheet .sheet-page .btn.is-sel { outline: 2px solid rgba(243, 245, 246, 0.85); outline-offset: 2px; }
+body:not(.has-touch):not(.pre-start) #sheet .sheet-page :is(input[type='text'], input:not([type]), textarea) { height: 38px; padding: 0 14px; border: 0; border-radius: 10px; font: 400 13px var(--sm-mono) !important; letter-spacing: 0.06em;
+  color: var(--sm-ink); background: var(--sm-well); box-shadow: inset 0 0 0 1px var(--sm-hair); }
+body:not(.has-touch):not(.pre-start) #sheet .sheet-page :is(input, textarea):focus { outline: none; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.45); }
+/* The map: a rounded window onto the island, its tools as chips */
+body:not(.has-touch):not(.pre-start) #sheet .map-wrap { border-radius: 16px; overflow: hidden; box-shadow: inset 0 0 0 1px var(--sm-hair); }
+body:not(.has-touch):not(.pre-start) #sheet .map-tools { border-radius: 12px; background: rgba(16, 20, 24, 0.6); box-shadow: inset 0 0 0 1px var(--sm-hair); }
+body:not(.has-touch):not(.pre-start) #sheet .map-tools button { border-radius: 9px; color: var(--sm-ink-2); }
+body:not(.has-touch):not(.pre-start) #sheet .map-tools button:hover { color: var(--sm-ink); background: rgba(255, 255, 255, 0.1); }
+body:not(.has-touch):not(.pre-start) #sheet .map-pin .label { background: rgba(16, 20, 24, 0.7); border-radius: 6px; }
+/* The row stays in view under the panel, with the open page marked; the line steps aside */
+body:not(.has-touch).sm-sheet .sm-row { opacity: 1 !important; pointer-events: auto; }
+body:not(.has-touch).sm-sheet .qh, body:not(.has-touch).sm-sheet .qh-scrim { opacity: 0; pointer-events: none; }
+/* Darker glass for pages you read; short pages as tall as they need, the map and the long ones full height */
+body:not(.has-touch):not(.pre-start) #sheet[data-page] { background: rgba(14, 17, 21, 0.66); }
+body:not(.has-touch):not(.pre-start) #sheet:is([data-page='together'], [data-page='notebook']) { height: auto; max-height: min(calc(100dvh - 100px), 800px); }
+body:not(.has-touch):not(.pre-start) :is(#notebook, #learn):not([hidden]), body:not(.has-touch):not(.pre-start) #journey:not([hidden]) .jr { grid-template-columns: 196px minmax(0, 1fr) 280px; }
+body:not(.has-touch):not(.pre-start) :is(#notebook, #learn) > .seg-tabs .tab, body:not(.has-touch):not(.pre-start) .jr-rail button { height: auto; min-height: 40px; padding: 10px 14px; line-height: 1.35; white-space: normal; }
+body:not(.has-touch):not(.pre-start) #sheet .sheet-page p { color: rgba(243, 245, 246, 0.78); }
+/* Tonight's three numbers as small tiles that fit */
+body:not(.has-touch):not(.pre-start) #sheet .sn-three { gap: 6px; }
+body:not(.has-touch):not(.pre-start) #sheet .sn-three > div { padding: 10px 10px 12px; border-radius: 10px; background: var(--sm-well); box-shadow: inset 0 0 0 1px var(--sm-hair); }
+body:not(.has-touch):not(.pre-start) #sheet .sheet-page .sn-three b { font-size: 17px !important; white-space: nowrap; }
+/* The Kp scale in Learn: active in white, as everywhere else in the menu */
+body:not(.has-touch):not(.pre-start) #learn-kp svg [fill='#66dfb0'] { fill: #f3f5f6; }

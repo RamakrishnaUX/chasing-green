@@ -41,7 +41,12 @@ export class Sheet {
     });
     $('sheet-close').addEventListener('click', () => this.close());
     // Tap the dimmed area around the sheet to close it.
-    this.dialog.addEventListener('click', (e) => { if (e.target === this.dialog) this.close(); });
+    // (Only a tap outside the sheet's own box: where it floats as a panel, its padding is not "around".)
+    this.dialog.addEventListener('click', (e) => {
+      if (e.target !== this.dialog) return;
+      const r = this.dialog.getBoundingClientRect();
+      if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) this.close();
+    });
     this.dialog.addEventListener('close', () => { this.current = null; this.onClose?.(); });
   }
 

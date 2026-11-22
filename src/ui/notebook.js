@@ -72,7 +72,7 @@ export class Notebook {
     const n = store.data.sightings.length, lights = store.data.sightings.filter((x) => x.type !== 'Sky' && x.type !== 'Night sky').length;
     const k = (t) => `<p class="sn-kick">${t}</p>`;
     el.innerHTML = name === 'stamps'
-      ? `${k('Places')}<h4 class="sn-title">${got} of ${LANDMARKS.length} stamped</h4><i class="jr-bar"><b style="width:${(got / LANDMARKS.length * 100).toFixed(1)}%"></b></i><p class="sn-text">Drive up to a place to stamp it. Stamped places turn green here and on the map.</p>`
+      ? `${k('Places')}<h4 class="sn-title">${got} of ${LANDMARKS.length} stamped</h4><i class="jr-bar"><b style="width:${(got / LANDMARKS.length * 100).toFixed(1)}%"></b></i><p class="sn-text">Drive up to a place to stamp it. Stamped places light up here and on the map.</p>`
       : name === 'sightings'
         ? `${k('Sightings')}<h4 class="sn-title">${lights} aurora · ${n} postcards</h4><p class="sn-text">When the radio says the lights are out, find a dark spot and look up for a few seconds. Each sighting becomes a postcard.</p>`
         : `${k('Today')}<h4 class="sn-title">A new challenge every day</h4><p class="sn-text">Finish it for a stamp in your notebook and the Daily Driver badge.</p>`;
