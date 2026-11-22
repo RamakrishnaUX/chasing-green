@@ -513,4 +513,4 @@ export class Driver {
   }
 }
 // Shared with the skydiver, who is posed by hand the same way.
-export { setWorldQuat, turnWorld, aim, reach, frameQuat, wpos, wquat, CURL, THUMB };
+export { setWorldQuat, turnWorld, aim, reach, frameQuat, twistAbout, wpos, wquat, CURL, THUMB };

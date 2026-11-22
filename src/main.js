@@ -2332,13 +2332,16 @@ function startRefuel() {
   mode = 'walk'; walkTilt = false; walker.enter(jeep); look.walkYaw = 0;
   refuel.scene ||= new RefuelScene(scene);
   refuel.look = camera.position.clone().add(camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(8));
-  refuel.scene.begin({
+  const ok = refuel.scene.begin({
     car: jeep, walker, face: fn.face, stations, ground: (x, z) => walker.groundAt(x, z),
     // By hand it pumps at about half the drive-up rate (about six seconds from empty), so the tank
     // can be seen filling.
     onFill: (on) => { fuel.filling = on; fuel.rate = on ? 0.55 : 1; if (on) { fuelStart = fuel.level(jeep.kind); haptics.play('medium', 0); } },
     onDone: () => { refuel.active = false; document.body.classList.remove('refuelling'); getIn(); },
   });
+  // Parked so close to the island that he could not stand beside the pump: back in, before any
+  // of it is drawn.
+  if (!ok) { walker.exit(); mode = 'chase'; hud.toast('No room to fill up from here. Pull up beside the pump with a little space.', { seconds: 3, priority: 2 }); return true; }
   refuel.active = true;
   document.body.classList.add('refuelling');
   syncLookButton();
@@ -2381,6 +2384,7 @@ function towToStation() {
   hud.toast(`Towed to the fuel station at ${n.station.name}. ${isTouch ? 'Tap' : 'Press F or click'} Refuel to fill up.`, { seconds: 5, priority: 3 });
 }
 function fuelTick(dt) {
+  if (!refuel.active) refuel.scene?.settle(dt); // the hose swinging back to rest after he got in
   const kind = jeep.kind, driving = mode !== 'walk' && ride === 'car';
   let lvl = fuel.level(kind);
   // Pumping: stop if the car moves off, finish when the tank is full.

@@ -4,6 +4,7 @@ import { toWorld } from './geo.js';
 import { WashBrushes } from './washbrush.js';
 import { roadPaths, heightAt, waterLevelAt, coastAt, roadDistAt, bridges } from './terrain.js';
 import { archMats, Batch, frame as aframe, SKIP } from './archkit.js';
+import { Hose, hoseTube } from './hose.js';
 
 // Fuel stations on the Ring Road, one by each of six towns, so a full tank always reaches the next.
 // Each is a forecourt beside the road: a lit roof over two pump islands, a small shop behind and a
@@ -235,6 +236,54 @@ function lit(t, base, double = false) {
   return m;
 }
 
+// The hose: where it leaves the pump and which way (face frame), and how much hangs at rest.
+export const HOSE_ROOT = new THREE.Vector3(0.01, 1.5, 0.12), HOSE_DIR = new THREE.Vector3(0.4, -0.92, 0).normalize();
+export const HOSE_REST = 2.2;
+const _hp = new THREE.Vector3();
+// Keep a point (face frame: x out from the pump face, y up from the forecourt, z along the pump; r
+// its radius) out of the pump and off the island, changed in place; true if it lies on something.
+// face: for the body's extent along the pump (it is not centred on the face); null at rest.
+function faceCollide(p, r, face) {
+  let on = false;
+  // Along the pump: the body spans w from -0.49 to 0.49 and the face sits at w = face.w; z runs
+  // along the face's k, which is the station's w or its opposite (face.kw). Across, the island's
+  // centre line is at x = -0.31: the body runs to -0.03 on this side and -0.59 on the other, the
+  // plinth to 0.08 and -0.70, the island to 0.29 and -0.91.
+  const w = face ? face.w + p.z * face.kw : 0.3 + p.z;
+  const out = (lo, hi) => (p.x - lo < hi - p.x ? lo : hi); // the nearer side to push it to
+  if (Math.abs(w) < 0.49 + r && p.y > 0.36 - r && p.y < 2.18 + r) {
+    const crown = p.y > 1.82 - r, lo = (crown ? -0.66 : -0.59) - r, hi = (crown ? 0.04 : -0.03) + r;
+    if (p.x > lo && p.x < hi) p.x = out(lo, hi);
+  }
+  // The holster, a box standing out of the body under the nozzle.
+  if (Math.abs(w - 0.3) < 0.075 + r && p.y > 0.84 - r && p.y < 1.1 + r && p.x > -0.04 && p.x < r) p.x = r;
+  // The plinth, up to 0.36.
+  if (Math.abs(w) < 0.62 + r && p.y < 0.36 + r && p.x > -0.7 - r && p.x < 0.08 + r) {
+    const side = out(-0.7 - r, 0.08 + r);
+    if (0.36 + r - p.y < Math.abs(side - p.x)) { p.y = 0.36 + r; on = true; } else p.x = side;
+  }
+  // The island: 0.25 high, 7.6 long.
+  if (Math.abs(w) < 3.82 && p.y < 0.25 + r && p.x > -0.91 - r && p.x < 0.29 + r) {
+    const side = out(-0.91 - r, 0.29 + r);
+    if (p.x > -0.91 && p.x < 0.29 && 0.25 + r - p.y < Math.abs(side - p.x)) { p.y = 0.25 + r; on = true; } else p.x = side;
+  }
+  return on;
+}
+// The hose at rest, settled once (all faces alike in their own frames): from the pump down in a
+// loop to the holstered nozzle's tail, which it leaves backward (up, out of the top of the nozzle).
+function restHose(rest) {
+  const tail = NOZZLE_TAIL.clone().applyMatrix4(rest), back = new THREE.Vector3(0, 0, -1).transformDirection(rest);
+  const h = new Hose(HOSE_PTS, HOSE_REST);
+  const a = HOSE_ROOT, ad = HOSE_DIR;
+  h.init([a.clone(), a.clone().addScaledVector(ad, 0.3), new THREE.Vector3(0.18, 0.62, a.z * 0.6), new THREE.Vector3(0.22, 0.42, a.z * 0.3), new THREE.Vector3(0.24, 0.62, 0), tail.clone().addScaledVector(back, 0.2), tail.clone()]);
+  const col = (p, r) => faceCollide(p, r, null);
+  for (let i = 0; i < 300; i++) h.step(1 / 60, a, ad, tail, back, col);
+  // Settled: no velocity left.
+  for (let i = 0; i < h.n; i++) h.o[i].copy(h.p[i]);
+  return h.p.map((p) => p.clone());
+}
+export const HOSE_PTS = 36;
+
 export class Stations {
   constructor(scene, sites, { obstacles = null, low = false } = {}) {
     this.list = sites;
@@ -449,9 +498,12 @@ export class Stations {
   }
 
   // Each pump face's nozzle in its holster and its hose hanging in a loop beneath, as instances.
-  // A face's frame: n out toward its lane, y up, k = n x y along the pump. The hose leaves the
-  // pump just above the holster and hangs straight down in the n-y plane, so every face's is the
-  // same shape.
+  // A face's frame: n out toward its lane, y up, k = n x y along the pump. The hose leaves the pump
+  // above the card reader and hangs in a loop down to the nozzle's tail; its shape is the hose
+  // simulation (hose.js) settled with the nozzle in the holster, the same shape refuel.js starts
+  // the hose in use from, so lifting a nozzle out changes nothing until the hose moves. The pump
+  // keeps the rest of the hose wound in (a spring retractor, as real ones have): what hangs at rest
+  // is HOSE_REST, and more pays out as the nozzle is carried away (refuel.js).
   buildNozzles(scene) {
     const N = this.faces.length;
     if (!N) return;
@@ -459,14 +511,16 @@ export class Stations {
     this.nozzleGeo = nozzleGeometry();
     this.hoseMat = new THREE.MeshStandardMaterial({ color: 0x111416, roughness: 0.55, metalness: 0.1 });
     this.nozzleMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.4, metalness: 0.35 });
-    // The holstered nozzle in the face frame: spout down into the holster, grip out and up.
-    const zN = new THREE.Vector3(-0.3, -0.95, 0).normalize(), yN = new THREE.Vector3(0.95, -0.3, 0).normalize(), xN = new THREE.Vector3().crossVectors(yN, zN);
-    const rest = new THREE.Matrix4().makeBasis(xN, yN, zN).setPosition(0.07, 0.98, 0);
-    const tail = NOZZLE_TAIL.clone().applyMatrix4(rest);
+    // The holstered nozzle in the face frame: spout down into the holster, its top (where the hose
+    // joins) against the pump and its handle standing out toward the lane, so a right hand takes it
+    // palm in, thumb up, as from a real pump.
+    const zN = new THREE.Vector3(-0.3, -0.95, 0).normalize(), yN = new THREE.Vector3(-0.95, 0.3, 0).normalize(), xN = new THREE.Vector3().crossVectors(yN, zN);
+    const rest = new THREE.Matrix4().makeBasis(xN, yN, zN).setPosition(0.085, 0.98, 0);
     this.restNozzle = rest;
-    this.hoseRoot = new THREE.Vector3(0.01, 1.42, 0);
-    const curve = new THREE.CatmullRomCurve3([this.hoseRoot.clone(), new THREE.Vector3(0.08, 1.12, 0), new THREE.Vector3(0.24, 0.6, 0), new THREE.Vector3(0.3, 0.42, 0), new THREE.Vector3(0.28, 0.62, 0), tail]);
-    const hoseGeo = new THREE.TubeGeometry(curve, 28, 0.016, 6, false);
+    this.hoseRoot = HOSE_ROOT.clone();
+    this.hoseDir = HOSE_DIR.clone();
+    this.hoseRest = restHose(rest); // the settled points, face frame
+    const hoseGeo = hoseTube(this.hoseRest, null);
     this.nozzles = new THREE.InstancedMesh(this.nozzleGeo, this.nozzleMat, N);
     this.hoses = new THREE.InstancedMesh(hoseGeo, this.hoseMat, N);
     for (const m of [this.nozzles, this.hoses]) { m.castShadow = true; m.receiveShadow = true; m.frustumCulled = false; scene.add(m); }
@@ -475,14 +529,26 @@ export class Stations {
       const n = new THREE.Vector3(f.n.x, 0, f.n.z), k = new THREE.Vector3().crossVectors(n, up);
       const o = stationPoint(f.s, f.u + f.side * 0.31, f.w);
       F.makeBasis(n, up, k).setPosition(o.x, f.s.y, o.z);
-      f.i = i; f.frame = F.clone();
+      f.i = i; f.frame = F.clone(); f.frameInv = F.clone().invert();
+      f.kw = Math.sign(k.x * f.s.fx + k.z * f.s.fz) || 1;
       f.root = this.hoseRoot.clone().applyMatrix4(F);
+      f.rootDir = this.hoseDir.clone().transformDirection(F);
       f.nozzle = M.multiplyMatrices(F, rest).clone();
       const st = stationPoint(f.s, f.u + f.side * 1.15, f.w);
       f.stand = { x: st.x, z: st.z, heading: Math.atan2(-n.x, -n.z) };
       this.hoses.setMatrixAt(i, F); this.nozzles.setMatrixAt(i, f.nozzle);
     });
     this.hoses.instanceMatrix.needsUpdate = this.nozzles.instanceMatrix.needsUpdate = true;
+  }
+  // The hose's resting points for a face, in world space (fresh vectors).
+  hoseRestWorld(face) { return this.hoseRest.map((p) => p.clone().applyMatrix4(face.frame)); }
+  // Push a point of the hose (world, radius r; changed in place) out of a face's pump (its body,
+  // plinth and holster) and off its island's kerb. True if it came to rest on top of something.
+  hoseCollide(face, p, r) {
+    _hp.copy(p).applyMatrix4(face.frameInv);
+    const on = faceCollide(_hp, r, face);
+    p.copy(_hp.applyMatrix4(face.frame));
+    return on;
   }
   // Lift a face's nozzle and hose out of the scene (in use), or put them back.
   holster(face, on) {
@@ -501,6 +567,12 @@ export class Stations {
       for (const [cw, cr] of [[3.1, 0.17], [-3.1, 0.17], [3.55, 0.1], [-3.55, 0.1], [2.2, 0.21], [1.55, 0.15]]) if (Math.hypot(u - I, w - cw) < cr + r) return true;
     }
     return false;
+  }
+  // Whether a person of radius r at (x, z) would be standing on one of station s's pump islands
+  // (a raised kerb he does not step up on: to him it is solid, as when walking about).
+  onIsland(s, x, z, r = 0) {
+    const dx = x - s.x, dz = z - s.z, u = dx * s.ax + dz * s.az, w = dx * s.fx + dz * s.fz;
+    return ISLANDS.some((I) => Math.abs(u - I) < 0.6 + r && Math.abs(w) < 3.8 + r);
   }
   // Push a person of radius r at pos (its x and z changed in place) out of station s's solid parts
   // as solidAt sees them: off the pump's box by its nearest side, off a post or column radially.
