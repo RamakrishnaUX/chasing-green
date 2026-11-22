@@ -306,54 +306,194 @@ export class SnowFall {
 
 // ---------- Rain on the windscreen ----------
 // Seen from the driver's seat: drops land on the glass and gather, run down it when slow and are
-// pushed up and aside by the wind at speed, and the wipers sweep them away. Drawn on a canvas
-// over the top of the view, faded out toward the dashboard.
+// pushed up and aside by the wind at speed, and the wipers sweep them away. They are drawn in the
+// world, on the windscreen itself: the car's forward-facing glass ahead of the eye is found once
+// per car (glass()), a plane fitted to it and its outline taken in that plane, and each drop is a
+// small lens lying on the glass. So the dashboard, the wheel and his hands hide them as they hide
+// the glass, and no drop ever shows on anything inside the car.
+const MAX_DROPS = 260;
+const PX = 0.0013; // the old screen-space tuning, one pixel of it in metres on the glass
 export class Windscreen {
-  constructor(canvas) {
-    this.c = canvas; this.g = canvas.getContext('2d'); this.drops = []; this.wipe = 0; this.carry = 0; this.on = false;
+  constructor(scene) {
+    this.drops = []; this.wipe = 0; this.carry = 0; this.model = null; this.pts = null; this.plane = null;
+    // A quad per drop: its corner (position) and, the same at all four, where it is in the glass
+    // plane and how big (iDrop: x, y in metres, radius).
+    const g = new THREE.BufferGeometry(), corner = new Float32Array(MAX_DROPS * 12), index = [];
+    for (let i = 0; i < MAX_DROPS; i++) {
+      corner.set([-1, -1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0], i * 12);
+      index.push(i * 4, i * 4 + 1, i * 4 + 2, i * 4, i * 4 + 2, i * 4 + 3);
+    }
+    g.setAttribute('position', new THREE.BufferAttribute(corner, 3));
+    g.setIndex(index);
+    this.iDrop = new THREE.BufferAttribute(new Float32Array(MAX_DROPS * 12), 3).setUsage(THREE.DynamicDrawUsage);
+    g.setAttribute('iDrop', this.iDrop);
+    g.setDrawRange(0, 0);
+    this.uniforms = {
+      uBody: { value: new THREE.Matrix4() }, uO: { value: new THREE.Vector3() }, uU: { value: new THREE.Vector3(1, 0, 0) },
+      uV: { value: new THREE.Vector3(0, -1, 0) }, uN: { value: new THREE.Vector3(0, 0, -1) }, uStretch: { value: 0 }, uLight: { value: 1 },
+    };
+    this.mesh = new THREE.Mesh(g, new THREE.ShaderMaterial({
+      uniforms: this.uniforms,
+      vertexShader: /* glsl */ `
+        attribute vec3 iDrop; uniform mat4 uBody; uniform vec3 uO, uU, uV, uN; uniform float uStretch; varying vec2 vC;
+        void main() {
+          vC = position.xy;
+          // On the glass, a millimetre or two in front of it (on the eye's side) so it is never
+          // lost in it; drawn out sideways as the airflow pushes it.
+          vec3 p = uO + uU * (iDrop.x + position.x * iDrop.z * (1.0 + uStretch * 0.3)) + uV * (iDrop.y - position.y * iDrop.z * (1.0 - uStretch * 0.2)) + uN * 0.002;
+          gl_Position = projectionMatrix * viewMatrix * uBody * vec4(p, 1.0);
+        }`,
+      fragmentShader: /* glsl */ `
+        uniform float uLight; varying vec2 vC;
+        void main() {
+          float d = length(vC);
+          if (d > 1.0) discard;
+          // A bead: a bright fleck up and to the side where it catches the light, a clear middle and
+          // a darker rim, fading out at its edge.
+          float t = clamp(length(vC - vec2(-0.3, 0.35) * (1.0 - d)), 0.0, 1.0);
+          vec4 c = mix(vec4(1.0, 1.0, 1.0, 0.55), vec4(0.82, 0.88, 0.92, 0.18), smoothstep(0.0, 0.35, t));
+          c = mix(c, vec4(0.08, 0.11, 0.13, 0.28), smoothstep(0.35, 0.85, t));
+          c.a *= 1.0 - smoothstep(0.85, 1.0, d);
+          c.rgb *= mix(0.25, 1.0, uLight);
+          gl_FragColor = vec4(c.rgb * c.rgb, c.a); // sRGB-ish tones to linear
+          #include <colorspace_fragment>
+        }`,
+      transparent: true, depthWrite: false, depthTest: true, toneMapped: false, side: THREE.DoubleSide,
+    }));
+    this.mesh.frustumCulled = false; this.mesh.renderOrder = 3; this.mesh.visible = false; this.mesh.matrixAutoUpdate = false; this.mesh.userData.noAO = true;
+    // The wiper blade, a dark strip sweeping over the glass.
+    this.blade = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.ShaderMaterial({
+      uniforms: { uBody: this.uniforms.uBody, uO: this.uniforms.uO, uU: this.uniforms.uU, uV: this.uniforms.uV, uN: this.uniforms.uN, uA: { value: new THREE.Vector4() } },
+      vertexShader: /* glsl */ `
+        uniform mat4 uBody; uniform vec3 uO, uU, uV, uN; uniform vec4 uA; // pivot x, y (glass plane), angle, length
+        void main() {
+          vec2 dir = vec2(cos(uA.z), -sin(uA.z)), side = vec2(-dir.y, dir.x);
+          vec2 q = uA.xy + dir * (position.x + 0.5) * uA.w + side * position.y * 0.012;
+          gl_Position = projectionMatrix * viewMatrix * uBody * vec4(uO + uU * q.x + uV * q.y + uN * 0.004, 1.0);
+        }`,
+      fragmentShader: 'void main(){ gl_FragColor = vec4(vec3(0.004), 0.9); }',
+      transparent: true, depthWrite: false, toneMapped: false, side: THREE.DoubleSide,
+    }));
+    this.blade.frustumCulled = false; this.blade.renderOrder = 3; this.blade.visible = false; this.blade.matrixAutoUpdate = false; this.blade.userData.noAO = true;
+    scene.add(this.mesh, this.blade);
   }
-  update(dt, rain, speed, show) {
-    const c = this.c, g = this.g;
-    const want = show && (rain > 0.02 || this.drops.length);
-    if (!want) { if (this.on) { g.clearRect(0, 0, c.width, c.height); this.on = false; c.hidden = true; this.drops.length = 0; } return; }
-    if (!this.on) { this.on = true; c.hidden = false; }
-    const W = (c.width = Math.round(c.clientWidth * Math.min(2, devicePixelRatio))), H = (c.height = Math.round(c.clientHeight * Math.min(2, devicePixelRatio)));
-    const k = W / 1400;
-    this.carry += rain * (70 + speed * 4) * dt;
-    for (; this.carry >= 1 && this.drops.length < 260; this.carry--) this.drops.push({ x: Math.random() * W, y: Math.random() * H * 0.75, r: (2 + Math.random() * 5) * k, t: 0 });
-    // Slow, they creep down; fast, the airflow drives them up and out toward the edges.
-    const up = Math.min(1, speed / 18);
+  // The windscreen of a car (body: its model group; eye: the cockpit eye in the body's frame): its
+  // forward-facing glass ahead of the eye, the plane through it and its outline in that plane.
+  // Cached per car.
+  glass(body, eye) {
+    if (this.model === body) return this;
+    this.model = body; this.pts = []; this.plane = null; this.drops.length = 0;
+    body.updateMatrixWorld(true);
+    const inv = new THREE.Matrix4().copy(body.matrixWorld).invert(), m = new THREE.Matrix4();
+    const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), n = new THREE.Vector3(), e1 = new THREE.Vector3(), e2 = new THREE.Vector3();
+    const N = new THREE.Vector3(), O = new THREE.Vector3(); let area = 0;
+    body.traverse((o) => {
+      if (!o.isMesh || ![].concat(o.material).some((x) => x?.userData?.glass)) return;
+      const pos = o.geometry.attributes.position, idx = o.geometry.index, tri = (idx ? idx.count : pos.count) / 3;
+      m.multiplyMatrices(inv, o.matrixWorld);
+      for (let t = 0; t < tri; t++) {
+        const i0 = idx ? idx.getX(t * 3) : t * 3, i1 = idx ? idx.getX(t * 3 + 1) : t * 3 + 1, i2 = idx ? idx.getX(t * 3 + 2) : t * 3 + 2;
+        a.fromBufferAttribute(pos, i0).applyMatrix4(m); b.fromBufferAttribute(pos, i1).applyMatrix4(m); c.fromBufferAttribute(pos, i2).applyMatrix4(m);
+        n.crossVectors(e1.subVectors(b, a), e2.subVectors(c, a));
+        const len = n.length(); if (len < 1e-7) continue;
+        // Facing forward or back (a windscreen leans back at most about 60 degrees), ahead of the
+        // eye, and not far below or above it (not a headlamp lens or a sunroof).
+        if (Math.abs(n.z) / len < 0.45) continue;
+        const cz = (a.z + b.z + c.z) / 3, cy = (a.y + b.y + c.y) / 3;
+        if (cz < eye[2] + 0.2 || cy < eye[1] - 0.75 || cy > eye[1] + 0.9) continue;
+        if (n.z > 0) n.negate(); // towards the eye
+        N.add(n); area += len; O.addScaledVector(a, len).addScaledVector(b, len).addScaledVector(c, len);
+        this.pts.push(a.clone(), b.clone(), c.clone());
+      }
+    });
+    if (!this.pts.length) return this;
+    // The plane: through the glass's middle, facing the eye; across it along the car's x, down it
+    // the other way. The outline is the glass's convex hull in that plane.
+    O.multiplyScalar(1 / (3 * area)); N.normalize();
+    const U = new THREE.Vector3(1, 0, 0).addScaledVector(N, -N.x).normalize(), V = new THREE.Vector3().crossVectors(N, U);
+    if (V.y > 0) V.negate();
+    const P = this.pts.map((p) => [_d0.subVectors(p, O).dot(U), _d0.dot(V)]);
+    P.sort((p, q) => p[0] - q[0] || p[1] - q[1]);
+    const cr = (o, p, q) => (p[0] - o[0]) * (q[1] - o[1]) - (p[1] - o[1]) * (q[0] - o[0]);
+    const L = [], H = [];
+    for (const p of P) { while (L.length >= 2 && cr(L[L.length - 2], L[L.length - 1], p) <= 0) L.pop(); L.push(p); }
+    for (let i = P.length - 1; i >= 0; i--) { const p = P[i]; while (H.length >= 2 && cr(H[H.length - 2], H[H.length - 1], p) <= 0) H.pop(); H.push(p); }
+    const hull = L.slice(0, -1).concat(H.slice(0, -1));
+    if (hull.length < 3) { this.pts = []; return this; }
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const [x, y] of hull) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+    this.plane = { O, U, V, N, hull, x0, y0, w: x1 - x0, h: y1 - y0 };
+    return this;
+  }
+  // The cabin, in the car's own frame (the body's parent): the windscreen's plane as a normal
+  // towards the driver and offset, into plane (a Vector4), and the height of his eye (returned).
+  // Inside is on his side of the plane and below that. Null if the car has no windscreen.
+  cabin(body, eye, plane) {
+    const G = this.glass(body, eye).plane;
+    if (!G) return null;
+    _d0.copy(G.N).transformDirection(body.matrix);
+    plane.set(_d0.x, _d0.y, _d0.z, -_d0.dot(_d1.copy(G.O).applyMatrix4(body.matrix)));
+    return _d1.set(eye[0], eye[1], eye[2]).applyMatrix4(body.matrix).y + 0.15;
+  }
+  // Is (x, y) in the glass plane on the glass?
+  on(x, y) {
+    const h = this.plane.hull;
+    for (let i = 0, j = h.length - 1; i < h.length; j = i++) if ((h[i][0] - h[j][0]) * (y - h[j][1]) - (h[i][1] - h[j][1]) * (x - h[j][0]) < 0) return false;
+    return true;
+  }
+  // view: { body, eye, light (0 at night to 1 by day) } for the car being driven.
+  update(dt, rain, speed, show, view) {
+    if (show && view) this.glass(view.body, view.eye);
+    const G = this.plane;
+    if (!show || !view || !G || (rain <= 0.02 && !this.drops.length)) {
+      this.mesh.visible = this.blade.visible = false;
+      if (!show) this.drops.length = 0;
+      return;
+    }
+    const U = this.uniforms;
+    view.body.updateMatrixWorld();
+    U.uBody.value.copy(view.body.matrixWorld); U.uO.value.copy(G.O); U.uU.value.copy(G.U); U.uV.value.copy(G.V); U.uN.value.copy(G.N);
+    U.uLight.value = view.light ?? 1;
+    // More land the harder it rains and the faster the car drives into it.
+    this.carry += rain * (70 + speed * 4) * Math.min(1.6, (G.w * G.h) / 0.6) * dt;
+    for (let tries = 0; this.carry >= 1 && this.drops.length < MAX_DROPS && tries < 400; tries++) {
+      const x = G.x0 + Math.random() * G.w, y = G.y0 + Math.random() * G.h;
+      if (!this.on(x, y)) continue;
+      this.carry--;
+      this.drops.push({ x, y, r: (1.4 + Math.random() * 3.4) * PX });
+    }
+    this.carry = Math.min(this.carry, 4);
+    // Slow, the bigger ones creep down; fast, the airflow drives them all up and out toward the
+    // sides.
+    const up = Math.min(1, speed / 18), cx = G.x0 + G.w / 2;
+    U.uStretch.value = up;
     for (const d of this.drops) {
-      d.t += dt;
-      if (d.r > 4.5 * k || up > 0.2) {
-        d.y += (d.r * (1 - up) * 14 - up * (40 + speed * 6) * k) * dt;
-        d.x += (d.x - W / 2) / W * up * 90 * k * dt;
+      if (d.r > 3.6 * PX || up > 0.2) {
+        d.y += (d.r * (1 - up) * 14 - up * (40 + speed * 6) * PX) * dt;
+        d.x += ((d.x - cx) / G.w) * up * 90 * PX * dt;
       }
     }
-    // The wipers: a sweep every so often, quicker in heavier rain, clearing what it passes.
+    // The wipers: a sweep every so often, quicker in heavier rain, clearing what it passes. They
+    // pivot under the middle of the glass and reach its top.
     this.wipe += dt * (0.4 + rain * 0.9);
+    const px = cx, py = G.y0 + G.h * 1.05, len = G.h;
     let blade = -1;
     if (this.wipe % 1 < 0.35) {
       const ph = (this.wipe % 1) / 0.35, ang = Math.PI * (ph < 0.5 ? ph * 2 : (1 - ph) * 2);
       blade = ang;
-      const px = W * 0.5, py = H * 1.05, len = H * 1.0;
-      this.drops = this.drops.filter((d) => { const a = Math.atan2(py - d.y, d.x - px); return Math.abs(a - (Math.PI - ang)) > 0.08 || Math.hypot(d.x - px, d.y - py) > len; });
+      this.drops = this.drops.filter((d) => Math.abs(Math.atan2(py - d.y, d.x - px) - (Math.PI - ang)) > 0.08 || Math.hypot(d.x - px, d.y - py) > len);
     }
-    this.drops = this.drops.filter((d) => d.y > -20 && d.y < H && d.x > -20 && d.x < W + 20);
-    g.clearRect(0, 0, W, H);
-    for (const d of this.drops) {
-      // A bead: a dark rim, a bright fleck where it catches the light.
-      const gr = g.createRadialGradient(d.x - d.r * 0.3, d.y - d.r * 0.35, d.r * 0.1, d.x, d.y, d.r);
-      gr.addColorStop(0, 'rgba(255,255,255,0.55)'); gr.addColorStop(0.35, 'rgba(210,225,235,0.18)'); gr.addColorStop(0.85, 'rgba(20,28,34,0.28)'); gr.addColorStop(1, 'rgba(20,28,34,0)');
-      g.fillStyle = gr; g.beginPath(); g.ellipse(d.x, d.y, d.r * (1 + up * 0.3), d.r * (1 - up * 0.2), 0, 0, Math.PI * 2); g.fill();
-    }
-    if (blade >= 0) {
-      const px = W * 0.5, py = H * 1.05, a = Math.PI - blade;
-      g.strokeStyle = 'rgba(8,10,12,0.85)'; g.lineWidth = 7 * k; g.lineCap = 'round';
-      g.beginPath(); g.moveTo(px, py); g.lineTo(px + Math.cos(a) * H * 1.0, py - Math.sin(a) * H * 1.0); g.stroke();
-    }
+    this.drops = this.drops.filter((d) => this.on(d.x, d.y));
+    const A = this.iDrop.array;
+    this.drops.forEach((d, i) => { for (let k = 0; k < 4; k++) { const o = (i * 4 + k) * 3; A[o] = d.x; A[o + 1] = d.y; A[o + 2] = d.r; } });
+    this.mesh.geometry.setDrawRange(0, this.drops.length * 6);
+    this.iDrop.needsUpdate = true;
+    this.mesh.visible = this.drops.length > 0;
+    this.blade.visible = blade >= 0;
+    if (blade >= 0) this.blade.material.uniforms.uA.value.set(px, py, Math.PI - blade, len);
   }
 }
+const _d0 = new THREE.Vector3(), _d1 = new THREE.Vector3();
 
 // ---------- Skid marks ----------
 // Rubber laid on the tarmac (and pale scuffs on gravel and grass) where a tyre slides: a strip

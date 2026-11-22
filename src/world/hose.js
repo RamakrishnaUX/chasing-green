@@ -50,8 +50,17 @@ export class Hose {
     L[0] = 0;
     for (let i = 1; i < n; i++) L[i] = L[i - 1] + P[i].distanceTo(P[i - 1]);
     for (let i = 0; i < n; i++) { oldP[i].copy(P[i]); oldO[i].copy(O[i]); }
+    // Along the old hose as it lies, which may be a little over its length when pulled: measured
+    // in that, so the far end lands where it was and not a few centimetres short of the nozzle
+    // (which the links then snatched back each time it was paid out or wound in).
+    const fit = L[n - 1] / this.len;
     for (let i = 2, k = 0; i < n - 2; i++) {
-      const s = i * seg - d; // where this point's hose was, along the old hose
+      // Where this point's hose was, along the old hose. Wound in, the hose by the pump keeps its
+      // shape and what goes in is taken up over the next half metre or so: taken straight off the
+      // end it tugged the first few points in by a centimetre every frame and they sprang back,
+      // a shiver at the pump all the way back to it.
+      const w = d < 0 ? Math.min(1, Math.max(0, (i * seg - 0.08) / 0.6)) : 1;
+      const s = (i * seg - d * w * w * (3 - 2 * w)) * fit;
       if (s <= 0) { P[i].copy(a).addScaledVector(aDir, i * seg); O[i].copy(P[i]); continue; }
       while (k < n - 2 && L[k + 1] < s) k++;
       const u = Math.min(1, (s - L[k]) / Math.max(1e-6, L[k + 1] - L[k]));
@@ -65,8 +74,9 @@ export class Hose {
   copyFrom(pts) { for (let i = 0; i < this.n; i++) { this.p[i].copy(pts[i]); this.o[i].copy(pts[i]); } return this; }
 
   // Run for dt seconds. a, aDir: the pump end and the way it leaves the pump (unit); b, bDir: the
-  // nozzle end and the way it leaves the nozzle (unit). collide(p, r): push point p (a Vector3,
-  // changed in place) out of anything solid, returning true if it touched the ground (friction).
+  // nozzle end and the way it leaves the nozzle (unit). collide(p, r, i): push point i, p (a
+  // Vector3, changed in place), out of anything solid, returning true if it touched the ground
+  // (friction).
   step(dt, a, aDir, b, bDir, collide) {
     this.acc = Math.min(this.acc + dt, 0.1);
     const n = this.n, s = this.seg, p = this.p, o = this.o;
@@ -97,7 +107,7 @@ export class Hose {
         p[n - 1].copy(b); p[n - 2].copy(b).addScaledVector(bDir, s);
         if (collide) {
           this.floor ||= new Uint8Array(n);
-          for (let i = 2; i < n - 2; i++) this.floor[i] = collide(p[i], HOSE_R) ? 1 : 0;
+          for (let i = 2; i < n - 2; i++) this.floor[i] = collide(p[i], HOSE_R, i) ? 1 : 0;
         }
       }
     }

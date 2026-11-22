@@ -335,7 +335,12 @@ export class CarRain {
     this.model = null; this.cells = []; this.edges = []; this.wet = 0; this.carry = 0; this.drip = 0; this.mist = 0;
     this.inv = new THREE.Matrix4(); this.mat = new THREE.Matrix4(); this.vel = new THREE.Vector3(); this.lastPos = null;
     this.tmp = new THREE.Vector3(); this.on = false;
+    // From the driver's seat (main.js): the cabin, on his side of the windscreen's plane (plane: a
+    // Vector4, normal and offset in the car's frame) and below his eye (top), where no drop bursts
+    // and nothing drips, so no water shows inside.
+    this.cabin = null;
   }
+  inCabin(c) { const k = this.cabin; return !!k && c.y < k.top && k.plane.x * c.x + k.plane.y * c.y + k.plane.z * c.z + k.plane.w > -0.05; }
   // Render the car's top from above into a height map (once per car).
   build(renderer, jeep) {
     const body = jeep.body, parent = body.parent, rot = body.rotation.clone();
@@ -445,7 +450,7 @@ export class CarRain {
     const out = this.tmp;
     for (; this.carry >= 1; this.carry--) {
       const c = this.cells[(Math.random() * this.cells.length) | 0];
-      if (Math.random() > Math.max(0, c.nx * ux + c.ny * uy + c.nz * uz)) continue;
+      if (Math.random() > Math.max(0, c.nx * ux + c.ny * uy + c.nz * uz) || this.inCabin(c)) continue;
       this.world(c, out);
       const D = 0.45 - Math.log(1 - Math.random() * 0.985) / lambda;
       // The splash's droplets keep most of the car's speed; the air takes the rest.
@@ -461,6 +466,7 @@ export class CarRain {
       this.drip += wet * (6 + rain * 30) * (1 - sp / 4) * dt;
       for (; this.drip >= 1; this.drip--) {
         const c = this.edges[(Math.random() * this.edges.length) | 0];
+        if (this.inCabin(c)) continue;
         this.world(c, out);
         drops.emit(out.x, out.y - 0.02, out.z, this.vel.x, -0.3, this.vel.z, 0.9, 0.05 + Math.random() * 0.03);
       }

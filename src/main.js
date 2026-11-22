@@ -426,7 +426,7 @@ async function buildWorld(progress) {
   }
   // The dust a car raises off a gravel road: big soft billows that hang and drift.
   trailDust = new Particles(scene, { count: qualityName === 'low' ? 300 : 600, color: 0xb6a07c, size: 4.5, opacity: 0.15, gravity: -0.1, drag: 0.7, fadeNear: [4, 10] });
-  windscreen = new Windscreen($('rain-glass'));
+  windscreen = new Windscreen(scene);
   puddles = new Puddles(scene, qualityName === 'low' ? 100 : 180);
   spray = new Particles(scene, { count: qualityName === 'low' ? 260 : 600, color: 0xe6f0f4, size: 0.5, opacity: 0.75, gravity: 9.5, drag: 1.2 });
   // Steam curling off a hot pool round you while you soak.
@@ -3268,13 +3268,19 @@ function frame(now) {
     grime.uRun.value = (grime.uRun.value + dt * 0.15) % 1000;
   }
   grime.uCarWet.value = carWet; grime.uCarRain.value = carOut ? R : 0; grime.uRTime.value = t % 1000; grime.uGlassWet.value = inside ? 0 : 1;
+  // From the driver's seat the cabin stays dry: no beads, runs or wet film on his side of the
+  // windscreen and below his eye, and no drops bursting there (grime.js, rain.js).
+  const cabEye = inside && ride === 'car' ? jeep.interior.views.cockpit.eye : null;
+  const cabTop = cabEye ? windscreen.cabin(jeep.body, cabEye, grime.uCabin.value) : null;
+  grime.uCabinTop.value = cabTop ?? -99;
+  carRain.cabin = cabTop != null ? { plane: grime.uCabin.value, top: cabTop } : null;
   carRain.shed(paused ? 0 : dt, carWet, R, waterFx.drops, waterFx.mist);
   surfaceUniforms.uRain.value = R; surfaceUniforms.uWet.value = wetness;
   puddles.update(t, R);
   wetTracks.update(performance.now() / 1000);
   snowTracks.update(performance.now() / 1000);
   if (R > 0.02) { sky.fog.density += R * 0.0007; sky.fog.color.lerp(new THREE.Color(0x8d969e), R * 0.35); }
-  windscreen.update(paused ? 0 : dt, R, jeep.speed, inside && ride === 'car' && jeep.boat < 0.5 && started);
+  windscreen.update(paused ? 0 : dt, R, jeep.speed, inside && ride === 'car' && jeep.boat < 0.5 && started, cabEye && { body: jeep.body, eye: cabEye, light: 1 - dark * 0.8 });
   // Up in the helicopter the air between you and the land thins out: the haze is in the lowest
   // few hundred metres, so the farther coast stays in view.
   if (mode === 'fly' || mode === 'sky') sky.fog.density /= 1 + Math.max(0, camera.position.y - Math.max(0, heightAt(camera.position.x, camera.position.z)) - 60) / 220;

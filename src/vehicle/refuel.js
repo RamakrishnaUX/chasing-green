@@ -779,7 +779,7 @@ export class RefuelScene {
     const F = this.face;
     this.hoseRest = this.stations.hoseRestWorld(F);
     this.hoseSim = new Hose(HOSE_PTS, HOSE_REST).copyFrom(this.hoseRest);
-    this.hoseAwake = false;
+    this.hoseAwake = false; this.reel = 0;
     this.nozzle.matrix.copy(F.nozzle); this.nozzle.matrixWorld.copy(F.nozzle);
     this.hose.geometry = hoseTube(this.hoseRest, this.hose.geometry);
     this.nozzle.visible = this.hose.visible = true;
@@ -802,14 +802,23 @@ export class RefuelScene {
     if (moved) this.hoseAwake = true;
     if (!this.hoseAwake) return;
     // Carried: paid out as fast as he walks, wound in slowly as he comes back (it is drawn back
-    // along the ground). Hung up: wound in as it swings back to rest, at the same pace.
+    // along the ground). Hung up: wound in as it swings back to rest, at the same pace. Like a real
+    // retractor's reel it has some give and some weight: it pays out only once the slack is used
+    // up, winds in only once there is a good deal too much, and speeds up and slows down rather
+    // than jumping between the two. (Following his hand exactly, the bob of each step paid out and
+    // wound in a few centimetres in turn, and the hose by the pump slid to and fro with it.)
     const resting = !this.held && !moved;
     const want = Math.max(HOSE_REST, F.root.distanceTo(tail) * 1.15 + 0.8);
-    const L = resting
-      ? Math.max(HOSE_REST, Math.min(S.len, Math.max(HOSE_REST + (S.len - HOSE_REST) * Math.exp(-dt * 2.2), S.len + S.stretch)))
-      : S.len + THREE.MathUtils.clamp(want - S.len, -1.2 * dt, 2.2 * dt);
+    // Hung up it winds in what is out beyond its resting length, paying out only if the hose is
+    // pulled taut.
+    const goal = resting
+      ? (S.stretch > 0.03 ? Math.min(2.2, S.stretch * 12) : -Math.min(1.2, (S.len - HOSE_REST) * 2.2))
+      : want > S.len ? Math.min(2.2, (want - S.len) * 12) : want < S.len - 0.35 ? -Math.min(1.2, (S.len - 0.35 - want) * 6) : 0;
+    this.reel = (this.reel || 0) + (goal - (this.reel || 0)) * Math.min(1, dt * 10);
+    if (!goal && Math.abs(this.reel) < 0.01) this.reel = 0; // at rest, it stops
+    const L = Math.max(HOSE_REST, S.len + this.reel * dt);
     S.resize(L, F.root, F.rootDir);
-    S.step(dt, F.root, F.rootDir, tail, back, this.collide ||= (p, r) => this.hoseCollide(p, r));
+    S.step(dt, F.root, F.rootDir, tail, back, this.collide ||= (p, r, i) => this.hoseCollide(p, r, i));
     // Hung up: drawn back to how it rests (no faster than it would swing there), so that when the
     // face's own hose is drawn again, nothing moves.
     if (resting) {
@@ -822,8 +831,8 @@ export class RefuelScene {
     this.hoseStats = { len: L, stretch: S.stretch, top: top - this.floorY };
   }
   // Keep a point of the hose (radius r) out of the pump and kerb, off the forecourt, out of the car
-  // and out of his legs. True if it lies on something.
-  hoseCollide(p, r) {
+  // and out of his legs. i: which point of the hose. True if it lies on something.
+  hoseCollide(p, r, i = 0) {
     let on = this.stations.hoseCollide(this.face, p, r);
     if (p.y < this.floorY + r) { p.y = this.floorY + r; on = true; }
     // The car: its outline below the roof, its panel on the filler's side.
@@ -838,10 +847,19 @@ export class RefuelScene {
       }
     }
     // His legs and body, a column round where he stands (while he is out of the car); hose lying
-    // on the ground he steps over.
-    if (!this.active) return on;
-    const W = this.walker, wr = 0.13 + r, ex = p.x - W.pos.x, ez = p.z - W.pos.z, ed = Math.hypot(ex, ez);
-    if (p.y > W.pos.y + 0.12 && p.y < W.pos.y + 1.45 && ed < wr && ed > 1e-5) { p.x = W.pos.x + (ex / ed) * wr; p.z = W.pos.z + (ez / ed) * wr; }
+    // on the ground he steps over. Hose brushing against him is eased aside, half the way each
+    // pass, so it slides round him rather than being flung. Hose already well inside the column
+    // (lifted off the ground under his feet, or swinging back to rest past him as he walks away
+    // from the pump) is let through: shoved out from near his middle it shot across to his far
+    // side half a metre in a frame and whipped back and forth. So is the hose just leaving the
+    // nozzle in his hand, which the column (a rough stand-in for his body) would only fight
+    // against the hand holding it.
+    // Once it is hung up it swings back to hang at the pump on its own, and his legs no longer
+    // touch it: kept out of them it was dragged along as he walked back to the car, pulled taut,
+    // and then slipped off and lashed back across him.
+    if (!this.active || !this.held || i >= this.hoseSim.n - 7) return on;
+    const W = this.walker, wr = 0.13 + r, ex = p.x - W.pos.x, ez = p.z - W.pos.z, ed = Math.hypot(ex, ez), pen = wr - ed;
+    if (p.y > W.pos.y + 0.12 && p.y < W.pos.y + 1.45 && pen > 0 && pen < 0.05 && ed > 1e-5) { const k = 1 + (pen * 0.5) / ed; p.x = W.pos.x + ex * k; p.z = W.pos.z + ez * k; }
     return on;
   }
 }

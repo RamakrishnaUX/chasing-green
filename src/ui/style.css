@@ -2185,14 +2185,9 @@ body.land-on .hx-spot, body.land-on .toast { opacity: 0 !important; pointer-even
 .frame-hold { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; transition: opacity 0.4s ease; }
 .frame-hold.is-gone { opacity: 0; }
 
-/* Rain on the windscreen, seen from the driver's seat (effects.js Windscreen). It sits over the
-   view and under the HUD, fading out toward the dashboard. */
-.rain-glass { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none;
-  -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 55%, transparent 80%); mask-image: linear-gradient(180deg, #000 0%, #000 55%, transparent 80%); }
-.rain-glass[hidden] { display: none; }
 
 /* ---------- Photo mode ---------- */
-body.photo-on #hud, body.photo-on .rain-glass { display: none !important; }
+body.photo-on #hud { display: none !important; }
 .photo { position: fixed; inset: 0; z-index: 7; pointer-events: none; font-family: var(--sans); color: var(--ink); }
 .photo[hidden] { display: none; }
 .ph-top { position: absolute; top: calc(16px + var(--safe-t, 0px)); left: calc(20px + var(--safe-l)); right: calc(20px + var(--safe-r)); display: flex; align-items: center; gap: 16px; }
