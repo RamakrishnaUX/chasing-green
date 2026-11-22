@@ -530,7 +530,7 @@ const COMMON_GLSL = /* glsl */ `
 attribute vec4 aI0; attribute vec4 aI1;
 uniform vec3 uEye; uniform float uNear; uniform float uBand; uniform float uFar;
 uniform vec2 uWindDir; uniform float uWindStr; uniform float uTime;
-uniform float uLeaf; uniform float uSnowy; uniform float uSnowLine;
+uniform float uLeaf; uniform float uSnowy; uniform float uSnowLine; uniform float uSnowCover;
 varying float vFade; varying float vBare; varying float vHue; varying float vSnow;
 vec2 rotY(vec2 v, float a){ float c = cos(a), s = sin(a); return vec2(v.x * c + v.y * s, -v.x * s + v.y * c); }
 float h11(float x){ return fract(sin(x * 91.3458) * 47453.5453); }
@@ -576,7 +576,7 @@ function nearVertex(cards) {
       if (vFade >= 1.0) transformed = vec3(base.x, -1e4, base.z);
       vBare = step(uLeaf, h11(aI1.w * 13.7 + 0.3));
       vHue = aI1.z;
-      vSnow = uSnowy * (1.0 - smoothstep(uSnowLine - 14.0, uSnowLine - 4.0, base.y));`,
+      vSnow = max(uSnowy * (1.0 - smoothstep(uSnowLine - 14.0, uSnowLine - 4.0, base.y)), smoothstep(0.5, 1.0, uSnowCover) * 0.9);`,
   };
 }
 
@@ -683,7 +683,7 @@ function impostorMaterials(colTex, norTex, uniforms, rows, cellPx, bareRows) {
       vFar = smoothstep(uFar * 0.82, uFar, dd);
       if (vFade <= 0.0 || vFar >= 1.0) transformed = vec3(base.x, -1e4, base.z);
       vYaw = aI1.x; vHue = aI1.z;
-      vSnow = uSnowy * (1.0 - smoothstep(uSnowLine - 14.0, uSnowLine - 4.0, base.y));`,
+      vSnow = max(uSnowy * (1.0 - smoothstep(uSnowLine - 14.0, uSnowLine - 4.0, base.y)), smoothstep(0.5, 1.0, uSnowCover) * 0.9);`,
   });
   const fragCommon = `${FRAG_COMMON}
     uniform sampler2D uImpCol; uniform sampler2D uImpNor; uniform vec2 uTexSize;

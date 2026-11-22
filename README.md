@@ -273,6 +273,8 @@ Dipped beam by default; B (or the Beam button that shows on a phone once it is d
 
 From October to April the months bring winter (`WINTER` in main.js, strongest from December to February):
 
+- **Snow on the ground.** As in Slow Roads' snowy season, the whole island goes white in winter, down to the roadsides and the upper beaches: from November to March snow lies everywhere it can hold (thinner on steep rock, with wind-scoured ridges showing dark), and in April and October it lies in big drifts with bare tawny ground between. `SNOW_COVER` in main.js sets it by month as `uSnowCover`; the terrain shader's `snowBlanket` (materials.js) paints it, and `snowAt`/`snowBlanketAt` (terrain.js) are its CPU twins, so tyres, boots and the rotor wash find snow where it is drawn. Grass blades and tufts are buried under it, trees carry snow, lava fields show only the odd dark crag, the strip of black sand the waves reach stays black, and the map turns white too.
+
 - **Snow on the roads.** Packed snow lies on the road, worn back to dark tracks by the wheels, with drifts reaching in from the edges and the ploughed snow banked along both sides; the yellow marker posts stand along the edges as before (road shader in materials.js, `uRoadSnow`). There is more of it where the land is white and while it snows, and it changes slowly as you drive, so it never switches in view. Wet weather does not darken the snow the way it darkens bare tarmac.
 - **Black ice.** Patches of glazed ice, dark and glossy enough to mirror the sky and headlights, lie on the roads. `iceAt` (terrain.js) finds the same patches as the shader, so they are really slippery: on ice the car keeps going the way it was heading while you turn, slides, brakes and pulls away poorly, and grips again once off it; it is quiet and leaves no rubber. Packed snow takes some grip too, and so does snow off the road. The first patch of each trip gets a word of warning.
 - **Snow showers** drift across the island under cloud, more often in midwinter and heavier on high ground and in the north (`chasingGreen.snowFall = 1` forces them). At night the flakes are dim grey shapes until they drift into the headlights, where they light up, further out on full beam; raindrops catch the beams the same way (`headlightUniforms` in effects.js).
@@ -819,7 +821,7 @@ On the realistic look, in addition (measured on an M1 Pro at 1600 x 1000, about 
 
 ## Weather and snow
 
-The snow line follows the month: down to about 16 m in January, rising through spring, and only the ice caps stay white in summer. Snow covers every slope above the line, thinner on steep rock, so it follows each mountain's shape. Snow showers fall from October to March in cold spots: high ground, the far north, and anywhere under thick cloud, in slow drifting bands. The haze thickens and whitens while it snows. Flakes drift with the wind.
+Below the snow line, winter's lowland blanket (see Winter) covers the rest of the island from November to March. The snow line follows the month: down to about 16 m in January, rising through spring, and only the ice caps stay white in summer. Snow covers every slope above the line, thinner on steep rock, so it follows each mountain's shape. Snow showers fall from October to March in cold spots: high ground, the far north, and anywhere under thick cloud, in slow drifting bands. The haze thickens and whitens while it snows. Flakes drift with the wind.
 
 ## Buildings
 

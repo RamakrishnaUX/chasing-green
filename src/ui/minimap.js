@@ -1,4 +1,4 @@
-import { BOUNDS, heightAt, waterLevelAt, glacierMask, roadPaths } from '../world/terrain.js';
+import { BOUNDS, heightAt, waterLevelAt, glacierMask, roadPaths, snowBlanketAt } from '../world/terrain.js';
 import { surfaceUniforms } from '../world/materials.js';
 import { PLACES } from '../world/geo.js';
 import { store } from '../storage.js';
@@ -34,6 +34,7 @@ function islandPainter(px) {
           col = mix([196, 168, 110], [128, 110, 74], sat((y - 6) / 30));
           col = mix(col, [84, 76, 70], sat((y - 40) / 50));
           col = mix(col, [214, 220, 226], sat((y - snowLine - 25) / 30) * 0.85);
+          col = mix(col, [222, 228, 234], snowBlanketAt(x, z) * 0.9);
           col = mix(col, [232, 240, 245], glacierMask(x, z));
           // Hill shade, light from the north west.
           const dx = heightAt(x + 4, z) - heightAt(x - 4, z), dz = heightAt(x, z + 4) - heightAt(x, z - 4);
@@ -112,6 +113,12 @@ export class MapUI {
     $('map-drive').addEventListener('click', () => { const s = this.sel; if (!s) return; haptics.play('medium'); $('map').close(); this.onDrive(s.x, s.z, s.label); });
     $('map-jump').addEventListener('click', () => { const s = this.sel; if (s) this.travel(s.x, s.z, s.named ? s.label : null, s.face); });
     $('map-pick-close').addEventListener('click', () => this.unpick());
+  }
+
+  // The season changed the snow: paint the island again in idle time, and the sharp copy when next opened.
+  repaint() {
+    const n = (this.repaintN = (this.repaintN || 0) + 1);
+    paintIslandSlowly(900, (c) => { if (n !== this.repaintN) return; this.island = c; this.detail = null; if ($('map').open) this.draw(); });
   }
 
   travel(x, z, label, face) {

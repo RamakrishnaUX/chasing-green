@@ -29,6 +29,9 @@ export const surfaceUniforms = {
   uSunDir: { value: new THREE.Vector3(0, 1, 0) },
   uSunUp: { value: 1 },
   uSnowLine: { value: 10 },
+  // Winter's blanket of snow over the lowlands (0 to 1, from the month): none in summer, drifts
+  // and bare patches in the shoulder months, white to the shore in midwinter.
+  uSnowCover: { value: 0 },
   // Rhyolite colours painted on the land around Landmannalaugar: x, z, radius.
   uRhyolite: { value: new THREE.Vector3(0, 0, 0) },
   uSummer: { value: 0 },
@@ -103,6 +106,18 @@ vec3 hdNature(vec3 c, vec3 p, float dist){
   return mix(c, cc, g);
 }
 `;
+// The lowland snow blanket at a spot (0 to 1), from the terrain's broad noise (nL at 0.006, nM at
+// 0.035 per metre). Partly covered, the snow lies in big drifts with bare ground between; fully
+// covered, it is white everywhere. snowBlanketAt in terrain.js is its CPU twin.
+export const SNOW_BLANKET = /* glsl */ `
+uniform float uSnowCover;
+float snowBlanket(float nL, float nM){
+  if (uSnowCover <= 0.001) return 0.0;
+  if (uSnowCover >= 0.999) return 1.0;
+  float t = 0.72 - uSnowCover * 0.5;
+  return smoothstep(t - 0.05, t + 0.05, nL * 0.55 + nM * 0.45);
+}
+`;
 export const TABLE_NOISE = /* glsl */ `
 uniform sampler2D uNoiseTex;
 float g_nt(vec2 p){ vec2 i = floor(p), f = p - i; return textureLod(uNoiseTex, (i + f * f * (3.0 - 2.0 * f) + 0.5) * ${(1 / NOISE_SIZE).toFixed(8)}, 0.0).r; }
@@ -126,7 +141,7 @@ float fluteN(vec2 q, float lod){
   return a * a * 0.7 + mix(0.5, b, 0.4 + 0.6 * lod) * 0.3;
 }
 // Layer weights, read by the realistic (desktop) shader to blend its scanned textures.
-float tEarthW; float tRockW; float tSnowW; float tLavaW;
+float tEarthW; float tRockW; float tSnowW; float tLavaW; float tSandW;
 // Its noise, kept for the grassland colouring (NATURE).
 float tNL; float tNM; float tNF;
 // Noise laid on from all three sides, weighted by which way the ground faces, so steep slopes
@@ -256,6 +271,10 @@ vec3 terrainColor(vec3 masks, vec3 p, vec3 nrm, float dist){
   float gullySnow = smoothstep(line - 30.0, line + 2.0, p.y) * smoothstep(0.4, 0.12, flute) * steepF * mix(0.6, 1.0, snowPatch);
   float dust = (1.0 - uSummer) * smoothstep(line - 18.0, line, p.y) * smoothstep(0.55, 0.85, nM) * (1.0 - rockAmt) * 0.6;
   float snow = max(max(flatSnow, gullySnow * 0.9), dust * 0.7);
+  // Winter's blanket over the lowlands: everywhere it can lie, thinner on steep ground, so in
+  // midwinter the whole island is white down to the shore, as in Slow Roads' snowy season.
+  float blanket = snowBlanket(nL, nM) * mix(1.0, 0.5, smoothstep(0.32, 0.75, slope));
+  snow = max(snow, blanket);
   // Wind scours the spurs and ridges, so dark rock breaks through the snow along them.
   float bare = smoothstep(0.36, 0.62, slope) * smoothstep(0.5, 0.85, flute * 0.7 + g_n(p.xz * 0.05 + p.y * 0.04) * 0.3);
   snow *= 1.0 - bare * 0.85;
@@ -288,13 +307,16 @@ vec3 terrainColor(vec3 masks, vec3 p, vec3 nrm, float dist){
 #endif
     col = mix(col, rc * (0.85 + 0.2 * nF), rhy * smoothstep(0.18, 0.42, slope) * (1.0 - snow * 0.7));
   }
-  // Black volcanic sand along the coast, darker and a little glossy where it is wet.
-  col = mix(col, vec3(0.08, 0.08, 0.09) * (0.75 + 0.5 * nF), masks.r);
-  tRough = mix(tRough, 0.55, masks.r * smoothstep(2.0, 0.3, p.y));
-  // Lava fields: dark rock wrapped in grey-green moss.
+  // Black volcanic sand along the coast, darker and a little glossy where it is wet. In winter
+  // the snow covers the upper beach; the strip the waves reach stays black.
+  tSandW = masks.r * (1.0 - blanket * smoothstep(1.2, 2.8, p.y));
+  col = mix(col, vec3(0.08, 0.08, 0.09) * (0.75 + 0.5 * nF), tSandW);
+  tRough = mix(tRough, 0.55, tSandW * smoothstep(2.0, 0.3, p.y));
+  // Lava fields: dark rock wrapped in grey-green moss; under the winter blanket only the odd
+  // dark crag shows.
   vec3 lavaMoss = mix(vec3(0.45, 0.47, 0.33), vec3(0.5, 0.56, 0.24), uSummer);
   vec3 lava = mix(vec3(0.13, 0.13, 0.12), lavaMoss, smoothstep(0.35, 0.7, nM) * (0.7 + 0.3 * nF));
-  tLavaW = masks.g * (1.0 - snow * 0.6);
+  tLavaW = masks.g * (1.0 - max(snow * 0.6, blanket * 0.9));
   col = mix(col, lava, tLavaW);
   tBump = mix(tBump, nF * 0.4 * lod, masks.g);
   // Glacier ice, with blue in the crevasses and grey ash bands.
@@ -349,7 +371,7 @@ export function createTerrainMaterial() {
       .replace('#include <common>', '#include <common>\nvarying vec3 vWPos;\nvarying vec3 vWNrm;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;\nvWNrm = normalize(mat3(modelMatrix) * objectNormal);');
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', `#include <common>\nuniform float uSnowLine; uniform float uSummer; uniform float uCloudCover; uniform vec2 uCloudOffset; uniform vec3 uSunDir; uniform float uSunUp; uniform vec3 uRhyolite;\nvarying vec3 vWPos;\nvarying vec3 vWNrm;\n${NOISE}\n${TABLE_NOISE}\n${TERRAIN_COLOR}\n${hd ? HD_TERRAIN + HD_SUN_SHADOW : ''}`)
+      .replace('#include <common>', `#include <common>\nuniform float uSnowLine; uniform float uSummer; uniform float uCloudCover; uniform vec2 uCloudOffset; uniform vec3 uSunDir; uniform float uSunUp; uniform vec3 uRhyolite;\nvarying vec3 vWPos;\nvarying vec3 vWNrm;\n${NOISE}\n${TABLE_NOISE}\n${SNOW_BLANKET}\n${TERRAIN_COLOR}\n${hd ? HD_TERRAIN + HD_SUN_SHADOW : ''}`)
       .replace('#include <lights_fragment_end>', hd ? terrainShadowChunk() : '#include <lights_fragment_end>')
       .replace('#include <normal_pars_fragment>', `#include <normal_pars_fragment>\n${BUMP}\n${NATURE}`)
       .replace('#include <color_fragment>', hd

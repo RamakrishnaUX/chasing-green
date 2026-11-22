@@ -982,7 +982,21 @@ export function snowAt(x, z) {
   const above = smoothstep(line - 7, line + 9, h);
   const flat = above * lerp(1, 0.55, smoothstep(0.32, 0.75, slope));
   const dust = (1 - surfaceUniforms.uSummer.value) * smoothstep(line - 18, line, h) * smoothstep(0.55, 0.85, nM) * 0.6;
-  return Math.max(flat, dust * 0.7, glacierMask(x, z));
+  const blanket = blanketOf(nL, nM) * lerp(1, 0.5, smoothstep(0.32, 0.75, slope));
+  return Math.max(flat, dust * 0.7, blanket, glacierMask(x, z));
+}
+// Winter's lowland snow blanket (0 to 1), as the terrain shader's snowBlanket paints it.
+function blanketOf(nL, nM) {
+  const c = surfaceUniforms.uSnowCover.value;
+  if (c <= 0.001) return 0;
+  if (c >= 0.999) return 1;
+  const t = 0.72 - c * 0.5;
+  return smoothstep(t - 0.05, t + 0.05, nL * 0.55 + nM * 0.45);
+}
+export function snowBlanketAt(x, z) {
+  const c = surfaceUniforms.uSnowCover.value;
+  if (c <= 0.001 || c >= 0.999) return c <= 0.001 ? 0 : 1;
+  return blanketOf(gF(x * 0.006, z * 0.006), gF(x * 0.035, z * 0.035));
 }
 
 // Black ice on the roads in winter (0 to 1): the same patches the road shader glazes over.
@@ -1268,7 +1282,7 @@ export function updateTerrainLod(eye, near = 260, far = 900) {
 export function paintTerrain(season) {
   const summer = season === 'Summer';
   surfaceUniforms.uSummer.value = summer ? 1 : 0;
-  if (!surfaceUniforms.uSnowLine.userSet) surfaceUniforms.uSnowLine.value = summer ? 95 : 34;
+  // (The snow line and the lowland snow follow the month: applySnowSeason in main.js.)
 }
 
 const SHOULDER = 1.1;

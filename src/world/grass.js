@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { waterlineAt } from './surf.js';
 import { BOUNDS, grid, roadField, coastAt, waterLevelAt, glacierMask, lavaMask, sandMask, heightAt } from './terrain.js';
-import { NOISE, TABLE_NOISE, surfaceUniforms } from './materials.js';
+import { NOISE, TABLE_NOISE, SNOW_BLANKET, surfaceUniforms } from './materials.js';
 import { mulberry32 } from './noise.js';
 import { HD } from './hd.js';
 
@@ -145,6 +145,7 @@ export class Grass {
           // The same noise read from its table: every vertex of a clump works out the clump's colour
           // and cloud shade, and one lookup is far cheaper than hashing four corners each octave.
           ${TABLE_NOISE}
+          ${SNOW_BLANKET}
           float hFetch(ivec2 c){ c = clamp(c, ivec2(0), ivec2(uGridN) - 1); return texelFetch(uHeight, c, 0).r; }
           // Same triangle split as the terrain mesh, so blades stand exactly on the ground.
           float groundH(vec2 p){
@@ -165,6 +166,8 @@ export class Grass {
           float keep = step(aRand.w, dens * 1.05);
           float fade = 1.0 - smoothstep(uR * 0.6, uR * 0.98, dist);
           float snow = 1.0 - smoothstep(uSnowLine - 16.0, uSnowLine - 6.0, gh);
+          // Buried under winter's lowland blanket, except in the bare patches between drifts.
+          if (uSnowCover > 0.001) snow *= 1.0 - smoothstep(0.35, 0.6, uSnowCover >= 0.999 ? 1.0 : snowBlanket(g_f(base * 0.006), g_f(base * 0.035)));
           float sc = (0.7 + aRand.y * 0.75) * keep * fade * snow;
           sc *= step(5.4, roadD) * mix(0.55, 1.0, smoothstep(5.4, 6.8, roadD));
           // Taller, lusher grass in summer; short and wiry in winter.

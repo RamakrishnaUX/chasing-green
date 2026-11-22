@@ -409,7 +409,7 @@ void hdDetail(vec3 m, vec3 p, vec3 N, float dist){
   // One loop rather than six copies of the sampling code: the same result, but a much smaller
   // shader, and the shader's size (not the samples it takes) is what made the ground slow.
   vec3 hdL[6] = vec3[6](vec3(1.0, 7.0, tEarthW), vec3(2.0, 11.0, tRockW), vec3(5.0, 6.0, tSnowW),
-    vec3(4.0, 3.0, m.r), vec3(3.0, 3.5, tLavaW), vec3(5.0, 9.0, m.b));
+    vec3(4.0, 3.0, tSandW), vec3(3.0, 3.5, tLavaW), vec3(5.0, 9.0, m.b));
   for (int i = 0; i < 6; i++) {
     float w = hdL[i].z;
     if (w <= 0.01) continue;

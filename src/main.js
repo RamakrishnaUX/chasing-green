@@ -186,7 +186,7 @@ let crashFx = null, damage = null, crashCool = 0, warpT = 0, lastWarpAt = -1e9;
 const camKick = new THREE.Vector3(), camKickV = new THREE.Vector3(), kickApplied = new THREE.Vector3();
 let rotShake = 0, shakePhase = 0, crashCam = null;
 let carRain = new CarRain(), carWet = 0, roadSprayCarry = 0, camFwd = new THREE.Vector3();
-let obstacles, puddles, spray, boatWater, waterFx, washDust, rain, windscreen, skids, trailDust, wetTracks, tyreWet = [0, 0, 0, 0], tyreLast = [], tyreIn = [], tyreSpray = [], wetness = 0, forceRain = null, forceSnow = null, roadSnow = 0, iceWarned = false, wildlife, dust, powder, powderCloud, mapUI, towns, snow, nav, stations, stationSites = [];
+let obstacles, puddles, spray, boatWater, waterFx, washDust, rain, windscreen, skids, trailDust, wetTracks, tyreWet = [0, 0, 0, 0], tyreLast = [], tyreIn = [], tyreSpray = [], wetness = 0, forceRain = null, forceSnow = null, roadSnow = 0, roadSnowSnap = false, iceWarned = false, wildlife, dust, powder, powderCloud, mapUI, towns, snow, nav, stations, stationSites = [];
 let lastPostState = { aurora: 0, dark: 0 };
 let surfFx = null, surfWet = 0, sneakerSeen = false;
 const snowNoise = createNoise2D(4040);
@@ -327,6 +327,7 @@ async function buildWorld(progress) {
   await stage('Shaping the island', 0.06, 1500);
   // The realistic look uses a finer terrain mesh so the eroded faces have room to show.
   world = await buildTerrain(scene, HD.on ? Math.max(Q.terrainRes, Math.round(1500 * Math.sqrt(GROW))) : Q.terrainRes, clock.season, (f) => progress(0.58 * f * BUILD_SHARE, 300, 'Shaping the island'));
+  applySnowSeason(clock.month);
   if (HD.on) { sunMap = new SunMap(surfaceUniforms); sunMap.update(renderer, surfaceUniforms.uSunDir.value, 1); }
   await stage('Lighting the sky', 0.59, 40);
   sky = new Sky(scene, { shadowSize: Q.shadowSize, renderer });
@@ -482,7 +483,6 @@ async function buildWorld(progress) {
   });
   mapUI = new MapUI({ landmarks, stations: stations.list, onTravel: fastTravel, onDrive: driveTo, describe: (x, z) => describePlace(x, z).label });
   { const L = landmarks.list.find((l) => l.id === 'landmannalaugar'); if (L) surfaceUniforms.uRhyolite.value.set(L.x, L.z, 170); }
-  surfaceUniforms.uSnowLine.value = snowLineFor(clock.month);
   // Compile every shader now, in parallel where the browser allows, instead of freezing the
   // first frame doing it.
   // Everything else the game will download or build, done now rather than mid-drive: every file
@@ -694,6 +694,14 @@ function wind(t) {
 
 // How wintry each month is (0 to 1): snow showers and snow and ice on the roads.
 const WINTER = [1, 1, 0.85, 0.5, 0.05, 0, 0, 0, 0, 0.25, 0.7, 1];
+
+// How much of the lowland lies under snow (0 to 1), by month: white to the shore from November to
+// March, drifts with bare ground between in April and October, none from May to September.
+const SNOW_COVER = [1, 1, 1, 0.55, 0, 0, 0, 0, 0, 0.3, 1, 1];
+function applySnowSeason(m) {
+  surfaceUniforms.uSnowLine.value = snowLineFor(m);
+  surfaceUniforms.uSnowCover.value = SNOW_COVER[m];
+}
 
 // Snow line by month. With real elevation (realistic look) it is set in real metres, roughly as
 // in Iceland, and turned into game units the same way the land is.
@@ -1706,10 +1714,14 @@ function setMonth(m, announce = false) {
   forecast.nights.clear();
   document.querySelectorAll('.month-select').forEach((sel) => (sel.value = String(m)));
   renderMonthCards();
+  // Snow line by month (low in midwinter, high glaciers only in summer) and the lowland snow,
+  // set before the season repaints the land, its grass tufts and the map.
+  const coverWas = surfaceUniforms.uSnowCover.value;
+  applySnowSeason(m);
+  roadSnowSnap = true; // a new month: the roads match it at once instead of over half a minute
   setSeason(clock.season, announce);
   trees?.setMonth(m);
-  // Snow line by month: low in midwinter, high glaciers only in summer.
-  surfaceUniforms.uSnowLine.value = snowLineFor(m);
+  if (surfaceUniforms.uSnowCover.value !== coverWas) mapUI?.repaint();
 }
 function setSeason(season, announce = true) {
   if (world) { paintTerrain(season); scatter?.setSeason(season); }
@@ -3246,7 +3258,8 @@ function frame(now) {
   // Winter on the roads: packed snow, ploughed banks and black ice, more where the land is white
   // and while it snows. It changes slowly, so driving along never shows it switching.
   const roadSnowTarget = winter * clamp(0.5 + snowAt(p.x, p.z) * 0.7 + snow.intensity * 0.4, 0, 1);
-  roadSnow += (roadSnowTarget - roadSnow) * Math.min(1, dt / (Math.abs(roadSnowTarget - roadSnow) > 0.5 ? 1 : 25));
+  roadSnow += (roadSnowTarget - roadSnow) * (roadSnowSnap ? 1 : Math.min(1, dt / (Math.abs(roadSnowTarget - roadSnow) > 0.5 ? 1 : 25)));
+  roadSnowSnap = false;
   surfaceUniforms.uRoadSnow.value = roadSnow;
   // The first patch of black ice of the trip gets a word of warning.
   if (!iceWarned && started && ride === 'car' && mode === 'chase' && jeep.ice > 0.5 && jeep.kmh > 25) {

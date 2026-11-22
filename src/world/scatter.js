@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { roadPaths, heightAt, coastAt, waterLevelAt, lavaMask, glacierMask, sandMask, roadHalfWidth, roadDistAt } from './terrain.js';
+import { roadPaths, heightAt, coastAt, waterLevelAt, lavaMask, glacierMask, sandMask, roadHalfWidth, roadDistAt, snowBlanketAt } from './terrain.js';
 import { mulberry32, clamp } from './noise.js';
 import { createGrassMaterial, surfaceUniforms } from './materials.js';
 import { HD, HDRocks } from './hd.js';
@@ -111,7 +111,7 @@ export class Scatter {
     const c = new THREE.Color();
     const hidden = new THREE.Matrix4().makeScale(0, 0, 0);
     this.grassPick.forEach((g, i) => {
-      const buried = g.h > snowLine - 2;
+      const buried = g.h > snowLine - 2 || snowBlanketAt(g.m.elements[12], g.m.elements[14]) > 0.5;
       c.copy(pal[g.k]).multiplyScalar(g.shade);
       this.grassMesh.setColorAt(i, c);
       this.grassMesh.setMatrixAt(i, buried ? hidden : g.m);
