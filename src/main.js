@@ -171,6 +171,7 @@ let islandReady = false; // the island is built and Start can be pressed
 const input = new Input(canvas);
 const hud = new Hud();
 const sheet = new Sheet();
+let smenu = null; // the menu row on computers (ui/slowmenu.js)
 haptics.enabled = settings.haptics !== 'off';
 const audio = new AudioEngine();
 bindUiSfx(audio);
@@ -1551,7 +1552,8 @@ function toggleRecording() {
 }
 
 const settingsDialog = $('settings');
-function openSettings() {
+// The settings' controls read the game's current state; the menu on computers shows the same controls.
+function syncSettings() {
   $('quick-walk').textContent = mode === 'sky' ? 'In the air' : mode === 'walk' ? (afterJump && ride === 'heli' && !heliBeside() ? 'Call helicopter' : 'Get in') : 'Step out';
   $('set-quality').value = settings.quality ? qualityName : 'auto';
   $('set-month').value = String(clock.month);
@@ -1566,9 +1568,15 @@ function openSettings() {
   $('set-view').value = driveView;
   $('set-full').value = document.fullscreenElement ? 'on' : 'off';
   $('set-sound').value = audio.muted ? 'off' : 'on';
+}
+function openSettings() {
+  syncSettings();
+  // On a computer, once driving, Settings is the menu's panel rather than a page of the sheet.
+  if (smenu) { sheet.close(); smenu.show('settings'); return; }
   settingsDialog.showModal();
   settingsDialog.dispatchEvent(new Event('sync'));
 }
+sheet.register('sound', () => { if (smenu) { sheet.close(); smenu.show('settings', 'sound'); } else sheet.show('sound'); });
 $('btn-settings').addEventListener('click', openSettings);
 sheet.register('settings', openSettings);
 // Journey: the trip so far at a glance.
@@ -1977,6 +1985,7 @@ function beginTrip() {
       go: (k) => (k === 'map' ? mapUI?.open() : k === 'journey' ? notebook.open() : k === 'learn' ? learn.open() : sheet.go(k)),
       vehicle: () => (ride === 'heli' ? 'heli' : jeep.kind), setVehicle,
       person: personId, setPerson: pickWho,
+      sync: syncSettings, notes: SET_NOTE,
     });
   }
   if (settings.steering === 'tilt') Input.askTilt().then(applySteering);
@@ -2360,7 +2369,6 @@ function startRefuel() {
 // While he fills: the tank rising on screen (a card over the Refuel button: the gauge, litres
 // pumped and what it costs) and the same litres counting up on the pump's own screen.
 let fillShown = false, fillNow = null; // fillNow: litres pumped and the tank, for the quiet line
-let smenu = null; // the menu row on computers (ui/slowmenu.js)
 function fillCard(kind, lvl) {
   const on = refuel.active && (fuel.filling || refuel.scene.phase === 'fill');
   if (on !== fillShown) { fillShown = on; $('fill-card').hidden = !on; document.body.classList.toggle('filling', on); }
@@ -2633,7 +2641,7 @@ function whenCalm(fn, after = 1000) {
     else setTimeout(check, 1000);
   }, after);
 }
-function openGarage() { renderGarage(); $('garage').showModal(); ggOpen(); }
+function openGarage() { if (smenu) { sheet.close(); smenu.show('vehicle'); return; } renderGarage(); $('garage').showModal(); ggOpen(); }
 sheet.register('garage', openGarage);
 sheet.register('map', () => mapUI?.open());
 // Opening the menu stops the vehicle where it is: no speed carried into the pause, so closing
