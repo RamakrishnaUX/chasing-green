@@ -1108,6 +1108,15 @@ body.has-touch :is(#intro, #gg) .keys-hint { display: none; }
   :is(#intro, #gg) .gx-stats { bottom: calc(260px + var(--safe-b)); } :is(#intro, #gg) .gx-v { font-size: 26px; } :is(#intro, #gg) .gx-segs i { width: 16px; height: 9px; }
   :is(#intro, #gg) .gx-night { bottom: calc(110px + var(--safe-b)); } :is(#intro, #gg) .gx-month select, :is(#intro, #gg) .month-card dd { font-size: 21px; }
 }
+/* Phones, either way up: no room on the start screen for the vehicle's stats, so they are left
+   out there (the Garage still shows them). Tablets and computers keep them. */
+@media (max-height: 520px) and (min-width: 600px), (orientation: portrait) and (max-width: 699px) {
+  #intro .gx-stats { display: none; }
+}
+/* Upright, the vehicle takes the room they leave. */
+@media (orientation: portrait) and (max-width: 699px) {
+  #intro .cv-spot { top: 17%; bottom: 33%; }
+}
 
 /* ---------- Type: Michroma headings, scaled for its width ---------- */
 .month-card h3, .radio-title, .sheet-title, .map-pick-text b, .car-card h3, .challenge-card h3, .learn-entry h3, .lesson h3 { letter-spacing: 0.01em; }

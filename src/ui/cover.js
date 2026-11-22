@@ -314,7 +314,8 @@ export class Cover {
     const sp = r && r.width > 40 && r.height > 40 ? r : { left: W * 0.1, top: H * 0.5, width: W * 0.5, height: H * 0.4 };
     const k = SCALE[this.kind] || 1;
     // Never taller than the room below the name, whatever the scale.
-    const maxW = Math.min(sp.width * 0.92, W * 0.6) * k, maxH = sp.height * Math.min(0.72, 0.68 * k);
+    // An upright phone has no stats beside it (style.css), so it may span more of the width.
+    const maxW = Math.min(sp.width * 0.92, W * (W < H && W < 700 ? 0.82 : 0.6)) * k, maxH = sp.height * Math.min(0.72, 0.68 * k);
     const focal = H / (2 * Math.tan(THREE.MathUtils.degToRad(FOV / 2)));
     const dist = Math.max(3, (this.fit.w * focal) / maxW, (this.fit.h * focal) / maxH);
     const ground = sp.top + sp.height * 0.8; // room below for the front of the turntable
