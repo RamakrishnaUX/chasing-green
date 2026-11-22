@@ -2886,3 +2886,15 @@ body:not(.has-touch) :is(#notebook, #learn) > .seg-tabs .tab.is-on, body:not(.ha
 #sheet .btn-primary { background: linear-gradient(180deg, #ffffff, #e3e8eb); color: #12171b; border-color: rgba(255,255,255,0.7); box-shadow: inset 0 1px 0 rgba(255,255,255,0.8), 0 8px 22px rgba(0,0,0,0.3); }
 #sheet .jr-bar b { background: linear-gradient(90deg, rgba(255,255,255,0.35), #f3f5f6); }
 #sheet .badge.is-got .medal, body:not(.has-touch) #sheet .badge.is-sel .medal, #sheet .nbd-medal .medal { filter: drop-shadow(0 0 12px rgba(255,255,255,0.3)); }
+
+/* ---------- No green on the driving screen (computers) ----------
+   The new-place label, the tips' edge, the Kp in the line, the aurora radio, the place markers
+   and the aurora moment all in white and grey: the only green left is the aurora itself. */
+body:not(.has-touch) #hud { --green: #eef1f3; --green-2: #8f999f; --green-hi: #ffffff; --green-deep: #3a434a; --green-ink: #12171b; --glass: rgba(12, 15, 18, 0.5); --glass-strong: rgba(12, 15, 18, 0.76); }
+body:not(.has-touch) .qh-kp { text-shadow: 0 0 14px rgba(255, 255, 255, 0.45); }
+body:not(.has-touch) .qh-kp.is-calm { color: rgba(243, 245, 246, 0.85); }
+body:not(.has-touch) .hx-mark::after { box-shadow: 0 0 10px rgba(255, 255, 255, 0.6); }
+body:not(.has-touch) .mo-edge { box-shadow: inset 0 0 220px rgba(214, 224, 232, 0.26), inset 0 0 90px rgba(232, 238, 242, 0.18), inset 0 0 24px rgba(255, 255, 255, 0.2); animation-name: edge-breathe-white; }
+@keyframes edge-breathe-white { 50% { box-shadow: inset 0 0 260px rgba(214, 224, 232, 0.32), inset 0 0 110px rgba(232, 238, 242, 0.22), inset 0 0 30px rgba(255, 255, 255, 0.26); } }
+body:not(.has-touch) .mo-act i { background: rgba(10, 13, 16, 0.55); box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.7); }
+body:not(.has-touch) .mo-bar b { background: linear-gradient(90deg, rgba(255,255,255,0.35), rgba(255,255,255,0.75) 25%, #ffffff 50%, rgba(255,255,255,0.75) 75%, rgba(255,255,255,0.35)) 0 0 / 200% 100%; }

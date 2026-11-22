@@ -429,6 +429,7 @@ export class Hud {
   }
 
   drawGraph(s) {
+    const mono = !document.body.classList.contains('has-touch'); // no green on a computer's screen
     const c = this.g, W = this.el.graph.width, H = this.el.graph.height;
     const padL = 34, padB = 28, padT = 10, padR = 10;
     c.clearRect(0, 0, W, H);
@@ -443,7 +444,7 @@ export class Hud {
     [[2, '18:00'], [8, '00:00'], [14, '06:00']].forEach(([o, label]) => { c.fillText(label, X(x0 + o) - 26, H - 6); });
     // Threshold line.
     c.setLineDash([6, 6]);
-    c.strokeStyle = 'rgba(92,242,160,0.35)';
+    c.strokeStyle = mono ? 'rgba(255,255,255,0.3)' : 'rgba(92,242,160,0.35)';
     c.beginPath(); c.moveTo(padL, Y(CONFIG.aurora.minKp)); c.lineTo(W - padR, Y(CONFIG.aurora.minKp)); c.stroke();
     c.setLineDash([]);
     // Forecast ahead.
@@ -460,7 +461,7 @@ export class Hud {
     c.setLineDash([]);
     // What actually happened tonight.
     const hist = s.history || [];
-    c.strokeStyle = '#66dfb0';
+    c.strokeStyle = mono ? '#f3f5f6' : '#66dfb0';
     c.lineWidth = 3;
     c.beginPath();
     hist.forEach((p, i) => (i ? c.lineTo(X(p.h), Y(p.kp)) : c.moveTo(X(p.h), Y(p.kp))));

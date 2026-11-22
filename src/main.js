@@ -1991,7 +1991,7 @@ function beginTrip() {
   if (settings.steering === 'tilt') Input.askTilt().then(applySteering);
   if (isTouch) { touchLayout(); goLandscape(); }
   canvas.focus();
-  setTimeout(() => hud.toast(isTouch ? 'The Kp, bottom right, is how strong the aurora is. Tap it for the aurora radio.' : 'When the aurora is worth looking for, a green Kp joins the line at the bottom. Press K any time for the aurora radio.', { seconds: 7 }), 4200);
+  setTimeout(() => hud.toast(isTouch ? 'The Kp, bottom right, is how strong the aurora is. Tap it for the aurora radio.' : 'When the aurora is worth looking for, the Kp joins the line at the bottom. Press K any time for the aurora radio.', { seconds: 7 }), 4200);
   setTimeout(showReverseTip, 8000);
 }
 
