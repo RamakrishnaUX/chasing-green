@@ -10,7 +10,8 @@ import { updateTerrainLod, buildTerrain, paintTerrain, iceAt, flattenPads, raise
 import { Scatter } from './world/scatter.js';
 import { Grass } from './world/grass.js';
 import { Post } from './world/post.js';
-import { installLook } from './world/look.js';
+import { installLook, LOOK } from './world/look.js';
+import { SkyTone } from './world/skytone.js';
 import { IceBits } from './world/ice.js';
 import { Props } from './world/props.js';
 import { Trees } from './world/trees.js';
@@ -392,12 +393,19 @@ async function buildWorld(progress) {
   // where it is missing, warm highlights over cool shadows, and a soft glow on the brightest things.
   if (post && HD.on) {
     const G = post.grade.uniforms;
-    G.uContrast.value = 1.0; G.uSat.value = 1.06; G.uVibrance.value = 0.16; G.uSplit.value = 1; G.uCurve.value = 0.18; G.uBlack.value = 0.1; G.uWhite.value = 0.93;
+    // Black point 0.03: the Punchy look already deepens the shadows (0.1 was set before the look
+    // actually ran, to lift bare AgX's grey floor, and with the look it crushed them).
+    G.uContrast.value = 1.0; G.uSat.value = 1.06; G.uVibrance.value = 0.16; G.uSplit.value = 1; G.uCurve.value = 0.18; G.uBlack.value = 0.03; G.uWhite.value = 0.93;
     G.uLift.value.set(0.0, 0.004, 0.01); G.uGain.value.set(1.0, 0.99, 0.965); G.uVignette.value = 0.26; G.uGrain.value = 0.014;
     post.dayBloom = 0;
   }
   // AgX rolls highlights off like a camera does, instead of clipping bright sky and snow.
-  if (HD.on) { renderer.toneMapping = THREE.AgXToneMapping; renderer.toneMappingExposure = (CONFIG.exposure ?? 0.95) * 1.2; }
+  // The Punchy look's power curve darkens the mid-tones; 1.68 puts the grey scale back where bare
+  // AgX had it (mid grey within a few levels), keeping the look's richer colour.
+  if (HD.on) { renderer.toneMapping = THREE.AgXToneMapping; renderer.toneMappingExposure = (CONFIG.exposure ?? 0.95) * 1.68; }
+  // The sky's colours are chosen as they should look on screen and corrected for the tone curve and
+  // grade just set up (skytone.js); the table builds in a worker while the island loads.
+  sky.setTone(new SkyTone(renderer, post, HD.on ? LOOK : null));
   await stage('Building towns', 0.91, 80);
   props = new Props(scene, { farms: Math.round((qualityName === 'low' ? 14 : 26) * GROW), landmarks: landmarks.list, keepClear: [START, ...stationSites], obstacles });
   // Realistic look: scanned detail on landmark and prop surfaces (not town houses, cars or people).
@@ -3197,7 +3205,7 @@ function frame(now) {
   surfaceUniforms.uCloudCover.value = a.cloud;
   surfaceUniforms.uCloudOffset.value.copy(cloudOffset);
   surfaceUniforms.uSunDir.value.copy(sunDir);
-  if (HD.on) updateAtmosphere(sunDir, surfaceUniforms.uSunUp.value);
+  if (HD.on) updateAtmosphere(sunDir);
   // Sun rays: strongest with the sun low and the sky clear, gone under overcast and at night.
   if (post?.shafts) post.shafts.setSun(camera, sunDir, 0.4 * surfaceUniforms.uSunUp.value * (1 - a.cloud * 0.75) * (0.5 + 0.5 * smoothstep(40, 6, clock.sunElevation())), sky.sun.color);
   sunMap?.update(renderer, sunDir, surfaceUniforms.uSunUp.value);

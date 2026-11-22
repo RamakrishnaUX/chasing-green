@@ -9,9 +9,15 @@ import { Pass, FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js'
 // picture flat and grey, like an ungraded camera file. Blender's "Punchy" look is the standard
 // grade on top of it: a power curve in AgX's log space (deeper shadows, firmer mid-tones) and more
 // colour. It is applied inside the tone mapper, where it cannot clip.
-export function installLook({ power = 1.3, sat = 1.32 } = {}) {
+export const LOOK = { power: 1.3, sat: 1.32 };
+export function installLook({ power = LOOK.power, sat = LOOK.sat } = {}) {
   const C = THREE.ShaderChunk;
   if (C.tonemapping_pars_fragment.includes('cgLook')) return;
+  // The look goes straight after the sigmoid. (It used to replace the "// v = agxLook" comment in
+  // three's source, but three ships its shaders with comments stripped, so for a long time the
+  // look was declared and never called: the realistic look ran on bare, grey AgX.)
+  const sigmoid = /(color = agxDefaultContrastApprox\( color \);)/;
+  if (!sigmoid.test(C.tonemapping_pars_fragment)) { console.warn('installLook: AgX sigmoid not found; the look is off.'); return; }
   C.tonemapping_pars_fragment = C.tonemapping_pars_fragment
     .replace('vec3 AgXToneMapping( vec3 color ) {', `vec3 cgLook( vec3 v ) {
   float luma = dot( v, vec3( 0.2126, 0.7152, 0.0722 ) );
@@ -19,16 +25,19 @@ export function installLook({ power = 1.3, sat = 1.32 } = {}) {
   return luma + ${sat.toFixed(3)} * ( v - luma );
 }
 vec3 AgXToneMapping( vec3 color ) {`)
-    .replace('// v = agxLook(v, look);', 'color = cgLook( color );');
+    .replace(sigmoid, '$1\n\tcolor = cgLook( color );');
 }
 
 // ---------- Sun rays ----------
 // Light shafts streaming from the sun through gaps in clouds, ridges and the car: the bright sky
 // around the sun is blurred towards it at half resolution (Mitchell, GPU Gems 3, ch. 13), so
 // anything standing in front of the sun cuts dark gaps in the glow. Only the sky's bright part
-// near the sun feeds it, so snow and white walls elsewhere do not stream.
+// near the sun feeds it, so snow and white walls elsewhere do not stream. The threshold (3.5) sits
+// above the painted sky's brightest glow (skytone caps it at 4 a channel, about 2 in luminance near
+// the sun) and below the sun disk (5 to 28): with the sky now corrected for the tone curve, the old
+// 1.6 let the whole glow round a low sun stream, which flared across the picture.
 const SHAFT = {
-  uniforms: { tDiffuse: { value: null }, uSun: { value: new THREE.Vector2(0.5, 0.5) }, uAspect: { value: 1 }, uThreshold: { value: 1.6 }, uReach: { value: 0.32 } },
+  uniforms: { tDiffuse: { value: null }, uSun: { value: new THREE.Vector2(0.5, 0.5) }, uAspect: { value: 1 }, uThreshold: { value: 3.5 }, uReach: { value: 0.32 } },
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
   fragmentShader: /* glsl */ `
     uniform sampler2D tDiffuse; uniform vec2 uSun; uniform float uAspect; uniform float uThreshold; uniform float uReach;

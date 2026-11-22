@@ -2,7 +2,10 @@ import * as THREE from 'three';
 import { SKY_LAYER } from './skyreflect.js';
 import { Sky as ScatterSky } from 'three/examples/jsm/objects/Sky.js';
 import { clamp, smoothstep } from './noise.js';
-import { HD } from './hd.js';
+import { HD, fogSun } from './hd.js';
+import { TONE_GLSL } from './skytone.js';
+import { N as TONE_N, plainTable } from './skytoneMath.js';
+
 
 export const GLSL_NOISE = /* glsl */ `
 // smoothstep, defined for edges in either order (GLSL leaves edge0 >= edge1 undefined; on Apple GPUs
@@ -38,6 +41,24 @@ uniform vec3 uCityDir; uniform float uCityGlow; uniform float uCityOverhead; uni
 uniform vec3 uAuroraTint; uniform float uAurora; uniform float uOverlay;
 varying vec3 vDir;
 ${GLSL_NOISE}
+#ifndef ENV
+${TONE_GLSL}
+// The daytime sky, as Slow Roads paints it: a pale clear blue on the horizon (paler and warmer
+// toward the sun) deepening to a rich blue by about 30 degrees up, a little deeper still overhead,
+// and a soft bright glow round the sun. Screen colours (sRGB); the fog uses the same (hd.js).
+uniform vec3 uDayHor; uniform vec3 uDaySunHor; uniform vec3 uDayMid; uniform vec3 uDayZen; uniform vec3 uDayHalo;
+// How far the colours are corrected for the tone curve and grade: fully by day, not at all by
+// night, whose painted colours were tuned through the curve as it is.
+uniform float uToneW;
+vec3 daySky(vec3 d){
+  float y = max(d.y, 0.0);
+  float s = dot(normalize(d.xz + 1e-5), normalize(uSunDir.xz + 1e-5));
+  float side = sstep(-0.35, 1.0, s); side *= side;
+  vec3 c = mix(mix(uDayHor, uDaySunHor, side), mix(uDayMid, uDayZen, sstep(0.5, 1.0, y)), pow(clamp(y * 2.0, 0.0, 1.0), 0.8));
+  float mu = max(dot(d, uSunDir), 0.0);
+  return mix(c, uDayHalo, clamp(pow(mu, 8.0) * 0.55 + pow(mu, 64.0) * 0.45, 0.0, 1.0));
+}
+#endif
 void main(){
   vec3 d = normalize(vDir);
   float y = max(d.y, 0.0);
@@ -72,8 +93,17 @@ void main(){
   float sd = dot(d, uSunDir);
   vec3 disk = elRamp(el, vec3(1.0, 0.93, 0.8), vec3(1.0, 0.8, 0.55), vec3(1.0, 0.56, 0.26), vec3(1.0, 0.4, 0.16), vec3(0.8, 0.3, 0.15), vec3(0.0));
   vec3 aure = elRamp(el, vec3(1.0, 0.86, 0.66), vec3(1.0, 0.7, 0.42), vec3(1.0, 0.5, 0.2), vec3(0.95, 0.38, 0.14), vec3(0.5, 0.2, 0.12), vec3(0.0));
-  col += disk * sstep(0.9993, 0.9997, sd) * (1.0 - uDark) * sstep(-1.0, 0.3, el);
-  col += aure * (pow(max(sd, 0.0), 10.0) * 0.32 + pow(max(sd, 0.0), 90.0) * 0.5) * sstep(-9.0, -1.0, el) * (1.0 - uDark * 0.6);
+  float diskMask = sstep(0.9993, 0.9997, sd) * (1.0 - uDark) * sstep(-1.0, 0.3, el);
+#ifdef ENV
+  col += disk * diskMask;
+#endif
+  float aureK = 1.0;
+#ifndef ENV
+  // Tuned when the tone curve greyed everything: corrected, the full glow clipped to a wide white
+  // blob round a low sun, so it is softer where the correction applies.
+  aureK = mix(1.0, 0.4, uToneW);
+#endif
+  col += aure * (pow(max(sd, 0.0), 10.0) * 0.32 + pow(max(sd, 0.0), 90.0) * 0.5) * aureK * sstep(-9.0, -1.0, el) * (1.0 - uDark * 0.6);
   // City light pollution.
   float cityFacing = pow(max(dot(normalize(vec3(d.x, 0.0, d.z)), uCityDir), 0.0), 5.0);
   vec3 glowCol = vec3(0.55, 0.36, 0.2);
@@ -112,7 +142,18 @@ void main(){
   }
   col += vec3(0.25, 0.3, 0.4) * pow(max(md, 0.0), 30.0) * 0.3 * uDark * (1.0 - uCloud * 0.6) * (0.15 + 0.85 * uMoonIllum);
   col += uAuroraTint * uAurora * hor * 0.05;
+#ifdef ENV
+  // The environment map (what lights the land and shines in paint) keeps the physical sky by day,
+  // with this painted one laid over it toward sunset.
   gl_FragColor = vec4(col, uOverlay);
+#else
+  col = mix(daySky(d), col, uOverlay);
+  col = mix(col, toScene(col), uToneW);
+  // The sun itself, far brighter than the sky, so the tone curve keeps it a hot white and the sun
+  // rays and glow find it; nearer the horizon it is dimmer and redder.
+  col += pow(disk, vec3(2.2)) * diskMask * mix(5.0, 28.0, sstep(0.0, 15.0, el));
+  gl_FragColor = vec4(col, 1.0);
+#endif
 }`;
 
 const CLOUD_FRAG = /* glsl */ `
@@ -283,6 +324,14 @@ varying vec3 vDir;
 void main(){ vDir = position; vec4 p = modelViewMatrix * vec4(position, 1.0); gl_Position = projectionMatrix * p; gl_Position.z = gl_Position.w * 0.99999; }`;
 
 const sm = (e0, e1, x) => smoothstep(e0, e1, x);
+// A tone table that changes nothing, until the real one is set (setTone).
+function plainToneTexture() {
+  const lut = plainTable(), half = new Uint16Array(lut.length);
+  for (let i = 0; i < lut.length; i++) half[i] = THREE.DataUtils.toHalfFloat(lut[i]);
+  const t = new THREE.Data3DTexture(half, TONE_N, TONE_N, TONE_N);
+  t.type = THREE.HalfFloatType; t.minFilter = t.magFilter = THREE.LinearFilter; t.unpackAlignment = 1; t.needsUpdate = true;
+  return t;
+}
 const mixA = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t);
 
 // Horizon colour away from the sun, matching the sky shader. Used for fog.
@@ -295,11 +344,33 @@ const ramp6 = (e, c) => {
 // the side away from the sun, warmed a little toward the sun side's glow.
 const HOR_ANTI = [[0.78, 0.84, 0.9], [0.84, 0.79, 0.8], [0.86, 0.67, 0.68], [0.78, 0.55, 0.63], [0.4, 0.36, 0.5], [0.07, 0.09, 0.15]];
 const HOR_SUN = [[0.95, 0.88, 0.74], [1.0, 0.72, 0.42], [1.0, 0.47, 0.15], [0.95, 0.31, 0.1], [0.62, 0.2, 0.14], [0.12, 0.08, 0.12]];
-function horizonColor(el) {
-  const low = mixA(ramp6(el, HOR_ANTI), ramp6(el, HOR_SUN), 0.28);
-  let c = mixA(PAL.dayHor, low, sm(14, 6, el));
-  c = mixA(c, PAL.nightHor, sm(-5, -11, el));
-  return c;
+const GLOW_ANTI = [[0.6, 0.72, 0.86], [0.58, 0.66, 0.82], [0.6, 0.58, 0.74], [0.5, 0.48, 0.66], [0.24, 0.26, 0.42], [0.04, 0.06, 0.12]]; // GA in the shader
+
+// The daytime sky (daySky in the shader), in screen colours. Clear: Slow Roads' own sky, a pale
+// clear blue horizon (156, 196, 232) under a rich blue from 30 degrees up (40, 117, 197). It warms
+// toward the painted low-sun sky's keys as the sun drops to 10 degrees, and greys under cloud.
+const DAY = {
+  clear: { hor: [0.612, 0.769, 0.91], sunHor: [0.8, 0.865, 0.925], mid: [0.157, 0.459, 0.773], zen: [0.12, 0.4, 0.72], halo: [0.9, 0.93, 0.96] },
+  low: { hor: [0.78, 0.84, 0.9], sunHor: [0.95, 0.88, 0.74], mid: [0.4, 0.55, 0.78], zen: [0.2, 0.38, 0.66], halo: [1.0, 0.88, 0.7] },
+  overcast: { hor: [0.76, 0.78, 0.8], sunHor: [0.82, 0.83, 0.84], mid: [0.6, 0.64, 0.69], zen: [0.55, 0.59, 0.65], halo: [0.86, 0.87, 0.88] },
+};
+function dayColors(el, cloud) {
+  const low = sm(30, 10, el), oc = sm(0.15, 0.95, cloud), out = {};
+  for (const k of Object.keys(DAY.clear)) out[k] = mixA(mixA(DAY.clear[k], DAY.low[k], low), DAY.overcast[k], oc);
+  return out;
+}
+// The horizon (toward the sun and away from it) and the sky a little above it, as the dome shows
+// them at any hour: the day sky, the painted low-sun sky, then night. The fog takes these, so far
+// hills fade into the sky behind them.
+function horizonColors(el, cloud) {
+  const day = dayColors(el, cloud), over = sm(12, 5, el), wN = sm(-5, -11, el);
+  const nightUp = mixA(PAL.nightZen, PAL.nightHor, 0.3);
+  return {
+    anti: mixA(mixA(day.hor, ramp6(el, HOR_ANTI), over), PAL.nightHor, wN),
+    sun: mixA(mixA(day.sunHor, ramp6(el, HOR_SUN), over), PAL.nightHor, wN),
+    up: mixA(mixA(day.mid, ramp6(el, GLOW_ANTI), over), nightUp, wN),
+    halo: day.halo, day,
+  };
 }
 
 export class Sky {
@@ -324,6 +395,9 @@ export class Sky {
     this.scatter.material.fragmentShader = this.scatter.material.fragmentShader
       .replace('uniform vec3 up;', 'uniform vec3 up;\nuniform float uGain;')
       .replace('gl_FragColor = vec4( retColor, 1.0 );', 'gl_FragColor = vec4( clamp( retColor * uGain, 0.0, 40.0 ), 1.0 );');
+    // The physical sky now only lights the world (the environment map below); what you see is the
+    // painted dome, art-directed like Slow Roads' sky.
+    this.scatter.visible = false;
     scene.add(this.scatter);
     if (renderer) {
       this.pmrem = new THREE.PMREMGenerator(renderer);
@@ -345,15 +419,25 @@ export class Sky {
         uAuroraTint: { value: new THREE.Color(0x3cff9a) }, uAurora: { value: 0 },
       },
     });
-    this.skyMat.transparent = true;
     this.skyMat.uniforms.uOverlay = { value: 0 };
+    // The day sky's colours, and the table that corrects screen colours for the tone curve (a plain
+    // one, no correction, until setTone).
+    Object.assign(this.skyMat.uniforms, {
+      uDayHor: { value: new THREE.Vector3() }, uDaySunHor: { value: new THREE.Vector3() }, uDayMid: { value: new THREE.Vector3() },
+      uDayZen: { value: new THREE.Vector3() }, uDayHalo: { value: new THREE.Vector3() }, uToneW: { value: 0 }, uTone: { value: plainToneTexture() },
+    });
+    this.tone = null;
     this.sky = new THREE.Mesh(skyGeo, this.skyMat);
     this.sky.renderOrder = -5;
     this.sky.frustumCulled = false;
     scene.add(this.sky);
     this.sky.layers.enable(SKY_LAYER); // seen in the water at night (skyreflect.js)
     // The reflections see the painted low-sun sky too, laid over the physical one as on screen.
-    if (this.envScene) { const envDome = new THREE.Mesh(skyGeo, this.skyMat); envDome.renderOrder = 1; envDome.frustumCulled = false; this.envScene.add(envDome); }
+    // (Its own build of the shader: the physical sky underneath by day, painted colours uncorrected.)
+    if (this.envScene) {
+      const envMat = new THREE.ShaderMaterial({ vertexShader: DOME_VERT, fragmentShader: SKY_FRAG, side: THREE.BackSide, depthWrite: false, transparent: true, uniforms: this.skyMat.uniforms, defines: { ENV: '' } });
+      const envDome = new THREE.Mesh(skyGeo, envMat); envDome.renderOrder = 1; envDome.frustumCulled = false; this.envScene.add(envDome);
+    }
 
     this.cloudMat = new THREE.ShaderMaterial({
       vertexShader: DOME_VERT, fragmentShader: CLOUD_FRAG, side: THREE.BackSide, depthWrite: false, transparent: true,
@@ -393,7 +477,7 @@ export class Sky {
       const ext = shadowSize >= 4096 ? 230 : 140;
       sc.left = -ext; sc.right = ext; sc.top = ext; sc.bottom = -ext; sc.near = 1; sc.far = 1400;
       this.sun.shadow.bias = -0.0005;
-      this.sun.shadow.normalBias = 0.8;
+      this.sun.shadow.normalBias = 0.8; // eased down as the sun climbs (update)
     }
     this.shadowsWanted = shadowSize > 0;
     this.moon = new THREE.DirectionalLight(0x9fb4d6, 0.3);
@@ -426,6 +510,10 @@ export class Sky {
   }
 
   setRGB(target, a) { return target.setRGB(a[0], a[1], a[2], THREE.SRGBColorSpace); }
+  // The screen-colour correction (skytone.js), once the grade it corrects for is set up.
+  // Without post-processing (Low) the dome is not tone mapped at all: its colours reach the screen
+  // as they are, so only the fog (which is) needs correcting.
+  setTone(tone) { this.tone = tone; this.domeDirect = !tone.params.grade; this.skyMat.uniforms.uTone.value = tone.texture; }
 
   // One eighth of the cloud panorama per call; all of it on the first call. The slice's scissor
   // must be set before the target is bound: three.js applies a target's scissor when it is bound,
@@ -499,7 +587,11 @@ export class Sky {
     // Night sky takes over once the sun is well below the horizon.
     const overlay = sm(12, 5, elDeg);
     u.uOverlay.value = overlay;
-    this.scatter.visible = overlay < 0.999;
+    // The day sky and the screen-colour correction (full by day, gone by deep dusk).
+    const H = horizonColors(elDeg, cloud), toneW = this.tone ? 1 - sm(-2, -8, elDeg) : 0;
+    u.uToneW.value = this.domeDirect ? 0 : toneW;
+    u.uDayHor.value.fromArray(H.day.hor); u.uDaySunHor.value.fromArray(H.day.sunHor); u.uDayMid.value.fromArray(H.day.mid);
+    u.uDayZen.value.fromArray(H.day.zen); u.uDayHalo.value.fromArray(H.day.halo);
     // Overcast skies are greyer and dimmer.
     // The realistic look: a clearer, deeper blue sky (less haze, a little more Rayleigh) drawn
     // darker, so it reads blue through the film curve instead of white.
@@ -538,12 +630,24 @@ export class Sky {
     this.setRGB(this.hemi.groundColor, mixA([0.42, 0.33, 0.22], [0.06, 0.07, 0.09], wNight));
     this.hemi.intensity = 0.45 * this.light.hemi + wTw * 0.5 + wNight * (0.7 + 0.35 * this.moonInfo.up * this.moonInfo.illum * (1 - cloud)) + auroraVis * 0.6 * dark;
 
-    // Fog takes the horizon colour, so far hills fade into blue haze.
-    this.setRGB(this.fog.color, horizonColor(elDeg));
+    // Fog takes the sky's own colours (as the dome shows them, corrected the same way), so far hills
+    // fade into the sky behind them. Classic: one colour, the horizon warmed a little toward the
+    // sun. Realistic: the horizon toward and away from the sun, the sky above it, the glow round the
+    // sun, and a mid blue for the air itself (hd.js).
+    const lin = (c, out) => (toneW > 0 ? this.tone.toScene(c, out).lerp(this.c2.setRGB(c[0], c[1], c[2], THREE.SRGBColorSpace), 1 - toneW) : this.setRGB(out, c));
+    if (HD.on) {
+      lin(H.anti, this.fog.color);
+      const put = (o, c) => { o.x = c.r; o.y = c.g; o.z = c.b; };
+      put(fogSun.sunHor, lin(H.sun, this.tmp));
+      put(fogSun.up, lin(H.up, this.tmp));
+      put(fogSun.color, lin(mixA(H.sun, H.halo, sunUp), this.tmp));
+      put(fogSun.haze, lin(mixA(H.anti, H.up, 0.25), this.tmp));
+      // Half the light from land 2,600 m off is the air's own (as in Slow Roads, where the haze grows
+      // straight with distance), less on a clear night.
+      const haze = 0.5 * (1 - wNight * 0.7);
+      fogSun.hazeK.x = haze / 2600; fogSun.hazeK.y = haze;
+    } else lin(mixA(H.anti, H.sun, 0.28), this.fog.color);
     this.fog.color.lerp(this.c2.setRGB(0.23, 0.17, 0.12), city.overhead * dark * 0.4);
-    // Realistic look: distance turns land blue, as air really does (aerial perspective), rather
-    // than the pale grey of a painted backdrop.
-    if (HD.on) { const day = 1 - wNight; this.fog.color.multiply(this.c2.setRGB(1 - 0.24 * day, 1 - 0.13 * day, 1)); }
     // Iceland's air is clear: on the realistic look the daytime haze is thinner (light.haze).
     this.fog.density = (0.0004 + cloud * 0.00045) * (1 - (1 - (this.light.haze ?? 1)) * (1 - wNight) * (1 - cloud)) + wNight * 0.0005;
     return { sunDir, dark };

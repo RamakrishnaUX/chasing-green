@@ -263,19 +263,27 @@ async function loadTextures(renderer) {
 // Exponential fog becomes height fog (thick in valleys, thin towards peaks) that picks up the
 // sun's colour when you look towards it. The sun uniforms are plain objects on purpose: three.js
 // copies vectors into every material, but shares plain objects, so one update reaches them all.
-export const fogSun = { dir: { x: 0, y: 1, z: 0 }, color: { x: 1, y: 0.82, z: 0.6 } };
+// As in Slow Roads, the fog is the sky: a far hill takes the colour the sky has behind it (paler and
+// warmer on the sun's side of the horizon, deeper blue higher up), and air between you and the land
+// tints it toward a mid blue in proportion to the distance (aerial perspective). sky.js sets these
+// from the same colours the sky dome is painted with. color is the glow round the sun; hazeK is
+// (haze per world unit, most haze, unused).
+const v3 = (x, y, z) => ({ x, y, z });
+export const fogSun = { dir: v3(0, 1, 0), color: v3(0, 0, 0), sunHor: v3(0, 0, 0), up: v3(0, 0, 0), haze: v3(0, 0, 0), hazeK: v3(0, 0, 0) };
 export function installAtmosphere() {
-  for (const lib of Object.values(THREE.ShaderLib)) {
-    if (!lib.uniforms?.fogColor) continue;
-    lib.uniforms.fogSunDir = { value: fogSun.dir };
-    lib.uniforms.fogSunColor = { value: fogSun.color };
-  }
+  const fogUniforms = () => ({
+    fogSunDir: { value: fogSun.dir }, fogSunColor: { value: fogSun.color }, fogSunHor: { value: fogSun.sunHor },
+    fogUp: { value: fogSun.up }, fogHaze: { value: fogSun.haze }, fogHazeK: { value: fogSun.hazeK },
+  });
+  for (const lib of Object.values(THREE.ShaderLib)) if (lib.uniforms?.fogColor) Object.assign(lib.uniforms, fogUniforms());
+  // Custom shaders merge UniformsLib.fog; plain objects are shared by reference, so they follow too.
+  Object.assign(THREE.UniformsLib.fog, fogUniforms());
   const C = THREE.ShaderChunk;
   C.fog_pars_vertex = '#ifdef USE_FOG\n  varying float vFogDepth;\n  varying vec3 vFogView;\n#endif';
   C.fog_vertex = '#ifdef USE_FOG\n  vFogDepth = - mvPosition.z;\n  vFogView = mvPosition.xyz;\n#endif';
   C.fog_pars_fragment = `#ifdef USE_FOG
   uniform vec3 fogColor; varying float vFogDepth; varying vec3 vFogView;
-  uniform vec3 fogSunDir; uniform vec3 fogSunColor;
+  uniform vec3 fogSunDir; uniform vec3 fogSunColor; uniform vec3 fogSunHor; uniform vec3 fogUp; uniform vec3 fogHaze; uniform vec3 fogHazeK;
   #ifdef FOG_EXP2
     uniform float fogDensity;
   #else
@@ -286,23 +294,32 @@ export function installAtmosphere() {
   #ifdef FOG_EXP2
     vec3 fRay = (vec4(vFogView, 0.0) * viewMatrix).xyz;
     float fDist = length(fRay);
+    vec3 fDir = fRay / max(fDist, 1e-3);
     // Density falls off with height: integrate it along the ray from the camera.
     float fH = 120.0, fDy = fRay.y / fH;
     float fAlong = abs(fDy) > 1e-3 ? (1.0 - exp(-fDy)) / fDy : 1.0 - fDy * 0.5;
     float fHeight = clamp(exp(-max(cameraPosition.y, 0.0) / fH) * fAlong, 0.12, 2.5);
     float fogFactor = 1.0 - exp(- fogDensity * fogDensity * fDist * fDist * fHeight);
-    float fSun = pow(max(dot(fRay / max(fDist, 1e-3), fogSunDir), 0.0), 6.0);
-    gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor + fogSunColor * fSun * 0.3, fogFactor);
+    // The sky's colour in this direction (sky.js daySky): the horizon, sunward or away, then
+    // deeper blue with height, then the glow round the sun. (A shader without the sky's colours
+    // set falls back to the plain fog colour.)
+    float fS = dot(normalize(fDir.xz + 1e-5), normalize(fogSunDir.xz + 1e-5));
+    float fSide = clamp((fS + 0.35) / 1.35, 0.0, 1.0); fSide = fSide * fSide * (3.0 - 2.0 * fSide); fSide *= fSide;
+    vec3 fCol = mix(fogColor, dot(fogSunHor, vec3(1.0)) > 0.0 ? fogSunHor : fogColor, fSide);
+    if (dot(fogUp, vec3(1.0)) > 0.0) fCol = mix(fCol, fogUp, pow(clamp(fDir.y * 2.0, 0.0, 1.0), 0.8));
+    float fMu = max(dot(fDir, fogSunDir), 0.0);
+    fCol = mix(fCol, fogSunColor, clamp(pow(fMu, 8.0) * 0.55, 0.0, 1.0) * step(0.001, dot(fogSunColor, vec3(1.0))));
+    // Aerial perspective: the air itself, more of it the further the land.
+    gl_FragColor.rgb = mix(gl_FragColor.rgb, fogHaze, min(fDist * fogHazeK.x, fogHazeK.y));
+    gl_FragColor.rgb = mix(gl_FragColor.rgb, fCol, fogFactor);
   #else
     float fogFactor = smoothstep(fogNear, fogFar, vFogDepth);
     gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, fogFactor);
   #endif
 #endif`;
 }
-export function updateAtmosphere(sunDir, sunUp) {
+export function updateAtmosphere(sunDir) {
   fogSun.dir.x = sunDir.x; fogSun.dir.y = sunDir.y; fogSun.dir.z = sunDir.z;
-  // Warm by day, gone at night.
-  fogSun.color.x = 1.0 * sunUp; fogSun.color.y = 0.78 * sunUp; fogSun.color.z = 0.55 * sunUp;
 }
 
 // ---------- Terrain shader ----------
