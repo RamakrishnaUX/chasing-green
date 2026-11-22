@@ -6,7 +6,7 @@ import { HD, fogSun } from './hd.js';
 import { TONE_GLSL } from './skytone.js';
 import { N as TONE_N, plainTable } from './skytoneMath.js';
 
-const _worldUp = new THREE.Vector3(0, 1, 0), _sR = new THREE.Vector3(), _sU = new THREE.Vector3();
+const _worldUp = new THREE.Vector3(0, 1, 0), _sR = new THREE.Vector3(), _sU = new THREE.Vector3(), _sD = new THREE.Vector3();
 
 export const GLSL_NOISE = /* glsl */ `
 // smoothstep, defined for edges in either order (GLSL leaves edge0 >= edge1 undefined; on Apple GPUs
@@ -615,17 +615,20 @@ export class Sky {
     // frame and jumped it by an odd fraction at each metre: the car's shadow (and every other)
     // shimmered and stepped as you drove. The shadow camera looks along the sun with world up as
     // its up (three.js lookAt), so its right and up axes are these.
-    const sh = this.sun.shadow, sc = sh.camera;
+    // The steps are counted from where the box was last frame, not from the world's origin: the
+    // sun keeps turning, which swings the grid round whatever point it is counted from, and the
+    // origin is a kilometre or two away, so the grid slid about a texel a frame under the car. Round
+    // last frame's place (always beside you) it moves by a hair, as the real shadows do.
+    const sh = this.sun.shadow, sc = sh.camera, tp = this.sun.target.position;
     _sR.crossVectors(_worldUp, sunDir);
     if (_sR.lengthSq() < 1e-8) _sR.set(1, 0, 0); else _sR.normalize();
     _sU.crossVectors(sunDir, _sR);
     const texel = (sc.right - sc.left) / sh.mapSize.x;
     const snap = (v) => Math.round(v / texel) * texel;
-    this.sun.target.position.set(0, 0, 0)
-      .addScaledVector(_sR, snap(f.dot(_sR)))
-      .addScaledVector(_sU, snap(f.dot(_sU)))
-      .addScaledVector(sunDir, snap(f.dot(sunDir)));
-    this.sun.position.copy(this.sun.target.position).addScaledVector(sunDir, 500);
+    if (!this.shadowAt) { this.shadowAt = true; tp.copy(f); }
+    _sD.subVectors(f, tp);
+    tp.addScaledVector(_sR, snap(_sD.dot(_sR))).addScaledVector(_sU, snap(_sD.dot(_sU))).addScaledVector(sunDir, _sD.dot(sunDir));
+    this.sun.position.copy(tp).addScaledVector(sunDir, 500);
     // How far above itself each surface looks up its shadow (normalBias). With the sun all but on
     // the horizon (under 3 degrees, most of a winter day) it stays at 0.8 m, which keeps grazing
     // light from speckling the land; but that also left anything under 0.8 m without a shadow on
