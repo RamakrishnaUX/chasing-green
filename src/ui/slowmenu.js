@@ -1,12 +1,12 @@
-// The menu on computers: a row of names along the bottom (Map, Vehicle, World, Journey, Together,
-// Learn, Settings) with a few icons on the right, which comes in with the mouse and goes with the
-// rest of the controls. Vehicle, World and Settings open one floating glass panel above the row;
-// the others open their pages as before. Clicking the open tab again, Esc, or a click on the road
-// puts the panel away.
+// The menu on computers: a row of names along the bottom (Map, Vehicle, Journey, Together,
+// Settings) with a few icons on the right, which comes in with the mouse and goes with the rest of
+// the controls. Vehicle and Settings open one floating glass panel above the row (the world's
+// month, time and trip choices are Settings' first section); the others open their pages as
+// before. Learn opens from the help button at the top right. Clicking the open tab again, Esc, or
+// a click on the road puts the panel away.
 //
 // The panel drives the settings sheet's own controls (their selects and sliders), so every change
 // runs the handlers it always did; the sheet's Settings and Sound pages are simply not shown here.
-import { BLUEPRINT } from './cover.js';
 import { VEHICLES, VEHICLE_ORDER } from '../vehicle/specs.js';
 import { PEOPLE } from '../vehicle/person.js';
 
@@ -16,6 +16,7 @@ const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
 // What each panel holds. Rows name the sheet's controls by id.
 const WORLD = ['set-month', 'set-speed', 'set-places', 'set-fuel', 'set-nitro'];
 const CATS = [
+  { k: 'world', name: 'World', rows: WORLD },
   { k: 'picture', name: 'Picture', rows: ['set-quality', 'set-look', 'set-rocks', 'set-full'] },
   { k: 'sound', name: 'Sound', rows: ['set-sound', 'vol-master', 'vol-music', 'vol-car', 'vol-ambience'] },
   { k: 'controls', name: 'Controls', rows: ['set-view', 'set-heli'] },
@@ -25,7 +26,7 @@ const CATS = [
 const KEYS = [
   ['W A S D', 'Drive'], ['Space', 'Nitro'], ['C', 'Camera'], ['V', 'Vehicle'], ['M', 'Map'], ['E', 'Step out or in'],
   ['J', 'Jump, open the chute'], ['F', 'Refuel'], ['L', 'Look up'], ['K', 'Aurora radio'], ['R', 'Record a clip'], ['U', 'Mute'],
-  ['O', 'Photo mode'], ['P', 'Postcard of the sky'], ['N', 'Notebook'], ['Esc', 'Close'],
+  ['O', 'Photo mode'], ['P', 'Postcard of the sky'], ['N', 'Notebook'], ['H', 'Learn'], ['Esc', 'Close'],
 ];
 const short = (t) => t.replace(/^(\d)x$/, '$1×').replace(/ \(like the car\)$/, '');
 
@@ -35,13 +36,13 @@ export function slowMenu({ go, vehicle, setVehicle, person, setPerson, sync, not
   const tabs = [...root.querySelectorAll('.sm-tab')];
   const panels = [...root.querySelectorAll('.sm-panel')];
   const ind = root.querySelector('.sm-ind');
-  let open = '', cat = 'picture';
+  let open = '', cat = 'world';
 
-  // ---- Vehicle: the garage's own outlines, one tile each, the helicopter last ----
+  // ---- Vehicle: a studio picture of each one's own model (tools/cars/thumbs.mjs), the helicopter last ----
   const kinds = [...VEHICLE_ORDER, 'heli'];
   const tagline = (k) => (k === 'heli' ? 'Fly anywhere and see the whole island.' : VEHICLES[k].tagline);
   const nameOf = (k) => (k === 'heli' ? 'Helicopter' : VEHICLES[k].name);
-  $('sm-vehicles').innerHTML = kinds.map((k) => `<button type="button" class="sm-tile is-wide" data-k="${k}" aria-label="${nameOf(k)}" aria-pressed="false"><svg viewBox="0 -4 240 104" aria-hidden="true">${BLUEPRINT[k].d.map((d) => `<path d="${d}"/>`).join('')}</svg></button>`).join('');
+  $('sm-vehicles').innerHTML = kinds.map((k) => `<button type="button" class="sm-tile is-wide is-car" data-k="${k}" aria-label="${nameOf(k)}" aria-pressed="false"><img src="./vehicles/${k}.webp" alt="" width="416" height="304" decoding="async" draggable="false"></button>`).join('');
   $('sm-people').innerHTML = Object.values(PEOPLE).map((p) => `<button type="button" class="sm-tile is-face" data-p="${p.id}" aria-label="${p.name}" aria-pressed="false"><img src="./people/${p.id}.webp" alt="" width="160" height="160" decoding="async"></button>`).join('');
   const showVehicle = () => {
     const k = vehicle();
@@ -121,8 +122,6 @@ export function slowMenu({ go, vehicle, setVehicle, person, setPerson, sync, not
     box.addEventListener('focusin', say);
   }
 
-  $('sm-world').innerHTML = WORLD.map(rowHtml).join('');
-  wireRows($('sm-world'), $('sm-whint'));
   wireRows($('sm-setrows'), $('sm-shint'));
   $('sm-cats').innerHTML = CATS.map((c) => `<button type="button" role="tab" data-c="${c.k}" aria-selected="false">${c.name}</button>`).join('');
   $('sm-cats').addEventListener('click', (e) => { const b = e.target.closest('[data-c]'); if (b) showCat(b.dataset.c); });
@@ -188,7 +187,6 @@ export function slowMenu({ go, vehicle, setVehicle, person, setPerson, sync, not
     for (const t of tabs) if (t.hasAttribute('aria-selected')) t.setAttribute('aria-selected', String(t.dataset.t === name));
     for (const p of panels) p.hidden = p.dataset.p !== name;
     if (name === 'vehicle') { showVehicle(); showPerson(); }
-    if (name === 'world') { syncRows($('sm-world')); $('sm-whint').textContent = notes[WORLD[0]] || ''; }
     if (name === 'settings') showCat(sub || cat);
     place();
     onOpen?.(!!name);
@@ -197,7 +195,7 @@ export function slowMenu({ go, vehicle, setVehicle, person, setPerson, sync, not
   for (const t of tabs) {
     t.addEventListener('click', () => {
       const k = t.dataset.t;
-      if (k === 'vehicle' || k === 'world' || k === 'settings') toggle(k);
+      if (k === 'vehicle' || k === 'settings') toggle(k);
       else { show(''); go(k); }
     });
   }

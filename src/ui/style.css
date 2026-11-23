@@ -1900,8 +1900,8 @@ body.has-touch .hx-place { line-height: 1.45 !important; padding-bottom: 2px; }
   body.has-touch #intro .gx-name { margin-top: 0; }
 }
 
-/* ---------- Less on screen: the menu is the only button in the corner ---------- */
-#hud .hud-tr > :not(#btn-settings) { display: none !important; }
+/* ---------- Less on screen: the menu and Learn's help button are the only buttons in the corner ---------- */
+#hud .hud-tr > :not(#btn-settings):not(#btn-learn) { display: none !important; }
 /* While the aurora is out, the compass steps aside and the sky is left clear. */
 body.sky-on .hx-tape, body.sky-on .hx-tape + .hx-caret, body.moment-on .hx-tape { opacity: 0; transition: opacity 0.8s; }
 .hx-tape { transition: opacity 0.8s; }
@@ -2757,7 +2757,7 @@ body:not(.has-touch) .sm { --sm-ink: #f3f5f6; --sm-ink-2: rgba(243, 245, 246, 0.
 body:not(.has-touch) .sm :focus-visible { outline: 2px solid rgba(243, 245, 246, 0.85); outline-offset: 2px; }
 /* The quiet line sits just above the row; the old corner buttons and key hints give way to it. */
 body:not(.has-touch) .qh { bottom: calc(76px + var(--safe-b)); }
-body:not(.has-touch) #hud :is(.hud-tr, .qh-keys) { display: none !important; }
+body:not(.has-touch) #hud .qh-keys, body:not(.has-touch) #hud .hud-tr > :not(#btn-learn) { display: none !important; }
 body:not(.has-touch) #fill-card { display: none !important; }
 /* While it pumps, the line says it all: the prompt above it steps aside until he is done. */
 body:not(.has-touch).filling #qh-act { visibility: hidden; }
@@ -2981,3 +2981,79 @@ body:not(.has-touch):not(.pre-start) #sheet .sn-three > div { padding: 10px 10px
 body:not(.has-touch):not(.pre-start) #sheet .sheet-page .sn-three b { font-size: 17px !important; white-space: nowrap; }
 /* The Kp scale in Learn: active in white, as everywhere else in the menu */
 body:not(.has-touch):not(.pre-start) #learn-kp svg [fill='#66dfb0'] { fill: #f3f5f6; }
+
+/* ---------- Learn: a help button at the top right ----------
+   Learn left the menu's tabs. On a phone the button sits beside the menu button in the same 32 px
+   glass circle; on a computer it is the menu's own smoked chip, alone in the corner, coming and
+   going with the mouse like the menu row. */
+#btn-learn svg .fill { fill: currentColor; stroke: none; }
+body:not(.pre-start) #sheet .sheet-tabs [data-page='learn'] { display: none !important; }
+body.has-touch :is(#hud #btn-learn) { background: var(--u-bg); -webkit-backdrop-filter: var(--u-fx); backdrop-filter: var(--u-fx); border: 0; box-shadow: var(--u-edge); color: var(--ink); }
+body.has-touch #hud #btn-learn { position: relative; width: var(--u-h); height: var(--u-h); border-radius: 50%; }
+body.has-touch #hud #btn-learn::after { content: ''; position: absolute; inset: -7px -4px; }
+body.has-touch #hud #btn-learn svg { width: 18px; height: 18px; stroke-width: 1.7; }
+body.has-touch .hx .hx-tr { right: calc(14px + var(--u-h) * 2 + 16px + var(--safe-r)); }
+body.has-touch #hud .hud-tr { flex-direction: row; } /* upright too: both buttons on the top row, the clock beside them */
+body:not(.has-touch) #hud .hud-tr { top: calc(18px + var(--safe-t)); right: calc(18px + var(--safe-r)); }
+body:not(.has-touch) #hud #btn-learn { width: 40px; height: 40px; border: 0; border-radius: 12px; color: rgba(243, 245, 246, 0.82);
+  background: rgba(16, 20, 24, 0.42); -webkit-backdrop-filter: blur(24px) saturate(1.35); backdrop-filter: blur(24px) saturate(1.35);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.12), inset 0 0 0 1px rgba(255, 255, 255, 0.07); transition: color 0.2s, background 0.2s; }
+body:not(.has-touch) #hud #btn-learn:hover, body:not(.has-touch) #hud #btn-learn:focus-visible { color: #fff; background: rgba(30, 36, 42, 0.6); }
+body:not(.has-touch) #hud #btn-learn svg { width: 20px; height: 20px; stroke-width: 1.5; }
+body:not(.has-touch).sm-sheet #hud .hud-tr { opacity: 0; pointer-events: none; }
+/* On a phone, Learn opened from the button: its name across the top in place of the tabs. */
+body.has-touch:not(.pre-start) #sheet[data-page='learn'] .sheet-tabs { display: none; }
+body.has-touch:not(.pre-start) #sheet[data-page='learn'] .sheet-head::before { content: 'Learn'; display: flex; align-items: center; height: 52px; padding: 0 8px;
+  font: 600 13px var(--sans); font-stretch: 112%; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink); box-shadow: inset 0 -1px 0 rgba(244,248,246,0.1); }
+
+/* ---------- Vehicle tiles: a studio picture of each vehicle (tools/cars/thumbs.mjs) ----------
+   On a computer, in the menu's Vehicle panel; on a phone, a strip under the garage's turntable.
+   The others rest a little dimmed and greyed; the chosen one is lit, on a pale floor, ringed white. */
+.sm-tile.is-car { position: relative; width: 120px; height: 84px; background: radial-gradient(120% 90% at 50% 100%, rgba(255,255,255,0.09), rgba(255,255,255,0.03) 70%); box-shadow: inset 0 0 0 1px var(--sm-hair); }
+.sm-tile.is-car img { width: 100%; height: 100%; object-fit: contain; filter: saturate(0.55) brightness(0.86); opacity: 0.78; transform: scale(0.94); transition: filter 0.2s, opacity 0.2s, transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1); -webkit-user-drag: none; }
+.sm-tile.is-car:hover { background: radial-gradient(120% 90% at 50% 100%, rgba(255,255,255,0.16), rgba(255,255,255,0.05) 70%); }
+.sm-tile.is-car:hover img { filter: none; opacity: 1; transform: scale(1); }
+.sm-tile.is-car[aria-pressed="true"] { background: radial-gradient(120% 95% at 50% 100%, rgba(255,255,255,0.3), rgba(255,255,255,0.1) 72%); box-shadow: inset 0 0 0 1.5px rgba(243, 245, 246, 0.9), 0 6px 18px rgba(0, 0, 0, 0.28); }
+.sm-tile.is-car[aria-pressed="true"] img { filter: none; opacity: 1; transform: scale(1.02); }
+.sm-tile.is-face { width: 84px; height: 84px; }
+@media (max-width: 1180px) { .sm-tile.is-car { width: 104px; height: 76px; } .sm-tile.is-face { width: 76px; height: 76px; } }
+@media (max-width: 1000px) { .sm-tile.is-car { width: 92px; height: 68px; } .sm-tile.is-face { width: 68px; height: 68px; } }
+
+.gx-strip { display: none; }
+body.has-touch .gx-strip { display: flex; gap: 6px; padding: 5px; border-radius: 16px;
+  background: rgba(10, 14, 18, 0.5); -webkit-backdrop-filter: blur(16px) saturate(1.4); backdrop-filter: blur(16px) saturate(1.4);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08), inset 0 1px 0 rgba(255,255,255,0.08), 0 8px 22px rgba(0,0,0,0.3); }
+body.has-touch .gx-strip button { position: relative; flex: none; width: 66px; height: 48px; padding: 0; border: 0; border-radius: 11px; cursor: pointer;
+  background: transparent; -webkit-tap-highlight-color: transparent; transition: background 0.2s, box-shadow 0.2s, transform 0.12s; }
+body.has-touch .gx-strip button::after { content: ''; position: absolute; inset: -5px -3px; }
+body.has-touch .gx-strip button:active { transform: scale(0.94); }
+body.has-touch .gx-strip img { width: 100%; height: 100%; object-fit: contain; filter: saturate(0.5) brightness(0.8); opacity: 0.72; transition: filter 0.2s, opacity 0.2s, transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1); transform: scale(0.92); pointer-events: none; }
+body.has-touch .gx-strip button[aria-checked="true"] { background: radial-gradient(120% 95% at 50% 100%, rgba(255,255,255,0.28), rgba(255,255,255,0.08) 72%); box-shadow: inset 0 0 0 1.5px rgba(243, 245, 246, 0.85); }
+body.has-touch .gx-strip button[aria-checked="true"] img { filter: none; opacity: 1; transform: scale(1.04); }
+/* The one you are in now: a small dot under it. */
+body.has-touch .gx-strip button.is-here::before { content: ''; position: absolute; left: 50%; bottom: 3px; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: #f3f5f6; box-shadow: 0 0 6px rgba(255,255,255,0.7); }
+/* The menu's garage: bottom left, beside Drive this. The start screen: only upright, where it
+   fills the room between the turntable and the month; sideways there is no room for it. */
+body.has-touch #gg .gx-strip { position: absolute; z-index: 3; left: calc(16px + var(--safe-l)); bottom: calc(16px + var(--safe-b)); }
+body.has-touch #intro .gx-strip { display: none; }
+@media (orientation: portrait) and (max-width: 699px) {
+  body.has-touch #intro .gx-strip { display: flex; gap: 4px; box-sizing: border-box; width: calc(100vw - 40px - var(--safe-l) - var(--safe-r)); min-width: 0; margin: 0 0 22px; }
+  body.has-touch #intro .gx-strip button { flex: 1 1 0; min-width: 0; width: auto; height: auto; aspect-ratio: 416 / 304; }
+  body.has-touch #gg .gx-strip { left: calc(20px + var(--safe-l)); right: calc(20px + var(--safe-r)); bottom: calc(96px + var(--safe-b)); gap: 4px; }
+  body.has-touch #gg .gx-strip button { flex: 1 1 0; min-width: 0; width: auto; height: auto; aspect-ratio: 416 / 304; }
+}
+@media (prefers-reduced-motion: reduce) { .sm-tile.is-car img, body.has-touch .gx-strip img { transition: none; } }
+
+/* ---------- Menus on phones and tablets: rounded smoked-glass cards ----------
+   Every panel on the menu's pages wears the computer panel's card: rounded, a breath lighter than
+   the blurred road behind, with a hairline edge, in place of flat near-black bands. Together
+   fills the page width like the other pages; short screens (a phone on its side) get slimmer rows. */
+body.has-touch #sheet :is(.srow, .sound-row, #settings .credits, #learn > .tab-body, #notebook .stamps, .jr-hero, .jr-grid > div, .jr-card, .tg-hero, .tg-name, .tg-room, .tg-joinform, .rounds, .challenge-card, .sightings li) {
+  border: 0; border-radius: 16px; background: rgba(255, 255, 255, 0.06); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07), inset 0 1px 0 rgba(255, 255, 255, 0.05); }
+body.has-touch #sheet .srow:not(:has(.step)) .seg { border-radius: 11px; }
+body.has-touch #sheet .srow:not(:has(.step)) .seg button { border-radius: 8px; }
+body.has-touch #sheet .jr-bar, body.has-touch #sheet .jr-bar b { border-radius: 3px; }
+body.has-touch #together .tg { max-width: none; }
+/* Journey's four numbers sit on one line even when a label takes two. */
+body.has-touch #sheet .jr-grid > div { display: flex; flex-direction: column; justify-content: space-between; }
+@media (max-height: 520px) { body.has-touch #sheet :is(.srow, .sound-row) { min-height: 52px; padding-top: 6px; padding-bottom: 6px; } }

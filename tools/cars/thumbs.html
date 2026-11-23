@@ -1,0 +1,93 @@
+<!doctype html>
+<!-- A small studio picture of each vehicle for the menu's Vehicle tiles, rendered from the game's own
+     models (src/vehicle/models.js and public/models/heli.glb) by thumbs.mjs through the Vite dev server. -->
+<meta charset="utf-8">
+<script type="module">
+import * as THREE from 'three';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { loadCarModels, buildVehicleModel } from '/src/vehicle/models.js';
+import { loadGLTF } from '/src/world/gltf.js';
+
+const W = 416, H = 304; // four times the tile (104 x 76), so it stays sharp on any screen
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+renderer.setSize(W, H); renderer.setPixelRatio(1);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.12;
+document.body.appendChild(renderer.domElement);
+const env = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
+
+// A soft round shadow under the vehicle, so it sits on something rather than floating.
+const shadowTex = (() => {
+  const c = document.createElement('canvas'); c.width = c.height = 128;
+  const g = c.getContext('2d'), r = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  r.addColorStop(0, 'rgba(0,0,0,0.62)'); r.addColorStop(0.45, 'rgba(0,0,0,0.34)'); r.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = r; g.fillRect(0, 0, 128, 128);
+  return new THREE.CanvasTexture(c);
+})();
+
+const cars = loadCarModels();
+const heli = loadGLTF('/models/heli.glb');
+
+window.thumb = async (kind) => {
+  let group;
+  if (kind === 'heli') {
+    const m = (await heli).scene.clone(true);
+    m.traverse((o) => { if (o.isMesh && o.material.transparent) { o.material.depthWrite = false; o.renderOrder = 2; } });
+    group = new THREE.Group(); group.add(m);
+  } else {
+    await cars;
+    group = buildVehicleModel(kind).group;
+  }
+  const scene = new THREE.Scene();
+  scene.environment = env; scene.environmentIntensity = 0.55;
+  scene.add(group);
+  group.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(group);
+  group.position.y -= box.min.y; // wheels (or skids) on y = 0
+  group.rotation.y = 0.62; // three-quarters on, as on the garage's turntable
+  group.updateMatrixWorld(true);
+  box.setFromObject(group);
+  const size = box.getSize(new THREE.Vector3()), mid = box.getCenter(new THREE.Vector3());
+
+  // Contact shadow, a little larger than the footprint.
+  const sh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false }));
+  sh.rotation.x = -Math.PI / 2; sh.position.set(mid.x, 0.005, mid.z);
+  sh.scale.set(size.x * 1.15, size.z * (kind === 'heli' ? 0.7 : 1.05), 1); sh.renderOrder = -1;
+  scene.add(sh);
+
+  // A warm key from the front right, a cool fill from the left, and a green rim behind (the aurora).
+  const key = new THREE.DirectionalLight(0xfff3e4, 2.4); key.position.set(4, 7, 6); scene.add(key);
+  const fill = new THREE.DirectionalLight(0xbfd0ff, 0.8); fill.position.set(-6, 3, 2); scene.add(fill);
+  const rim = new THREE.DirectionalLight(0x7affc8, 1.6); rim.position.set(-3, 4, -7); scene.add(rim);
+
+  // A little above, looking down at about 13 degrees; then framed so the whole vehicle fills the
+  // picture with a small margin, measured from its corners on screen.
+  const cam = new THREE.PerspectiveCamera(22, W / H, 0.1, 200);
+  const dir = new THREE.Vector3(0, Math.sin(0.23), Math.cos(0.23)).normalize();
+  const at = mid.clone();
+  let dist = size.length() * 2.4;
+  // Every point of the model (a box's corners would frame it loosely at this angle).
+  const corners = [];
+  group.traverse((o) => {
+    if (!o.isMesh || !o.visible || o.userData.blur) return;
+    const pos = o.geometry.attributes.position, step = Math.max(1, Math.floor(pos.count / 4000));
+    for (let i = 0; i < pos.count; i += step) corners.push(new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld));
+  });
+  for (let it = 0; it < 8; it++) {
+    cam.position.copy(at).addScaledVector(dir, dist); cam.lookAt(at); cam.updateMatrixWorld(true);
+    let x0 = 1, x1 = -1, y0 = 1, y1 = -1;
+    for (const c of corners) { const p = c.clone().project(cam); x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y); }
+    const fill = Math.max((x1 - x0) / 2 / 0.94, (y1 - y0) / 2 / 0.8);
+    // Re-centre: move the target by the offset of the projected box's middle.
+    const right = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 0), up = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 1);
+    const halfH = Math.tan(THREE.MathUtils.degToRad(cam.fov / 2)) * dist, halfW = halfH * cam.aspect;
+    at.addScaledVector(right, ((x0 + x1) / 2) * halfW).addScaledVector(up, ((y0 + y1) / 2) * halfH);
+    dist *= fill;
+  }
+  cam.position.copy(at).addScaledVector(dir, dist); cam.lookAt(at);
+  renderer.setClearColor(0x000000, 0);
+  renderer.render(scene, cam);
+  return renderer.domElement.toDataURL('image/png');
+};
+window.ready = true;
+</script>

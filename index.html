@@ -83,6 +83,8 @@
     <div class="gx-stats gx-l"><div class="gx-in" id="gx-stats-l"></div></div>
     <div class="gx-stats gx-r"><div class="gx-in" id="gx-stats-r"></div></div>
     <div class="gx-night">
+      <!-- Phones upright: every vehicle as a small studio picture, in the room under the turntable. -->
+      <div class="gx-strip" id="cv-strip" role="radiogroup" aria-label="Vehicles"></div>
       <p class="gx-chal"><span class="gx-k">Today</span> <b id="intro-challenge"></b></p>
       <div class="gx-row">
         <label class="gx-month"><span class="gx-k">Month</span><span class="select-wrap"><select id="intro-month" class="month-select"></select></span></label>
@@ -220,14 +222,14 @@
     </div>
     <div class="qh-keys" aria-hidden="true"><span><kbd>M</kbd>Map</span><span><kbd>C</kbd>View</span><span><kbd>K</kbd>Aurora radio</span><span><kbd>Esc</kbd>Menu</span></div>
     <!-- The menu on computers (ui/slowmenu.js): a row of names along the bottom that comes in with
-         the mouse, and one frosted band above it for the vehicle and the world. -->
+         the mouse, and one frosted band above it for the vehicle and the settings (the world's
+         month, time and trip choices are Settings' first section). -->
     <div class="sm" id="sm">
       <div class="sm-band" id="sm-band" role="dialog" aria-label="Menu">
         <div class="sm-panel" data-p="vehicle" hidden>
           <section class="sm-sec"><h3>Vehicle<small>V</small></h3><div class="sm-tiles" id="sm-vehicles"></div><p class="sm-cap" id="sm-vcap"></p></section>
           <section class="sm-sec"><h3>Travel as</h3><div class="sm-tiles" id="sm-people"></div><p class="sm-cap" id="sm-pcap"></p></section>
         </div>
-        <div class="sm-panel sm-rows-panel" data-p="world" hidden><div class="sm-rows" id="sm-world"></div><p class="sm-hint" id="sm-whint"></p></div>
         <div class="sm-panel sm-set" data-p="settings" hidden>
           <nav class="sm-cats" id="sm-cats" role="tablist" aria-label="Settings sections"></nav>
           <div class="sm-setbody"><div class="sm-rows" id="sm-setrows"></div><p class="sm-hint" id="sm-shint"></p></div>
@@ -237,10 +239,8 @@
         <div class="sm-tabs" role="tablist" aria-label="Menu">
           <button type="button" class="sm-tab" data-t="map"><span>Map</span></button>
           <button type="button" class="sm-tab" data-t="vehicle" role="tab" aria-selected="false"><span>Vehicle</span></button>
-          <button type="button" class="sm-tab" data-t="world" role="tab" aria-selected="false"><span>World</span></button>
           <button type="button" class="sm-tab" data-t="journey"><span>Journey</span></button>
           <button type="button" class="sm-tab" data-t="together"><span>Together</span></button>
-          <button type="button" class="sm-tab" data-t="learn"><span>Learn</span></button>
           <button type="button" class="sm-tab" data-t="settings" role="tab" aria-selected="false"><span>Settings</span></button>
           <i class="sm-ind" aria-hidden="true"></i>
         </div>
@@ -273,6 +273,7 @@
       <button class="icon-btn glass hide-touch" id="btn-record" aria-label="Record a 15 second clip" title="Record a 15 second clip (R)"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7.5"/><circle cx="12" cy="12" r="3.2" class="fill"/></svg></button>
       <button class="icon-btn glass hide-touch" id="btn-mute" aria-label="Mute sound" aria-pressed="false" title="Mute (U)"><svg viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path id="mute-waves" d="M15.5 9.5a3.5 3.5 0 0 1 0 5M18 7a7 7 0 0 1 0 10"/></svg></button>
       <button class="icon-btn glass" id="btn-notebook" aria-label="Open field notebook" title="Field notebook (N)"><svg viewBox="0 0 24 24"><path d="M6.5 3.5h10a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2h-10zM6.5 3.5v17M9.5 8h6M9.5 11.5h6"/></svg></button>
+      <button class="icon-btn glass" id="btn-learn" aria-label="Learn about the aurora (H)" title="Learn (H)"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.6"/><path d="M9.6 9.4a2.5 2.5 0 0 1 4.85.85c0 1.7-2.45 2.1-2.45 3.75"/><circle class="fill" cx="12" cy="16.9" r="0.95"/></svg></button>
       <button class="icon-btn glass" id="btn-settings" aria-label="Menu and settings" title="Menu and settings"><svg viewBox="0 0 24 24"><path d="M10.3 3h3.4l.5 2.4 1.6.9 2.3-.8 1.7 2.9-1.8 1.6v1.9l1.8 1.6-1.7 2.9-2.3-.8-1.6.9-.5 2.4h-3.4l-.5-2.4-1.6-.9-2.3.8-1.7-2.9L6 12.9V11L4.2 9.4l1.7-2.9 2.3.8 1.6-.9z"/><circle cx="12" cy="12" r="2.8"/></svg></button>
     </div>
 
@@ -373,7 +374,7 @@
       <nav class="sheet-tabs" role="tablist" aria-label="Sections">
         <kbd class="tab-key" aria-hidden="true">Q</kbd>
         <button role="tab" data-page="map" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M3.5 6.5l5-2 7 2 5-2v13l-5 2-7-2-5 2zM8.5 4.5v13M15.5 6.5v13"/></svg><span>Map</span></button>
-        <button role="tab" data-page="garage" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M5 15.5l1.6-5.2A2 2 0 0 1 8.5 9h7a2 2 0 0 1 1.9 1.3l1.6 5.2M3.5 15.5h17v2.5a1 1 0 0 1-1 1h-15a1 1 0 0 1-1-1z"/></svg><span>Garage</span></button>
+        <button role="tab" data-page="garage" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M5 15.5l1.6-5.2A2 2 0 0 1 8.5 9h7a2 2 0 0 1 1.9 1.3l1.6 5.2M3.5 15.5h17v2.5a1 1 0 0 1-1 1h-15a1 1 0 0 1-1-1z"/></svg><span>Vehicle</span></button>
         <button role="tab" data-page="notebook" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M6.5 3.5h10a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2h-10zM6.5 3.5v17M9.5 8h6M9.5 11.5h6"/></svg><span>Journey</span></button>
         <button role="tab" data-page="learn" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M3 15c3-6 6-9 9-9s6 3 9 9M6 18c2-4 4-6 6-6s4 2 6 6"/></svg><span>Learn</span></button>
         <button role="tab" data-page="together" aria-selected="false"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3.5 19c.6-3.4 2.8-5.5 5.5-5.5s4.9 2.1 5.5 5.5"/><circle cx="16.5" cy="9" r="2.4"/><path d="M15.2 13.7c2.6-.5 4.8 1.3 5.3 4.8"/></svg><span>Together</span><em class="tab-count" hidden></em></button>
@@ -426,6 +427,8 @@
         </div>
         <div class="gx-stats gx-l"><div class="gx-in" id="gg-stats-l"></div></div>
         <div class="gx-stats gx-r"><div class="gx-in" id="gg-stats-r"></div></div>
+        <!-- Phones and tablets: every vehicle as a small studio picture, to jump straight to one. -->
+        <div class="gx-strip" id="gg-strip" role="radiogroup" aria-label="Vehicles"></div>
         <div class="gx-go"><button type="button" class="btn btn-primary btn-start gg-drive" id="gg-drive"><span class="start-label" id="gg-drive-label">Drive this</span><kbd class="start-key" aria-hidden="true">&crarr;</kbd></button></div>
       </div>
       <div class="garage" id="garage-list"></div>
@@ -524,7 +527,7 @@
     <!-- Settings -->
     <section id="settings" class="sheet-page" data-page="settings" data-cat="trip" hidden aria-label="Settings">
       <nav class="set-cats" role="tablist" aria-label="Settings sections">
-        <button role="tab" data-cat="trip" class="is-on" aria-selected="true"><svg viewBox="0 0 24 24"><path d="M3 19L10 6l4 7 2-3 5 9z"/></svg><span>Trip</span></button>
+        <button role="tab" data-cat="trip" class="is-on" aria-selected="true"><svg viewBox="0 0 24 24"><path d="M3 19L10 6l4 7 2-3 5 9z"/></svg><span>World</span></button>
         <button role="tab" data-cat="picture" aria-selected="false"><svg viewBox="0 0 24 24"><rect x="3.5" y="5.5" width="17" height="12" rx="1.5"/><path d="M8 20.5h8"/></svg><span>Picture</span></button>
         <button role="tab" data-cat="sound" aria-selected="false"><svg viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9.5a3.5 3.5 0 0 1 0 5"/></svg><span>Sound</span></button>
         <button role="tab" data-cat="controls" aria-selected="false"><svg viewBox="0 0 24 24"><rect x="2.5" y="7.5" width="19" height="9" rx="4.5"/><path d="M7 10.5v3M5.5 12h3M16 11h.01M18 13h.01"/></svg><span>Controls</span></button>

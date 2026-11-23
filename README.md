@@ -105,7 +105,9 @@ Every photo becomes a postcard (`src/share/postcard.js`), drawn like a real one:
 
 ## Menus
 
-On a computer the menu fills the screen over the blurred road, like a console game's front end: a dark tab bar across the top (Journey, Map, Garage, Notebook, Learn, Settings) with Q and E either side and a green line under the open section, and the keys along the foot.
+**While driving on a computer** the menu is a row of names along the bottom (Map, Vehicle, Journey, Together, Settings) that comes in with the mouse (`src/ui/slowmenu.js`). Vehicle and Settings open one frosted panel above the row. Vehicle shows a studio picture of every vehicle, rendered from its own game model (`public/vehicles/<kind>.webp`, made by `tools/cars/thumbs.mjs` with the Vite dev server running), and who you travel as. Settings' sections are World (month, time speed, place cards, fuel, nitro), Picture, Sound, Controls, Keys and About; World used to be a tab of its own. Learn is not in the row: it opens from the help button (a question mark) at the top right, or H. On phones and tablets the same help button sits beside the menu button, the menu's tabs are Map, Vehicle, Journey, Together and Settings (World is again Settings' first section), every panel is a rounded smoked-glass card, and the garage's turntable has a strip of the same vehicle pictures to tap straight to one (on an upright phone the start screen has it too, under its turntable).
+
+Before the drive (from the start screen), on a computer the menu fills the screen over the blurred road, like a console game's front end: a dark tab bar across the top (Journey, Map, Garage, Notebook, Learn, Settings) with Q and E either side and a green line under the open section, and the keys along the foot.
 
 - **Journey**: places found, sightings, postcards, badges, trips, today's challenge and tonight's outlook.
 - **Journey** (the notebook is part of it): Overview, Places, Badges, Sightings and Today, with their counts. Badges are a grid of medals with the chosen one in full on the right (what it is for, when you earned it, progress).
@@ -358,7 +360,7 @@ Switching month updates the sky, light and forecast straight away. Month data li
 
 ## Learning about the aurora
 
-Every term on the radio has an (i) button: Kp, the forecast, Activity, Clouds, Darkness and City glow. Each opens the Learn panel at that entry, written in two or three plain sentences, some with a small drawing. The panel also covers aurora types and the solar wind and magnetosphere, and has a six-step "How auroras work" lesson. The text lives in `src/ui/learn.js`.
+The help button at the top right (a question mark; H on a keyboard) opens it. Every term on the radio has an (i) button: Kp, the forecast, Activity, Clouds, Darkness and City glow. Each opens the Learn panel at that entry, written in two or three plain sentences, some with a small drawing. The panel also covers aurora types and the solar wind and magnetosphere, and has a six-step "How auroras work" lesson. The text lives in `src/ui/learn.js`.
 
 ## Landmarks
 

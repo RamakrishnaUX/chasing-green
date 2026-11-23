@@ -1870,6 +1870,16 @@ function introInfo(kind, ids = { name: 'intro-car', kick: 'intro-kick', l: 'gx-s
 // ground in front of it. The arrows change vehicle (the same as the garage), and the car models
 // start loading now, so the cover and the car you drive both have them as early as possible.
 const COVER_ORDER = [...VEHICLE_ORDER, 'heli'];
+// A strip of every vehicle as a small studio picture (public/vehicles, from tools/cars/thumbs.mjs),
+// under a turntable on phones and tablets: tap one to bring it on. markStrip shows the one on the
+// turntable and, with a dot, the one you are in now.
+function vehicleStrip(el, pick) {
+  el.innerHTML = COVER_ORDER.map((k) => `<button type="button" role="radio" data-k="${k}" aria-checked="false" aria-label="${k === 'heli' ? 'Helicopter' : VEHICLES[k].name}"><img src="./vehicles/${k}.webp" alt="" width="416" height="304" decoding="async" draggable="false"></button>`).join('');
+  el.addEventListener('click', (e) => { const b = e.target.closest('[data-k]'); if (b && b.getAttribute('aria-checked') !== 'true') pick(b.dataset.k); });
+}
+function markStrip(el, kind, here = null) {
+  for (const b of el.children) { b.setAttribute('aria-checked', String(b.dataset.k === kind)); b.classList.toggle('is-here', b.dataset.k === here); }
+}
 const gg = { cover: null, sky: null, kind: null }; // the menu's garage view (below)
 const introSky = startAuroraSky($('intro-sky'));
 const cover = new Cover($('intro-hero'), { spot: document.querySelector('.cv-spot'), small: isTouch });
@@ -1951,15 +1961,20 @@ const carsLoaded = loadCarModels((kind) => {
   if (jeep && jeep.kind === kind && ride === 'car') jeep.setType(kind);
   renderGarage();
 });
-for (const [id, step] of [['cv-prev', -1], ['cv-next', 1]]) $(id).addEventListener('click', () => {
-  const i = COVER_ORDER.indexOf(coverKind());
-  const kind = COVER_ORDER[(i + step + COVER_ORDER.length) % COVER_ORDER.length];
+function introPick(kind) {
   haptics.play('light');
   setVehicle(kind, false);
   sfx.switcher();
   cover.show(kind, true);
+  markStrip($('cv-strip'), kind);
   if (cover.car && kind === 'heli') setTimeout(() => sfx.arrive(kind), 120);
+}
+for (const [id, step] of [['cv-prev', -1], ['cv-next', 1]]) $(id).addEventListener('click', () => {
+  const i = COVER_ORDER.indexOf(coverKind());
+  introPick(COVER_ORDER[(i + step + COVER_ORDER.length) % COVER_ORDER.length]);
 });
+vehicleStrip($('cv-strip'), introPick);
+markStrip($('cv-strip'), coverKind());
 const startBtn = $('start');
 startBtn.disabled = true;
 // The start screen keeps only a settings button; the menu holds everything else.
@@ -2002,7 +2017,7 @@ function beginTrip() {
   // On a computer the menu is a row of names along the bottom, with the vehicle and the world in a band above it.
   if (!document.body.classList.contains('has-touch') && !smenu) {
     smenu = slowMenu({
-      go: (k) => (k === 'map' ? mapUI?.open() : k === 'journey' ? notebook.open() : k === 'learn' ? learn.open() : sheet.go(k)),
+      go: (k) => (k === 'map' ? mapUI?.open() : k === 'journey' ? notebook.open() : sheet.go(k)),
       vehicle: () => (ride === 'heli' ? 'heli' : jeep.kind), setVehicle,
       person: personId, setPerson: pickWho,
       sync: syncSettings, notes: SET_NOTE,
@@ -2187,6 +2202,8 @@ function soakUpdate(dt) {
 // ---------- Learn, sitting, nitro option ----------
 const learn = new Learn();
 sheet.register('learn', () => learn.open());
+// Learn lives behind the help button at the top right (phones and computers), not in the menu's tabs.
+$('btn-learn').addEventListener('click', () => { haptics.play('select'); learn.open(); });
 // Sit down on foot: lower view, free look, and time passes faster while you rest and watch.
 function toggleSit(force) {
   if (refuel.active) return;
@@ -2601,6 +2618,7 @@ function ggShow(kind, arrive) {
   const here = kind === ggCurrent();
   $('gg-drive-label').textContent = here ? (kind === 'heli' ? 'Flying this' : 'Driving this') : kind === 'heli' ? 'Fly this' : 'Drive this';
   $('gg-drive').classList.toggle('is-here', here);
+  markStrip($('gg-strip'), kind, ggCurrent());
 }
 // Built once and kept (paused while the page is shut), so the garage opens straight away; it is
 // first made a few seconds into the drive, in the background.
@@ -2640,6 +2658,11 @@ function ggStep(d) {
   ggShow(kind, true);
   if (gg.cover?.car && kind === 'heli') setTimeout(() => sfx.arrive(kind), 120);
 }
+vehicleStrip($('gg-strip'), (kind) => {
+  haptics.play('light'); sfx.switcher();
+  ggShow(kind, true);
+  if (gg.cover?.car && kind === 'heli') setTimeout(() => sfx.arrive('heli'), 120);
+});
 $('gg-prev').addEventListener('click', () => ggStep(-1));
 $('gg-next').addEventListener('click', () => ggStep(1));
 $('gg-drive').addEventListener('click', () => {
@@ -3980,7 +4003,7 @@ document.addEventListener('row-select', (e) => {
   if (!row.closest('#settings')) return;
   const key = row.dataset.key || (row.querySelector('input[type=range]') ? 'volume' : '');
   const label = row.querySelector('label')?.querySelector('b')?.textContent || row.querySelector('label')?.textContent || '';
-  $('sn-kick').textContent = { trip: 'Trip', picture: 'Picture', sound: 'Sound', controls: 'Controls', about: 'About' }[row.dataset.cat || $('settings').dataset.cat] || '';
+  $('sn-kick').textContent = { trip: 'World', picture: 'Picture', sound: 'Sound', controls: 'Controls', about: 'About' }[row.dataset.cat || $('settings').dataset.cat] || '';
   $('sn-title').textContent = key === 'set-month' ? clock.m.name : label;
   $('sn-text').textContent = SET_NOTE[key] || row.querySelector('label span')?.textContent || '';
   let extra = '';
