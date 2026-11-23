@@ -7,6 +7,23 @@ import { TONE_GLSL } from './skytone.js';
 import { N as TONE_N, plainTable } from './skytoneMath.js';
 
 const _worldUp = new THREE.Vector3(0, 1, 0), _sR = new THREE.Vector3(), _sU = new THREE.Vector3(), _sD = new THREE.Vector3();
+const _box = new THREE.Box3(), _sphere = new THREE.Sphere(), _carLights = [];
+
+// The car's own shadow (Sky.makeCarSun). In the lighting, the sun (directional shadow 0) is also shadowed by the car's map (shadow 1), and
+// the car's light itself adds nothing. Without a second shadowed light this is all compiled out.
+const SUN_SHADOW_LINE = 'directLight.color *= ( directLight.visible && receiveShadow ) ? getShadow( directionalShadowMap[ i ], directionalLightShadow.shadowMapSize, directionalLightShadow.shadowIntensity, directionalLightShadow.shadowBias, directionalLightShadow.shadowRadius, vDirectionalShadowCoord[ i ] ) : 1.0;';
+const CAR_SHADOW_CHUNK = `
+		#if NUM_DIR_LIGHT_SHADOWS > 1 && UNROLLED_LOOP_INDEX == 1
+		directLight.color = vec3( 0.0 );
+		#else
+		${SUN_SHADOW_LINE}
+		#if NUM_DIR_LIGHT_SHADOWS > 1 && UNROLLED_LOOP_INDEX == 0
+		directLight.color *= ( directLight.visible && receiveShadow ) ? getShadow( directionalShadowMap[ 1 ], directionalLightShadows[ 1 ].shadowMapSize, directionalLightShadows[ 1 ].shadowIntensity, directionalLightShadows[ 1 ].shadowBias, directionalLightShadows[ 1 ].shadowRadius, vDirectionalShadowCoord[ 1 ] ) : 1.0;
+		#endif
+		#endif`;
+const CAR_SHADOW_OK = THREE.ShaderChunk.lights_fragment_begin.includes(SUN_SHADOW_LINE);
+if (CAR_SHADOW_OK) THREE.ShaderChunk.lights_fragment_begin = THREE.ShaderChunk.lights_fragment_begin.replace(SUN_SHADOW_LINE, CAR_SHADOW_CHUNK);
+else console.warn('Car shadow: three.js lighting code has changed; the car casts into the sun map instead.');
 
 export const GLSL_NOISE = /* glsl */ `
 // smoothstep, defined for edges in either order (GLSL leaves edge0 >= edge1 undefined; on Apple GPUs
@@ -484,6 +501,8 @@ export class Sky {
     this.moon = new THREE.DirectionalLight(0x9fb4d6, 0.3);
     this.hemi = new THREE.HemisphereLight(0xc4d2de, 0x3a4046, 0.9);
     scene.add(this.sun, this.sun.target, this.moon, this.moon.target, this.hemi);
+    this.carSun = null; this.car = null; this.carParts = 0; this.shadowFrame = 0; this.shadowEvery = 1;
+    if (this.shadowsWanted) this.makeCarSun();
 
     this.fog = new THREE.FogExp2(0x9aa8b4, 0.0016);
     scene.fog = this.fog;
@@ -511,6 +530,65 @@ export class Sky {
   }
 
   setRGB(target, a) { return target.setRGB(a[0], a[1], a[2], THREE.SRGBColorSpace); }
+
+  // The car's own shadow. The sun's map spreads 4,096 texels over hundreds of metres, about 11 cm
+  // each: the car crossed a couple of them a frame, so its outline (spoked wheels, bumpers, the
+  // rack) fell on them differently every frame and its shadow churned as it drove. A second light
+  // with no light of its own draws only the car, into a map a few metres across (under a centimetre
+  // a texel) that moves with the car, so the car always falls on it the same way; the sun's map
+  // leaves the car out, and the lighting multiplies the two shadows (CAR_SHADOW_CHUNK).
+  makeCarSun() {
+    if (!CAR_SHADOW_OK || !this.renderer) return;
+    const l = new THREE.DirectionalLight(0xffffff, 0);
+    l.castShadow = true;
+    l.shadow.mapSize.set(1024, 1024);
+    l.shadow.camera.near = 0.5; l.shadow.camera.far = 220;
+    l.shadow.bias = -0.0002; l.shadow.normalBias = 0.03;
+    l.shadow.autoUpdate = false; // drawn below, from the car alone
+    this.carSun = l; this.carDue = false;
+    this.scene.add(l, l.target); // after the sun: the sun is shadow 0, this is shadow 1
+    const sunCam = this.sun.shadow.camera;
+    // Out of the sun's map: its vertices are collapsed to nothing for that pass only.
+    this.hideFromSun = (r, o, cam, shadowCam) => { if (shadowCam === sunCam) o.modelViewMatrix.elements.fill(0); };
+    // The car's map is drawn at the first picture of the scene after update, straight after three.js
+    // draws the sun's (the car's matrices are already this frame's), with only the car in it.
+    const sm = this.renderer.shadowMap, draw = sm.render.bind(sm);
+    sm.render = (lights, scene, camera) => {
+      draw(lights, scene, camera);
+      if (!this.carDue || scene !== this.scene || !sm.enabled || (!sm.autoUpdate && !sm.needsUpdate)) return;
+      this.carDue = false;
+      l.shadow.needsUpdate = true;
+      draw(_carLights, this.car, camera);
+    };
+    _carLights[0] = l;
+  }
+
+  // Which object is the car (its parts are found again now and then: models change, the driver
+  // loads later).
+  setCar(root) { if (root !== this.car) { this.car = root; this.carParts = 0; } }
+
+  followCar(sunDir, on) {
+    const l = this.carSun, car = this.car;
+    if (!l) return;
+    l.shadow.intensity = this.sun.shadow.intensity;
+    if (!car) { this.carDue = false; return; }
+    car.getWorldPosition(l.target.position);
+    if (this.carParts-- <= 0) {
+      this.carParts = 20;
+      car.traverse((o) => {
+        if (!o.isMesh || !o.castShadow || o.userData.carShadow) return;
+        o.userData.carShadow = true;
+        o.onBeforeShadow = this.hideFromSun;
+      });
+      // Big enough for the whole car round its origin, seen from any side.
+      _box.setFromObject(car).getBoundingSphere(_sphere);
+      const half = Math.max(2, _sphere.radius + _sphere.center.distanceTo(l.target.position) + 0.3);
+      const c = l.shadow.camera;
+      if (c.right !== half) { c.left = c.bottom = -half; c.right = c.top = half; c.updateProjectionMatrix(); }
+    }
+    l.position.copy(l.target.position).addScaledVector(sunDir, 60);
+    this.carDue = on && car.visible;
+  }
   // The screen-colour correction (skytone.js), once the grade it corrects for is set up.
   // Without post-processing (Low) the dome is not tone mapped at all: its colours reach the screen
   // as they are, so only the fog (which is) needs correcting.
@@ -639,7 +717,18 @@ export class Sky {
     // material's shader, so the whole scene recompiled (a long freeze) at every dusk and dawn. When
     // the sun is that weak the shadow map just stops being redrawn.
     this.sun.castShadow = this.shadowsWanted;
-    if (this.renderer && this.shadowsWanted) this.renderer.shadowMap.autoUpdate = this.sun.intensity > 0.05;
+    // Each light's map is drawn once a frame, at the first picture after this (it was drawn again
+    // for every picture made of the scene, six a frame: the occlusion pass's normals and depth and
+    // the rest), and the sun's only every shadowEvery frames when the governor is shedding work
+    // (perf.js); the car's own (below) every frame, so its shadow never lags it.
+    if (this.shadowsWanted && !this.carSun) this.makeCarSun();
+    if (this.renderer && this.shadowsWanted) {
+      const on = this.sun.intensity > 0.05;
+      this.renderer.shadowMap.autoUpdate = true;
+      sh.autoUpdate = false;
+      sh.needsUpdate = on && this.shadowFrame++ % Math.max(1, this.shadowEvery) === 0;
+      this.followCar(sunDir, on);
+    }
     this.moon.position.copy(camera.position).addScaledVector(moonDir, 500);
     this.moon.target.position.copy(camera.position);
     // Moonlight: bright enough to see the land by at full moon, next to nothing at new moon.

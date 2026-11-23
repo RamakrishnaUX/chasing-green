@@ -3235,6 +3235,7 @@ function frame(now) {
   if (!(started && dialogOpen)) updateCamera(crashCam ? realDt : dt); // the view holds still while a menu is open
   forecast.cloudOffset(clock.realSeconds, cloudOffset);
   auroraVisSmoothed = aurora.update(dt, t, camera, a);
+  sky.setCar(jeep.root); // the car's own sharp shadow (sky.js)
   const { dark, sunDir } = sky.update({ camera, clock, cloud: a.cloud, cloudOffset, city: a.city, auroraVis: auroraVisSmoothed, auroraTint: aurora.tint, t, focus: p, hold: holdUnderMenu });
   lastSkyDark = dark;
   surfaceUniforms.uCloudCover.value = a.cloud;
@@ -3474,8 +3475,9 @@ function frame(now) {
     // their matrices worked out each frame; anything that never moves (userData.static) never does.
     for (const c of scene.children) if (!c.userData.static && c.matrixWorldAutoUpdate !== c.visible) c.matrixWorldAutoUpdate = c.visible;
     skyRefl?.update(scene, camera.position, smoothstep(0.25, 0.75, dark));
-    // Shedding work: shadows redrawn every few frames (the sun hardly moves between them).
-    if (shadowEvery > 1 && renderer.shadowMap.autoUpdate) { renderer.shadowMap.autoUpdate = false; renderer.shadowMap.needsUpdate = frameN % shadowEvery === 0; }
+    // Shedding work: the sun's shadows redrawn every few frames (the sun hardly moves between them;
+    // the car's own shadow is still drawn every frame, sky.js), from the next frame.
+    sky.shadowEvery = shadowEvery;
     if (post) post.render(t, (lastPostState = { aurora: auroraVisSmoothed, dark }));
     else renderer.render(scene, camera);
   }
