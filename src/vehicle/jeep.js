@@ -6,6 +6,7 @@ import { buildVehicleModel } from './models.js';
 import { surfaceUniforms } from '../world/materials.js';
 import { VEHICLES, SURFACE_DRAG } from './specs.js';
 import { NitroFX } from './nitrofx.js';
+import { BrakeGlow } from './brakeglow.js';
 import { bakeStatic } from '../world/bake.js';
 import { solidStep, solidTopAt, solidRoofAt } from '../world/solids.js';
 import { buildInterior } from './interiors.js';
@@ -65,6 +66,9 @@ export class Jeep {
     this.root.add(this.headlight, this.headlight.target, this.spread, this.spread.target);
     // Nitro: glowing twin exhausts with streaks and sparks.
     this.nitroFx = new NitroFX(scene, this.root);
+    // The brake lights' red on the ground behind the car.
+    this.brakeGlow = new BrakeGlow(scene);
+    this.dark = 0;
 
     // Soft contact shadow under the car, so it sits on the ground even outside the shadow map.
     const c = document.createElement('canvas'); c.width = c.height = 64;
@@ -105,6 +109,7 @@ export class Jeep {
     this.spec = VEHICLES[kind];
     this.wheelie = 0; this.wheelieV = 0;
     this.model = buildVehicleModel(kind);
+    this.brakeGlow.fit(this.model.group, this.model.tailMat);
     // Dirt that builds up as you drive (grime.js). The realistic look's built-in cars keep a little
     // road grime even when clean; the Sketchfab cars carry their own wear in their textures.
     applyGrime(this.model.group);
@@ -588,6 +593,8 @@ export class Jeep {
       this.blob.scale.set(wid * 1.25, len * 1.15, 1);
       this.blob.visible = this.root.visible && this.boat < 0.3;
     }
+    this.brakeGlow.update(dt, { braking: this.braking, dark: this.dark, x: this.pos.x, z: this.pos.z, heading: this.heading,
+      heightAt: (x, z) => Math.max(heightAt(x, z), waterLevelAt(x, z)), show: this.root.visible && this.body.visible && this.boat < 0.3 && !this.air });
     this.suspend(dt);
     this.body.rotation.set(this.pitch + this.rockP, 0, this.roll + this.rollP);
     this.body.position.y = this.susY;
@@ -658,6 +665,8 @@ export class Jeep {
       this.blob.scale.set(0.9, (F.z - B.z) + 1.4, 1);
       this.blob.visible = this.root.visible;
     }
+    this.brakeGlow.update(dt, { braking: this.braking, dark: this.dark, x: this.pos.x, z: this.pos.z, heading: this.heading,
+      heightAt: (x, z) => Math.max(heightAt(x, z), waterLevelAt(x, z)), show: this.root.visible && this.body.visible && this.boat < 0.3 && !this.air });
     this.suspend(dt);
     // A wheelie turns the bike about where the back tyre meets the road, so that tyre stays down.
     const wA = this.wheelie;
@@ -788,6 +797,7 @@ export class Jeep {
   }
 
   setLights(dark) {
+    this.dark = dark;
     // Full beam: brighter, reaching about twice as far, aimed higher up the road.
     const hb = !!this.highBeam;
     this.headlight.intensity = dark * (hb ? 1900 : 950);

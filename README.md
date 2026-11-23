@@ -251,6 +251,8 @@ For tests: `chasingGreen.rainFx` (the streaks and splashes), `carRain` (the heig
 
 Dipped beam by default; B (or the Beam button that shows on a phone once it is dark) switches to full beam, brighter and reaching about twice as far, aimed higher up the road. The marker posts' reflectors send the headlights back toward the car: faint on their own, blazing where the beam falls on them, further down the road on full beam. Animals caught in the beam looking back show eyeshine, two bright points in their own colour: green-gold for a fox, pale green for a sheep, blue-green for a horse, deep blue for a reindeer in the winter dark.
 
+**Brake lights on the ground** (`vehicle/brakeglow.js`). Braking throws the tail lights' red onto the road behind: brightest just past the bumper, where each lamp's rearward beam first meets the ground, then falling away with distance as real light does (inverse square and the angle it comes in at). As the brakes go on the glow spreads out from the car, from about 3.5 m to 7 m back over a quarter of a second, and fades as quickly when they come off. By day it is only a slight tint on the asphalt; after dark it is a plain red wash, a little stronger and longer on a wet road, and the tail lights alone leave a dim red pool behind the car. It is not a scene light (every lit pixel would pay for it): it is a thin sheet of about 160 points laid on the ground behind the car each frame, so it follows crests and dips, drawn additively and shaded per pixel from the two lamps, whose places are read from each car's own tail-light parts (one centre lamp on the bike, each end of the race car's light bar).
+
 ## Water you disturb
 
 - **Puddles** (`Puddles` in effects.js) are water, not stains: one mesh in the game's physical material, so each reflects the real sky (the scene's environment, clouds and all) with the right Fresnel, strongly at a low angle as from the driver's seat and hardly at all looking straight down, where the wet black tarmac shows through. The sun glints off them, a breeze barely shivers them, their outline is ragged and soft, and the tarmac round each is darkened by the wet. Driving through sends rings across them from each wheel. How much water flies goes with the speed: rolling through slowly the tyres only push a little aside, low and close, with a soft, short, muffled slosh; fast, they throw a sheet of spray from each wheel in the water and the full hiss of it.
@@ -646,6 +648,7 @@ src/
     aurora.js        raymarched curtain shader on a sky dome
   vehicle/
     jeep.js          jeep model and driving physics
+    brakeglow.js     the brake lights' red on the ground behind the car
     walker.js        step-out character: moving, climbing, swimming and mixing his clips
     person.js        who you travel as (David or Kachujin): their model files and clip paces
     walkik.js        his feet on stairs and slopes, hand-over-hand climbing and the mantle, by IK on top of the clips
