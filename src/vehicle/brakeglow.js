@@ -1,5 +1,13 @@
 import * as THREE from 'three';
 import { surfaceUniforms } from '../world/materials.js';
+import { nearestRoad, roadHalfWidth } from '../world/terrain.js';
+
+// The road's cross-section as terrain.js builds it (its ribbon) and materials.js lifts it: the lane
+// 0.13 m over the land, the shoulder 0.15, rising in winter by up to 0.32 to a ploughed snow bank at
+// its outer edge (SHOULDER wide), where the ribbon drops straight down to the land.
+const SHOULDER = 1.1, BANK = 0.32;
+// What the ground under the sheet already includes of the road there (roadLiftAt in terrain.js).
+const liftAt = (d, hw) => d <= hw ? 0.13 : d <= hw + SHOULDER ? 0.13 - 0.05 * (d - hw) / SHOULDER : d <= hw + SHOULDER + 0.25 ? 0.08 : 0;
 
 // The red the brake lights throw on the ground behind the car. Not a scene light (every lit pixel
 // pays for every light, see setNightLights in main.js) but a thin sheet laid over the ground behind
@@ -80,7 +88,9 @@ export class BrakeGlow {
     const mat = new THREE.ShaderMaterial({
       uniforms: this.uniforms, vertexShader: vert, fragmentShader: frag, fog: true,
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-      polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -6,
+      // Pulled further forward than the road (materials.js: -4, -12), so where the two meet, as
+      // along the top of a snow bank, the glow stays on top.
+      polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -16,
     });
     this.mesh = new THREE.Mesh(geo, mat);
     this.mesh.frustumCulled = false; // its points move every frame; it is small and only drawn when lit
@@ -124,6 +134,7 @@ export class BrakeGlow {
     // The grid: from under the bumper to as far back as the glow can reach, a little wider than the car.
     const half = Math.max(Math.abs(a[0]), Math.abs(b[0])) + 2.6, z0 = z + 0.35, z1 = z - 8.5;
     const loc = this.mesh.geometry.attributes.aLocal;
+    this.step = Math.hypot((2 * half) / (COLS - 1), (z0 - z1) / (ROWS - 1)); // the widest gap between points (a cell's diagonal)
     for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
       loc.setXY(r * COLS + c, -half + (2 * half * c) / (COLS - 1), z0 + ((z1 - z0) * r) / (ROWS - 1));
     }
@@ -149,10 +160,30 @@ export class BrakeGlow {
     // Lay the grid on the ground under where it falls.
     const fx = Math.sin(heading), fz = Math.cos(heading), rx = fz, rz = -fx;
     const pos = this.mesh.geometry.attributes.position, loc = this.mesh.geometry.attributes.aLocal;
+    // On a road the sheet also climbs the shoulder and its snow bank, which rise above the ground
+    // the car reads: laid on that ground it ran under them, and the red was cut off along the
+    // sides of the road. The grid's points are up to ~0.9 m apart and the bank ends in a wall, so each
+    // point takes the highest the road reaches within that much of it: the sheet then passes over
+    // the top of the bank instead of through it (and floats a little over the land just past it,
+    // which an additive glow never shows).
+    const r = nearestRoad(x, z, 14);
+    let ax = 0, az = 0, nx = 0, nz = 0, hw = 0, bank = 0;
+    if (r) {
+      const s = r.seg, len = Math.hypot(s.bx - s.ax, s.bz - s.az) || 1;
+      ax = s.ax; az = s.az; nx = -(s.bz - s.az) / len; nz = (s.bx - s.ax) / len; hw = roadHalfWidth(r.type);
+      bank = THREE.MathUtils.smoothstep(surfaceUniforms.uRoadSnow.value, 0.1, 0.5) * BANK;
+    }
+    const W = hw + SHOULDER, reach = this.step;
     for (let i = 0; i < pos.count; i++) {
       const u = loc.getX(i), v = loc.getY(i);
       const wx = x + rx * u + fx * v, wz = z + rz * u + fz * v;
-      pos.setXYZ(i, wx, heightAt(wx, wz) + 0.04, wz);
+      let y = heightAt(wx, wz);
+      if (r) {
+        const d = Math.abs((wx - ax) * nx + (wz - az) * nz);
+        const top = Math.min(d + reach, W);
+        if (d - reach < W && top > hw) y = Math.max(y, y - liftAt(d, hw) + 0.18 + bank * (top - hw) / SHOULDER);
+      }
+      pos.setXYZ(i, wx, y + 0.04, wz);
     }
     pos.needsUpdate = true;
   }
