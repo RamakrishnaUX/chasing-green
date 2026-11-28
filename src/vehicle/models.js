@@ -276,7 +276,7 @@ function buildJeep(color = 0x8fc31f) {
     pivot.add(spin); g.add(pivot);
     wheels.push({ pivot, spin, front: z > 0, x, z });
   }
-  return { group: g, wheels, lightMat, tailMat, R, headlight: [0, 1.22, 2.3], exhaust: [0.55, 0.55, -2.25], camDist: 10.5, camHeight: 3.5, eye: 2.6 };
+  return { group: g, wheels, lightMat, tailMat, R, headlight: [0, 1.22, 2.3], exhaust: [0.55, 0.55, -2.25], camDist: 7.1, camHeight: 3.15, eye: 2.6 };
 }
 
 // ---------- 1930s roadster ----------
@@ -362,7 +362,7 @@ function buildVintage() {
     pivot.add(spin); g.add(pivot);
     wheels.push({ pivot, spin, front: z > 0, x, z });
   }
-  return { group: g, wheels, lightMat, tailMat, R, steer, headlight: [0, 1.08, 2.3], exhaust: [0.74, 0.5, -0.5], camDist: 9, camHeight: 2.9, eye: 1.6 };
+  return { group: g, wheels, lightMat, tailMat, R, steer, headlight: [0, 1.08, 2.3], exhaust: [0.74, 0.5, -0.5], camDist: 6.1, camHeight: 2.6, eye: 1.6 };
 }
 
 // ---------- Camper van ----------
@@ -595,7 +595,7 @@ function buildCamper() {
     group: outer, scale: S, lightMat, tailMat, R,
     wheels: wheels.map((w) => ({ ...w, x: w.x * S, z: w.z * S })),
     headlight: [0, 0.86 * S, (ZF + 0.06) * S], exhaust: [0.42 * S, 0.42 * S, (ZR - 0.05) * S],
-    camDist: 14.5, camHeight: 4.9, eye: 2.7,
+    camDist: 11.9, camHeight: 4.5, eye: 2.7,
   };
 }
 
@@ -663,7 +663,7 @@ function buildRace() {
     pivot.add(spin); g.add(pivot);
     wheels.push({ pivot, spin, front: z > 0, x, z });
   }
-  return { group: g, wheels, lightMat, tailMat, R, headlight: [0, 0.65, 2.2], exhaust: [0, 0.42, -2.42], camDist: 8.5, camHeight: 2.4, eye: 1.25 };
+  return { group: g, wheels, lightMat, tailMat, R, headlight: [0, 0.65, 2.2], exhaust: [0, 0.42, -2.42], camDist: 6.4, camHeight: 2.25, eye: 1.25 };
 }
 
 // ---------- Cars from Sketchfab ----------
@@ -684,14 +684,16 @@ function buildRace() {
 // mirrors: boxes around the glass of the left wing mirror (the right one is found by symmetry)
 // and, with centre, of a rear-view mirror; see cutMirrors.
 const GLB = {
+  // camDist, camHeight: the follow camera, metres behind and above. Close, so the car fills a fair
+  // share of the picture; main.js aims it a little down (CHASE_LOOK) to keep it clear of the HUD.
   // The seat is low enough that the windscreen's top rail sits above the horizon: the road and
   // the skyline are seen through the glass, not cut by the frame.
-  jeep: { scale: 1.25, camDist: 9.5, camHeight: 3.2, eye: 2.0, cockpit: [0.3, 1.5, -0.55], pitch: -0.06, hood: [0, 1.62, 0.5], mirrors: [{ min: [0.64, 1.23, 0.16], max: [0.81, 1.4, 0.22] }] }, // open-topped: a wide sky from the seat
+  jeep: { scale: 1.25, camDist: 6.46, camHeight: 2.88, eye: 2.0, cockpit: [0.3, 1.5, -0.55], pitch: -0.06, hood: [0, 1.62, 0.5], mirrors: [{ min: [0.64, 1.23, 0.16], max: [0.81, 1.4, 0.22] }] }, // open-topped: a wide sky from the seat
   // The supercar has no cabin of its own: it keeps the one built in code, moved to sit in this body.
-  race: { camDist: 8.5, camHeight: 2.4, eye: 1.25, rims: 0x2a2c30, cabinShift: 0.42, seat: { size: 0.9, recline: true, drop: 0.16 } }, // painted body, dark wheels
-  vintage: { scale: 1, camDist: 9.6, camHeight: 3.2, eye: 2.0, cockpit: [0.38, 1.6, -0.15], hood: [0, 1.75, 1.0], mirrors: [{ min: [0.62, 1.33, 0.63], max: [0.78, 1.49, 0.7] }] },
+  race: { camDist: 6.4, camHeight: 2.25, eye: 1.25, rims: 0x2a2c30, cabinShift: 0.42, seat: { size: 0.9, recline: true, drop: 0.16 } }, // painted body, dark wheels
+  vintage: { scale: 1, camDist: 6.5, camHeight: 2.9, eye: 2.0, cockpit: [0.38, 1.6, -0.15], hood: [0, 1.75, 1.0], mirrors: [{ min: [0.62, 1.33, 0.63], max: [0.78, 1.49, 0.7] }] },
   // Its cab is mirrored to left-hand drive (tools/cars); the seat is behind the wheel, looking down a little to show it.
-  camper: { scale: 1.4, camDist: 8.8, camHeight: 3.7, eye: 3.2, cockpit: [0.28, 1.46, 1.18], pitch: -0.14, hood: [0, 1.95, 1.05],
+  camper: { scale: 1.4, camDist: 7.2, camHeight: 3.4, eye: 3.2, cockpit: [0.28, 1.46, 1.18], pitch: -0.14, hood: [0, 1.95, 1.05],
     mirrors: [{ min: [0.74, 1.19, 1.63], max: [0.9, 1.34, 1.7] }, { min: [-0.07, 1.48, 1.52], max: [0.07, 1.57, 1.56], centre: true }] },
   // The cafe racer ("Cafe Racer" by Andrei Milin, CC BY 4.0): yellow tank, brown bench seat, flat
   // bars, fat tyres. Two wheels and its steering (fork, bars, headlamp) as "steer", turning about the
@@ -700,7 +702,7 @@ const GLB = {
   // The rider: seatZ, where he sits along the bench; pegs, his foot pegs (out either side, height,
   // along the bike); lean, the forward lean he would choose (flat bars: fairly upright).
   // cockpit: his eyes; headlight and exhaust: where they are. All in the file's units.
-  bike: { bike: true, scale: 1.1, camDist: 5.4, camHeight: 2.0, camFollow: 8, eye: 1.7, cockpit: [0, 1.62, -0.24], pitch: -0.16, hood: [0, 1.15, 0.9], headlight: [0, 1.0, 0.68], exhaust: [0.12, 0.24, -0.4],
+  bike: { bike: true, scale: 1.1, camDist: 4.4, camHeight: 1.85, camFollow: 8, eye: 1.7, cockpit: [0, 1.62, -0.24], pitch: -0.16, hood: [0, 1.15, 0.9], headlight: [0, 1.0, 0.68], exhaust: [0.12, 0.24, -0.4],
     seatZ: -0.2, pegs: [0.21, 0.31, -0.16], lean: 0.32 },
 };
 const loaded = {};

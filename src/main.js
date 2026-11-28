@@ -897,6 +897,11 @@ let openingCam = null;
 const _openLook = new THREE.Vector3(), openOff = new THREE.Vector3(), followCar = new THREE.Vector3();
 let followFrame = -1;
 const CHASE_FOV = 52, CHASE_TAN = Math.tan(THREE.MathUtils.degToRad(CHASE_FOV / 2));
+// Where the follow camera aims, as a share of its height over the car, 14 m ahead (below zero is
+// under the road there). The camera sits close (each vehicle's camDist in models.js), so it looks
+// a little down: the car rides clear of the line at the bottom on a computer, and of the controls
+// and the status pill on a phone.
+const CHASE_LOOK = { desk: -0.5, touch: -0.6 };
 let camHold = false; // debug: the camera stays where it was put (chasingGreen.camHold)
 // The crash jolt on top of the chase and cockpit cameras: a spring the camera's place rides on
 // (kicked by the car's sudden stop, so the view lurches on and settles back), plus a quick
@@ -975,7 +980,7 @@ function updateCameraInner(dt) {
     if (jeep.speed < 0.3 && camera.position.distanceTo(desired) < 0.01) camera.position.copy(desired);
     // On a phone the car sits in the middle of the screen (nothing is drawn over it there): the
     // camera looks a little lower, so the car rides higher in the frame, clear of the controls.
-    const lookUp = document.body.classList.contains('has-touch') ? 0.36 : 0.7;
+    const lookUp = document.body.classList.contains('has-touch') ? CHASE_LOOK.touch : CHASE_LOOK.desk;
     camTarget.set(jeep.pos.x + Math.sin(h) * 14, jeep.pos.y + ch * lookUp, jeep.pos.z + Math.cos(h) * 14);
     if (crashCam) camTarget.lerp(_openLook.set(crashCam.x, crashCam.y, crashCam.z), cc * 0.75);
     // The opening shot: from high over the land, off to one side, the camera sweeps round and
