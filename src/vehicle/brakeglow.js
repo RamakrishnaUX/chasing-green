@@ -86,6 +86,9 @@ export class BrakeGlow {
     this.mesh.frustumCulled = false; // its points move every frame; it is small and only drawn when lit
     this.mesh.matrixAutoUpdate = false;
     this.mesh.renderOrder = 2; // over the car's contact shadow
+    // Out of the occlusion pass (post.js): drawn solid there, the sheet hovering over the ground
+    // shaded its whole area, a dark slab behind the car wherever the snow is bright.
+    this.mesh.userData.noAO = true;
     this.mesh.visible = false;
     scene.add(this.mesh);
     this.brake = 0; // how far the brake lights are on, eased
